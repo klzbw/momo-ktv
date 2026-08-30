@@ -1,0 +1,82 @@
+# -*- coding: utf-8 -*-
+"""
+align_once.py —— 单首歌的逐字歌词对齐（被 worker.py 以子进程调用）
+用法: python align_once.py <人声或源音频> <输出逐字增强LRC>
+流程: Whisper 转写(中文) -> WhisperX 强制对齐 -> 每个字精确时间戳 -> 增强 LRC
+
+增强 LRC 格式（供 tvOS/网页做逐字填色，同时向下兼容逐行）：
+  [整句起始] <第1字起始>第1字<第2字起始>第2字...
+  例: [00:13.72]<00:13.72>海<00:14.10>平<00:14.50>面
+"""
+import sys, os, traceback
+
+def fmt(t):
+    if t is None or t < 0: t = 0.0
+    m = int(t // 60); s = t - m * 60
+    return f'{m:02d}:{s:05.2f}'  # mm:ss.xx（LRC 百分秒）
+
+def build_enhanced_lrc(aligned):
+    out = []
+    for seg in aligned.get('segments', []):
+        words = seg.get('words') or []
+        words = [w for w in words if w.get('word')]
+        if not words:
+            continue
+        t0 = words[0].get('start')
+        if t0 is None: t0 = seg.get('start', 0.0) or 0.0
+        parts = [f'[{fmt(t0)}]']
+        cur = t0
+        for w in words:
+            st = w.get('start')
+            if st is None: st = cur          # 个别字没对齐到时间就沿用上一字结尾
+            txt = (w.get('word') or '').strip()
+            if not txt: continue
+            parts.append(f'<{fmt(st)}>{txt}')
+            if w.get('end') is not None: cur = w['end']
+        line = ''.join(parts)
+        if len(line) > len('[00:00.00]'):
+            out.append(line)
+    return '\n'.join(out) + '\n'
+
+def main():
+    if len(sys.argv) < 3:
+        print('用法: python align_once.py <音频> <输出.lrc>'); sys.exit(2)
+    src, out_lrc = sys.argv[1], sys.argv[2]
+    model_name = sys.argv[3] if len(sys.argv) > 3 else 'large-v3'
+    if not os.path.exists(src):
+        print('输入不存在:', src); sys.exit(2)
+
+    print('PROGRESS 5', flush=True)
+    import torch, whisperx
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    compute = 'float16' if device == 'cuda' else 'int8'
+    print(f'设备 {device}, 转写模型 {model_name}', flush=True)
+
+    audio = whisperx.load_audio(src)
+    print('PROGRESS 20', flush=True)
+    model = whisperx.load_model(model_name, device, compute_type=compute, language='zh')
+    result = model.transcribe(audio, batch_size=16, language='zh')
+    print(f'转写得到 {len(result["segments"])} 句', flush=True)
+    print('PROGRESS 55', flush=True)
+
+    # 中文强制对齐模型（首次自动从 HuggingFace 下载）
+    model_a, meta = whisperx.load_align_model(language_code='zh', device=device)
+    aligned = whisperx.align(result['segments'], model_a, meta, audio, device,
+                            return_char_alignments=False)
+    print('PROGRESS 85', flush=True)
+
+    lrc = build_enhanced_lrc(aligned)
+    if not lrc.strip():
+        raise RuntimeError('对齐后没有得到任何歌词行')
+    os.makedirs(os.path.dirname(out_lrc) or '.', exist_ok=True)
+    with open(out_lrc, 'w', encoding='utf-8') as f:
+        f.write(lrc)
+    print('逐字歌词 ->', out_lrc, f'({lrc.count(chr(10))} 行)', flush=True)
+    print('PROGRESS 100', flush=True)
+    print('ALIGN_DONE', flush=True)
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception:
+        traceback.print_exc(); sys.exit(1)
