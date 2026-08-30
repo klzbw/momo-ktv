@@ -588,8 +588,21 @@ struct ContentView: View {
         api.updateBaseURL(serverAddress)
         setupControlHandler()
         setupPlaybackEndHandler()
+        setupProgressReporting()
         showSetupInput = false
         connected = true
+    }
+
+    /// Wire PlayerManager's 1s progress timer to API client's sendProgress.
+    /// The server only accepts progress from the active player (this TV,
+    /// announced via role_announce on WS connect) and broadcasts it to all
+    /// controllers — mobile remote then interpolates for its progress bar.
+    private func setupProgressReporting() {
+        playerManager.onProgressReport = { [weak self] currentTime, paused, voice in
+            guard let self = self else { return }
+            let playing = self.api.queue.first(where: { $0.isPlaying })
+            self.api.sendProgress(queueId: playing?.queue_id, currentTime: currentTime, paused: paused, voice: voice)
+        }
     }
 
     // MARK: - Song Intro View (exact #song-intro)
@@ -648,6 +661,9 @@ struct ContentView: View {
                 playerManager.toggleVoice()
                 api.toggleVoice()
                 showToast(playerManager.isOriginalVoice ? "原唱" : "伴唱")
+                // Sync voice state to server so mobile remote original/accompaniment
+                // button highlight stays in sync with the TV.
+                api.sendPlaybackState(paused: !playerManager.isPlaying, voice: playerManager.isOriginalVoice ? "original" : "accompaniment")
             }
             MVButton(icon: "speaker.minus", title: "音量-") {
                 volume = max(0, volume - 0.1)
@@ -658,6 +674,9 @@ struct ContentView: View {
                     title: playerManager.isPlaying ? "暂停" : "播放", isCenter: true) {
                 playerManager.togglePlayPause()
                 isPlaying = playerManager.isPlaying
+                // Sync playback state to server so mobile remote play/pause
+                // button icon stays in sync with the TV.
+                api.sendPlaybackState(paused: !playerManager.isPlaying, voice: playerManager.isOriginalVoice ? "original" : "accompaniment")
             }
             MVButton(icon: "speaker.plus", title: "音量+") {
                 volume = min(1, volume + 0.1)

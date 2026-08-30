@@ -22,6 +22,13 @@ class PlayerManager: ObservableObject {
     private var statusObserver: NSKeyValueObservation?
     private var itemStatusObserver: NSKeyValueObservation?
     private var endObserver: NSObjectProtocol?
+    /// Progress reporting timer — fires every 1s while a song is loaded.
+    /// Calls onProgressReport so the API client can broadcast currentTime
+    /// to the server, which relays it to mobile remote controllers.
+    private var progressTimer: Timer?
+    /// Callback invoked every 1s with current playback progress.
+    /// Set by ContentView to wire PlayerManager -> KTVAPIClient.sendProgress.
+    var onProgressReport: ((_ currentTime: Double, _ paused: Bool, _ voice: String) -> Void)?
 
     /// Voice toggle generation. Every toggle / new song increments it so that
     /// delayed retry blocks from a previous toggle are invalidated and cannot
@@ -97,6 +104,28 @@ class PlayerManager: ObservableObject {
         // Apply voice mode immediately (may no-op if tracks not loaded yet;
         // the itemStatusObserver + retries will pick it up)
         applyVoiceMode()
+
+        // Start progress reporting timer — fires every 1s while playing.
+        // The timer calls onProgressReport which sends currentTime to the
+        // server; mobile remote controllers interpolate between these reports
+        // to show a smoothly moving progress bar synced to the TV.
+        startProgressTimer()
+    }
+
+    private func startProgressTimer() {
+        progressTimer?.invalidate()
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self, self.player != nil else { return }
+            let cur = self.player?.currentTime().seconds ?? self.currentTime
+            let paused = !(self.player?.timeControlStatus == .playing)
+            let voice = self.isOriginalVoice ? "original" : "accompaniment"
+            self.onProgressReport?(cur, paused, voice)
+        }
+    }
+
+    private func stopProgressTimer() {
+        progressTimer?.invalidate()
+        progressTimer = nil
     }
 
     /// Attach player layer to the current host view
@@ -203,6 +232,7 @@ class PlayerManager: ObservableObject {
     }
 
     func cleanup() {
+        stopProgressTimer()
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil

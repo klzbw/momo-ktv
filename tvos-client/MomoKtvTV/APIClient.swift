@@ -22,6 +22,19 @@ class KTVAPIClient: ObservableObject {
     /// Unique per-app ID; attached to outgoing WS control messages so we can
     /// ignore our own messages echoed back by the server broadcast.
     let clientId = UUID().uuidString
+    /// Persistent device ID for player role announcement and progress reporting.
+    /// Stored in UserDefaults so it survives app restarts — the server uses it
+    /// to identify "the current playing device" and only accept progress reports
+    /// from the active player (see server index.js 'progress' handler).
+    let deviceId: String = {
+        let key = "momo_ktv_device_id"
+        if let existing = UserDefaults.standard.string(forKey: key), !existing.isEmpty {
+            return existing
+        }
+        let newId = "tvos-\(UUID().uuidString.prefix(8))"
+        UserDefaults.standard.set(newId, forKey: key)
+        return newId
+    }()
 
     var serverAddress: String { baseURL.replacingOccurrences(of: "http://", with: "") }
 
@@ -317,6 +330,10 @@ class KTVAPIClient: ObservableObject {
         guard let wsURL = URL(string: baseURL.replacingOccurrences(of: "http", with: "ws") + "/ws") else { return }
         wsTask = URLSession.shared.webSocketTask(with: wsURL)
         wsTask?.resume()
+        // Announce ourselves as the player (TV) once connected. The server
+        // maintains a single active player; only its progress reports are
+        // accepted and broadcast to controllers (mobile remote).
+        wsTask?.send(.string(JSONString(["type": "role_announce", "deviceId": deviceId, "deviceName": "Apple TV", "role": "player"]))) { _ in }
         receiveWS()
     }
 
@@ -353,6 +370,33 @@ class KTVAPIClient: ObservableObject {
         guard let data = try? JSONSerialization.data(withJSONObject: msg),
               let text = String(data: data, encoding: .utf8) else { return }
         wsTask?.send(.string(text)) { _ in }
+    }
+
+    /// Report current playback progress to the server. Only the active player
+    /// (this TV) should call this; the server broadcasts it to all controllers
+    /// (mobile remote) so their progress bars can interpolate and stay in sync.
+    /// Called every 1s by PlayerManager's progress timer.
+    func sendProgress(queueId: Int?, currentTime: Double, paused: Bool, voice: String) {
+        var msg: [String: Any] = ["type": "progress", "deviceId": deviceId, "currentTime": currentTime, "paused": paused, "voice": voice]
+        if let qid = queueId { msg["queueId"] = qid }
+        guard let data = try? JSONSerialization.data(withJSONObject: msg),
+              let text = String(data: data, encoding: .utf8) else { return }
+        wsTask?.send(.string(text)) { _ in }
+    }
+
+    /// Report playback state (paused + original/accompaniment) to the server
+    /// so mobile remote buttons stay in sync. Called on play/pause and voice toggle.
+    func sendPlaybackState(paused: Bool, voice: String) {
+        let msg: [String: Any] = ["type": "state", "paused": paused, "voice": voice]
+        guard let data = try? JSONSerialization.data(withJSONObject: msg),
+              let text = String(data: data, encoding: .utf8) else { return }
+        wsTask?.send(.string(text)) { _ in }
+    }
+
+    private func JSONString(_ obj: [String: Any]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: obj),
+              let text = String(data: data, encoding: .utf8) else { return "{}" }
+        return text
     }
 
     func disconnectWebSocket() { wsTask?.cancel(); wsTask = nil }
