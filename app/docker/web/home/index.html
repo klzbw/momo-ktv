@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>墨墨爱K歌</title>
+<style>
+:root{--bg:#07071a;--card:#10102a;--accent:#c736f7;--cyan:#36d9f7;--pink:#ff4f9b;--text:#f4f4ff;--sub:#8888aa}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:"PingFang SC","Microsoft YaHei",sans-serif;
+  min-height:100vh;overflow-x:hidden;position:relative;
+}
+
+/* 全屏粒子动画背景：canvas 铺满整个视口，固定在最底层，内容都叠在它上面 */
+#particles{
+  position:fixed;inset:0;z-index:0;display:block;
+  background:radial-gradient(ellipse at 50% -10%, rgba(199,54,247,.16), transparent 55%),
+             radial-gradient(ellipse at 90% 100%, rgba(54,217,247,.12), transparent 50%),
+             var(--bg);
+}
+
+.page{
+  position:relative;z-index:1;min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:40px 20px 100px;
+}
+
+.brand{text-align:center;margin-bottom:56px}
+.brand h1{
+  font-size:56px;font-weight:900;letter-spacing:2px;
+  background:linear-gradient(90deg,var(--cyan),var(--accent),var(--pink));
+  background-size:200% auto;
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:sheen 6s linear infinite;
+  filter:drop-shadow(0 0 28px rgba(199,54,247,.35));
+}
+.brand p{
+  margin-top:14px;font-size:16px;letter-spacing:6px;color:var(--sub);
+  font-weight:300;
+}
+@keyframes sheen{
+  0%{background-position:0% center}
+  100%{background-position:200% center}
+}
+
+.nav-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:24px;
+  width:100%;max-width:920px;
+}
+@media (max-width:760px){
+  .nav-grid{grid-template-columns:1fr;max-width:360px}
+  .brand h1{font-size:38px}
+  .brand p{font-size:13px;letter-spacing:4px}
+}
+
+.nav-card{
+  position:relative;overflow:hidden;
+  background:rgba(16,16,42,.68);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:22px;padding:34px 26px;
+  text-decoration:none;color:var(--text);
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;
+  transition:transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+}
+.nav-card::before{
+  content:'';position:absolute;inset:0;opacity:0;
+  background:linear-gradient(135deg, rgba(199,54,247,.18), rgba(54,217,247,.18));
+  transition:opacity .25s ease;
+}
+.nav-card:hover{
+  transform:translateY(-6px);
+  border-color:rgba(199,54,247,.45);
+  box-shadow:0 18px 40px rgba(199,54,247,.18);
+}
+.nav-card:hover::before{opacity:1}
+.nav-card .icon{
+  width:64px;height:64px;border-radius:18px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:30px;position:relative;z-index:1;
+  background:linear-gradient(135deg,var(--accent),var(--cyan));
+  box-shadow:0 8px 24px rgba(199,54,247,.35);
+}
+.nav-card .title{position:relative;z-index:1;font-size:19px;font-weight:700}
+.nav-card .desc{position:relative;z-index:1;font-size:13px;color:var(--sub)}
+
+/* 右下角 GitHub 悬浮按钮 */
+.github-btn{
+  position:fixed;right:22px;bottom:22px;z-index:5;
+  display:flex;align-items:center;gap:8px;
+  padding:10px 18px 10px 14px;border-radius:999px;
+  background:rgba(16,16,42,.82);border:1px solid rgba(255,255,255,.12);
+  color:var(--text);text-decoration:none;font-size:13px;font-weight:600;
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  transition:transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.github-btn:hover{
+  transform:translateY(-3px);
+  border-color:rgba(54,217,247,.5);
+  box-shadow:0 10px 26px rgba(54,217,247,.22);
+}
+.github-btn .star{font-size:14px;color:#ffd34d;line-height:1}
+.github-btn svg{width:18px;height:18px;fill:currentColor}
+
+.footer-tip{
+  position:relative;z-index:1;margin-top:44px;font-size:12px;color:var(--sub);
+  letter-spacing:1px;text-align:center;
+}
+</style>
+</head>
+<body>
+
+<canvas id="particles"></canvas>
+
+<div class="page">
+  <div class="brand">
+    <h1>墨墨爱K歌</h1>
+    <p>扫码点歌 · 大屏沉浸演唱</p>
+  </div>
+
+  <div class="nav-grid">
+    <a class="nav-card" href="/tv" target="_blank" rel="noopener">
+      <div class="icon">📺</div>
+      <div class="title">主页面</div>
+      <div class="desc">大屏播放 · 沉浸体验</div>
+    </a>
+    <a class="nav-card" href="/admin" target="_blank" rel="noopener">
+      <div class="icon">🗂️</div>
+      <div class="title">管理后台</div>
+      <div class="desc">曲库管理 · 用户管理</div>
+    </a>
+    <a class="nav-card" href="/m" target="_blank" rel="noopener">
+      <div class="icon">📱</div>
+      <div class="title">手机遥控</div>
+      <div class="desc">扫码点歌 · 随身操作</div>
+    </a>
+  </div>
+
+  <div class="footer-tip">局域网K歌系统 · 手机扫码点歌 · 电视/投影仪全屏播放</div>
+  <div class="footer-tip" style="margin-top:6px">墨墨爱K歌 · 家庭定制版<span id="nav-version"></span></div>
+</div>
+
+<a class="github-btn" href="https://github.com/klzbw/momo-ktv" target="_blank" rel="noopener noreferrer">
+  <span class="star">★</span>
+  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+    0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+    -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07
+    -1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82
+    .64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
+    .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2
+    0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+  <span>GitHub</span>
+</a>
+
+<script>
+// 全屏粒子动画：不依赖任何外部库/CDN（LAN 环境不一定能访问外网），纯 canvas 2D
+// 手写实现。粒子彼此靠近时用连线呈现"动感网络"的效果，配色取自品牌三色
+// （紫 accent / 青 cyan / 粉 pink），透明度都比较低，避免抢导航卡片的视觉焦点。
+(function(){
+  const canvas = document.getElementById('particles');
+  const ctx = canvas.getContext('2d');
+  let w, h, dpr;
+  let particles = [];
+
+  const COLORS = ['199,54,247', '54,217,247', '255,79,155'];
+  const LINK_DIST = 130;
+  const MOUSE_DIST = 160;
+
+  const mouse = { x: -9999, y: -9999 };
+
+  function resize(){
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    w = window.innerWidth;
+    h = window.innerHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    initParticles();
+  }
+
+  function initParticles(){
+    // 粒子数量按屏幕面积算，太大的屏幕（比如投影仪/电视）也不会因为粒子过密
+    // 拖慢帧率；太小的屏幕（手机横屏预览这个页面）也不会显得空荡。
+    const count = Math.min(120, Math.max(40, Math.round((w * h) / 16000)));
+    particles = new Array(count).fill(0).map(() => ({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 0.35,
+      vy: (Math.random() - 0.5) * 0.35,
+      r: Math.random() * 1.6 + 0.6,
+      c: COLORS[Math.floor(Math.random() * COLORS.length)],
+    }));
+  }
+
+  function step(){
+    ctx.clearRect(0, 0, w, h);
+
+    for (const p of particles){
+      p.x += p.vx;
+      p.y += p.vy;
+      // 轻微被鼠标吸引/推开，增加一点互动感，不移动鼠标时完全不影响观感
+      const dx = mouse.x - p.x, dy = mouse.y - p.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < MOUSE_DIST * MOUSE_DIST){
+        const d = Math.sqrt(d2) || 1;
+        const f = (MOUSE_DIST - d) / MOUSE_DIST * 0.02;
+        p.vx -= (dx / d) * f;
+        p.vy -= (dy / d) * f;
+      }
+      // 简单的速度阻尼，避免鼠标交互后粒子越冲越快
+      p.vx *= 0.995;
+      p.vy *= 0.995;
+
+      if (p.x < 0) p.x = w; else if (p.x > w) p.x = 0;
+      if (p.y < 0) p.y = h; else if (p.y > h) p.y = 0;
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${p.c},0.75)`;
+      ctx.fill();
+    }
+
+    for (let i = 0; i < particles.length; i++){
+      for (let j = i + 1; j < particles.length; j++){
+        const a = particles[i], b = particles[j];
+        const dx = a.x - b.x, dy = a.y - b.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < LINK_DIST){
+          const alpha = (1 - dist / LINK_DIST) * 0.22;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.strokeStyle = `rgba(${a.c},${alpha})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
+    }
+
+    requestAnimationFrame(step);
+  }
+
+  window.addEventListener('resize', resize, { passive: true });
+  window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; }, { passive: true });
+  window.addEventListener('mouseleave', () => { mouse.x = -9999; mouse.y = -9999; });
+  // 触屏设备没有鼠标悬浮，用触摸位置替代，效果一致
+  window.addEventListener('touchmove', (e) => {
+    if (e.touches && e.touches[0]){ mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; }
+  }, { passive: true });
+
+  resize();
+  requestAnimationFrame(step);
+})();
+
+// 需求：导航页也要显示当前版本号。跟 TV 端设置面板、曲库管理后台一样，
+// 都是从同一个 /api/stats 接口读 appVersion 字段，单一数据来源，不用在
+// 这里单独硬编码版本号。
+fetch('/api/stats').then(r=>r.json()).then(d=>{
+  if(d && d.appVersion){
+    document.getElementById('nav-version').textContent=' · v'+d.appVersion;
+  }
+}).catch(()=>{});
+</script>
+</body>
+</html>

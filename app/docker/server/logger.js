@@ -8,6 +8,9 @@
 //   [VOICE]     原唱/伴唱切换事件
 //   [HLS]       播放请求/分片等待相关
 //   [HLS_CLEAN] HLS 缓存每日清理任务相关
+//   [STREAM]    /stream/:id 原始文件直连播放相关(硬解/客户端解码路径)
+//   [DECODE]    客户端(Android/TV等)上报的解码模式(硬解/软解)切换事件
+//   [PROCESS]   进程级兜底(unhandledRejection/uncaughtException)捕获到的意外错误
 
 function ts() {
   const d = new Date();

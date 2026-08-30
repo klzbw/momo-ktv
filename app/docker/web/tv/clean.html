@@ -206,9 +206,9 @@
   --g6:linear-gradient(135deg,#c736f7,#7b2cf7);
   --g7:linear-gradient(135deg,#1a4bff,#36d9f7);
 }
-/* 内置圆体：方正准圆(GBK)。字体文件较大(~9.7MB)，font-display:swap 让文字先用
+/* 内置圆体：ChillRoundF。字体文件较大(~6.2MB)，font-display:swap 让文字先用
    兜底字体正常显示，字体加载完成后再无感替换，不会阻塞首屏渲染。 */
-@font-face{font-family:"FZZhunYuan";src:url("fonts/FZZhunYuan-GBK.ttf") format("truetype");font-weight:normal;font-style:normal;font-display:swap}
+@font-face{font-family:"FZZhunYuan";src:url("fonts/ChillRoundFRegular.ttf") format("truetype");font-weight:normal;font-style:normal;font-display:swap}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-user-select:none;user-select:none}
 html,body{width:100%;height:100%;width:100vw;height:100vh;overflow:hidden;background:var(--bg);color:var(--text);
   font-family:"FZZhunYuan","Yuanti SC","STYuanti-SC","HarmonyOS Sans SC","MiSans","PingFang SC","Microsoft YaHei",sans-serif}
@@ -229,6 +229,15 @@ html,body{width:100%;height:100%;width:100vw;height:100vh;overflow:hidden;backgr
   animation:vlSpin .8s linear infinite}
 @keyframes vlSpin{to{transform:rotate(360deg)}}
 .vl-text{font-size:17px;color:rgba(255,255,255,.6);letter-spacing:1px}
+/* 需求(MV加载动画下方显示下载速度/预计等待时长)：网盘/STRM点歌，播放前
+   要先把源文件缓存到本地(见 server/sourceCache.js)，网速慢的时候这一步
+   可能要等不短的时间——以前"加载中"转圈完全是黑盒，用户只能干等，猜不到
+   还要多久，容易误以为卡死了。这里展示实时下载速度和根据当前速度推算的
+   预计剩余时间，只在这首歌确实需要先下载(网络曲库/STRM)时才显示。 */
+.vl-net{display:none;flex-direction:column;align-items:center;gap:4px}
+.vl-net.show{display:flex}
+.vl-net-speed{font-size:14px;color:var(--ac2);letter-spacing:.5px}
+.vl-net-eta{font-size:12px;color:rgba(255,255,255,.45)}
 .video-fs{position:fixed;top:0;right:0;bottom:0;left:0;object-fit:contain;z-index:50;background:#000;pointer-events:none}
 /* HOME */
 #home{position:fixed;top:0;right:0;bottom:0;left:0;z-index:2;display:flex;flex-direction:column}
@@ -263,6 +272,22 @@ html,body{width:100%;height:100%;width:100vw;height:100vh;overflow:hidden;backgr
 #clock-time{font-size:24px;font-weight:800;color:#fff;letter-spacing:.5px}
 #clock-date{font-size:14px;color:rgba(255,255,255,.65)}
 .sp{flex:1}
+/* 需求(下一首提示改为顶部间歇滚动)：老版本是等歌曲只剩最后15秒时才弹一次
+   居中 toast 提示"下一首是谁"，用户往往唱到快结束才第一次看到，提前量太
+   小；而且 toast 会盖在画面中间，跟正在唱的画面抢注意力。改成挂在 #topbar
+   正下方、常驻布局里的一条窄横幅：播放期间每隔一段时间自动展开一次，把
+   "下一首"信息从右到左滚动着过一遍再自动收起，不需要等到快唱完才第一次
+   露面，也不遮挡画面。默认收起(height:0，不占视觉空间)，展示时由 JS 给
+   #next-up-bar 加 .show 撑开高度，配合 transition 做一个轻微展开/收起的
+   动效；具体的展示节奏、文案由下方 JS 里的 runNextUpCycle() 控制。 */
+#next-up-bar{flex-shrink:0;height:0;overflow:hidden;transition:height .3s ease;
+  background:linear-gradient(90deg,rgba(199,54,247,.22),rgba(54,217,247,.08));
+  border-bottom:0 solid rgba(255,255,255,.07)}
+#next-up-bar.show{height:34px;border-bottom-width:1px}
+#next-up-track{height:34px;display:flex;align-items:center;white-space:nowrap}
+#next-up-track span{display:inline-block;padding-left:100%;font-size:15px;color:#fff;
+  animation-name:nextUpScroll;animation-timing-function:linear;animation-iteration-count:1}
+@keyframes nextUpScroll{from{transform:translateX(0)}to{transform:translateX(-100%)}}
 /* ============ 主界面布局容器（下辖 MV/控制按钮/歌名歌星常唱收藏/已点队列 四个模块） ============
    横屏(TV)下是三栏网格：MV播放列 | 歌名歌星常唱收藏卡片列 | 已点队列列；
    竖屏(手机)下改成单列纵向堆叠，已点队列模块隐藏（改由头部"已点"按钮唤出弹层），
@@ -317,16 +342,10 @@ html,body{width:100%;height:100%;width:100vw;height:100vh;overflow:hidden;backgr
   background:linear-gradient(0,rgba(0,0,0,.85),transparent);display:none;z-index:3}
 #now-info.show{display:block}
 .ni-t{font-size:24px;font-weight:700}.ni-m{font-size:16px;color:rgba(255,255,255,.65);margin-top:2px}
-/* QR - 修复双码 */
-#qr-corner{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.65);
-  backdrop-filter:blur(8px);border-radius:12px;padding:8px;text-align:center;z-index:4;pointer-events:none}
-#home-qr canvas{display:block!important;border-radius:5px}
-#home-qr img{display:none!important}
-.qr-lbl{font-size:14px;color:rgba(255,255,255,.6);margin-top:4px}
-/* ============ 模块：歌名/歌星/常唱/收藏 四卡片 ============ */
+/* ============ 模块：歌名/歌星/分类/扫码 四卡片 ============ */
 #mid-cards{display:flex;flex-direction:column;position:relative;z-index:2}
-.mc{flex:1;border-radius:14px;padding:14px 16px;display:flex;align-items:center;
-  justify-content:space-between;cursor:pointer;transition:transform .15s}
+.mc{flex:1;position:relative;overflow:hidden;border-radius:14px;padding:14px 128px 14px 20px;
+  display:flex;align-items:center;cursor:pointer;transition:transform .15s}
 .mc[data-f].focused,.mc:hover{transform:scale(1.035)}
 /* Bug修复：首页"歌名/歌星/常唱/收藏"四张卡片移动焦点会变色。
    根因：下方(通用兜底规则) `[data-f].focused{background:...}` 对所有带 data-f
@@ -335,13 +354,22 @@ html,body{width:100%;height:100%;width:100vw;height:100vh;overflow:hidden;backgr
    通用规则的半透明青色背景会盖过卡片本来的渐变色，看起来像"整片变色"。
    这里针对四张卡片各自的着色类补一条同等书写方式、但特异性更高的规则，
    显式把 background 锁回各自原本的渐变色，聚焦/悬停就只剩缩放效果，不再变色。 */
-.mc-name[data-f].focused,.mc-name:hover{background:var(--g2)}
+.mc-name[data-f].focused,.mc-name:hover{background:var(--g5)}
 .mc-artist[data-f].focused,.mc-artist:hover{background:var(--g3)}
-.mc-history[data-f].focused,.mc-history:hover{background:var(--g5)}
-.mc-fav[data-f].focused,.mc-fav:hover{background:var(--g7)}
-.mc .cn{font-size:29px;font-weight:800;font-family:"PingFang SC","Microsoft YaHei",sans-serif}.mc .ci{font-size:40px;opacity:.85}
-.mc-name{background:var(--g2);color:#fff}.mc-artist{background:var(--g3)}
-.mc-history{background:var(--g5)}.mc-fav{background:var(--g7)}
+.mc-category[data-f].focused,.mc-category:hover{background:var(--g2)}
+.mc-qr[data-f].focused,.mc-qr:hover{background:var(--g7)}
+.mc .cn{position:relative;z-index:1;font-size:32px;font-weight:800;letter-spacing:.5px;
+  font-family:"PingFang SC","Microsoft YaHei",sans-serif}
+/* 卡片图标改成"圆角徽标+线性图标"的贴纸样式：图标本身放在一个半透明白色
+   圆角方块里，整体旋转一个小角度并让右下角贴着卡片边缘（部分露在卡片外），
+   这是参考图里四张按钮的标志性视觉。1920×1080下实测文字/图标偏小，这里
+   再放大一档（27px→32px，90px→104px徽标），卡片右侧留白同步加大。 */
+.mc .ci{position:absolute;right:-16px;bottom:-16px;width:104px;height:104px;border-radius:26px;
+  background:rgba(255,255,255,.18);transform:rotate(12deg);
+  display:flex;align-items:center;justify-content:center;pointer-events:none}
+.mc .ci svg{width:48px;height:48px;color:#fff;opacity:.95;transform:rotate(-12deg)}
+.mc-name{background:var(--g5);color:#fff}.mc-artist{background:var(--g3)}
+.mc-category{background:var(--g2)}.mc-qr{background:var(--g7)}
 /* ============ 模块：已点队列 ============ */
 #right-queue{border-radius:16px;padding:12px 12px 8px;
   background:linear-gradient(160deg,#0d0050,#1a0060 40%,#2a0080);display:flex;flex-direction:column;overflow:hidden}
@@ -354,6 +382,25 @@ html,body{width:100%;height:100%;width:100vw;height:100vh;overflow:hidden;backgr
 .rq-t{font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rq-m{font-size:14px;color:var(--sub);margin-top:1px}
 /* Footer */
+/* 主页面下方的4个"窄按钮"：热歌排行/最近唱过/我的收藏/最新入库。
+   和上面歌名/歌手/分类/扫码那四张大卡片是同一套视觉语言（渐变底色 +
+   右下角旋转图标贴纸），只是整体做矮一圈、横向一排展示，视觉上区分主次。 */
+#quick-row{display:flex;gap:10px;padding:0 16px;flex-shrink:0;margin-bottom:8px}
+.mc-mini{flex:1;position:relative;overflow:hidden;border-radius:12px;padding:0 54px 0 16px;
+  height:56px;display:flex;align-items:center;cursor:pointer;transition:transform .15s;color:#fff}
+.mc-mini[data-f].focused,.mc-mini:hover{transform:scale(1.045)}
+.qm-hot[data-f].focused,.qm-hot:hover{background:var(--g1)}
+.qm-recent[data-f].focused,.qm-recent:hover{background:var(--g6)}
+.qm-fav[data-f].focused,.qm-fav:hover{background:var(--g2)}
+.qm-new[data-f].focused,.qm-new:hover{background:var(--g7)}
+.qm-hot{background:var(--g1)}.qm-recent{background:var(--g6)}
+.qm-fav{background:var(--g2)}.qm-new{background:var(--g7)}
+.mc-mini .cn{position:relative;z-index:1;font-size:17px;font-weight:800;letter-spacing:.3px;
+  font-family:"PingFang SC","Microsoft YaHei",sans-serif;white-space:nowrap}
+.mc-mini .ci{position:absolute;right:-9px;bottom:-9px;width:52px;height:52px;border-radius:14px;
+  background:rgba(255,255,255,.18);transform:rotate(12deg);
+  display:flex;align-items:center;justify-content:center;pointer-events:none}
+.mc-mini .ci svg{width:24px;height:24px;color:#fff;opacity:.95;transform:rotate(-12deg)}
 #footer{display:flex;align-items:center;padding:6px 16px 10px;flex-shrink:0;border-top:1px solid rgba(255,255,255,.05)}
 .fb-r{margin-left:auto;display:flex}
 .fb{display:flex;align-items:center;padding:6px 14px;border-radius:999px;
@@ -458,6 +505,19 @@ html,body{width:100%;height:100%;width:100vw;height:100vh;overflow:hidden;backgr
 .ak.sel{background:var(--g6);border-color:transparent}
 .ak-clr{background:rgba(255,79,155,.15);border-color:rgba(255,79,155,.3);color:#fff;grid-column:span 2;font-size:17px;font-weight:600}
 .ak-clr:hover,.ak-clr[data-f].focused{background:rgba(255,79,155,.4);border-color:var(--pink);color:#fff;transform:scale(1.08)}
+/* 分类点歌：语种/风格 chip 列表，跟字母键盘(.ak)用同一套视觉语言 */
+.cat-panel{overflow-y:auto}
+.cat-group-title{font-size:14px;color:var(--sub);font-weight:700;margin:14px 0 8px;letter-spacing:1px}
+.cat-group-title:first-child{margin-top:0}
+.cat-chip-list{display:flex;flex-wrap:wrap;gap:8px}
+.cat-chip{display:flex;align-items:center;gap:5px;padding:9px 16px;border-radius:999px;
+  font-size:15px;font-weight:600;cursor:pointer;color:#fff;transition:.15s;
+  background:rgba(255,255,255,.08);border:1.5px solid rgba(255,255,255,.12)}
+.cat-chip .cnt{color:var(--sub);font-size:12px}
+.cat-chip:hover,.cat-chip[data-f].focused{background:var(--g6);border-color:transparent;transform:scale(1.06)}
+.cat-chip.sel{background:var(--g6);border-color:transparent}
+.cat-chip.sel .cnt{color:rgba(255,255,255,.75)}
+.cat-empty-tip{font-size:14px;color:#555;padding:4px 2px}
 /* 歌手网格 */
 .ag{display:grid;grid-template-columns:repeat(6,1fr);gap:14px 10px;flex:1;overflow-y:auto;padding:4px 2px;
   /* Bug修复：焦点移动到最右列/下方行触发 scrollIntoView 滚动时，垂直滚动条
@@ -565,13 +625,16 @@ html[data-layout="mobile"] #mv-ctrl{
   display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:6px 2px}
 html[data-layout="mobile"] .mvbtn{margin:0;max-width:none;min-width:0}
 
-/* 歌名/歌星/常唱/收藏：电视上竖排4张长条卡片，手机上改成2x2方形网格，
+/* 歌名/歌星/分类/扫码：电视上竖排4张长条卡片，手机上改成2x2方形网格，
    名称留在左上、图标挪到右下角，视觉上更像"应用图标"而不是"列表行"。 */
 html[data-layout="mobile"] #mid-cards{
   display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:10px;flex:0 0 auto}
 html[data-layout="mobile"] .mc{
-  flex:none;min-height:130px;flex-direction:column;align-items:flex-start;justify-content:space-between}
-html[data-layout="mobile"] .mc .ci{align-self:flex-end}
+  flex:none;min-height:130px;padding:14px 16px;flex-direction:column;align-items:flex-start;justify-content:space-between}
+/* 底部4个窄按钮（热歌排行/最近唱过/我的收藏/最新入库）手机上也改2x2网格 */
+html[data-layout="mobile"] #quick-row{
+  display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 12px;margin-bottom:0}
+html[data-layout="mobile"] .mc-mini{height:56px}
 
 /* 已点队列：手机屏幕装不下第三栏，整栏隐藏；功能并未消失——头部那颗
    "已点"按钮本来就绑定 openPanel('queue')，会打开下面已有的 #pd-queue
@@ -656,14 +719,14 @@ html[data-layout="mobile"] #footer{padding:4px 12px 8px}
     <div id="conn-status" class="conn-badge bad" title="与后端服务器连接状态"><span class="nbi" id="conn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg></span><span id="conn-lbl">连接中…</span></div>
     <div id="clock-badge"><div id="clock-time">--:--</div><div id="clock-date">----/--/-- 星期-</div></div>
   </nav>
+  <div id="next-up-bar"><div id="next-up-track"></div></div>
   <div id="grid">
     <div id="now-col">
       <div id="now-panel" data-f onclick="enterFullscreen()">
         <video id="ktv-video" class="video-home" playsinline></video>
-        <div id="video-loading"><div class="vl-spinner"></div><div class="vl-text">加载中…</div></div>
+        <div id="video-loading"><div class="vl-spinner"></div><div class="vl-text">加载中…</div><div class="vl-net" id="vl-net"><div class="vl-net-speed" id="vl-net-speed">下载中…</div><div class="vl-net-eta" id="vl-net-eta"></div></div></div>
         <div id="now-idle"><div class="idle-big">墨墨爱K歌</div><div class="idle-sub">扫码点歌 · 大屏沉浸演唱</div></div>
         <div id="now-info"><div class="ni-t" id="ni-title">—</div><div class="ni-m" id="ni-meta">—</div></div>
-        <div id="qr-corner"><div id="home-qr"></div><div class="qr-lbl">扫码点歌</div></div>
       </div>
       <div id="mv-ctrl">
         <button class="mvbtn" data-f onclick="openPanel('eq')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg><span class="mvlbl">均衡器</span></button>
@@ -676,15 +739,21 @@ html[data-layout="mobile"] #footer{padding:4px 12px 8px}
       </div>
     </div>
     <div id="mid-cards">
-      <div class="mc mc-name" data-f onclick="openPF('order')"><span class="cn">歌名</span><span class="ci">🎵</span></div>
-      <div class="mc mc-artist" data-f onclick="openPF('artists')"><span class="cn">歌星</span><span class="ci">🎤</span></div>
-      <div class="mc mc-history" data-f onclick="openPF('history')"><span class="cn">常唱</span><span class="ci">⭐</span></div>
-      <div class="mc mc-fav" data-f onclick="openPF('favorites')"><span class="cn">收藏</span><span class="ci">❤️</span></div>
+      <div class="mc mc-name" data-f onclick="openPF('order')"><span class="cn">歌名点歌</span><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span></div>
+      <div class="mc mc-artist" data-f onclick="openPF('artists')"><span class="cn">歌手点歌</span><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></span></div>
+      <div class="mc mc-category" data-f onclick="openPF('category')"><span class="cn">分类点歌</span><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg></span></div>
+      <div class="mc mc-qr" data-f onclick="openPanel('qr')"><span class="cn">扫码点歌</span><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="14" x2="14" y2="17"/><line x1="14" y1="20" x2="14" y2="21"/><line x1="17" y1="14" x2="21" y2="14"/><line x1="17" y1="17" x2="19" y2="17"/><line x1="17" y1="20" x2="21" y2="20"/><line x1="21" y1="17" x2="21" y2="17.01"/></svg></span></div>
     </div>
     <div id="right-queue">
       <div class="rq-h">♪ 已点队列<span class="rq-cnt" id="rq-cnt">0首</span></div>
       <div id="rq-list"><div style="color:var(--sub);font-size:16px;text-align:center;padding:16px">暂无点歌</div></div>
     </div>
+  </div>
+  <div id="quick-row">
+    <div class="mc-mini qm-hot" data-f onclick="openPanel('charts')"><span class="cn">热歌排行</span><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg></span></div>
+    <div class="mc-mini qm-recent" data-f onclick="openPF('history')"><span class="cn">最近唱过</span><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg></span></div>
+    <div class="mc-mini qm-fav" data-f onclick="openPF('favorites')"><span class="cn">我的收藏</span><span class="ci"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21s-6.7-4.35-9.3-8.1C1 10.2 1.7 6.6 4.8 5.1 7 4 9.4 4.7 12 7.3 14.6 4.7 17 4 19.2 5.1c3.1 1.5 3.8 5.1 2.1 7.8C18.7 16.65 12 21 12 21z"/></svg></span></div>
+    <div class="mc-mini qm-new" data-f onclick="openPanel('newest')"><span class="cn">最新入库</span><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg></span></div>
   </div>
   <div id="footer">
     <div class="fb-r">
@@ -719,14 +788,37 @@ html[data-layout="mobile"] #footer{padding:4px 12px 8px}
 <div class="pd pd-center" id="pd-queue" onclick="if(event.target===this)closePanel('queue')">
   <div class="ps"><div class="ph"><h3>🎵 点歌队列</h3><div class="pc" data-f onclick="closePanel('queue')">✕</div></div><div class="pb" id="pl-queue"></div></div>
 </div>
-<div class="pd" id="pd-charts" onclick="if(event.target===this)closePanel('charts')">
+<div class="pd pd-center" id="pd-charts" onclick="if(event.target===this)closePanel('charts')">
   <div class="ps"><div class="ph"><h3>🏆 爱唱榜 TOP10</h3><div class="pc" data-f onclick="closePanel('charts')">✕</div></div><div class="pb" id="pl-charts"></div></div>
+</div>
+<div class="pd pd-center" id="pd-newest" onclick="if(event.target===this)closePanel('newest')">
+  <div class="ps"><div class="ph"><h3>🆕 最新入库</h3><div class="pc" data-f onclick="closePanel('newest')">✕</div></div>
+  <div class="pb" id="pl-newest"></div>
+  <div class="pf-foot">
+    <button class="pf-pg-btn" data-f onclick="newestPage(-1)">上一页</button>
+    <span class="pf-pg-info" id="newest-pg-info">1/1</span>
+    <button class="pf-pg-btn" data-f onclick="newestPage(1)">下一页</button>
+  </div>
+  </div>
+</div>
+<div class="pd pd-center" id="pd-qr" onclick="if(event.target===this)closePanel('qr')">
+  <div class="ps"><div class="ph"><h3>📱 扫码点歌</h3><div class="pc" data-f onclick="closePanel('qr')">✕</div></div>
+  <div class="pb" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px">
+    <div id="home-qr-popup" style="background:#fff;padding:14px;border-radius:14px"></div>
+    <div style="color:var(--sub);font-size:16px;text-align:center">用手机扫描二维码<br>在手机上搜歌 · 点歌</div>
+  </div></div>
 </div>
 <div class="pd pd-center" id="pd-search" onclick="if(event.target===this)closePanel('search')">
   <div class="ps"><div class="ph"><h3>🔍 搜歌点歌</h3><div class="pc" data-f onclick="closePanel('search')">✕</div></div>
   <div class="pb"><div class="search-box" style="background:rgba(255,255,255,.07);border-radius:12px;padding:9px 13px;margin-bottom:12px;border:1px solid rgba(255,255,255,.1)">
     <span>🔍</span><input id="si" style="flex:1;background:transparent;border:none;outline:none;color:#fff;font-size:19px" placeholder="输入歌名或歌手…" oninput="doSearch(this.value)">
-  </div><div id="pl-search"></div></div></div>
+  </div><div id="pl-search"></div></div>
+  <div class="pf-foot" id="search-pg-foot" style="display:none">
+    <button class="pf-pg-btn" data-f onclick="searchPage(-1)">上一页</button>
+    <span class="pf-pg-info" id="search-pg-info">1/1</span>
+    <button class="pf-pg-btn" data-f onclick="searchPage(1)">下一页</button>
+  </div>
+  </div>
 </div>
 <div class="pd pd-center" id="pd-eq" onclick="if(event.target===this)closePanel('eq')">
   <div class="ps"><div class="ph"><h3>🎚 均衡器</h3><div class="pc" data-f onclick="closePanel('eq')">✕</div></div>
@@ -896,6 +988,25 @@ html[data-layout="mobile"] #footer{padding:4px 12px 8px}
     </div>
   </div>
 </div>
+<div class="pd-full" id="pf-category">
+  <div class="pf-head"><h2>🗂 分类点歌</h2><div class="pf-back" data-f onclick="closePF('category')">返回</div></div>
+  <div class="pf-body">
+    <div class="alpha-panel cat-panel">
+      <div class="cat-group-title">语种</div>
+      <div class="cat-chip-list" id="cat-lang-list"></div>
+      <div class="cat-group-title">风格</div>
+      <div class="cat-chip-list" id="cat-genre-list"></div>
+    </div>
+    <div class="pf-main">
+      <div class="song-list song-list-2col" id="cat-song-list"></div>
+      <div class="pf-foot">
+        <button class="pf-pg-btn" data-f onclick="categoryPage(-1)">上一页</button>
+        <span class="pf-pg-info" id="cat-pg-info">—</span>
+        <button class="pf-pg-btn" data-f onclick="categoryPage(1)">下一页</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="pd-full" id="pf-artist-songs" style="z-index:61">
   <div class="pf-head"><h2 id="as-title">歌手作品</h2><div class="pf-back" data-f onclick="closePF('artist-songs')">返回</div></div>
   <div class="pf-body"><div class="pf-main"><div class="song-list song-list-2col" id="as-list"></div></div></div>
@@ -915,8 +1026,9 @@ function updateClock(){
 updateClock();
 setInterval(updateClock,1000);
 function devId(){let id=localStorage.getItem('jydev');if(!id){id='tv-'+Math.random().toString(36).substr(2,9);localStorage.setItem('jydev',id);}return id;}
-// QR
-(function(){const q=document.getElementById('home-qr');q.innerHTML='';new QRCode(q,{text:MOBILE,width:88,height:88,colorDark:'#07071a',correctLevel:QRCode.CorrectLevel.M});})();
+// QR：不再常驻显示在 MV 播放框里，改成点"扫码点歌"大卡片时才打开浮层，
+// 浮层里渲染一份更大尺寸的二维码（同一个 MOBILE 链接）。
+(function(){const q=document.getElementById('home-qr-popup');if(!q)return;q.innerHTML='';new QRCode(q,{text:MOBILE,width:200,height:200,colorDark:'#07071a',correctLevel:QRCode.CorrectLevel.M});})();
 // ═══════════════════════════════════════════════
 // VoiceManager：统一原唱/伴唱切换接口
 // 类型1（声道型）：单音频流立体声，左=伴唱，右=原唱，切换时复制声道到双耳
@@ -1078,27 +1190,140 @@ video.addEventListener('loadedmetadata', () => VoiceManager.onLoad(video, curSon
 // 拼音映射
 const PM={"啊":"A","阿":"A","爱":"A","安":"A","暗":"A","岸":"A","昂":"A","傲":"A","澳":"A","哎":"A","唉":"A","挨":"A","艾":"A","按":"A","案":"A","把":"B","八":"B","吧":"B","白":"B","百":"B","拜":"B","班":"B","伴":"B","半":"B","帮":"B","包":"B","宝":"B","保":"B","报":"B","爸":"B","背":"B","被":"B","本":"B","比":"B","彼":"B","别":"B","变":"B","冰":"B","病":"B","步":"B","布":"B","不":"B","波":"B","博":"B","奔":"B","笔":"B","标":"B","才":"C","唱":"C","超":"C","沉":"C","成":"C","城":"C","出":"C","春":"C","层":"C","灿":"C","参":"C","差":"C","残":"C","草":"C","彩":"C","仓":"C","曾":"C","丛":"C","此":"C","词":"C","从":"C","存":"C","长":"C","称":"C","初":"C","创":"C","除":"C","曹":"C","采":"C","大":"D","当":"D","道":"D","地":"D","第":"D","懂":"D","多":"D","断":"D","带":"D","动":"D","等":"D","的":"D","登":"D","都":"D","对":"D","独":"D","淡":"D","蝶":"D","跌":"D","灯":"D","点":"D","额":"E","而":"E","恩":"E","鹅":"E","呢":"E","俄":"E","发":"F","飞":"F","分":"F","风":"F","父":"F","复":"F","放":"F","方":"F","烦":"F","飘":"F","奋":"F","赴":"F","费":"F","封":"F","丰":"F","富":"F","感":"G","高":"G","个":"G","给":"G","更":"G","光":"G","归":"G","过":"G","国":"G","跟":"G","共":"G","孤":"G","挂":"G","贵":"G","滚":"G","干":"G","刚":"G","格":"G","歌":"G","还":"H","海":"H","好":"H","和":"H","后":"H","花":"H","回":"H","害":"H","恨":"H","红":"H","很":"H","含":"H","欢":"H","黄":"H","喉":"H","呼":"H","怀":"H","家":"J","见":"J","今":"J","经":"J","就":"J","记":"J","旧":"J","解":"J","几":"J","敬":"J","降":"J","吉":"J","将":"J","进":"J","静":"J","角":"J","坚":"J","开":"K","看":"K","哭":"K","快":"K","苦":"K","靠":"K","空":"K","可":"K","跨":"K","来":"L","浪":"L","老":"L","乐":"L","了":"L","里":"L","留":"L","落":"L","泪":"L","蓝":"L","凉":"L","恋":"L","路":"L","旅":"L","懒":"L","没":"M","明":"M","梦":"M","面":"M","迷":"M","美":"M","满":"M","慢":"M","么":"M","莫":"M","那":"N","年":"N","你":"N","难":"N","念":"N","南":"N","哪":"N","哦":"O","噢":"O","欧":"O","旁":"P","漂":"P","平":"P","片":"P","起":"Q","前":"Q","千":"Q","情":"Q","轻":"Q","去":"Q","求":"Q","亲":"Q","其":"Q","切":"Q","然":"R","让":"R","热":"R","人":"R","忍":"R","柔":"R","三":"S","伤":"S","上":"S","少":"S","失":"S","说":"S","随":"S","生":"S","声":"S","思":"S","是":"S","岁":"S","太":"T","特":"T","天":"T","听":"T","同":"T","头":"T","痛":"T","万":"W","为":"W","我":"W","无":"W","往":"W","忘":"W","晚":"W","想":"X","象":"X","小":"X","心":"X","星":"X","现":"X","希":"X","寻":"X","也":"Y","一":"Y","已":"Y","忆":"Y","因":"Y","用":"Y","又":"Y","有":"Y","眼":"Y","烟":"Y","要":"Y","云":"Y","以":"Y","遥":"Y","夜":"Y","鱼":"Y","再":"Z","在":"Z","找":"Z","真":"Z","中":"Z","走":"Z","总":"Z","紫":"Z","知":"Z","赵":"Z","张":"Z","郑":"Z","周":"Z","庄":"Z","怎":"Z","醉":"Z"};
 const PB=[['啊','A'],['芭','B'],['擦','C'],['搭','D'],['蛾','E'],['发','F'],['噶','G'],['哈','H'],['击','J'],['喀','K'],['垃','L'],['妈','M'],['拿','N'],['哦','O'],['啪','P'],['期','Q'],['然','R'],['撒','S'],['塌','T'],['挖','W'],['昔','X'],['压','Y'],['匝','Z']];
-function getPY(char){if(!char)return'#';const c=char.charCodeAt(0);if(c<0x4E00||c>0x9FFF)return/[A-Za-z]/.test(char)?char.toUpperCase():'#';if(PM[char])return PM[char];try{for(let i=PB.length-1;i>=0;i--)if(char.localeCompare(PB[i][0],'zh-CN',{sensitivity:'base'})>=0)return PB[i][1];}catch(e){}return'#';}
+// 性能优化：曲库很大(几千~上万首)时，每次在搜索框敲一个字都会对 allSongs/
+// allArtists 整个数组重新 filter 一遍，之前 getInitials() 内部又是逐字符
+// 现算拼音(未命中 PM 表的生僻字还会走 localeCompare 循环，属于最慢的一条
+// 路径)，导致"曲库越大、敲键越卡"。这里给单字(getPY)和整串(getInitials)
+// 各加一层 Map 缓存：同一个字/同一个歌名只需要真正计算一次，之后无论敲多少
+// 次字母、翻多少次页，都只是一次 Map.get 的开销，跟曲库大小基本无关。
+// 注意：歌名/歌手名在应用运行期间不会变(改名走的是重新拉取 allSongs/
+// allArtists)，所以直接缓存字符串本身没有失效问题。
+const _pyCharCache=new Map();
+function getPY(char){
+  if(!char)return'#';
+  const cached=_pyCharCache.get(char);
+  if(cached!==undefined)return cached;
+  let result;
+  const c=char.charCodeAt(0);
+  if(c<0x4E00||c>0x9FFF){result=/[A-Za-z]/.test(char)?char.toUpperCase():'#';}
+  else if(PM[char]){result=PM[char];}
+  else{
+    result='#';
+    try{for(let i=PB.length-1;i>=0;i--)if(char.localeCompare(PB[i][0],'zh-CN',{sensitivity:'base'})>=0){result=PB[i][1];break;}}catch(e){}
+  }
+  _pyCharCache.set(char,result);
+  return result;
+}
 // 把整个字符串逐字转成拼音首字母并拼接，例如"水中花"->"SZH"。
 // 空白字符直接跳过（不产生占位符），这样"水 中 花"这类带空格的标题拼出来的
 // 首字母序列依然是连续的"SZH"，不会被空格打断导致匹配不上。
-function getInitials(str){let out='';for(const ch of String(str||'')){if(/\s/.test(ch))continue;out+=getPY(ch);}return out;}
+const _initialsCache=new Map();
+function getInitials(str){
+  str=String(str||'');
+  const cached=_initialsCache.get(str);
+  if(cached!==undefined)return cached;
+  let out='';
+  for(const ch of str){if(/\s/.test(ch))continue;out+=getPY(ch);}
+  _initialsCache.set(str,out);
+  return out;
+}
 // 状态
-let queueData=[],curSong=null,isPaused=false,isFS=false,endingNotified=false;
+let queueData=[],curSong=null,isPaused=false,isFS=false;
 let hlsInstance=null;
 function destroyHls(){if(hlsInstance){try{hlsInstance.destroy();}catch(e){}hlsInstance=null;}}
 // 加载一首新歌：优先用 hls.js 播放 HLS(master.m3u8 里声明的每条音轨都是独立分片，
 // 切音轨/拖进度条都不会打断视频)；hls.js 不可用但浏览器原生支持 HLS(如 Safari)则
 // 直接把 src 指过去；两者都不支持时兜底退回旧的整段直传接口(仅默认音轨，无法切换)。
-function loadSong(v,songId){
+// 播放一首歌时调用 v.play()：如果这次调用不是紧跟在一次真实的用户点击/
+// 按键之后(比如刷新页面后 WS 重连、自动续播正在排队里的歌)，浏览器的自动
+// 播放策略(尤其是带声音的视频)有可能直接静默拒绝这次 play()。以前这里统一
+// 是 .catch(()=>{})，被拒绝后什么都不做——"加载中"转圈只在 video 触发原生
+// playing 事件时才会隐藏，而被拦截的播放永远不会触发 playing，表现出来就是
+// "刷新页面后卡在加载中转圈，其实根本没有在加载"。
+// 现在改成：被拒绝时立刻隐藏转圈、把播放/暂停按钮同步成真实的"已暂停"状态
+// (不再骗用户说"加载中")，并且记下这首歌，等下一次用户产生真实交互(点一下
+// 屏幕/遥控器按任意键)时，顺着这次交互补一次播放，不需要用户手动点两次。
+let pendingAutoplaySongId=null;
+// 需求(MV加载动画下方显示下载速度/预计等待时长)：网盘/STRM歌曲播放前，
+// 服务端要先把源文件缓存到本地(见 server/sourceCache.js)，这一步慢的时候
+// "加载中"转圈可能要转很久。这里在转圈期间轮询后端的下载进度接口，把实时
+// 速度/预计剩余时间展示在转圈下方，让用户知道"确实在下载、大概还要多久"，
+// 而不是对着一个转圈干等、怀疑是不是卡死了。
+// 只有 needsDownload 为真(这首歌确实是网络曲库/STRM)时才会真的发起轮询；
+// 本地曲库的歌直接跳过，不会多打一次不必要的请求。
+let cacheProgressTimer=null;
+function stopCacheProgressPoll(){
+  if(cacheProgressTimer){clearInterval(cacheProgressTimer);cacheProgressTimer=null;}
+  const el=document.getElementById('vl-net');
+  if(el)el.classList.remove('show');
+}
+function fmtBytesPerSec(bps){
+  if(!bps||bps<=0)return '';
+  if(bps<1024*1024)return (bps/1024).toFixed(0)+' KB/s';
+  return (bps/1024/1024).toFixed(1)+' MB/s';
+}
+function fmtEta(sec){
+  if(sec==null)return '';
+  if(sec<60)return `预计还需 ${sec} 秒`;
+  const m=Math.floor(sec/60), s=sec%60;
+  return `预计还需 ${m} 分 ${s} 秒`;
+}
+async function pollCacheProgressOnce(songId){
+  try{
+    const r=await fetch(`${BASE}/api/songs/${songId}/cache-progress`);
+    if(!r.ok)return;
+    const d=await r.json();
+    // 轮询期间用户可能已经切到别的歌(比如管理端手动跳过)，songId 跟当前
+    // curSong 对不上就直接丢弃这次结果，避免把上一首歌的下载进度错误地
+    // 显示在新歌的加载界面上。
+    if(!curSong||curSong.song_id!==songId)return;
+    const el=document.getElementById('vl-net');
+    if(!el)return;
+    if(d.status==='local'||d.status==='ready'||!d.active){
+      // 本地曲库/已经缓存完成：不需要展示下载信息，只留下"加载中…"文案。
+      el.classList.remove('show');
+      return;
+    }
+    el.classList.add('show');
+    const speedText=fmtBytesPerSec(d.speedBps);
+    document.getElementById('vl-net-speed').textContent=speedText?`下载中 ${speedText}`:'下载中…';
+    document.getElementById('vl-net-eta').textContent=fmtEta(d.etaSeconds);
+  }catch(e){/* 轮询失败不影响播放本身，静默跳过这一次 */}
+}
+function startCacheProgressPoll(songId){
+  stopCacheProgressPoll();
+  if(!songId)return;
+  pollCacheProgressOnce(songId);
+  cacheProgressTimer=setInterval(()=>pollCacheProgressOnce(songId),1200);
+}
+function tryAutoplay(v,songId){
+  const p=v.play();
+  if(!p||!p.catch)return;
+  p.then(()=>{pendingAutoplaySongId=null;}).catch(err=>{
+    console.warn('[autoplay] 被浏览器自动播放策略拦截，等待用户交互后继续播放:',err&&err.name);
+    document.getElementById('video-loading').classList.remove('show');
+    stopCacheProgressPoll();
+    pendingAutoplaySongId=songId;
+    syncPauseUI();
+  });
+}
+function resumePendingAutoplay(){
+  if(pendingAutoplaySongId&&curSong&&curSong.song_id===pendingAutoplaySongId){
+    video.play().then(()=>{pendingAutoplaySongId=null;}).catch(()=>{});
+  }
+}
+document.addEventListener('click',resumePendingAutoplay,{passive:true});
+document.addEventListener('keydown',resumePendingAutoplay,{passive:true});
+function loadSong(v,songId,needsDownload){
   hideToast();
   document.getElementById('video-loading').classList.add('show');
+  startCacheProgressPoll(needsDownload?songId:null);
   destroyHls();
   const url=`${BASE}/hls/${songId}/master.m3u8`;
   const fallbackToRaw=()=>{
     destroyHls();
     v.src=`${BASE}/stream/${songId}`;
-    if(!isPaused)v.play().catch(()=>{});
+    if(!isPaused)tryAutoplay(v,songId);
   };
   if(window.Hls&&Hls.isSupported()){
     // 服务端现在是"渐进式"生成 HLS：一首歌刚点开时，子播放列表(video.m3u8/
@@ -1117,14 +1342,14 @@ function loadSong(v,songId){
         fallbackToRaw();
       }
     });
-    hls.on(Hls.Events.MANIFEST_PARSED,()=>{if(!isPaused)v.play().catch(()=>{});});
+    hls.on(Hls.Events.MANIFEST_PARSED,()=>{if(!isPaused)tryAutoplay(v,songId);});
     hls.loadSource(url);
     hls.attachMedia(v);
     hlsInstance=hls;
   }else if(v.canPlayType('application/vnd.apple.mpegurl')){
     v.src=url;
     v.addEventListener('error',fallbackToRaw,{once:true});
-    if(!isPaused)v.play().catch(()=>{});
+    if(!isPaused)tryAutoplay(v,songId);
   }else{
     fallbackToRaw();
   }
@@ -1142,7 +1367,12 @@ function setConnStatus(ok){
   document.getElementById('conn-lbl').textContent=ok?'在线':'连接中…';
   el.title=ok?'已连接到后端服务器':'与后端服务器连接已断开，正在自动重连…';
 }
-function connectWS(){const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);ws.onopen=()=>setConnStatus(true);ws.onmessage=ev=>{const m=JSON.parse(ev.data);if(m.type==='queue'){queueData=m.data;renderAll();}if(m.type==='control')handleRemote(m);};ws.onclose=()=>{setConnStatus(false);setTimeout(connectWS,2000);};ws.onerror=()=>setConnStatus(false);window._ws=ws;}
+function sendWS(obj){if(window._ws&&window._ws.readyState===1)window._ws.send(JSON.stringify(obj));}
+// 把"是否暂停"+"原唱/伴唱"这份真实状态上报给服务端，供手机遥控端同步按钮
+// 图标/高亮(参见 syncPauseUI / toggleVoice 里的调用，以及连接刚建立时这里
+// 主动上报一次，让遥控端一打开就能拿到当下真实状态，不用等下一次状态变化)。
+function reportPlaybackState(){sendWS({type:'state',paused:isPaused,voice:VoiceManager.isOriginal?'original':'accompaniment'});}
+function connectWS(){const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);ws.onopen=()=>{setConnStatus(true);reportPlaybackState();};ws.onmessage=ev=>{const m=JSON.parse(ev.data);if(m.type==='queue'){queueData=m.data;renderAll();}if(m.type==='control')handleRemote(m);};ws.onclose=()=>{setConnStatus(false);setTimeout(connectWS,2000);};ws.onerror=()=>setConnStatus(false);window._ws=ws;}
 connectWS();
 function renderAll(){
   const playing=queueData.find(q=>q.status==='playing');
@@ -1160,8 +1390,8 @@ function renderAll(){
     document.getElementById('ni-meta').textContent=`${playing.artist||''} · ${playing.nickname}`;
     document.getElementById('ov-title').textContent=playing.title;
     document.getElementById('ov-artist').textContent=`${playing.artist||''} · ${playing.nickname}`;
-    if(!curSong||curSong.queue_id!==playing.queue_id){curSong=playing;loadSong(video,playing.song_id);endingNotified=false;}
-  }else{document.getElementById('now-idle').style.display='flex';video.style.display='none';document.getElementById('now-info').classList.remove('show');document.getElementById('video-loading').classList.remove('show');hideToast();curSong=null;destroyHls();video.removeAttribute('src');video.load();
+    if(!curSong||curSong.queue_id!==playing.queue_id){curSong=playing;loadSong(video,playing.song_id,!!(playing.is_network||playing.is_strm));}
+  }else{document.getElementById('now-idle').style.display='flex';video.style.display='none';document.getElementById('now-info').classList.remove('show');document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();hideToast();curSong=null;destroyHls();video.removeAttribute('src');video.load();document.getElementById('next-up-bar').classList.remove('show');
     if(isFS)exitKtvFullscreen();}
 }
 // 播放
@@ -1177,9 +1407,10 @@ function syncPauseUI(){
   document.getElementById('op-icon').innerHTML='<svg viewBox="0 0 24 24" fill="currentColor">'+(isPaused?'<polygon points="5 3 19 12 5 21 5 3"/>':'<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>')+'</svg>';
   document.getElementById('plbl2').textContent=isPaused?'播放':'暂停';
   const opLbl=document.getElementById('op-lbl');if(opLbl)opLbl.textContent=isPaused?'继续':'暂停';
+  reportPlaybackState();
 }
 video.addEventListener('play',syncPauseUI);
-video.addEventListener('playing',()=>document.getElementById('video-loading').classList.remove('show'));
+video.addEventListener('playing',()=>{document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();});
 video.addEventListener('pause',syncPauseUI);
 function togglePause(){VoiceManager.wake(video);if(video.paused)video.play().catch(()=>{});else video.pause();}
 function cutSong(){fetch('/api/queue/next',{method:'POST'});}
@@ -1191,6 +1422,7 @@ function toggleVoice(){
   // 是否处于伴唱模式仅通过 .act 高亮样式区分。
   document.getElementById('btn-voice').classList.toggle('act',!VoiceManager.isOriginal);
   document.getElementById('ob-voice').classList.toggle('act',!VoiceManager.isOriginal);
+  reportPlaybackState();
   showToast('原/伴唱已切换');
 }
 // 均衡器：预设需要 Web Audio 已初始化（即已经播放过一次视频、发生过一次点击手势），
@@ -1208,15 +1440,39 @@ function adjVolume(delta){
   showToast('🔊 音量 '+Math.round(video.volume*100)+'%');
 }
 video.addEventListener('timeupdate',()=>{if(!video.duration)return;document.getElementById('prog-fill').style.width=(video.currentTime/video.duration*100)+'%';document.getElementById('tcur').textContent=fmt(video.currentTime);document.getElementById('ttot').textContent=fmt(video.duration);
-  // 歌曲快结束提示：还剩最后15秒时提一次(每首歌只提一次，切歌/换歌会重置)，
-  // 有排队中的下一首就报歌名，没有就提醒继续点歌，别冷场。
-  if(!endingNotified&&video.duration-video.currentTime<=15&&video.currentTime>0){
-    endingNotified=true;
-    const upcoming=queueData.filter(q=>q.status!=='playing');
-    if(upcoming.length)showToast(`🎵 下一首：《${upcoming[0].title}》`,true);
-    else showToast('🎤 快没歌了，继续点歌吧～',true);
-  }
 });
+// 需求(下一首提示改为顶部间歇滚动)：不再挂在 timeupdate 上、靠"剩余时间是否
+// 少于15秒"来触发——那样必然要等到歌曲快放完才第一次露面。改成独立的定时器，
+// 从这首歌开始播放起就按固定节奏(NEXT_UP_INTERVAL)反复展示，跟"还剩多久"
+// 完全脱钩；每一轮展示时才现取一次 queueData，保证内容始终是当下最新的排队
+// 情况(比如展示这一轮之前刚好有人置顶了别的歌，下一轮就会报最新的那首)。
+const NEXT_UP_INTERVAL=45000; // 每隔45秒滚动展示一次
+let nextUpCycleTimer=null,nextUpHideTimer=null;
+function scheduleNextUpCycle(delay){
+  clearTimeout(nextUpCycleTimer);
+  nextUpCycleTimer=setTimeout(runNextUpCycle,delay!=null?delay:NEXT_UP_INTERVAL);
+}
+function runNextUpCycle(){
+  // 不管这一轮有没有内容可展示，都先把下一轮排好，保持节奏稳定，不会因为
+  // 某一轮跳过展示就导致下一轮提前/推迟。
+  scheduleNextUpCycle();
+  const bar=document.getElementById('next-up-bar'),track=document.getElementById('next-up-track');
+  if(!curSong){bar.classList.remove('show');return;} // 没有正在播放的歌，没有"下一首"这个概念，不展示
+  const upcoming=queueData.filter(q=>q.status!=='playing');
+  const text=upcoming.length?`🎵 下一首：《${upcoming[0].title}》 ${upcoming[0].artist||''} · ${upcoming[0].nickname}`:'🎤 快没歌了，继续点歌吧～';
+  track.innerHTML='';
+  const span=document.createElement('span');
+  span.textContent=text;
+  // 滚动时长按文字长度粗略估算，字越多滚得越久，让不同长度的文案滚动速度
+  // 大致一致——不会出现短文案一晃而过、长文案还没滚完就被强制收起的情况。
+  const dur=Math.max(8,Math.min(20,text.length*0.42));
+  span.style.animationDuration=dur+'s';
+  track.appendChild(span);
+  bar.classList.add('show');
+  clearTimeout(nextUpHideTimer);
+  nextUpHideTimer=setTimeout(()=>bar.classList.remove('show'),dur*1000+400);
+}
+scheduleNextUpCycle(8000); // 首次展示不用等一整个间隔周期，进页面8秒后就先露一次面
 function fmt(s){return`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;}
 function seekVideo(e){const b=document.getElementById('prog-bar');video.currentTime=(e.offsetX/b.clientWidth)*(video.duration||0);}
 // 同一首歌只允许触发一次"切下一首"的请求，不管这次是由 ended 事件触发的，
@@ -1375,9 +1631,9 @@ function closeTopPanel(){
   });
 })();
 // 面板
-function openPanel(name){pushFocus();document.querySelectorAll('.pd').forEach(p=>p.classList.remove('open'));document.getElementById(`pd-${name}`).classList.add('open');focIdx=0;const loaders={queue:loadQueue,charts:loadCharts,search:()=>{document.getElementById('si').focus();doSearch('');},settings:loadSettings};if(loaders[name])loaders[name]();}
+function openPanel(name){pushFocus();document.querySelectorAll('.pd').forEach(p=>p.classList.remove('open'));document.getElementById(`pd-${name}`).classList.add('open');focIdx=0;const loaders={queue:loadQueue,charts:loadCharts,newest:loadNewest,search:()=>{document.getElementById('si').focus();doSearch('');},settings:loadSettings};if(loaders[name])loaders[name]();}
 function closePanel(n){document.getElementById(`pd-${n}`).classList.remove('open');blurRealInput();popFocus();}
-function openPF(name){pushFocus();document.querySelectorAll('.pd-full').forEach(p=>p.classList.remove('open'));document.getElementById(`pf-${name}`).classList.add('open');focIdx=0;const inits={artists:initArtists,order:initOrder,history:initHistory,favorites:initFavorites};if(inits[name])inits[name]();}
+function openPF(name){pushFocus();document.querySelectorAll('.pd-full').forEach(p=>p.classList.remove('open'));document.getElementById(`pf-${name}`).classList.add('open');focIdx=0;const inits={artists:initArtists,order:initOrder,history:initHistory,favorites:initFavorites,category:initCategory};if(inits[name])inits[name]();}
 // Bug5修复：点选某个歌手后，之前是直接对 pf-artist-songs 做 classList.add('open')，
 // 没有把 pf-artists 关掉——两个 .pd-full 面板同时带 'open'，getFocusables() 里
 // document.querySelector('.pd-full.open') 只会拿到 DOM 顺序里第一个匹配的
@@ -1423,7 +1679,12 @@ const ALPHA_PLACEHOLDER={ar:'歌星搜索',od:'歌名搜索',hs:'常唱搜索',f
 const alphaState={};
 const alphaFilter={};
 // 歌星
-const AV_COLORS=['linear-gradient(135deg,#ff4f9b,#ff2255)','linear-gradient(135deg,#ff8c42,#ffd000)','linear-gradient(135deg,#8e44f7,#c736f7)','linear-gradient(135deg,#36a9f7,#36d9f7)','linear-gradient(135deg,#36f7a0,#00c9a7)','linear-gradient(135deg,#1a4bff,#36d9f7)','linear-gradient(135deg,#ff6b6b,#feca57)','linear-gradient(135deg,#f7366a,#f73699)'];
+// 歌手头像原来用 linear-gradient 填色：曲库/歌手一多，一页就要同时绘制24个
+// 104px的圆形渐变(且分页切换、方向键移动焦点时又要重绘)，渐变的绘制/合成
+// 开销明显高于纯色，在配置较弱的电视/投影仪端(尤其是弱GPU的电视自带浏览器)
+// 是"歌手点歌卡顿"的一个诱因。这里改成纯色，视觉上仍按行区分不同颜色，但
+// 去掉渐变本身的开销。
+const AV_COLORS=['#ff2255','#ff8c42','#8e44f7','#36a9f7','#00c9a7','#1a4bff','#ff6b6b','#f7366a'];
 const AG_COLS=6; // 要和 .ag 网格的 grid-template-columns 列数保持一致
 let allArtists=[],filtArtists=[];
 alphaState['ar']='';
@@ -1469,6 +1730,48 @@ alphaFilter['fv']=()=>{const q=alphaState['fv'];filtFav=!q?[...allFav]:allFav.fi
 async function initFavorites(){allFav=await fetch(`/api/favorites?device=${devId()}`).then(r=>r.json());alphaState['fv']='';filtFav=[...allFav];fvPg=0;document.getElementById('fv-keys-txt').textContent=ALPHA_PLACEHOLDER['fv'];document.querySelectorAll('#fv-keys .ak').forEach(b=>b.classList.remove('sel'));renderFav();}
 function renderFav(){const t=Math.ceil(filtFav.length/FV_PG)||1;document.getElementById('fav-pg-info').textContent=`${fvPg+1}/${t} (共${filtFav.length}首)`;renderSongs(document.getElementById('fav-song-list'),filtFav.slice(fvPg*FV_PG,(fvPg+1)*FV_PG));}
 function favPage(d){const t=Math.ceil(filtFav.length/FV_PG)||1;fvPg=Math.max(0,Math.min(t-1,fvPg+d));renderFav();}
+// 分类点歌：语种/风格 chip 从当前曲库里现算(不需要额外接口)，选中一个分类
+// 后在 allSongs(与"歌名点歌"共用同一份缓存)里筛出匹配的歌曲，分页展示。
+let filtCat=[],catPg=0,catType='',catValue='';const CAT_PG=15;
+async function initCategory(){
+  if(!allSongs.length)allSongs=await fetch('/api/songs').then(r=>r.json());
+  catType='';catValue='';filtCat=[];catPg=0;
+  renderCategoryChips();
+  renderCategory();
+}
+function renderCategoryChips(){
+  const langMap={},genreMap={};
+  allSongs.forEach(s=>{
+    const l=(s.language||'').trim();if(l)langMap[l]=(langMap[l]||0)+1;
+    const g=(s.genre||'').trim();if(g)genreMap[g]=(genreMap[g]||0)+1;
+  });
+  const build=(map,type)=>Object.entries(map).sort((a,b)=>b[1]-a[1]).map(([v,c])=>
+    `<div class="cat-chip${(catType===type&&catValue===v)?' sel':''}" data-f onclick="selectCategory('${type}','${esc(v)}')">${esc(v)}<span class="cnt">${c}</span></div>`
+  ).join('');
+  const langBox=document.getElementById('cat-lang-list'),genreBox=document.getElementById('cat-genre-list');
+  const langKeys=Object.keys(langMap),genreKeys=Object.keys(genreMap);
+  langBox.innerHTML=langKeys.length?build(langMap,'language'):'<div class="cat-empty-tip">曲库还没有语种信息</div>';
+  genreBox.innerHTML=genreKeys.length?build(genreMap,'genre'):'<div class="cat-empty-tip">曲库还没有风格信息</div>';
+}
+function selectCategory(type,value){
+  catType=type;catValue=value;catPg=0;
+  filtCat=allSongs.filter(s=>((type==='language'?s.language:s.genre)||'').trim()===value);
+  renderCategoryChips();
+  renderCategory();
+}
+function renderCategory(){
+  const listEl=document.getElementById('cat-song-list'),pgEl=document.getElementById('cat-pg-info');
+  if(!catType){
+    listEl.innerHTML='<div style="color:var(--sub);text-align:center;padding:40px">请选择右侧一个语种或风格分类</div>';
+    if(pgEl)pgEl.textContent='—';
+    return;
+  }
+  const t=Math.ceil(filtCat.length/CAT_PG)||1;
+  catPg=Math.max(0,Math.min(t-1,catPg));
+  renderSongs(listEl,filtCat.slice(catPg*CAT_PG,(catPg+1)*CAT_PG));
+  if(pgEl)pgEl.textContent=`${filtCat.length?catPg+1:1}/${t} (共${filtCat.length}首)`;
+}
+function categoryPage(d){const t=Math.ceil(filtCat.length/CAT_PG)||1;catPg=Math.max(0,Math.min(t-1,catPg+d));renderCategory();}
 // Bug3修复：渲染歌曲列表（所有按钮加 data-f）
 function renderSongs(el,songs){
   el.innerHTML='';
@@ -1492,8 +1795,56 @@ function loadQueue(){const el=document.getElementById('pl-queue');el.innerHTML='
 async function topQ(id){await fetch(`/api/queue/${id}/top`,{method:'POST'});}
 async function delQ(id){await fetch(`/api/queue/${id}`,{method:'DELETE'});}
 async function loadCharts(){const el=document.getElementById('pl-charts');el.innerHTML='';const songs=(await fetch('/api/charts').then(r=>r.json())).slice(0,10);if(!songs.length){el.innerHTML='<div style="color:#555;text-align:center;padding:30px">还没有人唱过歌</div>';return;}songs.forEach((s,i)=>{const d=document.createElement('div');d.className='chart-row';const rk=i===0?'🥇':i===1?'🥈':i===2?'🥉':`${i+1}`;d.innerHTML=`<div class="ck ${i<3?'r'+(i+1):''}"> ${rk}</div><div class="chart-info"><div class="ct">${s.title}</div><div class="cm">${s.artist||'未知歌手'}</div></div><span class="cp">${s.play_count}次</span><button class="btn-add" onclick="addSong(${s.id},'${esc(s.title)}')">点歌</button>`;el.appendChild(d);});}
+// 最新入库：直接复用"歌名点歌"那份 allSongs 缓存按 id 倒序排列——
+// id 是自增主键，值越大代表越晚被扫描入库，不需要额外接口/额外字段。
+// 每页只渲染10条，翻页时重新渲染，避免一次性把几十条都塞进DOM。
+let newestSorted=[],newestPg=0;const NEWEST_PG=10;
+async function loadNewest(){
+  if(!allSongs.length)allSongs=await fetch('/api/songs').then(r=>r.json());
+  newestSorted=[...allSongs].sort((a,b)=>b.id-a.id);
+  newestPg=0;
+  renderNewest();
+}
+function renderNewest(){
+  const el=document.getElementById('pl-newest');
+  const pgEl=document.getElementById('newest-pg-info');
+  if(!newestSorted.length){el.innerHTML='<div style="color:#555;text-align:center;padding:30px">曲库还是空的</div>';if(pgEl)pgEl.textContent='—';return;}
+  const t=Math.ceil(newestSorted.length/NEWEST_PG)||1;
+  newestPg=Math.max(0,Math.min(t-1,newestPg));
+  const songs=newestSorted.slice(newestPg*NEWEST_PG,(newestPg+1)*NEWEST_PG);
+  el.innerHTML='';
+  songs.forEach((s,i)=>{
+    const d=document.createElement('div');d.className='chart-row';
+    d.innerHTML=`<div class="ck">${newestPg*NEWEST_PG+i+1}</div><div class="chart-info"><div class="ct">${s.title}</div><div class="cm">${s.artist||'未知歌手'}</div></div><span class="cp">${[s.language,s.genre].filter(Boolean).join(' · ')||'—'}</span><button class="btn-add" onclick="addSong(${s.id},'${esc(s.title)}')">点歌</button>`;
+    el.appendChild(d);
+  });
+  if(pgEl)pgEl.textContent=`${newestPg+1}/${t} (共${newestSorted.length}首)`;
+}
+function newestPage(d){const t=Math.ceil(newestSorted.length/NEWEST_PG)||1;newestPg=Math.max(0,Math.min(t-1,newestPg+d));renderNewest();}
 let st2;
-function doSearch(q){clearTimeout(st2);st2=setTimeout(async()=>{const songs=await fetch('/api/songs'+(q?`?q=${encodeURIComponent(q)}`:'')).then(r=>r.json());renderSongs(document.getElementById('pl-search'),songs);},220);}
+// 搜歌点歌：之前不管有没有输入关键字，都会一次性把匹配到的全部歌曲(空
+// 关键字=整个曲库)拉回来直接渲染成一整屏 DOM，曲库大了以后明显卡顿。
+// 改成用服务端已经支持的 page/pageSize 分页参数，每页只要10首，翻页时
+// 重新请求那一页，DOM 里同一时间最多只有10行。
+const SEARCH_PG=10;let searchQ='',searchPg=1,searchTotalPages=1;
+function doSearch(q){searchQ=q;searchPg=1;clearTimeout(st2);st2=setTimeout(loadSearchPage,220);}
+async function loadSearchPage(){
+  const params=new URLSearchParams();
+  if(searchQ)params.set('q',searchQ);
+  params.set('page',searchPg);params.set('pageSize',SEARCH_PG);
+  const data=await fetch('/api/songs?'+params.toString()).then(r=>r.json());
+  const items=data.items||[];
+  renderSongs(document.getElementById('pl-search'),items);
+  searchTotalPages=data.totalPages||1;
+  const foot=document.getElementById('search-pg-foot'),info=document.getElementById('search-pg-info');
+  if(data.total){
+    foot.style.display='flex';
+    info.textContent=`${data.page||1}/${searchTotalPages} (共${data.total}首)`;
+  }else{
+    foot.style.display='none';
+  }
+}
+function searchPage(d){searchPg=Math.max(1,Math.min(searchTotalPages,searchPg+d));loadSearchPage();}
 function loadSettings(){document.getElementById('s-host').textContent=location.host;fetch('/api/stats').then(r=>r.json()).then(d=>document.getElementById('s-songs').textContent=d.songCount+'首');}
 async function doScan(){showToast('扫描中…');let d;try{d=await fetch('/api/scan',{method:'POST'}).then(r=>r.json());}catch(e){showToast('⚠️ 扫描请求失败：'+e.message);return;}if(d.error==='MV_DIR_UNAVAILABLE'){showToast('⚠️ 曲库目录暂时无法访问，请检查挂载后重试');return;}if(d.ok===false){showToast('⚠️ 扫描出错：'+(d.error||'未知错误'));return;}showToast(`扫描完成：${d.total}首，新增${d.added}首，移除${d.removed||0}首`);allSongs=[];loadSettings();}
 // 遥控

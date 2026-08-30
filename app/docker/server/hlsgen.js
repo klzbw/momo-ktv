@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn, execFileSync } = require('child_process');
 const log = require('./logger');
+const sourceCache = require('./sourceCache');
 
 // Bug 根本修复（原唱/伴唱切换会从头播放 + 拖进度条失效）：
 // 旧方案在切换音轨时用 ffmpeg 现场把整段视频重新封装成一个新的 MP4 流吐给
@@ -35,6 +36,15 @@ const log = require('./logger');
 //      请求如果撞上"这一片还没转出来"，服务端会短暂轮询等待它出现再响应，
 //      而不是直接 404 或者等全曲转完，从而做到"随出随播"。
 
+// 本次改动（新增 NVIDIA 显卡转码支持）：
+//   在原有 VAAPI（Intel/AMD 核显）硬件加速的基础上，新增一套独立的 NVENC
+//   （NVIDIA 独显/核显）探测与编码路径，两者互不影响、可以共存。优先级为
+//   NVENC > VAAPI > libx264（软件编码）——某台机器上探测到哪个就用哪个，
+//   都探测不到时始终能回退到纯软件编码保证转码不失败。NVIDIA 这条路径要求
+//   宿主机已经安装好 nvidia-container-toolkit 并在 docker 里注册好 nvidia
+//   runtime，这是 docker 层面的前提条件，不是本文件能控制的；如果宿主机
+//   没有装好这些，nvidia-smi 在容器里就会不可用，探测函数会直接判定为
+//   "NVIDIA 硬件加速不可用" 并回退，不会导致转码报错。
 const HLS_DIR = process.env.HLS_DIR || '/data/hls';
 const SEGMENT_TIME = 6; // 秒，只是切片建议值，ffmpeg 仍会在最近的关键帧处切割
 
@@ -86,15 +96,98 @@ async function detectVAAPI() {
     log.info('VAAPI', `核显调用: 成功，自检耗时 ${Date.now() - t0}ms —— 后续转码将优先使用 h264_vaapi 硬件编解码`);
     vaapiState = true;
   } catch (e) {
-    log.warn('VAAPI', `核显调用: 失败，自检未通过（耗时 ${Date.now() - t0}ms），原因: ${e.message.split('\n').pop()} —— 回退到软件编码 (libx264)`);
+    log.warn('VAAPI', `核显调用: 失败，自检未通过（耗时 ${Date.now() - t0}ms），原因: ${lastErrLine(e)} —— 回退到软件编码 (libx264)`);
     vaapiState = false;
   }
   return vaapiState;
 }
 
+// ---------- NVENC（NVIDIA 独显/核显）硬件加速探测 ----------
+// 原理与 VAAPI 探测完全一致：宿主机把 NVIDIA 显卡直通进容器（通过
+// nvidia-container-toolkit 提供的 nvidia runtime）之后，容器里能看到
+// nvidia-smi、libnvidia-encode.so 等，但这些都只代表"驱动可见"，并不代表
+// ffmpeg 真的能调用 h264_nvenc 编码器——同样需要一次最小成本的真实编码自检
+// 才能确保后续歌曲都能直接复用一个可靠的判断结果。
+//
+// 注意：NVIDIA 显卡走的是完全独立于 VAAPI 的一套设备/驱动体系（/dev/nvidia0
+// 等设备节点由 nvidia-container-toolkit 的运行时钩子自动挂载，不是
+// /dev/dri），所以 VAAPI_DEVICE 这个环境变量对 NVIDIA 卡完全不起作用，
+// 二者是两套独立的探测与编码路径，互不影响、可以共存（多显卡/混合部署时
+// 优先用 NVENC，NVENC 不可用再退到 VAAPI，最后才是纯软件编码）。
+let nvencState = null;
+
+async function detectNVENC() {
+  if (nvencState !== null) return nvencState;
+
+  log.info('NVENC', '开始探测 NVIDIA 显卡硬件加速（h264_nvenc）...');
+
+  // NVENC 专用的 ffmpeg-nvenc 二进制只在 amd64 镜像里安装（见 Dockerfile 里
+  // 的架构判断），arm64 上这个文件不存在是正常情况，不代表哪里出了故障。
+  if (!fs.existsSync('/usr/local/bin/ffmpeg-nvenc')) {
+    log.warn('NVENC', 'NVENC 专用的 ffmpeg-nvenc 二进制不存在（预期情况：镜像只在 amd64 架构上安装这份二进制，NVIDIA 显卡目前也基本只出现在 x86_64 平台）—— NVIDIA 硬件加速: 失败');
+    nvencState = false;
+    return false;
+  }
+
+  // 顺带把 nvidia-smi 摘要打进日志，出问题时（比如宿主机没装
+  // nvidia-container-toolkit / 没注册 nvidia runtime / 驱动版本不对）一眼
+  // 就能看出来。nvidia-smi 本身由 nvidia-container-toolkit 在容器启动时
+  // 自动挂载进来，镜像里不需要也不应该自己安装它。
+  try {
+    const info = execFileSync('nvidia-smi', { timeout: 8000 }).toString();
+    const line = info.split('\n').find(l => l.includes('Driver Version')) || info.split('\n')[0];
+    log.info('NVENC', `nvidia-smi 驱动信息: ${(line || '').trim()}`);
+  } catch (e) {
+    log.warn('NVENC', `nvidia-smi 不可用（容器内看不到 NVIDIA 显卡：宿主机可能没装 nvidia-container-toolkit、没在 /etc/docker/daemon.json 注册 nvidia runtime，或者安装/升级时 NVIDIA 相关段落被自动裁掉）—— NVIDIA 硬件加速: 失败`);
+    nvencState = false;
+    return false;
+  }
+
+  const t0 = Date.now();
+  try {
+    await runFFmpeg([
+      '-loglevel', 'error',
+      '-f', 'lavfi', '-i', 'color=black:size=64x64:rate=1',
+      '-frames:v', '1',
+      '-c:v', 'h264_nvenc',
+      '-f', 'null', '-',
+    ], 'ffmpeg-nvenc');
+    log.info('NVENC', `NVIDIA 显卡调用: 成功，自检耗时 ${Date.now() - t0}ms —— 后续转码将优先使用 h264_nvenc 硬件编解码`);
+    nvencState = true;
+  } catch (e) {
+    log.warn('NVENC', `NVIDIA 显卡调用: 失败，自检未通过（耗时 ${Date.now() - t0}ms），原因: ${lastErrLine(e)} —— 回退到 VAAPI（如可用）或 libx264`);
+    nvencState = false;
+  }
+  return nvencState;
+}
+
 // 同一首歌同一时间只允许一个生成任务在跑，避免并发请求把 ffmpeg 打架
 const building = new Map();   // song_id -> Promise（整首歌全部轨道转码完成）
 const buildErrors = new Map(); // song_id -> Error（最近一次转码失败原因）
+
+// 供「曲库管理 - 清理缓存」(cacheCleaner.js) 判断/清理某首歌当前的转码状态，
+// 不需要它自己再维护一份重复的 building/buildErrors。
+function isBuilding(id) {
+  return building.has(id) || building.has(Number(id)) || building.has(String(id));
+}
+function forgetBuildState(id) {
+  building.delete(id); building.delete(Number(id)); building.delete(String(id));
+  buildErrors.delete(id); buildErrors.delete(Number(id)); buildErrors.delete(String(id));
+}
+
+// 「按存储空间限额清理缓存」需要在每次新缓存生成完成后就有机会立刻检查一次
+// 总量是否超限（而不是干等每日一次的定时清理），这里提供一个轻量的订阅点：
+// 谁关心"转码又完成了一首"，就注册一个回调，buildHLS 全部轨道转码成功后会
+// 依次通知。回调本身出错不影响转码流程本身。
+const buildCompleteListeners = [];
+function onBuildComplete(fn) {
+  if (typeof fn === 'function') buildCompleteListeners.push(fn);
+}
+function notifyBuildComplete(songId) {
+  for (const fn of buildCompleteListeners) {
+    try { fn(songId); } catch (e) { log.warn('TRANSCODE', `构建完成回调执行失败(id=${songId}): ${e.message}`); }
+  }
+}
 
 function outDir(id) {
   return path.join(HLS_DIR, String(id));
@@ -132,7 +225,15 @@ function isFresh(id, srcPath) {
 const SAFE_VIDEO_CODECS = new Set(['h264']);
 const SAFE_AUDIO_CODECS = new Set(['aac']);
 
-function probeCodecName(filepath, selector) {
+// Bug修复（同一首歌在不同主机表现不一致的根源之一）：这里以前失败时是纯粹
+// `catch(e){return '';}`——不管是 ffprobe 根本没装/PATH 找不到、文件在慢速
+// NAS/网络共享上读取超时、还是这台机器本身负载太高导致连"起一个 ffprobe
+// 子进程"都要排队超过 15s，日志里看到的都只是统一的"源编码=未知"，完全没法
+//区分"这台机器就是探测失败了"还是"这台机器只是比另一台慢"。现在把真实的
+// 失败原因打进日志（songTag 为空时说明是扫描阶段调用，不打歌曲前缀）；同时
+// 把超时从 15s 放宽到 30s——观察到的现象是负载高的机器上，转码这类正常操作
+// 都可能耗时几十秒，15s 对探测这一步来说太容易被"机器繁忙"误判成"探测失败"。
+function probeCodecName(filepath, selector, songTag) {
   try {
     const out = execFileSync('ffprobe', [
       '-v', 'error',
@@ -140,16 +241,41 @@ function probeCodecName(filepath, selector) {
       '-show_entries', 'stream=codec_name',
       '-of', 'csv=p=0',
       filepath,
-    ], { timeout: 15000 }).toString().trim();
+    ], { timeout: 30000 }).toString().trim();
     return out.split('\n')[0].trim().toLowerCase();
   } catch (e) {
+    log.error('TRANSCODE', `${songTag ? songTag + ' ' : ''}探测源编码失败(${selector})，按"未知编码"处理，走转码兜底: ${lastErrLine(e)}`);
     return ''; // 探测失败时按"未知编码"处理，走转码这条更保险的路径
   }
 }
 
-function runFFmpeg(args) {
+// 从 Error 对象里提取"值得写进日志"的那一段原因描述。
+//
+// 之前各处日志统一用的是 `lastErrLine(e)`——只取按换行拆分后的
+// 最后一段。这在 ffmpeg 报错信息本身干净利落、且不以换行符结尾时没问题；
+// 但实测发现 ffmpeg/vainfo 的 stderr 经常以一个尾随换行符结束，这时候
+// split('\n') 出来的最后一个元素是空字符串——日志里"原因: "后面直接就是
+// 空的，看起来像是"报错了但没有原因"，实际上真正有用的报错内容是倒数第二
+// 行，被这个写法整个吞掉了。VAAPI 那次"核显调用: 失败...原因: "后面一片空白
+// 就是这个 bug 的直接体现。
+// 改成：按换行拆分后先过滤掉空行/纯空白行，再取最后几行（默认3行）拼起来，
+// 这样即使 stderr 末尾有空行，也不会丢失真正有诊断价值的内容；多取几行还能
+// 覆盖"报错信息分布在最后两三行"的情况（比如 ffmpeg 常见的
+// "Unknown encoder ..." 和紧随其后的一行汇总信息）。
+function lastErrLine(err, maxLines = 3) {
+  const msg = (err && err.message) ? String(err.message) : String(err);
+  const lines = msg.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return '(ffmpeg 未输出任何 stderr 内容，可能是启动阶段就失败，比如命令本身不存在或参数非法)';
+  return lines.slice(-maxLines).join(' | ');
+}
+
+// bin 参数：默认用系统 ffmpeg（apt 装的，跟 va-driver-all 的驱动 ABI 一致，
+// VAAPI/libx264 路径全部走这个默认值，不受影响）。NVENC 专用路径会显式传入
+// 'ffmpeg-nvenc'（BtbN 静态编译版，见 Dockerfile 里的说明:两份二进制分开用，
+// 避免 BtbN 内置的 libva 和系统驱动 ABI 不一致导致 VAAPI 失效的问题）。
+function runFFmpeg(args, bin = 'ffmpeg') {
   return new Promise((resolve, reject) => {
-    const ff = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    const ff = spawn(bin, args, { stdio: ['ignore', 'ignore', 'pipe'] });
     let errBuf = '';
     ff.stderr.on('data', d => {
       errBuf += d.toString();
@@ -157,7 +283,7 @@ function runFFmpeg(args) {
     });
     ff.on('close', code => {
       if (code === 0) resolve();
-      else reject(new Error(`ffmpeg exit ${code}: ${errBuf}`));
+      else reject(new Error(`${bin} exit ${code}: ${errBuf}`));
     });
     ff.on('error', reject);
   });
@@ -194,7 +320,7 @@ function hlsOutArgs(segPattern, playlistPath) {
 async function buildVideoRendition(filepath, dir, songTag) {
   const common = ['-loglevel', 'error', '-y', '-i', filepath, '-map', '0:v:0', '-an'];
   const out = hlsOutArgs(path.join(dir, 'video_%04d.ts'), path.join(dir, 'video.m3u8'));
-  const codec = probeCodecName(filepath, 'v:0');
+  const codec = probeCodecName(filepath, 'v:0', songTag);
   const t0 = Date.now();
 
   log.info('TRANSCODE', `${songTag} 视频轨: 源编码=${codec || '未知'}`);
@@ -205,7 +331,38 @@ async function buildVideoRendition(filepath, dir, songTag) {
       log.info('TRANSCODE', `${songTag} 视频轨: 直接封装拷贝(copy)完成，耗时 ${Date.now() - t0}ms，未使用核显`);
       return;
     } catch (e) {
-      log.warn('TRANSCODE', `${songTag} 视频轨: h264 -c copy 仍失败，改为重新编码: ${e.message.split('\n').pop()}`);
+      log.warn('TRANSCODE', `${songTag} 视频轨: h264 -c copy 仍失败，改为重新编码: ${lastErrLine(e)}`);
+    }
+  }
+
+  const useNvenc = await detectNVENC();
+  if (useNvenc) {
+    // Tier 0：NVIDIA 硬解(cuda) + 硬编(h264_nvenc)，两张显卡都可用时优先级
+    // 最高——消费级 NVIDIA 显卡的 NVENC 编码效率通常明显好于核显 VAAPI。
+    const t0b = Date.now();
+    try {
+      await runFFmpeg([
+        '-loglevel', 'error', '-y',
+        '-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda',
+        '-i', filepath, '-map', '0:v:0', '-an',
+        '-c:v', 'h264_nvenc',
+        ...out,
+      ], 'ffmpeg-nvenc');
+      log.info('TRANSCODE', `${songTag} 视频轨: NVIDIA 显卡调用成功(Tier0 硬解+硬编 h264_nvenc)，耗时 ${Date.now() - t0b}ms`);
+      return;
+    } catch (e) {
+      log.warn('TRANSCODE', `${songTag} 视频轨: NVIDIA 硬解+硬编失败(Tier0)，尝试软解+NVENC硬编: ${lastErrLine(e)}`);
+    }
+
+    // Tier 0b：软件解码 + NVENC 硬件编码（兼容 CUDA 解不了的源编码，仍能
+    // 吃到 NVENC 编码加速）。
+    const t0c = Date.now();
+    try {
+      await runFFmpeg([...common, '-c:v', 'h264_nvenc', ...out], 'ffmpeg-nvenc');
+      log.info('TRANSCODE', `${songTag} 视频轨: NVIDIA 显卡调用成功(Tier0b 软解+硬编 h264_nvenc)，耗时 ${Date.now() - t0c}ms`);
+      return;
+    } catch (e) {
+      log.warn('TRANSCODE', `${songTag} 视频轨: NVENC 全部尝试失败，改试 VAAPI(如可用)/libx264: ${lastErrLine(e)}`);
     }
   }
 
@@ -224,7 +381,7 @@ async function buildVideoRendition(filepath, dir, songTag) {
       log.info('TRANSCODE', `${songTag} 视频轨: 核显调用成功(Tier1 硬解+硬编 h264_vaapi)，耗时 ${Date.now() - t1}ms`);
       return;
     } catch (e) {
-      log.warn('TRANSCODE', `${songTag} 视频轨: 核显硬解+硬编失败(Tier1)，尝试软解+硬编(Tier2): ${e.message.split('\n').pop()}`);
+      log.warn('TRANSCODE', `${songTag} 视频轨: 核显硬解+硬编失败(Tier1)，尝试软解+硬编(Tier2): ${lastErrLine(e)}`);
     }
 
     // Tier 2：软件解码 + 硬件编码（兼容硬件解不了的源编码，仍用硬件编码加速）
@@ -240,10 +397,10 @@ async function buildVideoRendition(filepath, dir, songTag) {
       log.info('TRANSCODE', `${songTag} 视频轨: 核显调用成功(Tier2 软解+硬编 h264_vaapi)，耗时 ${Date.now() - t2}ms`);
       return;
     } catch (e) {
-      log.warn('TRANSCODE', `${songTag} 视频轨: 核显调用失败(Tier2 软解+硬编)，回退到纯软件编码(Tier3 libx264): ${e.message.split('\n').pop()}`);
+      log.warn('TRANSCODE', `${songTag} 视频轨: 核显调用失败(Tier2 软解+硬编)，回退到纯软件编码(Tier3 libx264): ${lastErrLine(e)}`);
     }
   } else {
-    log.info('TRANSCODE', `${songTag} 视频轨: 核显不可用，直接使用软件编码(Tier3 libx264)`);
+    log.info('TRANSCODE', `${songTag} 视频轨: NVENC/VAAPI 均不可用，直接使用软件编码(Tier3 libx264)`);
   }
 
   // Tier 3：纯软件编码兜底
@@ -252,13 +409,36 @@ async function buildVideoRendition(filepath, dir, songTag) {
   log.info('TRANSCODE', `${songTag} 视频轨: 软件编码(Tier3 libx264)完成，耗时 ${Date.now() - t3}ms，未使用核显`);
 }
 
+// 探测单音轨源文件的声道数：用于区分"真正的单声道(mono)"(没法做原/伴唱
+// 分离，只能出1条音轨)和"单音轨但源是立体声"(老式声道型 MV，左右声道分别
+// 是伴唱/原唱，能用 pan 滤镜虚拟出2条音轨)。只在 audio_tracks<2 时才需要
+// 探测，真正多音轨的歌不会调用这个函数。探测失败(ffprobe 挂了/文件读取
+// 异常)时保守返回 0，按"没法判定声道数"处理，退回到普通单音轨(不做声道
+// 分离)，不冒险生成语义可能错误的虚拟音轨。
+function probeAudioChannels(filepath, songTag) {
+  try {
+    const out = execFileSync('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'a:0',
+      '-show_entries', 'stream=channels',
+      '-of', 'csv=p=0',
+      filepath,
+    ], { timeout: 30000 }).toString().trim();
+    const n = parseInt(out.split('\n')[0], 10);
+    return Number.isFinite(n) ? n : 0;
+  } catch (e) {
+    log.warn('TRANSCODE', `${songTag ? songTag + ' ' : ''}探测源音频声道数失败，按"无法声道分离"保守处理: ${lastErrLine(e)}`);
+    return 0;
+  }
+}
+
 // 音频轨：只有源编码是 aac 时才 -c copy，其余编码（Opus/Vorbis/FLAC/AC3 等）
 // 直接重新编码为 AAC。音频转码本身 CPU 消耗很低，没有必要也没有硬件通道，
 // 继续用软件编码即可。
 async function buildAudioRendition(filepath, dir, track, songTag) {
   const common = ['-loglevel', 'error', '-y', '-i', filepath, '-map', `0:a:${track}`, '-vn'];
   const out = hlsOutArgs(path.join(dir, `audio${track}_%04d.ts`), path.join(dir, `audio${track}.m3u8`));
-  const codec = probeCodecName(filepath, `a:${track}`);
+  const codec = probeCodecName(filepath, `a:${track}`, songTag);
   const trackName = track === 0 ? '原唱' : track === 1 ? '伴唱' : `音轨${track}`;
   const t0 = Date.now();
   log.info('TRANSCODE', `${songTag} 音轨${track}(${trackName}): 源编码=${codec || '未知'}`);
@@ -268,12 +448,35 @@ async function buildAudioRendition(filepath, dir, track, songTag) {
       log.info('TRANSCODE', `${songTag} 音轨${track}(${trackName}): 直接封装拷贝(copy)完成，耗时 ${Date.now() - t0}ms`);
       return;
     } catch (e) {
-      log.warn('TRANSCODE', `${songTag} 音轨${track}(${trackName}): aac -c copy 仍失败，改为重新编码: ${e.message.split('\n').pop()}`);
+      log.warn('TRANSCODE', `${songTag} 音轨${track}(${trackName}): aac -c copy 仍失败，改为重新编码: ${lastErrLine(e)}`);
     }
   }
   const t1 = Date.now();
   await runFFmpeg([...common, '-c:a', 'aac', '-b:a', '192k', ...out]);
   log.info('TRANSCODE', `${songTag} 音轨${track}(${trackName}): 软件编码(aac)完成，耗时 ${Date.now() - t1}ms`);
+}
+
+// 需求（单音轨自动检测+预解码，供客户端软解切原/伴唱）：
+// 源文件其实只有 0:a:0 这一条真实音频流(audio_tracks<2)，但如果这条流本身
+// 是立体声(2声道)，很可能是老式"声道型"编码——左右声道分别对应伴唱/原唱
+// (跟 TV 端 web/index.html 里 VoiceManager.applyStereo() 处理的是同一类文件，
+// 那边是在浏览器端用 Web Audio 的 ChannelSplitter/Merger 做声道复制)。
+// Android 客户端的 ExoPlayer 没有等价的"运行时声道级处理"能力，只能通过
+// TrackSelectionOverride 在"多条独立音轨"之间切换，所以这里把声道复制这一步
+// 挪到服务端用 ffmpeg 的 pan 滤镜完成，虚拟出两条独立的 HLS 音频渲染，语义
+// 与网页端完全对齐：track 0(原唱)=右声道(c1)复制到左右两声道，
+// track 1(伴唱)=左声道(c0)复制到左右两声道。产出的目录结构(audio0.m3u8/
+// audio1.m3u8)跟"真正的多音轨"完全一样，index.js 路由层和客户端都不需要
+// 关心背后是真实的多音轨还是这里合成出来的。
+async function buildStereoSplitAudioRendition(filepath, dir, track, songTag) {
+  const common = ['-loglevel', 'error', '-y', '-i', filepath, '-map', '0:a:0', '-vn'];
+  const panFilter = track === 0 ? 'pan=stereo|c0=c1|c1=c1' : 'pan=stereo|c0=c0|c1=c0';
+  const out = hlsOutArgs(path.join(dir, `audio${track}_%04d.ts`), path.join(dir, `audio${track}.m3u8`));
+  const trackName = track === 0 ? '原唱' : '伴唱';
+  const t0 = Date.now();
+  log.info('TRANSCODE', `${songTag} 音轨${track}(${trackName}·声道复制虚拟音轨): 源为单音轨立体声，用 pan 滤镜复制${track === 0 ? '右' : '左'}声道到双耳`);
+  await runFFmpeg([...common, '-af', panFilter, '-c:a', 'aac', '-b:a', '192k', ...out]);
+  log.info('TRANSCODE', `${songTag} 音轨${track}(${trackName}·声道复制虚拟音轨): 完成，耗时 ${Date.now() - t0}ms`);
 }
 
 // 立即写出 master.m3u8——它只依赖"这首歌有几条音轨"这个已经存在于数据库里
@@ -297,32 +500,59 @@ function writeMasterPlaylist(dir, trackCount) {
 // 那样排队一条条等——这样多条轨道是同时在产出分片的，进一步缩短"能看到第
 // 一屏画面"所需的时间。全部轨道都转码成功后才写 .complete 标记；任何一条
 // 失败都会被上层捕获记录，方便前端/路由层判断这首歌为什么迟迟出不了片。
-async function buildHLS(song, dir) {
-  const { filepath } = song;
-  const trackCount = Math.max(1, song.audio_tracks || 1);
+// effectiveTrackCount 由调用方(ensureHLS)算好传进来，避免这里重复探测一次
+// 声道数(ensureHLS 为了同步写出 master.m3u8 已经探测过一次了)。
+async function buildHLS(song, dir, effectiveTrackCount, filepath) {
+  const declaredTracks = Math.max(1, song.audio_tracks || 1);
   const songTag = `[歌曲 id=${song.id} "${song.title || song.filename}"]`;
   const t0 = Date.now();
 
-  log.info('TRANSCODE', `${songTag} 开始转码，共 ${trackCount} 条音轨（1=原唱${trackCount >= 2 ? ', 2=伴唱' : ''}）`);
-
   const tasks = [buildVideoRendition(filepath, dir, songTag)];
-  for (let t = 0; t < trackCount; t++) {
-    tasks.push(buildAudioRendition(filepath, dir, t, songTag));
+  if (declaredTracks >= 2) {
+    log.info('TRANSCODE', `${songTag} 开始转码，共 ${declaredTracks} 条真实音轨（1=原唱, 2=伴唱）`);
+    for (let t = 0; t < declaredTracks; t++) {
+      tasks.push(buildAudioRendition(filepath, dir, t, songTag));
+    }
+  } else if (effectiveTrackCount >= 2) {
+    log.info('TRANSCODE', `${songTag} 单音轨但源为立体声，按"声道型"虚拟出2条音轨(声道复制：0=原唱=右声道，1=伴唱=左声道)，供软解(HLS)模式下原/伴唱切换`);
+    tasks.push(buildStereoSplitAudioRendition(filepath, dir, 0, songTag));
+    tasks.push(buildStereoSplitAudioRendition(filepath, dir, 1, songTag));
+  } else {
+    log.info('TRANSCODE', `${songTag} 开始转码，共 1 条音轨（单声道，无法声道分离）`);
+    tasks.push(buildAudioRendition(filepath, dir, 0, songTag));
   }
   try {
     await Promise.all(tasks);
   } catch (e) {
-    log.error('TRANSCODE', `${songTag} 转码失败，总耗时 ${Date.now() - t0}ms，原因: ${e.message.split('\n').pop()}`);
+    log.error('TRANSCODE', `${songTag} 转码失败，总耗时 ${Date.now() - t0}ms，原因: ${lastErrLine(e)}`);
     throw e;
   }
 
   fs.writeFileSync(completeMarkerPath(song.id), String(Date.now()));
   log.info('TRANSCODE', `${songTag} 全部轨道转码完成，总耗时 ${Date.now() - t0}ms`);
+  notifyBuildComplete(song.id);
 }
 
 async function ensureHLS(song) {
-  const { id, filepath } = song;
+  const { id } = song;
   const songTag = `[歌曲 id=${id} "${song.title || song.filename}"]`;
+  // 需求(网盘先缓存到本地再探测/播放)：网络挂载曲库的歌，转码源文件优先用
+  // 本地缓存副本(如果已经缓存好)，没缓存好就暂时用网络路径兜底(同时后台
+  // 已经在悄悄补缓存了，见 sourceCache.resolvePlaybackPath())，本地曲库的歌
+  // 完全不受影响、还是原来的 filepath。
+  let { path: filepath } = sourceCache.resolvePlaybackPath(song);
+
+  // 需求(网盘STRM支持)：STRM 曲目没有"网络路径兜底"可用(filepath 只是一个
+  // 本地 .strm 文本指针文件，不是可以直接丢给 ffmpeg 的媒体文件)，
+  // resolvePlaybackPath() 在这种情况下会返回 path: null，同时已经在后台
+  // 触发了一次 ensureCached()。ensureHLS() 本来就是"这首歌现在要播放，等它
+  // 转码好"的场景(调用方要么是后台预热、要么是真正的 /hls 请求)，这里选择
+  // 直接 await 一次 ensureCached() 等缓存落地，而不是像硬解直传(/stream)那样
+  // 直接 404——转码本来就要等，等的时候顺便把源文件缓存这一步也一起等掉，
+  // 用户感知上只是"转码稍微多花了下载这首歌的时间"，不会多一次失败。
+  if (!filepath) {
+    filepath = await sourceCache.ensureCached(song.id, sourceCache.resolveSourceInput(song.filepath));
+  }
 
   if (isFresh(id, filepath)) {
     log.info('TRANSCODE', `${songTag} 命中已转码缓存，直接复用，不重新转码`);
@@ -341,13 +571,33 @@ async function ensureHLS(song) {
     const dir = outDir(id);
     fs.rmSync(dir, { recursive: true, force: true });
     fs.mkdirSync(dir, { recursive: true });
-    writeMasterPlaylist(dir, Math.max(1, song.audio_tracks || 1));
+    const declaredTracks = Math.max(1, song.audio_tracks || 1);
+    // 单音轨时探测一次源音频声道数，决定 master.m3u8 到底要声明1条还是2条
+    // (声道型虚拟)音轨。这次探测是一次很轻量的 ffprobe 元数据查询(不是
+    // 转码本身)，放在这里同步做一次不会拖慢"渐进式"设计追求的"立刻返回
+    // master.m3u8"目标；结果顺带传给 buildHLS()，避免重复探测。
+    const effectiveTrackCount = declaredTracks >= 2 ? declaredTracks : (probeAudioChannels(filepath, songTag) >= 2 ? 2 : 1);
+    writeMasterPlaylist(dir, effectiveTrackCount);
     buildErrors.delete(id);
 
-    const p = buildHLS(song, dir)
+    const p = buildHLS(song, dir, effectiveTrackCount, filepath)
       .catch(e => { buildErrors.set(id, e); throw e; })
       .finally(() => building.delete(id));
     building.set(id, p);
+    // Bug修复("容器无限重启"：网盘/网络挂载路径下源文件偶发访问不到导致
+    // 转码失败，进而整个容器崩溃重启死循环)：
+    // 上面这条链最终还是一个 rejected 的 Promise，但它只是被存进
+    // building 这个 Map 待查(isBuilding()/清理逻辑用)，从来没有人真正
+    // await 或 .catch() 过它本身——错误信息走的是 buildErrors 这条单独的
+    // 路(waitForFile() 轮询消费)。这意味着 p 是一个彻头彻尾的"未处理
+    // rejected promise"：Node 20 默认策略是遇到 unhandledRejection 直接
+    // 终止整个进程；容器 restart:unless-stopped 又会把它拉起来，队列里
+    // 那首失败的歌还在，预热转码再次触发、再次失败、再次崩溃——无限重启
+    // 循环。这里补一个空 catch，只是让 p 这个 Promise"被处理过"，错误
+    // 本身依然会通过 buildErrors 记录、被上面的 .catch(e=>{...}) 正常
+    // 日志输出，不会被吞掉，只是不再让它以"未处理 rejection"的身份去
+    // 撞 Node 的默认终止进程行为。
+    p.catch(() => {});
     // 不 await —— 让转码在后台继续跑，函数立刻返回
   }
 
@@ -480,10 +730,18 @@ function scheduleHLSCleanup(getValidSongIds) {
 }
 
 if (!fs.existsSync(HLS_DIR)) fs.mkdirSync(HLS_DIR, { recursive: true });
-// 启动时预热一次 VAAPI 自检，避免第一首点歌的用户额外多等这一次探测的耗时。
+// 启动时预热一次硬件加速自检，避免第一首点歌的用户额外多等这一次探测的耗时。
+// 先探测 NVENC 再探测 VAAPI，与 buildVideoRendition 里的优先级顺序保持一致。
+log.info('NVENC', '服务启动，开始预热 NVIDIA 显卡自检...');
+detectNVENC().then(ok => {
+  log.info('NVENC', `预热完成，NVIDIA 硬件加速当前${ok ? '可用' : '不可用'}`);
+}).catch(() => {});
 log.info('VAAPI', '服务启动，开始预热核显自检...');
 detectVAAPI().then(ok => {
   log.info('VAAPI', `预热完成，核显硬件加速当前${ok ? '可用' : '不可用'}`);
 }).catch(() => {});
 
-module.exports = { ensureHLS, removeHLS, outDir, HLS_DIR, waitForFile, cleanupExpiredHLS, scheduleHLSCleanup };
+module.exports = {
+  ensureHLS, removeHLS, outDir, HLS_DIR, waitForFile, cleanupExpiredHLS, scheduleHLSCleanup,
+  isBuilding, forgetBuildState, onBuildComplete,
+};
