@@ -462,37 +462,46 @@ async function buildAudioBackgroundRendition(song, dir, durSec, songTag) {
   const out = hlsOutArgs(path.join(dir, 'video_%04d.ts'), path.join(dir, 'video.m3u8'));
   const dur = Number.isFinite(durSec) && durSec > 0 ? String(Math.round(durSec * 10) / 10) : null;
   const t0 = Date.now();
-  const fitVf = 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30,format=yuv420p';
-  const enc = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-g', '120'];
-
+  const W = 1920, H = 1080, FPS = 30;
   const bg = pickBackgroundVideo();
-  if (bg) {
-    const args = ['-loglevel', 'error', '-y', '-stream_loop', '-1', '-i', bg];
-    if (dur) args.push('-t', dur);
-    args.push('-an', '-vf', fitVf, ...enc, ...out);
-    try {
-      await runFFmpeg(args);
-      log.info('TRANSCODE', `${songTag} 纯音频背景轨: 使用随机背景视频(${path.basename(bg)})，耗时 ${Date.now() - t0}ms`);
-      return;
-    } catch (e) {
-      log.warn('TRANSCODE', `${songTag} 纯音频背景轨: 背景视频生成失败，改用内置流动渐变: ${lastErrLine(e)}`);
+  // 背景源优先级：用户背景视频(循环) > 内置流动渐变 > 静态深色，逐级回退
+  const sources = [];
+  if (bg) sources.push({ kind: 'bg视频:' + path.basename(bg), input: ['-stream_loop', '-1', '-i', bg], fit: true });
+  sources.push({ kind: '流动渐变', input: ['-f', 'lavfi', '-i', `gradients=size=${W}x${H}:rate=${FPS}:c0=0x141428:c1=0x33265c:speed=0.02`], fit: false });
+  sources.push({ kind: '静态深色', input: ['-f', 'lavfi', '-i', `color=c=0x141428:size=${W}x${H}:rate=${FPS}`], fit: false });
+
+  const useVaapi = await detectVAAPI();
+  let lastErr = null;
+  for (const s of sources) {
+    // 方案一：VAAPI 硬件编码（NAS 核显），软生成/解码出的帧 format=nv12,hwupload 送上 GPU
+    if (useVaapi) {
+      try {
+        const vf = s.fit
+          ? `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black,fps=${FPS},format=nv12,hwupload`
+          : 'format=nv12,hwupload';
+        const args = ['-loglevel', 'error', '-y', '-vaapi_device', VAAPI_DEVICE, ...s.input];
+        if (dur) args.push('-t', dur);
+        args.push('-an', '-vf', vf, '-c:v', 'h264_vaapi', '-g', '120', ...out);
+        await runFFmpeg(args);
+        log.info('TRANSCODE', `${songTag} 纯音频背景轨(${s.kind},VAAPI硬编1080p)完成，耗时 ${Date.now() - t0}ms`);
+        return;
+      } catch (e) { lastErr = e; log.warn('TRANSCODE', `${songTag} 背景轨 VAAPI 失败(${s.kind})，回退软编: ${lastErrLine(e)}`); }
     }
+    // 方案二：libx264 软件编码，背景是氛围画面降到 720p/25fps + ultrafast 显著减 CPU
+    try {
+      const SW = 1280, SH = 720;
+      const vf = s.fit
+        ? `scale=${SW}:${SH}:force_original_aspect_ratio=decrease,pad=${SW}:${SH}:(ow-iw)/2:(oh-ih)/2:black,fps=25,format=yuv420p`
+        : `scale=${SW}:${SH},format=yuv420p`;
+      const args = ['-loglevel', 'error', '-y', ...s.input];
+      if (dur) args.push('-t', dur);
+      args.push('-an', '-vf', vf, '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-g', '100', ...out);
+      await runFFmpeg(args);
+      log.info('TRANSCODE', `${songTag} 纯音频背景轨(${s.kind},软编720p)完成，耗时 ${Date.now() - t0}ms`);
+      return;
+    } catch (e) { lastErr = e; log.warn('TRANSCODE', `${songTag} 背景轨软编也失败(${s.kind})，尝试下一背景源: ${lastErrLine(e)}`); }
   }
-  // 内置流动渐变（ffmpeg 4.4+ 的 gradients source，bookworm 的 ffmpeg 5.x 支持）
-  const grad = 'gradients=size=1920x1080:rate=30:c0=0x141428:c1=0x33265c:speed=0.02';
-  const gArgs = ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', grad];
-  if (dur) gArgs.push('-t', dur);
-  gArgs.push('-an', '-vf', 'format=yuv420p', ...enc, ...out);
-  try {
-    await runFFmpeg(gArgs);
-    log.info('TRANSCODE', `${songTag} 纯音频背景轨: 内置流动渐变完成，耗时 ${Date.now() - t0}ms`);
-  } catch (e) {
-    log.warn('TRANSCODE', `${songTag} 纯音频背景轨: gradients 不可用，改用静态深色: ${lastErrLine(e)}`);
-    const cArgs = ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=0x141428:size=1920x1080:rate=30'];
-    if (dur) cArgs.push('-t', dur);
-    cArgs.push('-an', ...enc, ...out);
-    await runFFmpeg(cArgs);
-  }
+  throw lastErr || new Error('纯音频背景轨所有方案均失败');
 }
 
 // 探测单音轨源文件的声道数：用于区分"真正的单声道(mono)"(没法做原/伴唱
