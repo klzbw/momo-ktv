@@ -459,101 +459,115 @@ app.post('/api/queue/next', (req, res) => {
   broadcastQueue(); res.json({ ok: true });
 });
 
-// ---------- WebSocket ----------
+// ---------- WebSocket（统一入口，按 path 分发：/ws 队列广播，/mic 手机麦克风）----------
+// 修复：两个 WebSocketServer({server,path}) 挂在同一 http server 上时，先注册的
+// 实例会对不匹配 path 的 upgrade 请求直接 abortHandshake(400) 并销毁 socket，导致
+// 后注册的 /mic 永远拿不到连接（直连 /mic 也返回 400）。改为单一无 path 的实例，
+// 在 connection 里按 pathname 分发，彻底避免互相干扰。
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ server });
 
 function broadcastQueue() {
   const payload = JSON.stringify({ type: 'queue', data: getQueueWithSongs() });
-  wss.clients.forEach(c => { if (c.readyState === 1) c.send(payload); });
+  wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(payload); });
 }
 
-wss.on('connection', ws => {
-  ws.send(JSON.stringify({ type: 'queue', data: getQueueWithSongs() }));
-  ws.on('message', msg => {
-    try {
-      const p = JSON.parse(msg);
-      if (p.type === 'control')
-        wss.clients.forEach(c => { if (c.readyState === 1) c.send(JSON.stringify(p)); });
-    } catch(e) {}
-  });
-});
-
-// ---------- 手机麦克风实时音频通道 (/mic) ----------
-// role=mic：手机，采集麦克风后把 PCM 二进制帧上行；role=tv：Apple TV，接收并播放。
-// 手机经 Lucky 的 https 域名(wss)接入以满足浏览器安全上下文要求，电视在局域网
-// 用 ws 直连；二者最终落在同一个 Node 进程，由这里把手机音频转发给电视。
-// 当前版本只支持一部手机当麦（第二部分机收到 busy），保证电视端单路解码最简单可靠。
-const micWss = new WebSocketServer({ server, path: '/mic' });
+// 手机麦克风通道状态
 let activeMic = null; // 当前唯一在推流的手机连接
-
 function micSendJSON(ws, obj) {
   if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(obj)); } catch (e) {} }
 }
 function micPresence() {
   let tvs = 0;
-  micWss.clients.forEach(c => { if (c._role === 'tv' && c.readyState === 1) tvs++; });
+  wss.clients.forEach(c => { if (c._channel === 'mic' && c._role === 'tv' && c.readyState === 1) tvs++; });
   const payload = JSON.stringify({ type: 'presence', phones: activeMic ? 1 : 0, tvs });
-  micWss.clients.forEach(c => { if (c.readyState === 1) { try { c.send(payload); } catch (e) {} } });
+  wss.clients.forEach(c => { if (c._channel === 'mic' && c.readyState === 1) { try { c.send(payload); } catch (e) {} } });
 }
 
-micWss.on('connection', (ws, req) => {
-  let role = 'mic';
-  try {
-    const u = new URL(req.url, 'http://localhost');
-    if (u.searchParams.get('role') === 'tv') role = 'tv';
-  } catch (e) {}
-  ws._role = role;
-  ws.isAlive = true;
-  ws.on('pong', () => { ws.isAlive = true; });
+wss.on('connection', (ws, req) => {
+  let pathname = '/';
+  try { pathname = new URL(req.url, 'http://localhost').pathname; } catch (e) {}
 
-  if (role === 'mic') {
-    if (activeMic && activeMic !== ws && activeMic.readyState === 1) {
-      // 已有手机在当麦：告诉新连接当前忙碌（保持连接用于展示状态，但不转发其音频）
-      micSendJSON(ws, { type: 'busy', message: '已有一部手机正在使用麦克风' });
-    } else {
-      activeMic = ws;
-    }
+  // ===== /ws：点歌队列广播通道 =====
+  if (pathname === '/ws') {
+    ws._channel = 'ws';
+    ws.send(JSON.stringify({ type: 'queue', data: getQueueWithSongs() }));
+    ws.on('message', msg => {
+      try {
+        const p = JSON.parse(msg);
+        if (p.type === 'control')
+          wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(JSON.stringify(p)); });
+      } catch(e) {}
+    });
+    return;
   }
 
-  micSendJSON(ws, { type: 'hello', role, phones: activeMic ? 1 : 0 });
-  micPresence();
+  // ===== /mic：手机麦克风实时音频通道（role=mic 手机上行，role=tv 电视接收播放）=====
+  // 手机经 Lucky 的 https 域名(wss)接入以满足浏览器安全上下文要求，电视在局域网
+  // 用 ws 直连；二者最终落在同一个 Node 进程，由这里把手机音频转发给电视。
+  // 当前版本只支持一部手机当麦（第二部分机收到 busy），保证电视端单路解码最简单可靠。
+  if (pathname === '/mic') {
+    ws._channel = 'mic';
+    let role = 'mic';
+    try {
+      const u = new URL(req.url, 'http://localhost');
+      if (u.searchParams.get('role') === 'tv') role = 'tv';
+    } catch (e) {}
+    ws._role = role;
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
 
-  ws.on('message', (data, isBinary) => {
-    if (ws._role !== 'mic' || activeMic !== ws) return; // 只转发当前活动手机
-    if (isBinary) {
-      // PCM 音频帧：原样转发给所有电视端
-      micWss.clients.forEach(c => {
-        if (c._role === 'tv' && c.readyState === 1) { try { c.send(data); } catch (e) {} }
-      });
-    } else {
-      // 信令 JSON（config 采样率、level 电平、stop 等）：转发给电视端
-      try {
-        const p = JSON.parse(data.toString());
-        const s = JSON.stringify(p);
-        micWss.clients.forEach(c => {
-          if (c._role === 'tv' && c.readyState === 1) { try { c.send(s); } catch (e) {} }
-        });
-      } catch (e) {}
+    if (role === 'mic') {
+      if (activeMic && activeMic !== ws && activeMic.readyState === 1) {
+        micSendJSON(ws, { type: 'busy', message: '已有一部手机正在使用麦克风' });
+      } else {
+        activeMic = ws;
+      }
     }
-  });
 
-  ws.on('close', () => {
-    if (activeMic === ws) activeMic = null;
+    micSendJSON(ws, { type: 'hello', role, phones: activeMic ? 1 : 0 });
     micPresence();
-  });
-  ws.on('error', () => { try { ws.terminate(); } catch (e) {} });
+
+    ws.on('message', (data, isBinary) => {
+      if (ws._role !== 'mic' || activeMic !== ws) return; // 只转发当前活动手机
+      if (isBinary) {
+        // PCM 音频帧：原样转发给所有电视端
+        wss.clients.forEach(c => {
+          if (c._channel === 'mic' && c._role === 'tv' && c.readyState === 1) { try { c.send(data); } catch (e) {} }
+        });
+      } else {
+        // 信令 JSON（config 采样率、level 电平、stop 等）：转发给电视端
+        try {
+          const p = JSON.parse(data.toString());
+          const s = JSON.stringify(p);
+          wss.clients.forEach(c => {
+            if (c._channel === 'mic' && c._role === 'tv' && c.readyState === 1) { try { c.send(s); } catch (e) {} }
+          });
+        } catch (e) {}
+      }
+    });
+
+    ws.on('close', () => {
+      if (activeMic === ws) activeMic = null;
+      micPresence();
+    });
+    ws.on('error', () => { try { ws.terminate(); } catch (e) {} });
+    return;
+  }
+
+  // 其他 path：拒绝
+  ws.close();
 });
 
 // 心跳：30s 一轮清理半开连接，避免手机杀后台后电视端一直误显示"手机在线"
 const micPing = setInterval(() => {
-  micWss.clients.forEach(ws => {
+  wss.clients.forEach(ws => {
+    if (ws._channel !== 'mic') return;
     if (ws.isAlive === false) { try { ws.terminate(); } catch (e) {} return; }
     ws.isAlive = false;
     try { ws.ping(); } catch (e) {}
   });
 }, 30000);
-micWss.on('close', () => clearInterval(micPing));
 
 server.listen(PORT, () => {
   log.info('SERVER', `KTV 服务已启动: http://0.0.0.0:${PORT}`);
