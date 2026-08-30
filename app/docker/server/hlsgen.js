@@ -463,22 +463,26 @@ async function buildAudioBackgroundRendition(song, dir, durSec, songTag) {
   const dur = Number.isFinite(durSec) && durSec > 0 ? String(Math.round(durSec * 10) / 10) : null;
   const t0 = Date.now();
   const W = 1920, H = 1080, FPS = 30;
+  // 实测瓶颈在 gradients 滤镜逐像素生成速度(1080p 仅约1x实时、480p 约4.4x、静态约8x)，
+  // 与编码器无关。渐变是柔和色块，低分辨率生成再放大几乎无观感损失，因此内置源用
+  // 480p 生成、在滤镜链里 scale 上变换到输出分辨率，把生成速度提上来。
+  const GW = 854, GH = 480;
   const bg = pickBackgroundVideo();
   // 背景源优先级：用户背景视频(循环) > 内置流动渐变 > 静态深色，逐级回退
   const sources = [];
   if (bg) sources.push({ kind: 'bg视频:' + path.basename(bg), input: ['-stream_loop', '-1', '-i', bg], fit: true });
-  sources.push({ kind: '流动渐变', input: ['-f', 'lavfi', '-i', `gradients=size=${W}x${H}:rate=${FPS}:c0=0x141428:c1=0x33265c:speed=0.02`], fit: false });
-  sources.push({ kind: '静态深色', input: ['-f', 'lavfi', '-i', `color=c=0x141428:size=${W}x${H}:rate=${FPS}`], fit: false });
+  sources.push({ kind: '流动渐变', input: ['-f', 'lavfi', '-i', `gradients=size=${GW}x${GH}:rate=${FPS}:c0=0x141428:c1=0x33265c:speed=0.02`], fit: false });
+  sources.push({ kind: '静态深色', input: ['-f', 'lavfi', '-i', `color=c=0x141428:size=${GW}x${GH}:rate=${FPS}`], fit: false });
 
   const useVaapi = await detectVAAPI();
   let lastErr = null;
   for (const s of sources) {
-    // 方案一：VAAPI 硬件编码（NAS 核显），软生成/解码出的帧 format=nv12,hwupload 送上 GPU
+    // 方案一：VAAPI 硬件编码（NAS 核显）。用户视频走缩放补边；内置低分辨率源上变换到 1080p
     if (useVaapi) {
       try {
         const vf = s.fit
           ? `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:black,fps=${FPS},format=nv12,hwupload`
-          : 'format=nv12,hwupload';
+          : `scale=${W}:${H}:flags=fast_bilinear,format=nv12,hwupload`;
         const args = ['-loglevel', 'error', '-y', '-vaapi_device', VAAPI_DEVICE, ...s.input];
         if (dur) args.push('-t', dur);
         args.push('-an', '-vf', vf, '-c:v', 'h264_vaapi', '-g', '120', ...out);
@@ -487,12 +491,12 @@ async function buildAudioBackgroundRendition(song, dir, durSec, songTag) {
         return;
       } catch (e) { lastErr = e; log.warn('TRANSCODE', `${songTag} 背景轨 VAAPI 失败(${s.kind})，回退软编: ${lastErrLine(e)}`); }
     }
-    // 方案二：libx264 软件编码，背景是氛围画面降到 720p/25fps + ultrafast 显著减 CPU
+    // 方案二：libx264 软件编码，内置源 480p 生成上变换到 720p（实测约4x实时），用户视频补边到 720p
     try {
       const SW = 1280, SH = 720;
       const vf = s.fit
         ? `scale=${SW}:${SH}:force_original_aspect_ratio=decrease,pad=${SW}:${SH}:(ow-iw)/2:(oh-ih)/2:black,fps=25,format=yuv420p`
-        : `scale=${SW}:${SH},format=yuv420p`;
+        : `scale=${SW}:${SH}:flags=fast_bilinear,format=yuv420p`;
       const args = ['-loglevel', 'error', '-y', ...s.input];
       if (dur) args.push('-t', dur);
       args.push('-an', '-vf', vf, '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23', '-g', '100', ...out);
