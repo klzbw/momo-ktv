@@ -598,10 +598,12 @@ struct ContentView: View {
     /// announced via role_announce on WS connect) and broadcasts it to all
     /// controllers — mobile remote then interpolates for its progress bar.
     private func setupProgressReporting() {
-        playerManager.onProgressReport = { [weak self] currentTime, paused, voice in
-            guard let self = self else { return }
-            let playing = self.api.queue.first(where: { $0.isPlaying })
-            self.api.sendProgress(queueId: playing?.queue_id, currentTime: currentTime, paused: paused, voice: voice)
+        // ContentView is a struct (value type), so [weak self] is not allowed.
+        // Capture api (a class instance) directly instead.
+        let apiRef = api
+        playerManager.onProgressReport = { currentTime, paused, voice in
+            let playing = apiRef.queue.first(where: { $0.isPlaying })
+            apiRef.sendProgress(queueId: playing?.queue_id, currentTime: currentTime, paused: paused, voice: voice)
         }
     }
 
