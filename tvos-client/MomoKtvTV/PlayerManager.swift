@@ -1,0 +1,226 @@
+import AVFoundation
+import UIKit
+
+/// Shared player manager - holds a single AVPlayer and AVPlayerLayer.
+/// The layer moves between small preview and fullscreen views via currentHostView.
+class PlayerManager: ObservableObject {
+    static let shared = PlayerManager()
+
+    @Published var currentTime: Double = 0
+    @Published var duration: Double = 0
+    @Published var isPlaying: Bool = false
+    @Published var currentSongId: Int?
+    @Published var isOriginalVoice: Bool = true
+    var onPlaybackEnd: (() -> Void)?
+
+    private(set) var player: AVPlayer?
+    private(set) var playerLayer: AVPlayerLayer?
+    /// Current host view that displays the player layer
+    weak var currentHostView: UIView?
+
+    private var timeObserver: Any?
+    private var statusObserver: NSKeyValueObservation?
+    private var itemStatusObserver: NSKeyValueObservation?
+    private var endObserver: NSObjectProtocol?
+
+    /// Voice toggle generation. Every toggle / new song increments it so that
+    /// delayed retry blocks from a previous toggle are invalidated and cannot
+    /// fight the newer selection (root cause of the multi-click + stutter bug).
+    private var voiceGeneration: Int = 0
+
+    private init() {}
+
+    func setupPlayer(for url: URL) {
+        if let existingURL = (player?.currentItem?.asset as? AVURLAsset)?.url,
+           existingURL == url {
+            attachLayerToCurrentHost()
+            return
+        }
+
+        cleanup()
+
+        // New song defaults to original voice (track 0), matching web _loadedTrack = 0
+        isOriginalVoice = true
+        voiceGeneration += 1
+
+        let playerItem = AVPlayerItem(url: url)
+        let player = AVPlayer(playerItem: playerItem)
+        self.player = player
+
+        let layer = AVPlayerLayer(player: player)
+        layer.videoGravity = .resizeAspect
+        self.playerLayer = layer
+
+        // Auto-attach to current host view
+        attachLayerToCurrentHost()
+
+        // Time observer
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self] time in
+            self?.currentTime = time.seconds
+            if let dur = player.currentItem?.duration.seconds, !dur.isNaN {
+                self?.duration = dur
+            }
+        }
+
+        // Rate observer
+        statusObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                self?.isPlaying = player.timeControlStatus == .playing
+            }
+        }
+
+        // Item status observer - apply voice mode when item is ready to play
+        // (HLS audio renditions are not available until the item is ready)
+        itemStatusObserver = playerItem.observe(\.status, options: [.new]) { [weak self] _, _ in
+            if playerItem.status == .readyToPlay {
+                DispatchQueue.main.async {
+                    self?.applyVoiceMode()
+                }
+            }
+        }
+
+        // Playback end observer
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: playerItem,
+            queue: .main
+        ) { [weak self] _ in
+            self?.onPlaybackEnd?()
+        }
+
+        player.play()
+        isPlaying = true
+
+        // Apply voice mode immediately (may no-op if tracks not loaded yet;
+        // the itemStatusObserver + retries will pick it up)
+        applyVoiceMode()
+    }
+
+    /// Attach player layer to the current host view
+    func attachLayerToCurrentHost() {
+        guard let layer = playerLayer, let host = currentHostView else { return }
+        if layer.superlayer != host.layer {
+            layer.removeFromSuperlayer()
+            host.layer.addSublayer(layer)
+        }
+        layer.frame = host.bounds
+    }
+
+    /// Update layer frame when host view layout changes
+    func updateLayerFrame() {
+        guard let layer = playerLayer, let host = currentHostView else { return }
+        layer.frame = host.bounds
+    }
+
+    func play() {
+        player?.play()
+        isPlaying = true
+    }
+
+    func pause() {
+        player?.pause()
+        isPlaying = false
+    }
+
+    func togglePlayPause() {
+        guard let player = player else { return }
+        if player.timeControlStatus == .playing {
+            pause()
+        } else {
+            play()
+        }
+    }
+
+    func seek(to seconds: Double) {
+        player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
+        currentTime = seconds
+    }
+
+    func restart() {
+        seek(to: 0)
+        play()
+    }
+
+    func setVolume(_ volume: Float) {
+        player?.volume = volume
+    }
+
+    // MARK: - Voice Toggle (Original / Accompaniment)
+    var currentAudioTracks: Int = 1
+
+    func toggleVoice() {
+        isOriginalVoice.toggle()
+        voiceGeneration += 1
+        applyVoiceMode()
+    }
+
+    func setVoiceMode(_ original: Bool) {
+        isOriginalVoice = original
+        voiceGeneration += 1
+        applyVoiceMode()
+    }
+
+    private func applyVoiceMode() {
+        guard let playerItem = player?.currentItem else { return }
+        let gen = voiceGeneration
+
+        // Try immediately. trySelectAudioTrack reads the current
+        // isOriginalVoice fresh on every call, so it never acts on a stale target.
+        trySelectAudioTrack(for: playerItem)
+
+        // Retry as HLS audio tracks load asynchronously. Fewer, longer-spaced
+        // attempts than before to avoid re-triggering audio rendition loads
+        // (which caused stutter). Each retry checks voiceGeneration so that a
+        // newer toggle cancels all stale retries.
+        let delays: [Double] = [0.5, 1.5, 3.0]
+        for delay in delays {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self = self,
+                      self.voiceGeneration == gen,
+                      let item = self.player?.currentItem else { return }
+                self.trySelectAudioTrack(for: item)
+            }
+        }
+    }
+
+    private func trySelectAudioTrack(for playerItem: AVPlayerItem) {
+        guard let audioGroup = playerItem.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) else { return }
+        let options = audioGroup.options
+        guard !options.isEmpty else { return }
+
+        // track 0 = original, track 1 = accompaniment (matches web hls.audioTrack).
+        // Computed from the CURRENT isOriginalVoice every call — never captured.
+        let targetIndex = isOriginalVoice ? 0 : min(1, options.count - 1)
+        guard options.count > targetIndex else { return }
+        let targetOption = options[targetIndex]
+
+        if playerItem.selectedMediaOption(in: audioGroup) != targetOption {
+            playerItem.select(targetOption, in: audioGroup)
+        }
+    }
+
+    func cleanup() {
+        if let observer = timeObserver {
+            player?.removeTimeObserver(observer)
+            timeObserver = nil
+        }
+        statusObserver?.invalidate()
+        statusObserver = nil
+        itemStatusObserver?.invalidate()
+        itemStatusObserver = nil
+        if let endObserver = endObserver {
+            NotificationCenter.default.removeObserver(endObserver)
+            self.endObserver = nil
+        }
+        playerLayer?.removeFromSuperlayer()
+        playerLayer = nil
+        player?.pause()
+        player = nil
+        isPlaying = false
+        currentTime = 0
+        duration = 0
+    }
+}

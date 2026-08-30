@@ -1,0 +1,38 @@
+version: "3.8"
+services:
+  momo-ktv:
+    # 自己的镜像：由本仓库 GitHub Actions 构建后推送到 GHCR。
+    # 飞牛 NAS 上无需源码、无需本地构建，直接 pull 即可运行。
+    image: ghcr.io/klzbw/momo-ktv:latest
+    container_name: momo-ktv
+    restart: unless-stopped
+    # 宿主机固定 8083 端口，容器内部固定 8080，保持与旧版一致，反代无需改动。
+    ports:
+      - "8083:8080"
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=8080
+      - DATA_DIR=/data
+      - MV_DIR=/mv
+      # VAAPI 渲染节点路径，容器内代码据此判断硬件加速是否可用；与下面
+      # devices 段落是否被安装脚本裁掉保持一致（宿主机没有核显/独显时，
+      # cmd/install_init、cmd/upgrade_init 会自动删掉 devices 段落）。
+      - VAAPI_DEVICE=/dev/dri/renderD128
+      # HLS 缓存每日清理：距上次转码完成超过这个天数、且最近未被重新点唱的
+      # 缓存会被自动清理释放磁盘空间，源 MV 文件不受影响，下次点唱会重新生成。
+      - HLS_CACHE_MAX_AGE_DAYS=3
+    volumes:
+      # 数据库/封面与 MV 曲库统一放在飞牛默认共享目录下的 momo-ktv 子目录
+      - /vol1/@appshare/momo-ktv/data:/data    # 数据库/封面持久化
+      - /vol1/@appshare/momo-ktv/mv:/mv        # MV 曲库文件
+    # VAAPI_DEVICES_BEGIN
+    # 直通宿主机的 DRI 渲染节点，供 ffmpeg 使用 h264_vaapi 做硬件编解码。
+    # 注意：如果宿主机没有 /dev/dri（纯软件环境/无核显的老机器），
+    # `docker compose up` 会因为设备不存在而直接报错退出，因此这整段
+    # (含 devices: 键) 是否保留在最终生效的 docker-compose.yml 里，由
+    # cmd/install_init 和 cmd/upgrade_init 在真实宿主机上安装/升级时
+    # 动态探测决定：探测不到 /dev/dri/renderD128 就会把这段一起删掉，
+    # 保证没有硬件加速的机器应用依然能正常启动（仅走软件转码）。
+    devices:
+      - /dev/dri:/dev/dri
+    # VAAPI_DEVICES_END

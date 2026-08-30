@@ -1,0 +1,30 @@
+{
+    "docker-project":
+    {
+        "projects":
+        [
+            {
+                "name": "momo-ktv",
+                "path": "docker"
+            }
+        ]
+    },
+    "data-share":
+    {
+        "shares":
+        [
+            {
+                "name": "momo-ktv",
+                "permission":{"rw":["docker-momo-ktv"]}
+            },
+            {
+                "name": "momo-ktv/data",
+                "permission":{"rw":["docker-momo-ktv"]}
+            },
+            {
+                "name": "momo-ktv/mv",
+                "permission":{"rw":["docker-momo-ktv"]}
+            }
+        ]
+    }
+}

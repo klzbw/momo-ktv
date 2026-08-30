@@ -1,0 +1,57 @@
+name: Build tvOS IPA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tvos-client/**'
+      - '.github/workflows/build-tvos.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: tvos-client
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: |
+          xcodegen generate
+          # Force objectVersion to 56 for Xcode 15.4 compatibility
+          sed -i '' 's/objectVersion = 77;/objectVersion = 56;/' MomoKtvTV.xcodeproj/project.pbxproj
+
+      - name: Build tvOS app
+        run: |
+          xcodebuild \
+            -project MomoKtvTV.xcodeproj \
+            -scheme MomoKtvTV \
+            -configuration Release \
+            -destination 'generic/platform=tvOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        run: |
+          APP_PATH=$(find build/Build/Products -name "*.app" -type d | head -1)
+          echo "App found at: $APP_PATH"
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -r MomoKtvTV.ipa Payload
+          ls -la MomoKtvTV.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: MomoKtvTV-unsigned
+          path: tvos-client/MomoKtvTV.ipa
+          retention-days: 30

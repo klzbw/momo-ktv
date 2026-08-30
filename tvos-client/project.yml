@@ -1,0 +1,59 @@
+name: MomoKtvTV
+options:
+  bundleIdPrefix: com.momo
+  deploymentTarget:
+    tvOS: "17.0"
+  createIntermediateGroups: true
+  projectFormat: Xcode 14.0
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "3"
+    SDKROOT: appletvos
+    GENERATE_INFOPLIST_FILE: YES
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+    INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+    INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+    INFOPLIST_KEY_NSAppTransportSecurity:
+      NSAllowsArbitraryLoads: YES
+targets:
+  MomoKtvTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: MomoKtvTV
+    postBuildScripts:
+      - name: Set Chinese Display Name
+        script: |
+          PLIST="${CODESIGNING_FOLDER_PATH:-$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME}/Info.plist"
+          # Step 1: Set a plain-ASCII placeholder via PlistBuddy
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$PLIST" 2>/dev/null
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string PLACEHOLDER_CN_NAME" "$PLIST"
+          # Register Top Shelf static images (standard 1920x720 + wide 2320x720)
+          /usr/libexec/PlistBuddy -c "Delete :TVTopShelfImage" "$PLIST" 2>/dev/null
+          /usr/libexec/PlistBuddy -c "Add :TVTopShelfImage dict" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :TVTopShelfImage:TVTopShelfPrimaryImage string 'Top Shelf Image'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :TVTopShelfImage:TVTopShelfPrimaryImageWide string 'Top Shelf Image Wide'" "$PLIST"
+          # Step 2: Convert to XML format
+          plutil -convert xml1 "$PLIST"
+          # Step 3: Replace placeholder with XML numeric character references.
+          # 墨=U+58A8, 爱=U+7231, 歌=U+6B4C  ->  墨墨爱K歌
+          # plumesign sees pure ASCII (no filtering); tvOS XML parser decodes to Chinese.
+          sed -i '' 's/PLACEHOLDER_CN_NAME/\&#x58a8;\&#x58a8;\&#x7231;K\&#x6b4c;/g' "$PLIST"
+          echo "CFBundleName=$( /usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$PLIST" )"
+          echo "CFBundleDisplayName=$( /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$PLIST" )"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.momo.ktv.tv
+        PRODUCT_NAME: "MomoKtvTV"
+        ASSETCATALOG_COMPILER_APPICON_NAME: "AppIcon"
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
+        SWIFT_EMIT_LOC_STRINGS: YES
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/Frameworks"

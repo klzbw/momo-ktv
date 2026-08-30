@@ -1,0 +1,5 @@
+{
+    "defaults":{"run-as":"package"},
+    "username": "docker-momo-ktv",
+    "groupname": "docker-momo-ktv"
+}

@@ -1,0 +1,21 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# 构建产物 / 打包工具
+*.fpk
+fnpack
+fnpack-*
+
+# 系统/编辑器杂项
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# 运行时数据（本地测试容器落盘的数据库、封面、HLS缓存等，不应入库）
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
