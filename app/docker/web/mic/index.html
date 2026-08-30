@@ -82,6 +82,7 @@
   <div class="card status">
     <div class="srow"><span class="dot" id="dotServer"></span><span class="k">服务器</span><span class="v" id="tvServer">连接中…</span></div>
     <div class="srow"><span class="dot" id="dotTv"></span><span class="k">电视端</span><span class="v" id="tvState">等待电视进入麦克风模式</span></div>
+    <div class="srow" style="font-size:11px;color:#fbbf24;line-height:1.5;"><span class="k" style="width:48px;">调试</span><span class="v" id="dbg" style="font-weight:600;white-space:normal;">等待…</span></div>
   </div>
 
   <div class="card mic-area">
@@ -141,6 +142,8 @@
   var ac=null, source=null, proc=null, muteGain=null, stream=null;
   var gain=1.0, lastConfigRate=0;
   var meterTimer=null, lastMeter=0, rms=0;
+  var dbgEl=null, sentFrames=0, lastErr="", dbgFrame=0;
+  function setDbg(s){ if(dbgEl){ try{ dbgEl.textContent=s; }catch(e){} } }
 
   // ---------- HTTPS / 能力检测 ----------
   var secure = window.isSecureContext !== false;
@@ -185,8 +188,9 @@
     try{ ws=new WebSocket(wsURL("mic")); }catch(e){ scheduleReconnect(); return; }
     ws.binaryType="arraybuffer";
     ws.onopen=function(){
-      wsReady=true;
+      wsReady=true; lastErr="";
       dotServer.className="dot on"; tvServer.textContent="已连接";
+      setDbg("ws已OPEN rs="+ws.readyState+" 等待开唱");
       if(wantLive) sendConfig();
       refreshBtn();
     };
@@ -207,8 +211,9 @@
       refreshBtn();
     };
     ws.onclose=function(){ wsReady=false; tvOnline=false; dotServer.className="dot wait";
+      setDbg("ws已CLOSED 2.5s后重连");
       dotTv.className="dot off"; tvServer.textContent="已断开，重连中…"; scheduleReconnect(); };
-    ws.onerror=function(){ try{ws.close();}catch(e){} };
+    ws.onerror=function(){ setDbg("ws ERROR"); try{ws.close();}catch(e){} };
   }
   var reconnectTimer=null;
   function scheduleReconnect(){
@@ -248,17 +253,27 @@
       ac = new AC();
       if(ac.state==="suspended"){ try{await ac.resume();}catch(e){} }
       source = ac.createMediaStreamSource(stream);
-      proc = ac.createScriptProcessor(4096,1,1);
+      proc = ac.createScriptProcessor(512,1,1);
       muteGain = ac.createGain(); muteGain.gain.value=0; // 手机端不外放，避免自激啸叫
       source.connect(proc); proc.connect(muteGain); muteGain.connect(ac.destination);
       proc.onaudioprocess=function(e){
         var f=e.inputBuffer.getChannelData(0);
         // 电平
         var sum=0; for(var i=0;i<f.length;i++){sum+=f[i]*f[i];} rms=Math.sqrt(sum/f.length);
-        if(!wsReady || busy) return;
+        dbgFrame++;
+        if(!wsReady || busy){
+          if(dbgFrame%30===0) setDbg("采集OK但未发: wsReady="+wsReady+" busy="+busy+" rs="+(ws?ws.readyState:"?"));
+          return;
+        }
         var out=pcm16(f);
         // 网络堆积时丢帧，防止延迟越滚越大
-        if(ws.bufferedAmount < 65536){ ws.send(out.buffer); }
+        try{
+          if(ws.bufferedAmount < 16384){ ws.send(out.buffer); sentFrames++; }
+          else { lastErr="buf="+ws.bufferedAmount+"超阈值丢帧"; }
+        }catch(err){ lastErr="send异常:"+(err&&err.message?err.message:err); }
+        if(dbgFrame%15===0){
+          setDbg("rs="+ws.readyState+" buf="+ws.bufferedAmount+" 已发帧="+sentFrames+" 率="+(ac?ac.sampleRate:"?")+(lastErr?" |"+lastErr:""));
+        }
       };
       lastConfigRate=0; sendConfig();
       startMeter();
@@ -314,6 +329,8 @@
   });
 
   // 初始
+  dbgEl=$("dbg");
+  setDbg("页面加载，连接中…");
   refreshBtn();
   connectWS();
 })();

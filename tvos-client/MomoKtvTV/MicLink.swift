@@ -21,6 +21,10 @@ final class MicAudioEngine {
     private let queue = DispatchQueue(label: "com.momo.mic.audio")
     private var gain: Float = 1.0
     private var isRunning = false
+    /// 已 schedule 但尚未播放完的采样数，用于发现播放队列积压（延迟越滚越大）
+    private var queuedFrames: Int = 0
+    /// 积压高水位：超过约 200ms 就清空旧缓冲、只留最新音频，把人声延迟拉回一帧
+    private var maxQueuedFrames: Int { return max(1024, Int(sampleRate * 0.2)) }
 
     func setGain(_ g: Float) {
         queue.async {
@@ -90,6 +94,7 @@ final class MicAudioEngine {
         node.volume = gain
         player = node
         playFormat = fmt
+        self.queuedFrames = 0
 
         do {
             try engine.start()
@@ -122,7 +127,18 @@ final class MicAudioEngine {
                     channel[i] = v
                 }
             }
-            node.scheduleBuffer(buffer, completionHandler: nil)
+            // 防延迟累积：排队音频超过高水位时，stop 会清掉所有未播放的旧缓冲，
+            // 再从当前最新一帧开始播，把延迟立刻拉回（实时麦克风优先低延迟而非连续性）
+            if self.queuedFrames > self.maxQueuedFrames {
+                node.stop()
+                self.queuedFrames = 0
+                node.play()
+            }
+            self.queuedFrames += frameCount
+            let scheduledFrames = frameCount
+            node.scheduleBuffer(buffer, completionHandler: { [weak self] in
+                self?.queue.async { self?.queuedFrames -= scheduledFrames }
+            })
             if !node.isPlaying { node.play() }
         }
     }
