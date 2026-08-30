@@ -14,6 +14,10 @@ const sourceCache = require('./sourceCache');
 const { schedulePreload, setPreloadUpdateNotifier, setDecodeMode } = require('./queuePreload');
 const cacheCleaner = require('./cacheCleaner');
 const lyricsMod = require('./lyrics');
+const sepMod = require('./separate');
+const multer = require('multer');
+// 分离产物单首几十 MB，用内存存储收完即落盘到 /data/separated（一首一首传，内存可控）
+const sepUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 512 * 1024 * 1024, files: 4 } });
 const log = require('./logger');
 
 // ---------- 进程级兜底：单个后台任务的意外错误不该拖垮整个服务 ----------
@@ -708,6 +712,126 @@ app.get('/api/lyrics/stats', (req, res) => {
   const has = db.prepare("SELECT COUNT(*) c FROM songs WHERE lyrics IS NOT NULL AND lyrics<>''").get().c;
   const bySrc = db.prepare('SELECT lyrics_source, COUNT(*) c FROM songs WHERE lyrics IS NOT NULL GROUP BY lyrics_source').all();
   res.json({ total, hasLyrics: has, missing: total - has, coverage: total ? +(has / total * 100).toFixed(1) : 0, bySource: bySrc, batch: lyricBatch });
+});
+
+// ============ AI 人声分离 / 逐字对齐 任务队列（音频K歌改造 P2）============
+// 真正吃 GPU 的 Demucs/WhisperX 跑在独立 worker(Windows+N卡)，服务端只做队列调度、
+// 源音频下发、产物回收。worker 流程：claim 领任务 -> GET source 下载 -> 本地推理 ->
+// multipart complete 回传 vocals/accompaniment wav（及逐字歌词）。
+
+// 每 5 分钟回收 worker 崩溃留下的 processing 僵尸任务（超 20 分钟未完成 -> 重新排队）
+setInterval(() => { try { sepMod.reclaimStale(db, 20); } catch (e) { /* 忽略 */ } }, 5 * 60 * 1000);
+
+// POST /api/separate/enqueue  body {song_ids:[...], type:'separate'|'align'|'both', force:false}
+app.post('/api/separate/enqueue', (req, res) => {
+  try {
+    const { song_ids = [], type = 'separate', force = false } = req.body || {};
+    const r = sepMod.enqueue(db, { songIds: song_ids, type, force: !!force });
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/separate/enqueue-missing?type=separate&limit=100 —— 把缺分离/对齐的音频歌批量入队
+app.post('/api/separate/enqueue-missing', (req, res) => {
+  const type = req.query.type || (req.body && req.body.type) || 'separate';
+  let limit = parseInt(req.query.limit || (req.body && req.body.limit), 10);
+  if (!Number.isInteger(limit) || limit <= 0) limit = 100;
+  limit = Math.min(limit, 5000);
+  const col = type === 'align' ? 'align_status' : 'sep_status';
+  const rows = db.prepare(
+    `SELECT id FROM songs WHERE media_type IN ('audio','cue') AND (${col} IS NULL OR ${col}='none' OR ${col}='failed') ORDER BY id LIMIT ?`
+  ).all(limit);
+  const r = sepMod.enqueue(db, { songIds: rows.map(x => x.id), type });
+  res.json({ ok: true, candidates: rows.length, ...r });
+});
+
+// GET /api/separate/jobs/claim?worker=pc-51&type=separate —— worker 领取任务（无任务返回 204）
+app.get('/api/separate/jobs/claim', (req, res) => {
+  const worker = String(req.query.worker || 'anonymous').slice(0, 64);
+  const type = String(req.query.type || 'separate');
+  const task = sepMod.claimNext(db, { worker, type });
+  if (!task) return res.status(204).end();
+  task.sourceUrl = `http://${req.get('host')}${task.sourceUrl}`; // 补全为 worker 可直接下载的绝对地址
+  res.json(task);
+});
+
+// POST /api/separate/jobs/:id/progress  {progress:0-100}
+app.post('/api/separate/jobs/:id/progress', (req, res) => {
+  sepMod.reportProgress(db, parseInt(req.params.id, 10), req.body && req.body.progress);
+  res.json({ ok: true });
+});
+
+// POST /api/separate/jobs/:id/complete —— multipart 回传产物：
+//   files: vocals(人声wav) / accompaniment(伴奏wav) / wordLrc(逐字歌词)；也可走字段 wordLrc
+app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
+  { name: 'vocals', maxCount: 1 }, { name: 'accompaniment', maxCount: 1 }, { name: 'wordLrc', maxCount: 1 },
+]), (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id, 10);
+    const job = db.prepare('SELECT * FROM separation_jobs WHERE id=?').get(jobId);
+    if (!job) return res.status(404).json({ error: 'job not found' });
+    const files = req.files || {};
+    const dir = sepMod.ensureSongDir(job.song_id);
+    const saved = {};
+    const saveOne = (f, targetName) => { if (f && f[0]) { fs.writeFileSync(path.join(dir, targetName), f[0].buffer); saved[targetName] = f[0].buffer.length; } };
+    saveOne(files.vocals, 'vocals.wav');
+    saveOne(files.accompaniment, 'accompaniment.wav');
+    let lyricsWord = null;
+    if (files.wordLrc && files.wordLrc[0]) lyricsWord = files.wordLrc[0].buffer.toString('utf8');
+    else if (req.body && req.body.wordLrc) lyricsWord = String(req.body.wordLrc);
+    const done = sepMod.complete(db, jobId, { lyricsWord, result: { saved, worker: job.worker } });
+    // 分离产物到位后清掉这首歌旧 HLS，下次播放按"原唱/半消/伴奏"三轨重新生成（P4）
+    try { removeHLS(job.song_id); } catch (e) { /* 旧产物不存在无妨 */ }
+    res.json({ ok: true, status: done.status, saved });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/separate/jobs/:id/fail  {error}
+app.post('/api/separate/jobs/:id/fail', (req, res) => {
+  sepMod.fail(db, parseInt(req.params.id, 10), (req.body && req.body.error) || 'worker failed');
+  res.json({ ok: true });
+});
+// POST /api/separate/jobs/:id/reset —— 手动重置为排队
+app.post('/api/separate/jobs/:id/reset', (req, res) => {
+  sepMod.resetJob(db, parseInt(req.params.id, 10));
+  res.json({ ok: true });
+});
+// GET /api/separate/stats —— 分离/对齐进度看板
+app.get('/api/separate/stats', (req, res) => res.json(sepMod.stats(db)));
+// GET /api/separate/jobs?status= —— 任务列表（看板/调试，最多500）
+app.get('/api/separate/jobs', (req, res) => {
+  const status = req.query.status;
+  const sql = 'SELECT j.*, s.title, s.artist FROM separation_jobs j LEFT JOIN songs s ON s.id=j.song_id';
+  const rows = status
+    ? db.prepare(sql + ' WHERE j.status=? ORDER BY j.id DESC LIMIT 500').all(status)
+    : db.prepare(sql + ' ORDER BY j.id DESC LIMIT 500').all();
+  res.json(rows);
+});
+
+// GET /api/songs/:id/source —— worker 下载待处理源音频。普通文件原样下发；CUE 分轨
+// 用 ffmpeg 按 start/end_offset 实时截取为 44.1k 立体声 wav 流（Demucs 需无损整段）。
+app.get('/api/songs/:id/source', (req, res) => {
+  const song = db.prepare('SELECT * FROM songs WHERE id=?').get(parseInt(req.params.id, 10));
+  if (!song) return res.status(404).json({ error: 'song not found' });
+  const cached = (song.is_network && song.cache_status === 'ready' && song.cache_path) ? song.cache_path : null;
+  let src = song.media_type === 'cue' && song.cue_path ? song.cue_path : (cached || song.filepath);
+  if (!src || !fs.existsSync(src)) return res.status(404).json({ error: '源文件在服务端不可达', path: src });
+  if (song.media_type === 'cue') {
+    const start = Number(song.start_offset) || 0;
+    const end = Number(song.end_offset);
+    const args = ['-loglevel', 'error', '-ss', String(start)];
+    if (end && end > start) args.push('-t', String(end - start));
+    args.push('-i', src, '-vn', '-ac', '2', '-ar', '44100', '-c:a', 'pcm_s16le', '-f', 'wav', 'pipe:1');
+    res.setHeader('Content-Type', 'audio/wav');
+    const child = spawn('ffmpeg', args);
+    child.stdout.pipe(res);
+    child.stderr.on('data', () => { /* 丢弃 ffmpeg 进度噪音 */ });
+    res.on('close', () => child.kill('SIGKILL'));
+  } else {
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="song_${song.id}${path.extname(src) || '.bin'}"`);
+    fs.createReadStream(src).on('error', () => res.destroy()).pipe(res);
+  }
 });
 
 app.get('/api/songs', (req, res) => {

@@ -92,6 +92,27 @@ CREATE TABLE IF NOT EXISTS tv_users (
   password_hash TEXT NOT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- AI 人声分离 / 逐字歌词对齐 的任务队列。分离与对齐都在独立的 GPU 机器
+-- (worker，见 P3)上跑：服务端把待处理歌曲入队，worker 通过 /api/separate/
+-- jobs/claim 领取、处理完再把产物(vocals.wav/accompaniment.wav、逐字歌词)
+-- 回传。一首歌同一类型只保留一条任务(UNIQUE)，重复请求幂等，不会堆重复任务。
+CREATE TABLE IF NOT EXISTS separation_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  song_id INTEGER NOT NULL,
+  job_type TEXT NOT NULL,              -- separate=人声分离, align=逐字歌词对齐
+  status TEXT NOT NULL DEFAULT 'pending', -- pending|processing|done|failed
+  worker TEXT,                         -- 领取该任务的 worker 标识
+  progress INTEGER DEFAULT 0,          -- 0-100
+  error TEXT,
+  result_json TEXT,                    -- 完成时的产物元信息(JSON)
+  attempts INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  claimed_at DATETIME,
+  finished_at DATETIME,
+  UNIQUE(song_id, job_type)
+);
+CREATE INDEX IF NOT EXISTS idx_sepjobs_pick ON separation_jobs(status, job_type, id);
 `);
 
 // Bug修复：老版本数据库里没有 audio_tracks 列，CREATE TABLE IF NOT EXISTS 对已存在的
