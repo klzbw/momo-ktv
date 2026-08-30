@@ -46,6 +46,8 @@ const sourceCache = require('./sourceCache');
 //   没有装好这些，nvidia-smi 在容器里就会不可用，探测函数会直接判定为
 //   "NVIDIA 硬件加速不可用" 并回退，不会导致转码报错。
 const HLS_DIR = process.env.HLS_DIR || '/data/hls';
+// AI 人声分离产物目录（separate.js 把 vocals/accompaniment wav 落在 /data/separated/<id>/）
+const DATA_DIR = process.env.DATA_DIR || '/data';
 const SEGMENT_TIME = 6; // 秒，只是切片建议值，ffmpeg 仍会在最近的关键帧处切割
 // 纯音频(mp3/flac/wav/ape/cue分轨)没有视频画面，K 歌时需要一条背景视频轨。
 // 用户可把自己的背景视频(mp4/mov/mkv/webm)放进该目录，点纯音频歌时随机挑一个
@@ -587,16 +589,56 @@ async function buildStereoSplitAudioRendition(filepath, dir, track, songTag, see
 // 就可以先生成并让播放器拿到。播放器随后请求 video.m3u8 / audioN.m3u8 时，
 // 如果对应分片还没转出来，由路由层(index.js)负责短暂等待，而不是在这里
 // 阻塞。
-function writeMasterPlaylist(dir, trackCount) {
-  const names = trackCount >= 2 ? ['原唱', '伴唱'] : ['原唱'];
+function writeMasterPlaylist(dir, trackCount, names) {
+  const fallback = trackCount >= 3 ? ['原唱', '半消', '伴奏'] : trackCount >= 2 ? ['原唱', '伴唱'] : ['原唱'];
+  const trackNames = names || fallback;
   let m3u8 = '#EXTM3U\n#EXT-X-VERSION:6\n';
   for (let t = 0; t < trackCount; t++) {
-    const name = names[t] || `音轨${t + 1}`;
+    const name = trackNames[t] || `音轨${t + 1}`;
     const isDefault = t === 0 ? 'YES' : 'NO';
     m3u8 += `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="${name}",DEFAULT=${isDefault},AUTOSELECT=${isDefault},URI="audio${t}.m3u8"\n`;
   }
   m3u8 += '#EXT-X-STREAM-INF:BANDWIDTH=8000000,AUDIO="aud"\nvideo.m3u8\n';
   fs.writeFileSync(path.join(dir, 'master.m3u8'), m3u8);
+}
+
+// AI 人声分离产物可用判定：sep_status=done 且人声/伴奏两个 wav 都真实存在。
+// songs 里存的是相对 /data 的路径(separated/<id>/vocals.wav)，这里拼回容器内绝对路径。
+// 任一文件缺失(比如被清理/没传完整)都返回 null，调用方退回普通单/双轨逻辑，不会半吊子。
+function resolveSeparated(song) {
+  if (!song || song.sep_status !== 'done' || !song.vocal_path || !song.accomp_path) return null;
+  const vocalAbs = path.join(DATA_DIR, song.vocal_path);
+  const accompAbs = path.join(DATA_DIR, song.accomp_path);
+  try {
+    if (!fs.existsSync(vocalAbs) || !fs.existsSync(accompAbs)) return null;
+  } catch (e) { return null; }
+  return { vocalAbs, accompAbs };
+}
+
+// 半消人声比例：半消档把人声压到 32%（隐约可闻作引导），伴奏保持全量。
+const HALF_VOCAL_VOLUME = '0.32';
+// 基于 AI 分离产物生成某一条音频 rendition。
+//   track=1 mode='half'  半消 = 伴奏(全量) + 人声(32%)
+//   track=2 mode='accomp' 伴奏 = 纯 accompaniment.wav
+// 原唱档(track0)直接用源文件走 buildAudioRendition，保证是未经任何损失的原始混音。
+// amix 必须 normalize=0，否则它会按输入路数把总音量自动减半；Demucs 的人声/伴奏
+// 本身等长且时间对齐，duration=longest 兜底长度，dropout_transition=0 避免尾部淡出。
+async function buildSeparatedMixRendition(dir, track, sep, mode, songTag) {
+  const out = hlsOutArgs(path.join(dir, `audio${track}_%04d.ts`), path.join(dir, `audio${track}.m3u8`));
+  const label = mode === 'accomp' ? '伴奏' : '半消';
+  const t0 = Date.now();
+  let args;
+  if (mode === 'accomp') {
+    args = ['-loglevel', 'error', '-y', '-i', sep.accompAbs, '-map', '0:a:0', '-vn',
+      '-c:a', 'aac', '-b:a', '192k', ...out];
+  } else {
+    args = ['-loglevel', 'error', '-y', '-i', sep.vocalAbs, '-i', sep.accompAbs,
+      '-filter_complex',
+      `[0:a]volume=${HALF_VOCAL_VOLUME}[v];[1:a][v]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[a]`,
+      '-map', '[a]', '-c:a', 'aac', '-b:a', '192k', ...out];
+  }
+  await runFFmpeg(args);
+  log.info('TRANSCODE', `${songTag} 音轨${track}(${label}·AI分离): 完成，耗时 ${Date.now() - t0}ms`);
 }
 
 // 视频轨 + 每条音频轨的 ffmpeg 进程并发启动（Promise.all），而不是像旧版
@@ -605,7 +647,7 @@ function writeMasterPlaylist(dir, trackCount) {
 // 失败都会被上层捕获记录，方便前端/路由层判断这首歌为什么迟迟出不了片。
 // effectiveTrackCount 由调用方(ensureHLS)算好传进来，避免这里重复探测一次
 // 声道数(ensureHLS 为了同步写出 master.m3u8 已经探测过一次了)。
-async function buildHLS(song, dir, effectiveTrackCount, filepath, durSec) {
+async function buildHLS(song, dir, effectiveTrackCount, filepath, durSec, separated) {
   const declaredTracks = Math.max(1, song.audio_tracks || 1);
   const songTag = `[歌曲 id=${song.id} "${song.title || song.filename}"]`;
   const t0 = Date.now();
@@ -619,7 +661,14 @@ async function buildHLS(song, dir, effectiveTrackCount, filepath, durSec) {
     ? buildAudioBackgroundRendition(song, dir, durSec, songTag)
     : buildVideoRendition(filepath, dir, songTag);
   const tasks = [videoTask];
-  if (declaredTracks >= 2) {
+  if (separated) {
+    // AI 人声分离已完成：出 原唱(源混音)/半消(人声32%+伴奏)/纯伴奏 三档，
+    // 复用现有 HLS 多音轨切换，tvOS/网页无需改音轨选择逻辑即可三档互斥切换。
+    log.info('TRANSCODE', `${songTag} 开始转码，AI分离三档：0=原唱(源) 1=半消 2=伴奏`);
+    tasks.push(buildAudioRendition(filepath, dir, 0, songTag, seek));
+    tasks.push(buildSeparatedMixRendition(dir, 1, separated, 'half', songTag));
+    tasks.push(buildSeparatedMixRendition(dir, 2, separated, 'accomp', songTag));
+  } else if (declaredTracks >= 2) {
     log.info('TRANSCODE', `${songTag} 开始转码，共 ${declaredTracks} 条真实音轨（1=原唱, 2=伴唱）`);
     for (let t = 0; t < declaredTracks; t++) {
       tasks.push(buildAudioRendition(filepath, dir, t, songTag, seek));
@@ -692,16 +741,21 @@ async function ensureHLS(song) {
     // 只剩一半混音、声音残缺)。纯音频强制 1 条完整音轨；只有 AI 分离产物
     // (declaredTracks>=2)才出真正的多轨。视频 MV 保留原有声道虚拟探测。
     const isAudioSong = song.media_type === 'audio' || song.media_type === 'cue';
-    let effectiveTrackCount;
-    if (declaredTracks >= 2) effectiveTrackCount = declaredTracks;
+    // AI 分离产物齐全则出三档(原唱/半消/伴奏)；否则按原有逻辑决定 1 条还是声道虚拟 2 条
+    const separated = isAudioSong ? resolveSeparated(song) : null;
+    let effectiveTrackCount, trackNames = null;
+    if (separated) {
+      effectiveTrackCount = 3;
+      trackNames = ['原唱', '半消', '伴奏'];
+    } else if (declaredTracks >= 2) effectiveTrackCount = declaredTracks;
     else if (isAudioSong) effectiveTrackCount = 1;
     else effectiveTrackCount = probeAudioChannels(filepath, songTag) >= 2 ? 2 : 1;
-    writeMasterPlaylist(dir, effectiveTrackCount);
+    writeMasterPlaylist(dir, effectiveTrackCount, trackNames);
     buildErrors.delete(id);
     // 纯音频/CUE：算出本次应转时长，供动态背景轨定长、CUE 截取区间使用
     const durSec = isAudioSong ? resolveDurationSec(song, filepath) : null;
 
-    const p = buildHLS(song, dir, effectiveTrackCount, filepath, durSec)
+    const p = buildHLS(song, dir, effectiveTrackCount, filepath, durSec, separated)
       .catch(e => { buildErrors.set(id, e); throw e; })
       .finally(() => building.delete(id));
     building.set(id, p);
