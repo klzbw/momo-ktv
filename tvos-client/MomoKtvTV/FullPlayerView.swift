@@ -74,16 +74,18 @@ struct FullPlayerView: View {
 
                         // 7 control buttons - standard tvOS focusable buttons
                         HStack(spacing: 20) {
-                            TVTightButton(action: { onClose() }) { focused in
+                            TVTightButton(action: { FeedbackCenter.shared.show("返回主页", icon: "house.fill"); onClose() }) { focused in
                                 controlContent(icon: "house", title: "主页", focused: focused)
                             }
 
-                            TVTightButton(action: { playerManager.restart(); api.restartSong() }) { focused in
+                            TVTightButton(action: { playerManager.restart(); api.restartSong(); FeedbackCenter.shared.show("重新演唱", icon: "gobackward") }) { focused in
                                 controlContent(icon: "gobackward", title: "重唱", focused: focused)
                             }
 
                             TVTightButton(action: {
                                 playerManager.togglePlayPause()
+                                FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
+                                                          icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
                             }, autoFocus: true) { focused in
                                 controlContent(
                                     icon: playerManager.isPlaying ? "pause.fill" : "play.fill",
@@ -92,11 +94,11 @@ struct FullPlayerView: View {
                                 )
                             }
 
-                            TVTightButton(action: { toggleVoice() }) { focused in
+                            TVTightButton(action: { toggleVoice(); FeedbackCenter.shared.show(voiceMode.label, icon: "mic.fill") }) { focused in
                                 controlContent(icon: "mic.fill", title: voiceMode.label, focused: focused)
                             }
 
-                            TVTightButton(action: { onNext() }) { focused in
+                            TVTightButton(action: { FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill"); onNext() }) { focused in
                                 controlContent(icon: "forward.end.fill", title: "切歌", focused: focused)
                             }
 
@@ -147,9 +149,23 @@ struct FullPlayerView: View {
                     .transition(.opacity)
                     .zIndex(3)
             }
+
+            // 顶部滚动横条（纯展示不拦截焦点；打开队列/扫码面板时隐藏）
+            VStack {
+                if !showQueue && !showQR { TVTickerBar(text: tickerText) }
+                Spacer()
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .zIndex(5)
+
+            // 大屏控件操作反馈
+            TVFeedbackOverlay().zIndex(20)
         }
         .onPlayPauseCommand {
             playerManager.togglePlayPause()
+            FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
+                                      icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
             showControls = true
             resetHideTimer()
         }
@@ -164,6 +180,20 @@ struct FullPlayerView: View {
                 onClose()
             }
         }
+    }
+
+    // MARK: - 顶部滚动横条文案（对齐网页 buildNextUpMessages）
+    private var tickerText: String {
+        var parts: [String] = []
+        parts.append("♪ 正在播放：《\(song.displayTitle)》 \(song.displayArtist)")
+        let waiting = api.queue.filter { !$0.isPlaying }
+        if let next = waiting.first {
+            parts.append("🎵 下一首：《\(next.displayTitle)》 \(next.displayArtist)")
+        }
+        if waiting.count < 3 { parts.append("🎤 待播曲目不多啦，继续点歌吧～") }
+        parts.append("📋 队列里还有 \(waiting.count) 首歌")
+        parts.append("🎤 墨墨爱K歌——歌声有约，快乐无限")
+        return parts.joined(separator: "        ")
     }
 
     private func controlContent(icon: String, title: String, focused: Bool) -> some View {

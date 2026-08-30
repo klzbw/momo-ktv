@@ -15,7 +15,6 @@ struct ContentView: View {
     @State private var activePanel: PanelType? = nil
     @State private var activePage: PageType? = nil
     @State private var selectedArtist: String = ""
-    @State private var toast: String?
     @State private var currentTheme: AppTheme = .theme1
     @State private var isPlaying = false
     @State private var isOriginalVoice = true
@@ -109,20 +108,9 @@ struct ContentView: View {
                 )
             }
         }
-        .overlay(alignment: .top) {
-            if let toast = toast {
-                Text(toast)
-                    .font(.system(size: 17))
-                    .padding(.horizontal, 18).padding(.vertical, 8)
-                    .background(Color(red: 20/255, green: 20/255, blue: 50/255).opacity(0.96))
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(WebColors.ac.opacity(0.4), lineWidth: 1))
-                    .padding(.top, 16)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
+        .overlay {
+            TVFeedbackOverlay(topPad: 84)
         }
-        .animation(.easeInOut(duration: 0.28), value: toast)
     }
 
     // MARK: - Main Content (exact web layout)
@@ -507,27 +495,43 @@ struct ContentView: View {
             case "play_pause":
                 playerManager.togglePlayPause()
                 isPlaying = playerManager.isPlaying
+                FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
+                                           icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
             case "repeat":
                 playerManager.restart()
+                api.restartSong()
+                FeedbackCenter.shared.show("重新演唱", icon: "gobackward")
             case "voice":
                 // Server broadcasts control messages back to ALL clients including
                 // the sender; ignore our own echo so we don't toggle twice.
                 if (payload["clientId"] as? String) != api.clientId {
                     playerManager.toggleVoice()
                 }
-                showToast(playerManager.isOriginalVoice ? "原唱" : "伴唱")
+                FeedbackCenter.shared.show(playerManager.isOriginalVoice ? "原唱" : "伴唱", icon: "mic.fill")
             case "eq":
                 if let name = payload["name"] as? String {
-                    showToast("均衡器: \(name)")
+                    let labels = ["flat": "标准", "vocal": "人声增强", "bass": "低音增强", "bright": "明亮清晰"]
+                    FeedbackCenter.shared.show("均衡器：\(labels[name] ?? name)", icon: "slider.horizontal.3")
                 }
             case "volume":
-                if let delta = payload["delta"] as? Float {
-                    volume = max(0, min(1, volume + delta))
-                    playerManager.setVolume(volume)
-                    showToast("音量: \(Int(volume * 100))%")
-                }
+                // JSON 数字经 JSONSerialization 桥接为 NSNumber，直接 as? Float 在部分情况下
+                // 会得到 nil，导致手机遥控音量无效；统一用 NSNumber.floatValue 读取。
+                let delta = (payload["delta"] as? NSNumber)?.floatValue
+                    ?? Float(payload["delta"] as? Double ?? 0)
+                guard delta != 0 else { return }
+                volume = max(0, min(1, volume + delta))
+                playerManager.setVolume(volume)
+                FeedbackCenter.shared.show("音量 \(Int(volume * 100))%",
+                                           icon: delta > 0 ? "speaker.plus" : "speaker.minus")
             case "next":
+                FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill")
                 advancePlayback()
+            case "fullscreen":
+                if api.queue.contains(where: { $0.isPlaying }) { showingPlayer = true }
+            case "home":
+                showingPlayer = false
+                activePanel = nil
+                activePage = nil
             default:
                 break
             }
@@ -676,6 +680,8 @@ struct ContentView: View {
                     title: playerManager.isPlaying ? "暂停" : "播放", isCenter: true) {
                 playerManager.togglePlayPause()
                 isPlaying = playerManager.isPlaying
+                FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
+                                           icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
                 // Sync playback state to server so mobile remote play/pause
                 // button icon stays in sync with the TV.
                 api.sendPlaybackState(paused: !playerManager.isPlaying, voice: playerManager.isOriginalVoice ? "original" : "accompaniment")
@@ -685,10 +691,11 @@ struct ContentView: View {
                 playerManager.setVolume(volume)
                 showToast("音量: \(Int(volume * 100))%")
             }
-            MVButton(icon: "forward.end.fill", title: "切歌") { advancePlayback() }
+            MVButton(icon: "forward.end.fill", title: "切歌") { FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill"); advancePlayback() }
             MVButton(icon: "gobackward", title: "重唱") {
                 playerManager.restart()
                 api.restartSong()
+                FeedbackCenter.shared.show("重新演唱", icon: "gobackward")
             }
         }
         .padding(.horizontal, 8)
@@ -896,10 +903,9 @@ struct ContentView: View {
         return f.string(from: Date())
     }
 
-    // MARK: - Toast
+    // MARK: - Toast（统一走全局大屏反馈中心）
     private func showToast(_ msg: String) {
-        toast = msg
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { toast = nil }
+        FeedbackCenter.shared.show(msg)
     }
 }
 
