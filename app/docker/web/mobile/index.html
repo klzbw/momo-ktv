@@ -146,6 +146,15 @@ header{
 .ctrl-btn.voice-active{background:rgba(199,54,247,.38);border-color:var(--accent)}
 .ctrl-btn.voice-active .cl{color:var(--accent2)}
 
+/* 音量加减 / 均衡器预设（手机遥控端原来缺这两项，只能走到 TV 前调；这里补上，
+   指令通过 WS control 发给播放端，TV 端 localAdjVolume/localSetEQ 已具备处理逻辑） */
+.ctrl-row.eq-row{flex-wrap:nowrap;gap:8px}
+.ctrl-btn.eq-opt{min-width:0;max-width:none;flex:1 1 0;padding:12px 2px}
+.ctrl-btn.eq-opt .cl{font-size:11.5px;white-space:nowrap}
+.ctrl-btn.eq-opt.sel{background:rgba(199,54,247,.38);border-color:var(--accent)}
+.ctrl-btn.eq-opt.sel .cl{color:var(--accent2)}
+.vol-row .ctrl-btn{max-width:none}
+
 /* D-pad */
 .dpad{
   display:grid;grid-template-columns:1fr 1fr 1fr;
@@ -447,6 +456,31 @@ header{
     <div id="nb-prog-wrap"><div id="nb-prog-bar"><div id="nb-prog-fill"></div></div><div id="nb-prog-time"><span id="nb-tcur">0:00</span><span id="nb-ttot">0:00</span></div></div>
   </div>
 
+  <!-- 音量：发 control/volume(delta) 给播放端，TV 端 localAdjVolume 每次按 delta 增减 -->
+  <div class="ctrl-section">
+    <div class="ctrl-title">🔊 音量</div>
+    <div class="ctrl-row vol-row">
+      <div class="ctrl-btn cyan" onclick="adjVolume(-0.1)">
+        <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg></span><span class="cl">音量－</span>
+      </div>
+      <div class="ctrl-btn cyan" onclick="adjVolume(0.1)">
+        <span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></span><span class="cl">音量＋</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 均衡器：发 control/eq(name) 给播放端，TV 端 localSetEQ 切换三级 BiquadFilter 增益；
+       选中态只在本机记录展示，真正的音频处理发生在播放端 -->
+  <div class="ctrl-section">
+    <div class="ctrl-title">🎚 均衡器（音效）</div>
+    <div class="ctrl-row eq-row">
+      <div class="ctrl-btn eq-opt sel" data-eq="flat" onclick="setEQ('flat',this)"><span class="cl">标准</span></div>
+      <div class="ctrl-btn eq-opt" data-eq="vocal" onclick="setEQ('vocal',this)"><span class="cl">人声增强</span></div>
+      <div class="ctrl-btn eq-opt" data-eq="bass" onclick="setEQ('bass',this)"><span class="cl">低音增强</span></div>
+      <div class="ctrl-btn eq-opt" data-eq="bright" onclick="setEQ('bright',this)"><span class="cl">明亮清晰</span></div>
+    </div>
+  </div>
+
   <!-- View controls -->
   <div class="ctrl-section">
     <div class="ctrl-title">📺 TV界面</div>
@@ -562,8 +596,20 @@ function tickCtrlProgress(){
 }
 setInterval(tickCtrlProgress,500);
 
-function sendCtrl(action){ sendWS({type:'control',action}); }
+// extra 用来携带 volume 需要的 delta、eq 需要的 name；旧的单参数调用(sendCtrl('home')等)不受影响
+function sendCtrl(action, extra){ sendWS(Object.assign({type:'control',action}, extra||{})); }
 function sendWS(obj){ if(window._ws&&window._ws.readyState===1) window._ws.send(JSON.stringify(obj)); }
+// 音量加减：播放端 localAdjVolume 每次按 delta(±0.1) 调整 video.volume(0~1)
+function adjVolume(delta){ sendCtrl('volume',{delta}); showToast(delta>0?'音量＋':'音量－'); }
+// 均衡器：发 eq 指令给播放端切换三级滤波器增益，本机只同步选中高亮
+let curEQ='flat';
+const EQ_LABELS={flat:'标准',vocal:'人声增强',bass:'低音增强',bright:'明亮清晰'};
+function setEQ(name){
+  sendCtrl('eq',{name});
+  curEQ=name;
+  document.querySelectorAll('#tab-remote .eq-opt').forEach(b=>b.classList.toggle('sel',b.dataset.eq===name));
+  showToast('均衡器：'+(EQ_LABELS[name]||name));
+}
 
 function onQueue(){
   const playing=queueData.find(q=>q.status==='playing');
