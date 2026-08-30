@@ -414,7 +414,7 @@ function parseFilename(filename) {
   // 编号格式：第一段以数字编号开头（如 "001 爱"、"01 大海"），说明文件名是
   // "编号 歌名-歌手-语言-流派"，与默认的"歌手-歌名-语言-流派"顺序相反，
   // 需把第一段去掉编号当歌名、第二段当歌手，否则 title/artist 会整体颠倒。
-  if (/^\d/.test(parts[0]) && parts.length >= 2) {
+  if (/^\d+\s+\S/.test(parts[0]) && parts.length >= 2) {
     const numTitle = parts[0].replace(/^\d+\s*/, '').trim() || parts[0];
     const numArtist = parts[1];
     if (parts.length === 2) {
