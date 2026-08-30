@@ -271,6 +271,18 @@ header{
   border-radius:10px;padding:7px 16px;font-size:13px}
 .pager button:disabled{opacity:.35}
 .mfull-empty{text-align:center;color:#555;padding:40px 0;font-size:14px}
+/* ===== 氛围控件 & 送祝福 ===== */
+.atmo-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.atmo-btn{display:flex;flex-direction:column;gap:5px;align-items:center;justify-content:center;padding:13px 4px;color:#fff;border-radius:14px;box-shadow:0 3px 10px rgba(0,0,0,.25)}
+.atmo-emoji{font-size:27px;line-height:1}
+.bless-box{display:flex;gap:8px;margin-bottom:8px}
+.bless-input{flex:1;min-width:0;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:10px;color:#fff;padding:11px 13px;font-size:15px}
+.bless-input::placeholder{color:rgba(255,255,255,.4)}
+.bless-input:focus{outline:none;border-color:#36d9f7}
+.bless-send{flex:0 0 auto;padding:0 18px;display:flex;align-items:center;border-radius:10px;font-weight:700}
+.bless-quick{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}
+.bless-chip{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:9px 10px;font-size:12.5px;color:#eaeaf5;text-align:center;cursor:pointer}
+.bless-chip:active{background:#36d9f7;color:#06121a}
 </style>
 </head>
 <body>
@@ -481,6 +493,27 @@ header{
     </div>
   </div>
 
+  <!-- 氛围控件：掌声/干杯/喝彩/倒彩，发 atmosphere 给大屏全屏 emoji 刷屏 + 音效 -->
+  <div class="ctrl-section">
+    <div class="ctrl-title">🎉 现场氛围（点一下，大屏刷起来）</div>
+    <div class="ctrl-row atmo-row">
+      <div class="ctrl-btn atmo-btn" style="background:linear-gradient(135deg,#ff9a3c,#ff5e62)" onclick="sendAtmo('applause')"><span class="atmo-emoji">👏</span><span class="cl">掌声</span></div>
+      <div class="ctrl-btn atmo-btn" style="background:linear-gradient(135deg,#36d1f7,#1a7bff)" onclick="sendAtmo('cheers')"><span class="atmo-emoji">🥂</span><span class="cl">干杯</span></div>
+      <div class="ctrl-btn atmo-btn" style="background:linear-gradient(135deg,#ff4f9b,#c736f7)" onclick="sendAtmo('cheer')"><span class="atmo-emoji">🎉</span><span class="cl">喝彩</span></div>
+      <div class="ctrl-btn atmo-btn" style="background:linear-gradient(135deg,#6a737d,#3a4149)" onclick="sendAtmo('boo')"><span class="atmo-emoji">👎</span><span class="cl">倒彩</span></div>
+    </div>
+  </div>
+
+  <!-- 送祝福：自定义输入 + 8 条快捷语，发 blessing 给大屏全屏字幕 -->
+  <div class="ctrl-section">
+    <div class="ctrl-title">💌 上屏送祝福</div>
+    <div class="bless-box">
+      <input id="bless-input" class="bless-input" maxlength="60" placeholder="输入祝福/加油语，点发送上大屏" />
+      <div class="ctrl-btn cyan bless-send" onclick="sendBlessing()"><span class="cl">发送上屏</span></div>
+    </div>
+    <div class="bless-quick" id="bless-quick"></div>
+  </div>
+
   <!-- View controls -->
   <div class="ctrl-section">
     <div class="ctrl-title">📺 TV界面</div>
@@ -610,6 +643,29 @@ function setEQ(name){
   document.querySelectorAll('#tab-remote .eq-opt').forEach(b=>b.classList.toggle('sel',b.dataset.eq===name));
   showToast('均衡器：'+(EQ_LABELS[name]||name));
 }
+
+// ===== 现场氛围 & 上屏送祝福 =====
+const ATMO_LABEL={applause:'掌声',cheers:'干杯',cheer:'喝彩',boo:'倒彩'};
+function sendAtmo(kind){ sendWS({type:'atmosphere',kind,from:(nicknameInput.value||'亲友')}); showToast((ATMO_LABEL[kind]||'氛围')+' 已上屏'); }
+// 8 条快捷祝福语
+const BLESSINGS=[
+  '生日快乐，天天开心！','唱得太棒啦，掌声鼓励！','加油加油，你是最棒的！','万事如意，阖家幸福！',
+  '掌声响起来，歌手最精彩！','干杯！祝大家开心每一天！','好听好听，再来一首！','祝身体健康，笑口常开！'];
+function renderBlessQuick(){
+  const box=document.getElementById('bless-quick'); if(!box)return;
+  box.innerHTML='';
+  BLESSINGS.forEach(t=>{ const d=document.createElement('div'); d.className='bless-chip';
+    d.textContent=t; d.onclick=()=>sendBlessing(t); box.appendChild(d); });
+}
+function sendBlessing(preset){
+  const inp=document.getElementById('bless-input');
+  const text=(preset||(inp?inp.value:'')||'').trim();
+  if(!text){ showToast('请先输入祝福语'); return; }
+  sendWS({type:'blessing',text,from:(nicknameInput.value||'亲友')});
+  showToast('祝福已上屏');
+  if(inp) inp.value='';
+}
+renderBlessQuick();
 
 function onQueue(){
   const playing=queueData.find(q=>q.status==='playing');

@@ -325,6 +325,11 @@ class KTVAPIClient: ObservableObject {
 
     // MARK: - WebSocket
     var onControlMessage: ((String, [String: Any]) -> Void)?
+    /// 手机遥控氛围特效 / 祝福弹幕回调
+    var onAtmosphere: ((String) -> Void)?
+    var onBlessing: ((String, String) -> Void)?
+    /// 完整 http(s) 基址，用于拼接 /sounds 等静态资源
+    var httpBaseURL: String { baseURL }
 
     func connectWebSocket() {
         guard let wsURL = URL(string: baseURL.replacingOccurrences(of: "http", with: "ws") + "/ws") else { return }
@@ -361,6 +366,11 @@ class KTVAPIClient: ObservableObject {
                   let action = json["action"] as? String {
             let payload = json.filter { $0.key != "type" && $0.key != "action" } as? [String: Any] ?? [:]
             DispatchQueue.main.async { self.onControlMessage?(action, payload) }
+        } else if type == "atmosphere", let kind = json["kind"] as? String {
+            DispatchQueue.main.async { self.onAtmosphere?(kind) }
+        } else if type == "blessing", let text = json["text"] as? String {
+            let from = json["from"] as? String ?? ""
+            DispatchQueue.main.async { self.onBlessing?(text, from) }
         }
     }
 

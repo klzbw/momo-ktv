@@ -21,6 +21,30 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
+      # 背景墙(Top Shelf)资源强校验：4 张图必须存在、非空且尺寸精确匹配，
+      # 否则直接让构建失败。防止"再次更换背景墙时漏传/错尺寸，actutil 静默
+      # 丢弃 Top Shelf，装到 Apple TV 上背景墙变灰/消失"的问题再次发生。
+      - name: Verify Top Shelf assets
+        run: |
+          set -e
+          A="MomoKtvTV/Assets.xcassets/AppIcon.brandassets"
+          check_png(){
+            f="$1"; ew="$2"; eh="$3"
+            if [ ! -s "$f" ]; then echo "::error::missing topshelf asset: $f"; exit 1; fi
+            info=$(sips -g pixelWidth -g pixelHeight "$f")
+            w=$(echo "$info"|awk '/pixelWidth/{print $2}')
+            h=$(echo "$info"|awk '/pixelHeight/{print $2}')
+            echo "$f -> ${w}x${h} (expect ${ew}x${eh})"
+            if [ "$w" != "$ew" ] || [ "$h" != "$eh" ]; then
+              echo "::error::$f size ${w}x${h} != ${ew}x${eh}, top shelf will disappear"; exit 1
+            fi
+          }
+          check_png "$A/Top Shelf Image.imageset/topshelf_std.png" 1920 720
+          check_png "$A/Top Shelf Image.imageset/topshelf_std_2x.png" 3840 1440
+          check_png "$A/Top Shelf Image Wide.imageset/topshelf.png" 2320 720
+          check_png "$A/Top Shelf Image Wide.imageset/topshelf_2x.png" 4640 1440
+          echo "All Top Shelf assets OK"
+
       - name: Generate Xcode project
         run: |
           xcodegen generate

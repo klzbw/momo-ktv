@@ -109,7 +109,10 @@ struct ContentView: View {
             }
         }
         .overlay {
-            TVFeedbackOverlay(topPad: 84)
+            ZStack {
+                TVFeedbackOverlay(topPad: 84)
+                AtmosphereOverlay()
+            }
         }
     }
 
@@ -238,32 +241,27 @@ struct ContentView: View {
         .focusSection()
     }
 
-    // MARK: - Next Up Bar (exact #next-up-bar)
+    // MARK: - Next Up Bar（常驻滚动横条，对齐网页 #next-up-bar，小屏不消失）
     private var nextUpBar: some View {
-        Group {
-            if let next = api.queue.first(where: { !$0.isPlaying }) {
-                HStack(spacing: 10) {
-                    Image(systemName: "forward.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(WebColors.ac2)
-                    Text("下一首:")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundColor(WebColors.sub)
-                    Text(next.displayTitle)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.white)
-                    Text("- \(next.displayArtist)")
-                        .font(.system(size: 17))
-                        .foregroundColor(WebColors.sub)
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .frame(height: 44)
-                .background(LinearGradient(colors: [WebColors.ac.opacity(0.32), WebColors.ac2.opacity(0.16)],
-                                           startPoint: .leading, endPoint: .trailing))
-                .overlay(Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1), alignment: .bottom)
-            }
+        TVTickerBar(text: tickerText, fontSize: 22)
+    }
+
+    /// 主界面滚动横条文案（正在播放/下一首/待播提醒/队列数量/欢迎语）
+    private var tickerText: String {
+        var parts: [String] = []
+        if let cur = api.queue.first(where: { $0.isPlaying }) {
+            parts.append("♪ 正在播放：《\(cur.displayTitle)》 \(cur.displayArtist)")
+        } else {
+            parts.append("🎤 快来点歌开唱吧～")
         }
+        let waiting = api.queue.filter { !$0.isPlaying }
+        if let next = waiting.first {
+            parts.append("🎵 下一首：《\(next.displayTitle)》 \(next.displayArtist)")
+        }
+        if waiting.count < 3 { parts.append("🎤 待播曲目不多啦，继续点歌吧～") }
+        parts.append("📋 队列里还有 \(waiting.count) 首歌")
+        parts.append("🎤 墨墨爱K歌——歌声有约，快乐无限")
+        return parts.joined(separator: "        ")
     }
 
     // MARK: - Main Grid (4-column 5-row layout, video spans 2x3)
@@ -538,6 +536,12 @@ struct ContentView: View {
         }
     }
 
+    private func setupAtmosphereHandler() {
+        AtmosphereCenter.shared.serverBase = api.httpBaseURL
+        api.onAtmosphere = { kind in AtmosphereCenter.shared.trigger(kind) }
+        api.onBlessing = { text, from in AtmosphereCenter.shared.bless(text, from: from) }
+    }
+
     private func setupPlaybackEndHandler() {
         playerManager.onPlaybackEnd = {
             DispatchQueue.main.async {
@@ -591,6 +595,7 @@ struct ContentView: View {
         // updateBaseURL 内部会断开旧 WebSocket、用目标地址重连并 fetchAll 拉取全部数据
         api.updateBaseURL(serverAddress)
         setupControlHandler()
+        setupAtmosphereHandler()
         setupPlaybackEndHandler()
         setupProgressReporting()
         showSetupInput = false

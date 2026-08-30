@@ -150,9 +150,9 @@ struct FullPlayerView: View {
                     .zIndex(3)
             }
 
-            // 顶部滚动横条（纯展示不拦截焦点；打开队列/扫码面板时隐藏）
+            // 顶部滚动横条：跟随底部7个控件一起显隐(showControls)，打开队列/扫码面板时也隐藏
             VStack {
-                if !showQueue && !showQR { TVTickerBar(text: tickerText) }
+                if showControls && !showQueue && !showQR { TVTickerBar(text: tickerText) }
                 Spacer()
             }
             .ignoresSafeArea()
@@ -161,6 +161,8 @@ struct FullPlayerView: View {
 
             // 大屏控件操作反馈
             TVFeedbackOverlay().zIndex(20)
+            // 氛围 emoji 刷屏 + 祝福弹幕（最顶层，不挡操作）
+            AtmosphereOverlay().zIndex(21)
         }
         .onPlayPauseCommand {
             playerManager.togglePlayPause()

@@ -308,6 +308,8 @@ app.use('/m',     express.static(path.join(__dirname, '../web/mobile')));
 app.use('/mobile', express.static(path.join(__dirname, '../web/mobile')));
 app.use('/admin', express.static(path.join(__dirname, '../web/admin')));
 app.use('/mic',   express.static(path.join(__dirname, '../web/mic')));
+// 氛围音效(掌声/干杯/喝彩/倒彩)静态目录：网页 <audio> 与 tvOS AVAudioPlayer 都从这里取
+app.use('/sounds',express.static(path.join(__dirname, '../web/sounds')));
 app.use('/cover', express.static('/data/covers'));
 
 // ---------- HLS 播放 (音轨切换不中断播放、进度可寻址) ----------
@@ -2160,6 +2162,22 @@ wss.on('connection', (ws, req) => {
           };
           const payload = JSON.stringify({ type: 'progress', ...lastProgress });
           wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(payload); });
+        }
+      }
+      // 氛围特效(掌声/干杯/喝彩/倒彩)：手机遥控触发，广播给所有大屏(TV网页/tvOS)播音效+全屏emoji刷屏
+      else if (p.type === 'atmosphere') {
+        const kind = ['applause','cheers','cheer','boo'].includes(p.kind) ? p.kind : null;
+        if (kind) {
+          const out = JSON.stringify({ type:'atmosphere', kind, from:String(p.from||'').slice(0,20) });
+          wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(out); });
+        }
+      }
+      // 祝福语弹幕：手机遥控输入/快捷短语，广播给所有大屏全屏展示，文本限长
+      else if (p.type === 'blessing') {
+        const text = String(p.text == null ? '' : p.text).trim().slice(0, 60);
+        if (text) {
+          const out = JSON.stringify({ type:'blessing', text, from:String(p.from||'').slice(0,20) });
+          wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(out); });
         }
       }
     } catch(e) {}
