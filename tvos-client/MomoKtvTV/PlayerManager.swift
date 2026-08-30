@@ -10,7 +10,19 @@ class PlayerManager: ObservableObject {
     @Published var duration: Double = 0
     @Published var isPlaying: Bool = false
     @Published var currentSongId: Int?
-    @Published var isOriginalVoice: Bool = true
+    /// 当前演唱音轨索引：0=原唱，1=半消（人声压低），2=纯伴奏。
+    /// AI 分离完成的纯音频有三档；老式双音轨 MV 只有 0/1；单音轨歌恒为 0。
+    @Published var vocalTrackIndex: Int = 0
+    /// 兼容旧代码的二元语义：是否处于原唱档
+    var isOriginalVoice: Bool { vocalTrackIndex == 0 }
+    /// 当前档位的中文名（用于反馈提示）
+    var vocalTrackLabel: String {
+        switch vocalTrackIndex {
+        case 1: return "半消"
+        case 2: return "伴唱"
+        default: return "原唱"
+        }
+    }
     var onPlaybackEnd: (() -> Void)?
 
     private(set) var player: AVPlayer?
@@ -47,7 +59,7 @@ class PlayerManager: ObservableObject {
         cleanup()
 
         // New song defaults to original voice (track 0), matching web _loadedTrack = 0
-        isOriginalVoice = true
+        vocalTrackIndex = 0
         voiceGeneration += 1
 
         let playerItem = AVPlayerItem(url: url)
@@ -118,7 +130,7 @@ class PlayerManager: ObservableObject {
             guard let self = self, self.player != nil else { return }
             let cur = self.player?.currentTime().seconds ?? self.currentTime
             let paused = !(self.player?.timeControlStatus == .playing)
-            let voice = self.isOriginalVoice ? "original" : "accompaniment"
+            let voice: String = self.vocalTrackIndex == 0 ? "original" : (self.vocalTrackIndex == 1 ? "half" : "accompaniment")
             self.onProgressReport?(cur, paused, voice)
         }
     }
@@ -177,17 +189,26 @@ class PlayerManager: ObservableObject {
         player?.volume = volume
     }
 
-    // MARK: - Voice Toggle (Original / Accompaniment)
+    // MARK: - Voice Toggle (原唱 / 半消 / 伴唱)
     var currentAudioTracks: Int = 1
 
+    /// 遥控器一个键在三档间循环：原唱 -> 半消 -> 伴唱 -> 原唱。
+    /// 实际只有两档(老MV)时 select 阶段会把"半消/伴唱"都映射到第1条音轨。
     func toggleVoice() {
-        isOriginalVoice.toggle()
+        vocalTrackIndex = (vocalTrackIndex + 1) % 3
+        voiceGeneration += 1
+        applyVoiceMode()
+    }
+
+    /// 直接选到指定档位（0原唱/1半消/2伴唱），供三档按钮或连续滑块落点使用
+    func selectVocalTrack(_ index: Int) {
+        vocalTrackIndex = max(0, min(2, index))
         voiceGeneration += 1
         applyVoiceMode()
     }
 
     func setVoiceMode(_ original: Bool) {
-        isOriginalVoice = original
+        vocalTrackIndex = original ? 0 : 2
         voiceGeneration += 1
         applyVoiceMode()
     }
@@ -220,10 +241,13 @@ class PlayerManager: ObservableObject {
         let options = audioGroup.options
         guard !options.isEmpty else { return }
 
-        // track 0 = original, track 1 = accompaniment (matches web hls.audioTrack).
-        // Computed from the CURRENT isOriginalVoice every call — never captured.
-        let targetIndex = isOriginalVoice ? 0 : min(1, options.count - 1)
-        guard options.count > targetIndex else { return }
+        let n = options.count
+        // 三档(AI分离)精确对应 0/1/2；老式双音轨MV：半消(1)与伴唱(2)都落到第1条伴奏轨；
+        // 单音轨歌没有可切的音轨，直接返回。每次都按当前 vocalTrackIndex 现算，不捕获旧值。
+        let targetIndex: Int
+        if n >= 3 { targetIndex = min(vocalTrackIndex, n - 1) }
+        else if n == 2 { targetIndex = vocalTrackIndex == 0 ? 0 : 1 }
+        else { return }
         let targetOption = options[targetIndex]
 
         if playerItem.selectedMediaOption(in: audioGroup) != targetOption {

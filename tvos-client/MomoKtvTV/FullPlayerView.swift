@@ -20,8 +20,17 @@ struct FullPlayerView: View {
     @AppStorage("micPublicHost") private var micPublicHost: String = "mktv.klzbw.top"
 
     enum VoiceMode {
-        case original, accompaniment
-        var label: String { self == .original ? "原唱" : "伴唱" }
+        case original, half, accompaniment
+        var label: String {
+            switch self {
+            case .original: return "原唱"
+            case .half: return "半消"
+            case .accompaniment: return "伴唱"
+            }
+        }
+        static func from(_ index: Int) -> VoiceMode {
+            index == 0 ? .original : (index == 1 ? .half : .accompaniment)
+        }
     }
 
     enum QRTab { case order, micMode }
@@ -94,8 +103,8 @@ struct FullPlayerView: View {
                                 )
                             }
 
-                            TVTightButton(action: { toggleVoice(); FeedbackCenter.shared.show(voiceMode.label, icon: "mic.fill") }) { focused in
-                                controlContent(icon: "mic.fill", title: voiceMode.label, focused: focused)
+                            TVTightButton(action: { toggleVoice() }) { focused in
+                                controlContent(icon: "mic.fill", title: playerManager.vocalTrackLabel, focused: focused)
                             }
 
                             TVTightButton(action: { FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill"); onNext() }) { focused in
@@ -216,7 +225,7 @@ struct FullPlayerView: View {
         showControls = true
         resetHideTimer()
         hasAutoExited = false
-        voiceMode = playerManager.isOriginalVoice ? .original : .accompaniment
+        voiceMode = VoiceMode.from(playerManager.vocalTrackIndex)
         // 切歌/全屏视图重建时，若麦克风模式仍开着则保持连接不断
         mic.keepAlive(api.serverAddress)
     }
@@ -485,7 +494,8 @@ struct FullPlayerView: View {
 
     private func toggleVoice() {
         playerManager.toggleVoice()
-        voiceMode = playerManager.isOriginalVoice ? .original : .accompaniment
+        voiceMode = VoiceMode.from(playerManager.vocalTrackIndex)
+        FeedbackCenter.shared.show(playerManager.vocalTrackLabel, icon: "mic.fill")
         api.toggleVoice()
     }
 

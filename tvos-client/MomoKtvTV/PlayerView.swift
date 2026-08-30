@@ -25,9 +25,21 @@ struct PlayerView: View {
     @State private var timeObserver: Any?
 
     enum VoiceMode {
-        case original, accompaniment
-        var label: String { self == .original ? "原唱" : "伴唱" }
-        var trackIndex: Int { self == .original ? 0 : 1 }
+        case original, half, accompaniment
+        var label: String {
+            switch self {
+            case .original: return "原唱"
+            case .half: return "半消"
+            case .accompaniment: return "伴唱"
+            }
+        }
+        var trackIndex: Int {
+            switch self {
+            case .original: return 0
+            case .half: return 1
+            case .accompaniment: return 2
+            }
+        }
     }
 
     init(song: QueueItem, hlsURL: URL, onNext: @escaping () -> Void, onClose: @escaping () -> Void,
@@ -363,17 +375,21 @@ struct PlayerView: View {
     }
 
     private func toggleVoice() {
-        voiceMode = voiceMode == .original ? .accompaniment : .original
-        if song.hasMultiTrack {
-            if let group = player?.currentItem?.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) {
-                let options = group.options
-                if options.count > voiceMode.trackIndex {
-                    player?.currentItem?.select(options[voiceMode.trackIndex], in: group)
-                }
-            }
+        // 三档循环：原唱 -> 半消 -> 伴唱 -> 原唱
+        switch voiceMode {
+        case .original: voiceMode = .half
+        case .half: voiceMode = .accompaniment
+        case .accompaniment: voiceMode = .original
         }
-        api.reportVoiceSwitch(songId: song.song_id, mode: song.hasMultiTrack ? "tracks" : "stereo",
-                              to: voiceMode == .original ? "original" : "accompaniment")
+        if let group = player?.currentItem?.asset.mediaSelectionGroup(forMediaCharacteristic: .audible) {
+            let options = group.options
+            let n = options.count
+            // 三档精确选；老式双音轨把半消/伴唱都落到第1条；单音轨无法切
+            let idx: Int = n >= 3 ? min(voiceMode.trackIndex, n - 1) : (n == 2 ? (voiceMode == .original ? 0 : 1) : 0)
+            if n > idx { player?.currentItem?.select(options[idx], in: group) }
+        }
+        let toStr = voiceMode == .original ? "original" : (voiceMode == .half ? "half" : "accompaniment")
+        api.reportVoiceSwitch(songId: song.song_id, mode: song.hasMultiTrack ? "tracks" : "stereo", to: toStr)
     }
 
     private func toggleControls() {

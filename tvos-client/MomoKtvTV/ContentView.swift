@@ -505,7 +505,7 @@ struct ContentView: View {
                 if (payload["clientId"] as? String) != api.clientId {
                     playerManager.toggleVoice()
                 }
-                FeedbackCenter.shared.show(playerManager.isOriginalVoice ? "原唱" : "伴唱", icon: "mic.fill")
+                FeedbackCenter.shared.show(playerManager.vocalTrackLabel, icon: "mic.fill")
             case "eq":
                 if let name = payload["name"] as? String {
                     let labels = ["flat": "标准", "vocal": "人声增强", "bass": "低音增强", "bright": "明亮清晰"]
@@ -668,13 +668,14 @@ struct ContentView: View {
     private var mvCtrl: some View {
         HStack(spacing: 6) {
             MVButton(icon: "slider.horizontal.3", title: "均衡器") { activePanel = .eq }
-            MVButton(icon: "mic", title: playerManager.isOriginalVoice ? "原唱" : "伴唱") {
+            MVButton(icon: "mic", title: playerManager.vocalTrackLabel) {
                 playerManager.toggleVoice()
                 api.toggleVoice()
-                showToast(playerManager.isOriginalVoice ? "原唱" : "伴唱")
+                showToast(playerManager.vocalTrackLabel)
                 // Sync voice state to server so mobile remote original/accompaniment
                 // button highlight stays in sync with the TV.
-                api.sendPlaybackState(paused: !playerManager.isPlaying, voice: playerManager.isOriginalVoice ? "original" : "accompaniment")
+                let v: String = playerManager.vocalTrackIndex == 0 ? "original" : (playerManager.vocalTrackIndex == 1 ? "half" : "accompaniment")
+                api.sendPlaybackState(paused: !playerManager.isPlaying, voice: v)
             }
             MVButton(icon: "speaker.minus", title: "音量-") {
                 volume = max(0, volume - 0.1)
@@ -689,7 +690,8 @@ struct ContentView: View {
                                            icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
                 // Sync playback state to server so mobile remote play/pause
                 // button icon stays in sync with the TV.
-                api.sendPlaybackState(paused: !playerManager.isPlaying, voice: playerManager.isOriginalVoice ? "original" : "accompaniment")
+                api.sendPlaybackState(paused: !playerManager.isPlaying,
+                    voice: playerManager.vocalTrackIndex == 0 ? "original" : (playerManager.vocalTrackIndex == 1 ? "half" : "accompaniment"))
             }
             MVButton(icon: "speaker.plus", title: "音量+") {
                 volume = min(1, volume + 0.1)
