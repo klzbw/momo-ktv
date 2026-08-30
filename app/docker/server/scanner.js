@@ -405,9 +405,25 @@ function listFilesRecursive(dir) {
 function parseFilename(filename) {
   const base = path.basename(filename, path.extname(filename));
   const parts = base.split('-').map(s => s.trim()).filter(p => p.length > 0);
+  // 清理流派字段尾部的 (1)/(2) 等重名后缀（文件名里为避免重名加的，不该成为独立流派）
+  const cleanGenre = g => String(g || '').replace(/\(\d+\)\s*$/, '').trim();
 
   if (parts.length === 0) {
     return { artist: '未知歌手', title: base, language: '', genre: '' };
+  }
+  // 编号格式：第一段以数字编号开头（如 "001 爱"、"01 大海"），说明文件名是
+  // "编号 歌名-歌手-语言-流派"，与默认的"歌手-歌名-语言-流派"顺序相反，
+  // 需把第一段去掉编号当歌名、第二段当歌手，否则 title/artist 会整体颠倒。
+  if (/^\d/.test(parts[0]) && parts.length >= 2) {
+    const numTitle = parts[0].replace(/^\d+\s*/, '').trim() || parts[0];
+    const numArtist = parts[1];
+    if (parts.length === 2) {
+      return { artist: numArtist, title: numTitle, language: '', genre: '' };
+    }
+    if (parts.length === 3) {
+      return { artist: numArtist, title: numTitle, language: parts[2], genre: '' };
+    }
+    return { artist: numArtist, title: numTitle, language: parts[parts.length - 2], genre: cleanGenre(parts[parts.length - 1]) };
   }
   if (parts.length === 1) {
     return { artist: '未知歌手', title: parts[0], language: '', genre: '' };
@@ -418,7 +434,7 @@ function parseFilename(filename) {
   if (parts.length === 3) {
     return { artist: parts[0], title: parts[1], language: parts[2], genre: '' };
   }
-  const genre = parts[parts.length - 1];
+  const genre = cleanGenre(parts[parts.length - 1]);
   const language = parts[parts.length - 2];
   const title = parts.slice(1, parts.length - 2).join('-');
   return { artist: parts[0], title, language, genre };
