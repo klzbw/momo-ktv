@@ -13,6 +13,7 @@ const { ensureHLS, removeHLS, outDir, waitForFile, onBuildComplete } = require('
 const sourceCache = require('./sourceCache');
 const { schedulePreload, setPreloadUpdateNotifier, setDecodeMode } = require('./queuePreload');
 const cacheCleaner = require('./cacheCleaner');
+const lyricsMod = require('./lyrics');
 const log = require('./logger');
 
 // ---------- 进程级兜底：单个后台任务的意外错误不该拖垮整个服务 ----------
@@ -630,6 +631,85 @@ app.post('/api/voice/switch', (req, res) => {
 // 分页参数时仍然和以前一样直接返回数组，不影响 TV 端/手机端现有逻辑。
 // 「曲库管理」后台页面现在用分页参数（每页 50 首）来避免曲库很大时一次性
 // 把几千首歌整页渲染进 DOM 导致的加载卡顿。
+// ============ 歌词（音频K歌改造）============
+// 取一首歌的歌词：DB 已有则直接返回(不联网、最快)；没有则按"本地同名lrc→在线三源"
+// 找一次，找到就落库。forceOnline=true 时忽略 DB 已有结果强制在线重抓。
+async function obtainLyrics(song, { forceOnline = false } = {}) {
+  if (song.lyrics && !forceOnline) return { lrc: song.lyrics, source: song.lyrics_source || 'stored', lines: lyricsMod.parseLrc(song.lyrics).length };
+  const r = await lyricsMod.resolveLyrics(song, { allowOnline: true });
+  if (r && r.lrc) {
+    db.prepare('UPDATE songs SET lyrics=?, lyrics_source=? WHERE id=?').run(r.lrc, r.source, song.id);
+    return { lrc: r.lrc, source: r.source, lines: lyricsMod.parseLrc(r.lrc).length };
+  }
+  return null;
+}
+
+// GET /api/songs/:id/lyrics?online=1 —— 取歌词（默认缺词时在线补一次）
+app.get('/api/songs/:id/lyrics', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+    const song = db.prepare('SELECT * FROM songs WHERE id=?').get(id);
+    if (!song) return res.status(404).json({ error: 'song not found' });
+    const allowOnline = req.query.online !== '0';
+    const r = allowOnline ? await obtainLyrics(song) : (song.lyrics ? { lrc: song.lyrics, source: song.lyrics_source || 'stored' } : null);
+    if (!r) return res.status(404).json({ id, lyrics: null, message: '暂无歌词（本地无同名lrc，在线三源也未命中）' });
+    res.json({ id, title: song.title, artist: song.artist, lyrics: r.lrc, source: r.source });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/songs/:id/lyrics/fetch —— 强制在线重新抓取
+app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const song = db.prepare('SELECT * FROM songs WHERE id=?').get(id);
+    if (!song) return res.status(404).json({ error: 'song not found' });
+    const r = await obtainLyrics(song, { forceOnline: true });
+    if (!r) return res.status(404).json({ id, lyrics: null, message: '在线三源均未命中' });
+    res.json({ id, lyrics: r.lrc, source: r.source });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 批量补抓状态（防止重复跑），GET 可查进度
+let lyricBatch = { running: false, total: 0, done: 0, ok: 0, fail: 0, startedAt: null, finishedAt: null };
+
+// POST /api/lyrics/batch-missing?limit=200 —— 后台串行给缺词歌曲在线补抓（限速）
+app.post('/api/lyrics/batch-missing', (req, res) => {
+  if (lyricBatch.running) return res.status(409).json({ message: '已有批量补抓任务在跑', state: lyricBatch });
+  let limit = parseInt(req.query.limit, 10);
+  if (!Number.isInteger(limit) || limit <= 0) limit = 200;
+  limit = Math.min(limit, 1000);
+  const rows = db.prepare("SELECT * FROM songs WHERE (lyrics IS NULL OR lyrics='') ORDER BY id LIMIT ?").all(limit);
+  lyricBatch = { running: true, total: rows.length, done: 0, ok: 0, fail: 0, startedAt: Date.now(), finishedAt: null };
+  res.json({ message: `已开始后台补抓 ${rows.length} 首`, state: lyricBatch });
+  (async () => {
+    for (const song of rows) {
+      try {
+        const r = await lyricsMod.resolveLyrics(song, { allowOnline: true });
+        if (r && r.lrc) { db.prepare('UPDATE songs SET lyrics=?, lyrics_source=? WHERE id=?').run(r.lrc, r.source, song.id); lyricBatch.ok++; }
+        else lyricBatch.fail++;
+      } catch (e) { lyricBatch.fail++; }
+      lyricBatch.done++;
+      await sleep(800); // 串行 + 限速，避免触发歌词站反爬/封 IP
+    }
+    lyricBatch.running = false;
+    lyricBatch.finishedAt = Date.now();
+    log.info('LYRICS', `批量补抓完成：共 ${lyricBatch.total}，成功 ${lyricBatch.ok}，未命中 ${lyricBatch.fail}`);
+  })();
+});
+
+// GET /api/lyrics/stats —— 歌词覆盖率与批量任务进度
+app.get('/api/lyrics/stats', (req, res) => {
+  const total = db.prepare('SELECT COUNT(*) c FROM songs').get().c;
+  const has = db.prepare("SELECT COUNT(*) c FROM songs WHERE lyrics IS NOT NULL AND lyrics<>''").get().c;
+  const bySrc = db.prepare('SELECT lyrics_source, COUNT(*) c FROM songs WHERE lyrics IS NOT NULL GROUP BY lyrics_source').all();
+  res.json({ total, hasLyrics: has, missing: total - has, coverage: total ? +(has / total * 100).toFixed(1) : 0, bySource: bySrc, batch: lyricBatch });
+});
+
 app.get('/api/songs', (req, res) => {
   const q = (req.query.q || '').trim();
   const artist = (req.query.artist || '').trim();

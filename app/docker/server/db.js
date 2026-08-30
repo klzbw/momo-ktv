@@ -198,6 +198,30 @@ try {
   if (!cols.includes('parse_ignored')) {
     db.exec('ALTER TABLE songs ADD COLUMN parse_ignored INTEGER DEFAULT 0');
   }
+
+  // ===== 音频K歌改造新增列（幂等迁移，老库自动补列，不影响已有数据）=====
+  const addCol = (name, decl) => { if (!cols.includes(name)) db.exec(`ALTER TABLE songs ADD COLUMN ${decl}`); };
+  // media_type: video=带画面文件, audio=纯音频(mp3/flac/wav/ape...), cue=CUE整轨虚拟分轨
+  addCol('media_type', "media_type TEXT");
+  // 刮削出来的专辑/年份/音轨号
+  addCol('album', "album TEXT");
+  addCol('year', "year TEXT");
+  addCol('track_no', "track_no INTEGER");
+  // CUE 整轨：cue_path=整轨音频真实路径，cue_track=第几轨，start/end_offset=截取区间(秒)
+  addCol('cue_path', "cue_path TEXT");
+  addCol('cue_track', "cue_track INTEGER");
+  addCol('start_offset', "start_offset REAL DEFAULT 0");
+  addCol('end_offset', "end_offset REAL");
+  // 歌词：lyrics=逐行LRC原文，lyrics_word=逐字增强LRC(P5)，lyrics_source=local/netease/kuwo/qq/ai
+  addCol('lyrics', "lyrics TEXT");
+  addCol('lyrics_word', "lyrics_word TEXT");
+  addCol('lyrics_source', "lyrics_source TEXT");
+  // AI 人声分离：sep_status=none/pending/done/failed，vocal/accomp_path 为分离产物路径；
+  // align_status=逐字歌词对齐状态 none/pending/done/failed
+  addCol('sep_status', "sep_status TEXT DEFAULT 'none'");
+  addCol('vocal_path', "vocal_path TEXT");
+  addCol('accomp_path', "accomp_path TEXT");
+  addCol('align_status', "align_status TEXT DEFAULT 'none'");
 } catch (e) { console.error('音轨/语种/风格字段迁移失败:', e.message); }
 
 // Bug修复(置顶后再置顶另一首，原先置顶的歌会被打回原始排序位置)：老的

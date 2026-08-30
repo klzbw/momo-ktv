@@ -47,6 +47,26 @@ const sourceCache = require('./sourceCache');
 //   "NVIDIA 硬件加速不可用" 并回退，不会导致转码报错。
 const HLS_DIR = process.env.HLS_DIR || '/data/hls';
 const SEGMENT_TIME = 6; // 秒，只是切片建议值，ffmpeg 仍会在最近的关键帧处切割
+// 纯音频(mp3/flac/wav/ape/cue分轨)没有视频画面，K 歌时需要一条背景视频轨。
+// 用户可把自己的背景视频(mp4/mov/mkv/webm)放进该目录，点纯音频歌时随机挑一个
+// 循环铺底；目录为空时用 ffmpeg 内置的流动渐变(gradients)动态背景，再不行用
+// 静态深色兜底，保证任何情况下都有画面、且能复用整套视频 HLS 播放链路。
+const BG_DIR = process.env.BG_DIR || '/data/backgrounds';
+const BG_EXTS = /\.(mp4|mov|mkv|webm|m4v)$/i;
+let bgCache = { at: 0, list: [] };
+function pickBackgroundVideo() {
+  const now = Date.now();
+  if (now - bgCache.at > 30000) { // 目录列表缓存 30s，新增背景无需重启即可被选中
+    bgCache.at = now;
+    try {
+      fs.mkdirSync(BG_DIR, { recursive: true }); // 目录不存在则创建，方便用户投放背景视频
+      bgCache.list = fs.readdirSync(BG_DIR).filter(f => BG_EXTS.test(f)).map(f => path.join(BG_DIR, f));
+    } catch (e) { bgCache.list = []; }
+  }
+  const list = bgCache.list;
+  if (!list.length) return null;
+  return list[Math.floor(Math.random() * list.length)];
+}
 
 // ---------- VAAPI 硬件加速探测 ----------
 const VAAPI_DEVICE = process.env.VAAPI_DEVICE || '/dev/dri/renderD128';
@@ -409,6 +429,72 @@ async function buildVideoRendition(filepath, dir, songTag) {
   log.info('TRANSCODE', `${songTag} 视频轨: 软件编码(Tier3 libx264)完成，耗时 ${Date.now() - t3}ms，未使用核显`);
 }
 
+// 计算一首歌曲应该转多长(秒)。CUE 分轨=结束-起点(最后一首用整轨时长-起点)；
+// 普通歌曲用数据库 duration；都没有时现场 ffprobe；最终给 600s 安全上限，避免
+// 探不到时长时动态背景源无限转码、空耗 CPU。
+function resolveDurationSec(song, filepath) {
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+  if (song.media_type === 'cue') {
+    const start = num(song.start_offset) || 0;
+    const end = num(song.end_offset);
+    if (end && end > start) return end - start;
+    const whole = probeFormatDuration(filepath);
+    if (whole && whole > start) return whole - start;
+  }
+  const d = num(song.duration);
+  if (d && d > 0) return d;
+  const probed = probeFormatDuration(filepath);
+  return probed && probed > 0 ? probed : 600;
+}
+
+function probeFormatDuration(filepath) {
+  try {
+    const out = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', filepath], { timeout: 30000 }).toString().trim();
+    const v = parseFloat(out.split('\n')[0]);
+    return Number.isFinite(v) ? v : null;
+  } catch (e) { return null; }
+}
+
+// 纯音频背景视频轨：产出与 buildVideoRendition 同名的 video.m3u8，从而让纯音频
+// 歌也走"视频轨 + 音频轨"的标准 master 结构，tvOS/网页无需为纯音频单独适配。
+// 优先随机铺用户背景视频并循环；没有就用 ffmpeg 流动渐变；再不行静态深色兜底。
+async function buildAudioBackgroundRendition(song, dir, durSec, songTag) {
+  const out = hlsOutArgs(path.join(dir, 'video_%04d.ts'), path.join(dir, 'video.m3u8'));
+  const dur = Number.isFinite(durSec) && durSec > 0 ? String(Math.round(durSec * 10) / 10) : null;
+  const t0 = Date.now();
+  const fitVf = 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,fps=30,format=yuv420p';
+  const enc = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-g', '120'];
+
+  const bg = pickBackgroundVideo();
+  if (bg) {
+    const args = ['-loglevel', 'error', '-y', '-stream_loop', '-1', '-i', bg];
+    if (dur) args.push('-t', dur);
+    args.push('-an', '-vf', fitVf, ...enc, ...out);
+    try {
+      await runFFmpeg(args);
+      log.info('TRANSCODE', `${songTag} 纯音频背景轨: 使用随机背景视频(${path.basename(bg)})，耗时 ${Date.now() - t0}ms`);
+      return;
+    } catch (e) {
+      log.warn('TRANSCODE', `${songTag} 纯音频背景轨: 背景视频生成失败，改用内置流动渐变: ${lastErrLine(e)}`);
+    }
+  }
+  // 内置流动渐变（ffmpeg 4.4+ 的 gradients source，bookworm 的 ffmpeg 5.x 支持）
+  const grad = 'gradients=size=1920x1080:rate=30:c0=0x141428:c1=0x33265c:speed=0.02';
+  const gArgs = ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', grad];
+  if (dur) gArgs.push('-t', dur);
+  gArgs.push('-an', '-vf', 'format=yuv420p', ...enc, ...out);
+  try {
+    await runFFmpeg(gArgs);
+    log.info('TRANSCODE', `${songTag} 纯音频背景轨: 内置流动渐变完成，耗时 ${Date.now() - t0}ms`);
+  } catch (e) {
+    log.warn('TRANSCODE', `${songTag} 纯音频背景轨: gradients 不可用，改用静态深色: ${lastErrLine(e)}`);
+    const cArgs = ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=0x141428:size=1920x1080:rate=30'];
+    if (dur) cArgs.push('-t', dur);
+    cArgs.push('-an', ...enc, ...out);
+    await runFFmpeg(cArgs);
+  }
+}
+
 // 探测单音轨源文件的声道数：用于区分"真正的单声道(mono)"(没法做原/伴唱
 // 分离，只能出1条音轨)和"单音轨但源是立体声"(老式声道型 MV，左右声道分别
 // 是伴唱/原唱，能用 pan 滤镜虚拟出2条音轨)。只在 audio_tracks<2 时才需要
@@ -435,8 +521,11 @@ function probeAudioChannels(filepath, songTag) {
 // 音频轨：只有源编码是 aac 时才 -c copy，其余编码（Opus/Vorbis/FLAC/AC3 等）
 // 直接重新编码为 AAC。音频转码本身 CPU 消耗很低，没有必要也没有硬件通道，
 // 继续用软件编码即可。
-async function buildAudioRendition(filepath, dir, track, songTag) {
-  const common = ['-loglevel', 'error', '-y', '-i', filepath, '-map', `0:a:${track}`, '-vn'];
+async function buildAudioRendition(filepath, dir, track, songTag, seek) {
+  // CUE 分轨：-i 之后做精确输出端 seek(-ss 起点、-t 时长)，输出时间戳从 0 开始，
+  // 与从 0 开始的背景视频轨天然对齐；普通歌曲 seek 为空，命令与原来完全一致。
+  const seekArgs = (seek && Number.isFinite(seek.ss)) ? ['-ss', String(seek.ss), ...(Number.isFinite(seek.t) ? ['-t', String(seek.t)] : [])] : [];
+  const common = ['-loglevel', 'error', '-y', '-i', filepath, ...seekArgs, '-map', `0:a:${track}`, '-vn'];
   const out = hlsOutArgs(path.join(dir, `audio${track}_%04d.ts`), path.join(dir, `audio${track}.m3u8`));
   const codec = probeCodecName(filepath, `a:${track}`, songTag);
   const trackName = track === 0 ? '原唱' : track === 1 ? '伴唱' : `音轨${track}`;
@@ -468,8 +557,9 @@ async function buildAudioRendition(filepath, dir, track, songTag) {
 // track 1(伴唱)=左声道(c0)复制到左右两声道。产出的目录结构(audio0.m3u8/
 // audio1.m3u8)跟"真正的多音轨"完全一样，index.js 路由层和客户端都不需要
 // 关心背后是真实的多音轨还是这里合成出来的。
-async function buildStereoSplitAudioRendition(filepath, dir, track, songTag) {
-  const common = ['-loglevel', 'error', '-y', '-i', filepath, '-map', '0:a:0', '-vn'];
+async function buildStereoSplitAudioRendition(filepath, dir, track, songTag, seek) {
+  const seekArgs = (seek && Number.isFinite(seek.ss)) ? ['-ss', String(seek.ss), ...(Number.isFinite(seek.t) ? ['-t', String(seek.t)] : [])] : [];
+  const common = ['-loglevel', 'error', '-y', '-i', filepath, ...seekArgs, '-map', '0:a:0', '-vn'];
   const panFilter = track === 0 ? 'pan=stereo|c0=c1|c1=c1' : 'pan=stereo|c0=c0|c1=c0';
   const out = hlsOutArgs(path.join(dir, `audio${track}_%04d.ts`), path.join(dir, `audio${track}.m3u8`));
   const trackName = track === 0 ? '原唱' : '伴唱';
@@ -502,24 +592,32 @@ function writeMasterPlaylist(dir, trackCount) {
 // 失败都会被上层捕获记录，方便前端/路由层判断这首歌为什么迟迟出不了片。
 // effectiveTrackCount 由调用方(ensureHLS)算好传进来，避免这里重复探测一次
 // 声道数(ensureHLS 为了同步写出 master.m3u8 已经探测过一次了)。
-async function buildHLS(song, dir, effectiveTrackCount, filepath) {
+async function buildHLS(song, dir, effectiveTrackCount, filepath, durSec) {
   const declaredTracks = Math.max(1, song.audio_tracks || 1);
   const songTag = `[歌曲 id=${song.id} "${song.title || song.filename}"]`;
   const t0 = Date.now();
 
-  const tasks = [buildVideoRendition(filepath, dir, songTag)];
+  // 纯音频(mp3/flac/wav/ape)/CUE 分轨没有源视频轨：视频任务换成动态背景轨；
+  // CUE 分轨还要给音频任务传截取区间(从整轨 start_offset 起、时长 durSec)。
+  const isAudioOnly = song.media_type === 'audio' || song.media_type === 'cue';
+  const seek = (isAudioOnly && song.media_type === 'cue' && Number.isFinite(Number(song.start_offset)))
+    ? { ss: Number(song.start_offset) || 0, t: durSec } : null;
+  const videoTask = isAudioOnly
+    ? buildAudioBackgroundRendition(song, dir, durSec, songTag)
+    : buildVideoRendition(filepath, dir, songTag);
+  const tasks = [videoTask];
   if (declaredTracks >= 2) {
     log.info('TRANSCODE', `${songTag} 开始转码，共 ${declaredTracks} 条真实音轨（1=原唱, 2=伴唱）`);
     for (let t = 0; t < declaredTracks; t++) {
-      tasks.push(buildAudioRendition(filepath, dir, t, songTag));
+      tasks.push(buildAudioRendition(filepath, dir, t, songTag, seek));
     }
-  } else if (effectiveTrackCount >= 2) {
+  } else if (effectiveTrackCount >= 2 && !isAudioOnly) {
     log.info('TRANSCODE', `${songTag} 单音轨但源为立体声，按"声道型"虚拟出2条音轨(声道复制：0=原唱=右声道，1=伴唱=左声道)，供软解(HLS)模式下原/伴唱切换`);
-    tasks.push(buildStereoSplitAudioRendition(filepath, dir, 0, songTag));
-    tasks.push(buildStereoSplitAudioRendition(filepath, dir, 1, songTag));
+    tasks.push(buildStereoSplitAudioRendition(filepath, dir, 0, songTag, seek));
+    tasks.push(buildStereoSplitAudioRendition(filepath, dir, 1, songTag, seek));
   } else {
     log.info('TRANSCODE', `${songTag} 开始转码，共 1 条音轨（单声道，无法声道分离）`);
-    tasks.push(buildAudioRendition(filepath, dir, 0, songTag));
+    tasks.push(buildAudioRendition(filepath, dir, 0, songTag, seek));
   }
   try {
     await Promise.all(tasks);
@@ -576,11 +674,21 @@ async function ensureHLS(song) {
     // (声道型虚拟)音轨。这次探测是一次很轻量的 ffprobe 元数据查询(不是
     // 转码本身)，放在这里同步做一次不会拖慢"渐进式"设计追求的"立刻返回
     // master.m3u8"目标；结果顺带传给 buildHLS()，避免重复探测。
-    const effectiveTrackCount = declaredTracks >= 2 ? declaredTracks : (probeAudioChannels(filepath, songTag) >= 2 ? 2 : 1);
+    // 纯音频(普通 mp3/flac)虽然几乎都是立体声，但那是正常混音(左右合起来才完整)，
+    // 不是老式声道型 MV 的"左伴唱/右原唱"，绝不能套用声道复制虚拟双轨(否则每边
+    // 只剩一半混音、声音残缺)。纯音频强制 1 条完整音轨；只有 AI 分离产物
+    // (declaredTracks>=2)才出真正的多轨。视频 MV 保留原有声道虚拟探测。
+    const isAudioSong = song.media_type === 'audio' || song.media_type === 'cue';
+    let effectiveTrackCount;
+    if (declaredTracks >= 2) effectiveTrackCount = declaredTracks;
+    else if (isAudioSong) effectiveTrackCount = 1;
+    else effectiveTrackCount = probeAudioChannels(filepath, songTag) >= 2 ? 2 : 1;
     writeMasterPlaylist(dir, effectiveTrackCount);
     buildErrors.delete(id);
+    // 纯音频/CUE：算出本次应转时长，供动态背景轨定长、CUE 截取区间使用
+    const durSec = isAudioSong ? resolveDurationSec(song, filepath) : null;
 
-    const p = buildHLS(song, dir, effectiveTrackCount, filepath)
+    const p = buildHLS(song, dir, effectiveTrackCount, filepath, durSec)
       .catch(e => { buildErrors.set(id, e); throw e; })
       .finally(() => building.delete(id));
     building.set(id, p);

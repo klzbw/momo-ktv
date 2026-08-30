@@ -6,6 +6,10 @@ const { promisify } = require('util');
 const db = require('./db');
 const { removeHLS } = require('./hlsgen');
 const sourceCache = require('./sourceCache');
+const { parseCue } = require('./cueParser');
+const { readAudioTags } = require('./tagReader');
+const { findLocalLrc, normalizeLrc } = require('./lyrics');
+const { VIDEO_EXT, AUDIO_EXT, isAudioExt, isCueExt, isCollectableExt, mediaTypeOf } = require('./mediaFormats');
 const log = require('./logger');
 
 const execFileAsync = promisify(execFile);
@@ -177,7 +181,8 @@ function getMVDir() {
 // 编码（.mpg 源文件常见的 mpeg1video/mpeg2video）会被 SAFE_VIDEO_CODECS
 // 判定为不可直拷贝，自动走 VAAPI/libx264 转码分支，不需要针对该格式
 // 额外改动转码逻辑。
-const VIDEO_EXT = ['.mp4', '.mkv', '.avi', '.flv', '.mov', '.webm', '.mpg'];
+// 视频/纯音频/CUE 白名单统一从 mediaFormats.js 引入（音频K歌改造：视频白名单
+// 扩展了 mpeg/m4v/ts/wmv 等，纯音频 mp3/flac/wav/ape 等见 AUDIO_EXT）。
 
 // 需求(网盘STRM支持)：.strm 是一个纯文本"指针文件"，内容是网盘里真实媒体
 // 文件的地址(网络挂载路径或 http(s) 直链)，不是媒体文件本身。曲库扫描阶段
@@ -382,7 +387,9 @@ function listFilesRecursive(dir) {
       results = results.concat(listFilesRecursive(full));
     } else {
       const ext = path.extname(entry.name).toLowerCase();
-      if (VIDEO_EXT.includes(ext) || ext === STRM_EXT) {
+      // 视频 + 纯音频 + CUE 整轨索引 + STRM 指针全部收录，具体怎么入库由
+      // scanLibrary 主循环按类型分流（CUE 展开成多首虚拟歌）。
+      if (isCollectableExt(ext)) {
         results.push(full);
       }
     }
@@ -477,6 +484,110 @@ function yieldToEventLoop() {
 // 后面清理阶段会按"这个根目录本轮到底有没有被成功扫描"来精确判断，而不是
 // 简单地"文件当前存在的完整集合里找不到就删"，避免一个网盘暂时掉线就把它
 // 名下几百首歌的库记录批量误删。
+// ===== CUE 整轨分轨（音频K歌改造）=====
+// 根据 .cue 里的 FILE 字段定位整轨音频的绝对路径：优先 cue 同目录下的 FILE 名，
+// 找不到再用"与 cue 同主名、扩展名为音频"的文件，仍找不到返回 null。
+function findCueWholeAudio(cueFile, parsed) {
+  const dir = path.dirname(cueFile);
+  const candidates = [];
+  if (parsed.file) candidates.push(path.join(dir, parsed.file));
+  const cueBase = cueFile.replace(/\.cue$/i, '');
+  for (const ext of AUDIO_EXT) candidates.push(cueBase + ext);
+  for (const c of candidates) {
+    try { if (fs.existsSync(c)) return c; } catch (e) { /* 忽略探测失败，继续候选 */ }
+  }
+  return null;
+}
+
+// 遍历本轮全部文件，为每个 .cue 解析并建立"整轨音频绝对路径 -> {cueFile,parsed}"
+// 索引。主循环据此：①遇到整轨音频本身时跳过(只入分轨，不重复入整张碟)；
+// ②遇到 .cue 时展开成多首虚拟歌。
+function buildCueIndex(perRoot) {
+  const wholeToCue = new Map();
+  const cueToWhole = new Map();
+  const cueFiles = new Set();
+  for (const { files } of perRoot) {
+    for (const f of files) {
+      if (!isCueExt(path.extname(f))) continue;
+      try {
+        const parsed = parseCue(fs.readFileSync(f, 'utf8'));
+        if (!parsed.tracks.length) continue;
+        const whole = findCueWholeAudio(f, parsed);
+        cueFiles.add(f);
+        if (whole) {
+          wholeToCue.set(whole, { cueFile: f, parsed });
+          cueToWhole.set(f, whole);
+        } else console.error('CUE 找不到对应整轨音频，已跳过分轨(' + f + ')，请确认 FILE 字段或同名音频存在');
+      } catch (e) {
+        console.error('CUE 解析失败(' + f + '):', e.message);
+      }
+    }
+  }
+  return { wholeToCue, cueToWhole, cueFiles };
+}
+
+// 把一个 .cue 展开成多首虚拟歌曲入库。分轨共享同一物理整轨文件，靠
+// cue_track/start_offset/end_offset 记录截取区间，播放时 hlsgen 用 -ss/-to 截取。
+// 返回新增曲目数。
+async function importCueTracks(root, cueFile, parsed, wholeAudio, insertStmt, existingSet, currentSet) {
+  let added = 0;
+  const relCue = `${root.tag}::${path.relative(root.dir, cueFile)}`;
+  // 整轨只探测一次：音轨数 + 总时长，供所有分轨共享
+  let trackInfo = { tracks: null, audioNeedsSoft: 0, videoNeedsSoft: 0 };
+  let wholeDur = null;
+  if (!root.isNetwork) {
+    try {
+      trackInfo = await probeAudioTracks(wholeAudio);
+      wholeDur = await probeDurationAsync(wholeAudio);
+    } catch (e) { console.error('CUE 整轨探测失败(' + wholeAudio + '):', e.message); }
+  }
+  for (const tr of parsed.tracks) {
+    const trackNo = String(tr.no).padStart(2, '0');
+    const rel = `${relCue}#T${trackNo}`;
+    // 无论新增还是已存在，分轨本轮都真实存在，必须计入现存集合，避免被失联清理误删
+    if (currentSet) currentSet.add(rel);
+    if (existingSet && existingSet.has(rel)) continue;
+    const title = tr.title || `曲目${trackNo}`;
+    const artist = tr.artist || parsed.albumArtist || '未知歌手';
+    const start = tr.startSec || 0;
+    const end = tr.endSec != null ? tr.endSec : wholeDur;
+    const dur = (end != null && end > start) ? Math.round(end - start) : null;
+    try {
+      const r = insertStmt.run({
+        title, artist, language: null, genre: null,
+        filename: rel, filepath: wholeAudio, audio_tracks: null,
+        source_root: root.dir, is_network: root.isNetwork ? 1 : 0, is_strm: 0,
+        cache_status: root.isNetwork ? 'unresolved' : 'none',
+        media_type: 'cue', album: parsed.album || null, year: null, track_no: tr.no,
+        cue_path: wholeAudio, cue_track: tr.no,
+        start_offset: start, end_offset: tr.endSec,
+      });
+      if (r.changes > 0) {
+        added++;
+        existingSet && existingSet.add(rel);
+        const songId = r.lastInsertRowid;
+        syncSongArtists(songId, artist);
+        // CUE 分轨：读本地同名 .lrc（整轨名.lrc 或 整轨名-歌名.lrc）
+        try {
+          const localLrc = findLocalLrc({ filepath: wholeAudio, title, media_type: 'cue' });
+          if (localLrc) {
+            const norm = normalizeLrc(localLrc);
+            if (norm && norm.includes('[')) db.prepare('UPDATE songs SET lyrics=?, lyrics_source=? WHERE id=?').run(norm, 'local', songId);
+          }
+        } catch (e) { /* 歌词读取失败不影响入库 */ }
+        if (!root.isNetwork && trackInfo.tracks != null) {
+          db.prepare('UPDATE songs SET audio_tracks=?, audio_needs_soft=?, video_needs_soft=?, duration=? WHERE id=?')
+            .run(trackInfo.tracks, trackInfo.audioNeedsSoft, trackInfo.videoNeedsSoft, dur, songId);
+        }
+      }
+    } catch (e) {
+      console.error(`CUE 分轨入库失败(${rel}):`, e.message);
+    }
+    await yieldToEventLoop();
+  }
+  return added;
+}
+
 function listAllFiles() {
   const perRoot = []; // { root, files: string[], accessible: boolean }
   for (const root of getMVRoots()) {
@@ -539,8 +650,10 @@ async function scanLibrary(mode = 'full') {
   if (mode === 'diff') return runDiffPreview(perRoot);
 
   const insert = db.prepare(`
-    INSERT INTO songs (title, artist, language, genre, filename, filepath, audio_tracks, source_root, is_network, is_strm, cache_status)
-    VALUES (@title, @artist, @language, @genre, @filename, @filepath, @audio_tracks, @source_root, @is_network, @is_strm, @cache_status)
+    INSERT INTO songs (title, artist, language, genre, filename, filepath, audio_tracks, source_root, is_network, is_strm, cache_status,
+      media_type, album, year, track_no, cue_path, cue_track, start_offset, end_offset)
+    VALUES (@title, @artist, @language, @genre, @filename, @filepath, @audio_tracks, @source_root, @is_network, @is_strm, @cache_status,
+      @media_type, @album, @year, @track_no, @cue_path, @cue_track, @start_offset, @end_offset)
     ON CONFLICT(filename) DO NOTHING
   `);
   const existing = db.prepare('SELECT filename FROM songs').all().map(r => r.filename);
@@ -557,10 +670,27 @@ async function scanLibrary(mode = 'full') {
   let added = 0;
   let retagged = 0, mergedDup = 0;
   const allCurrentFilenames = new Set();
+  // 音频K歌改造：先为整轮文件建立 CUE 索引（整轨音频->分轨信息、cue 文件集合）
+  const { wholeToCue, cueToWhole } = buildCueIndex(perRoot);
+  let cueAdded = 0;
   for (const { root, files } of perRoot) {
     for (const f of files) {
       const rel = `${root.tag}::${path.relative(root.dir, f)}`;
       allCurrentFilenames.add(rel);
+      const extNow = path.extname(f).toLowerCase();
+      // ① .cue：展开成多首虚拟分轨入库，本身不作为单曲
+      if (isCueExt(extNow)) {
+        if (!existingSet.has(rel) && cueToWhole.has(f)) {
+          const wholeAudio = cueToWhole.get(f);
+          const parsed = wholeToCue.get(wholeAudio).parsed;
+          cueAdded += await importCueTracks(root, f, parsed, wholeAudio, insert, existingSet, allCurrentFilenames);
+        }
+        continue;
+      }
+      // ② 有配套 .cue 的整轨音频：只入分轨，整轨本身不单独入库（避免重复）
+      if (isAudioExt(extNow) && wholeToCue.has(f)) {
+        continue;
+      }
       if (!existingSet.has(rel)) {
         // Bug修复("取消挂载的曲库文件夹，后台总曲目也没有减少，列表都重复
         // 了")：filename 的 tag 前缀改成按根目录 dir 稳定算之前，同一个物理
@@ -603,7 +733,22 @@ async function scanLibrary(mode = 'full') {
         }
         try {
           const isStrmFile = path.extname(f).toLowerCase() === STRM_EXT;
-          const { artist, title, language, genre } = parseFilename(f);
+          const { artist: nameArtist, title: nameTitle, language, genre } = parseFilename(f);
+          let artist = nameArtist, title = nameTitle;
+          // 媒体类型：纯音频 audio / 带画面 video（.strm 指向远程，按视频处理）
+          const mediaType = isStrmFile ? 'video' : (mediaTypeOf(extNow) || 'video');
+          // 纯音频：读取内嵌 ID3/Vorbis/APE 标签，标签通常比文件名更可靠，
+          // 有值则覆盖文件名解析结果，并补专辑/年份/音轨号/时长。
+          let album = null, songYear = null, trackNo = null, tagDuration = null;
+          if (mediaType === 'audio' && !root.isNetwork) {
+            const tags = await readAudioTags(f);
+            if (tags.title) title = tags.title;
+            if (tags.artist) artist = tags.artist;
+            album = tags.album || null;
+            songYear = tags.year || null;
+            trackNo = tags.trackNo;
+            tagDuration = tags.durationSec;
+          }
           // 先插入一行占位记录(audio_tracks 先留空)，拿到数据库真正分配的
           // songId 之后，缓存/探测都用这个真实 id 关联——不需要搞"临时占位id
           // 再重新挂到真实id"这种额外复杂度；哪怕缓存/探测这一步中途失败或
@@ -639,6 +784,14 @@ async function scanLibrary(mode = 'full') {
             is_network: root.isNetwork ? 1 : 0,
             is_strm: isStrmFile ? 1 : 0,
             cache_status: (isStrmFile || root.isNetwork) ? 'unresolved' : 'none',
+            media_type: mediaType,
+            album,
+            year: songYear,
+            track_no: trackNo,
+            cue_path: null,
+            cue_track: null,
+            start_offset: 0,
+            end_offset: null,
           });
           if (r.changes > 0) {
             added++;
@@ -658,6 +811,18 @@ async function scanLibrary(mode = 'full') {
                 const probePath = await resolveProbePath(songId, f, root.isNetwork);
                 const { tracks, audioNeedsSoft, videoNeedsSoft } = await probeAudioTracks(probePath);
                 db.prepare('UPDATE songs SET audio_tracks = ?, audio_needs_soft = ?, video_needs_soft = ? WHERE id = ?').run(tracks, audioNeedsSoft, videoNeedsSoft, songId);
+                // 纯音频：把内嵌标签读到的时长一并落库（视频时长仍由 queuePreload 预加载）
+                if (tagDuration) db.prepare('UPDATE songs SET duration = ? WHERE id = ?').run(tagDuration, songId);
+                // 纯音频：读同目录同名 .lrc 落库（在线抓取走独立接口，不在扫描循环里联网）
+                if (mediaType === 'audio') {
+                  try {
+                    const localLrc = findLocalLrc({ filepath: probePath, title });
+                    if (localLrc) {
+                      const norm = normalizeLrc(localLrc);
+                      if (norm && norm.includes('[')) db.prepare('UPDATE songs SET lyrics=?, lyrics_source=? WHERE id=?').run(norm, 'local', songId);
+                    }
+                  } catch (e) { /* 歌词读取失败不影响入库/探测 */ }
+                }
               } catch (e) {
                 // 缓存/探测失败：这行记录已经入库(标题/歌手已经可以正常展示、
                 // 点歌)，只是 audio_tracks 留空、网络文件的 cache_status 会停在
@@ -886,6 +1051,8 @@ async function scanLibrary(mode = 'full') {
   if (safetyBlocked.length > 0) {
     console.log(`曲库扫描: 本轮有 ${safetyBlocked.length} 个目录触发骤减熔断，跳过了删除，详见上面的日志`);
   }
+  added += cueAdded;
+  if (cueAdded > 0) console.log(`曲库扫描: CUE 整轨展开新增 ${cueAdded} 首分轨曲目`);
   return { total: allCurrentFilenames.size, added, removed, retagged, mergedDup, mode, safetyBlocked };
 }
 
@@ -901,20 +1068,33 @@ async function scanLibrary(mode = 'full') {
 // 里"，语义仍然一致)。
 function runDiffPreview(perRoot) {
   const accessibleRootDirs = new Set(perRoot.filter(r => r.accessible).map(r => r.root.dir));
+  const { wholeToCue, cueToWhole } = buildCueIndex(perRoot);
+  // 计算一个物理文件对应的"逻辑入库 filename 列表"：
+  // cue -> 多首分轨；有配套 cue 的整轨音频 -> 空(不单独入库)；其它 -> 自身
+  const logicalNames = (root, f) => {
+    const ext = path.extname(f).toLowerCase();
+    const rel = `${root.tag}::${path.relative(root.dir, f)}`;
+    if (isCueExt(ext) && cueToWhole.has(f)) {
+      const parsed = wholeToCue.get(cueToWhole.get(f)).parsed;
+      return parsed.tracks.map(t => `${rel}#T${String(t.no).padStart(2, '0')}`);
+    }
+    if (isAudioExt(ext) && wholeToCue.has(f)) return [];
+    return [rel];
+  };
   const allCurrentFilenames = new Set();
   const toAdd = [];
   for (const { root, files } of perRoot) {
     for (const f of files) {
-      const rel = `${root.tag}::${path.relative(root.dir, f)}`;
-      allCurrentFilenames.add(rel);
+      for (const name of logicalNames(root, f)) allCurrentFilenames.add(name);
     }
   }
   const existingRows = db.prepare('SELECT id, filename, title, artist, source_root, filepath FROM songs').all();
   const existingSet = new Set(existingRows.map(r => r.filename));
   for (const { root, files } of perRoot) {
     for (const f of files) {
-      const rel = `${root.tag}::${path.relative(root.dir, f)}`;
-      if (!existingSet.has(rel)) toAdd.push({ filename: rel, filepath: f });
+      for (const name of logicalNames(root, f)) {
+        if (!existingSet.has(name)) toAdd.push({ filename: name, filepath: f });
+      }
     }
   }
   const toRemove = [];
