@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import UIKit
 
 // MARK: - 歌词模型与解析
 // 一个"字/词"及其开始时间（增强 LRC 的 <mm:ss.xx>）
@@ -38,15 +39,12 @@ struct SongLyrics {
     static func parse(_ lrc: String?) -> SongLyrics {
         guard let lrc = lrc, !lrc.isEmpty else { return .empty }
         var out: [LyricLine] = []
-        // 行首所有 [..] 标签
         let tagRegex = try? NSRegularExpression(pattern: "\\[[^\\]]+\\]")
-        // 逐字 <mm:ss.xx>
         let wordRegex = try? NSRegularExpression(pattern: "<([0-9:.]+)>")
 
         for rawLine in lrc.components(separatedBy: .newlines) {
             guard !rawLine.trimmingCharacters(in: .whitespaces).isEmpty else { continue }
             let ns = rawLine as NSString
-            // 收集行首时间标签（只取形如 [mm:ss...] 的时间标签，跳过 [ar:][ti:] 等元标签）
             var lineStarts: [Double] = []
             var bodyStart = 0
             if let tr = tagRegex {
@@ -62,7 +60,6 @@ struct SongLyrics {
             let body = ns.substring(from: bodyStart).trimmingCharacters(in: .whitespaces)
             guard !lineStarts.isEmpty, !body.isEmpty else { continue }
 
-            // 解析逐字 token
             var tokens: [LyricToken] = []
             if let wr = wordRegex {
                 let wms = wr.matches(in: body, range: NSRange(location: 0, length: (body as NSString).length))
@@ -87,17 +84,14 @@ struct SongLyrics {
             }
         }
         out.sort { $0.start < $1.start }
-        // 用下一行起点回填本行结束，最后一行给一个很大的值
         for i in out.indices {
             out[i].end = (i + 1 < out.count) ? out[i + 1].start : .greatestFiniteMagnitude
         }
-        // 去重（完全同时间同文本）
         var dedup: [LyricLine] = []
         for l in out where dedup.last?.start != l.start || dedup.last?.plain != l.plain { dedup.append(l) }
         return SongLyrics(lines: dedup)
     }
 
-    /// 当前时间对应的行索引；都还没到返回 -1
     func lineIndex(at t: Double) -> Int {
         var idx = -1
         for (i, l) in lines.enumerated() where l.start <= t + 0.01 { idx = i }
@@ -120,12 +114,11 @@ final class LyricsLoader: ObservableObject {
         let host = server.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
         guard let url = URL(string: "http://\(host)/api/songs/\(songId)/lyrics") else { return }
         task = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data = data,
+            guard let data,
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 DispatchQueue.main.async { self?.lyrics = .empty }
                 return
             }
-            // 优先逐字增强 LRC，没有再用普通 LRC
             let word = obj["word"] as? String
             let plain = obj["lyrics"] as? String
             let parsed = SongLyrics.parse((word?.isEmpty == false) ? word : plain)
@@ -135,29 +128,42 @@ final class LyricsLoader: ObservableObject {
     }
 }
 
-// MARK: - 歌词显示模式（双排 / 上下滚动），遥控器或全屏按钮可切换，@AppStorage 全局记忆
+// MARK: - 歌词显示模式
 enum LyricsDisplayMode: String {
-    case dual    // 双排卡拉OK式：当前行大字逐字 + 下一行小字预告
-    case scroll  // 上下滚动：整列歌词平滑滚动，当前行居中
+    case dual
+    case scroll
     static func from(_ raw: String) -> LyricsDisplayMode { raw == "scroll" ? .scroll : .dual }
     var next: LyricsDisplayMode { self == .dual ? .scroll : .dual }
     var label: String { self == .dual ? "双排" : "滚动" }
 }
 
+/// 解析 "#RRGGBB" 或 "RRGGBB" 字符串为 SwiftUI Color
+private func colorFromHex(_ hex: String) -> Color {
+    var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+    if s.hasPrefix("#") { s = String(s.dropFirst()) }
+    var rgb: UInt64 = 0
+    Scanner(string: s).scanHexInt64(&rgb)
+    return Color(red: Double((rgb >> 16) & 0xFF) / 255.0,
+                 green: Double((rgb >> 8) & 0xFF) / 255.0,
+                 blue: Double(rgb & 0xFF) / 255.0)
+}
+
 // MARK: - 卡拉OK k 标签逐字渐变：底层未唱(白) + 上层已唱(金)按进度从左到右裁剪叠加，带描边
 struct KaraokeWord: View {
     let text: String
-    let progress: Double  // 0...1，字在 [start,end] 区间内的演唱进度
+    let progress: Double
     var highlight: Color = Color(red: 1.0, green: 0.78, blue: 0.25)
     var base: Color = Color.white.opacity(0.42)
     var stroke: Color = .black
+
     private func stroked(_ t: String, fill: Color) -> Text {
         var a = AttributedString(t)
-        a.foregroundColor = fill
-        a.strokeColor = stroke
-        a.strokeWidth = -2.5  // 负值=同时填充+描边
+        a.foregroundColor = UIColor(fill)
+        a.strokeColor = UIColor(stroke)
+        a.strokeWidth = -2.5
         return Text(a)
     }
+
     var body: some View {
         stroked(text, fill: base)
             .overlay(alignment: .leading) {
@@ -175,12 +181,10 @@ struct KaraokeWord: View {
 struct LyricsView: View {
     let lyrics: SongLyrics
     let currentTime: Double
-    /// 主题高亮色（已唱部分），可由遥控端实时修改
     @AppStorage("momoLyricsColor") private var lyricsColorHex: String = "#FFD24A"
     @AppStorage("momoLyricsStroke") private var lyricsStrokeHex: String = "#000000"
-    private var highlight: Color { Color(hex: lyricsColorHex) ?? Color(red: 1.0, green: 0.78, blue: 0.25) }
-    private var stroke: Color { Color(hex: lyricsStrokeHex) ?? .black }
-    /// 显示模式，默认双排；与全屏控制页用同一个 AppStorage key 共享
+    private var highlight: Color { colorFromHex(lyricsColorHex) }
+    private var stroke: Color { colorFromHex(lyricsStrokeHex) }
     @AppStorage("momoLyricsMode") private var modeRaw: String = LyricsDisplayMode.dual.rawValue
     private var mode: LyricsDisplayMode { .from(modeRaw) }
 
@@ -198,7 +202,6 @@ struct LyricsView: View {
         }
     }
 
-    // 双排：当前行（大字逐字）+ 下一行（小字预告），固定居中不滚动
     private var dualBody: some View {
         let ai = activeIndex
         return VStack(spacing: 22) {
@@ -219,7 +222,6 @@ struct LyricsView: View {
         .padding(.horizontal, 70)
     }
 
-    // 上下滚动：整列歌词，当前行平滑滚到中间
     private var scrollBody: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -229,7 +231,7 @@ struct LyricsView: View {
                             .id(line.id)
                     }
                 }
-                .padding(.vertical, 220) // 上下留白，让首/末行也能滚到中间
+                .padding(.vertical, 220)
                 .padding(.horizontal, 60)
             }
             .onChange(of: activeIndex) { newValue in
@@ -239,17 +241,15 @@ struct LyricsView: View {
                 }
             }
         }
-        .disabled(true) // 歌词区不抢遥控器焦点，只做展示
+        .disabled(true)
     }
 
     @ViewBuilder
     private func lineView(_ line: LyricLine, idx: Int) -> some View {
         let active = idx == activeIndex
         let isDual = mode == .dual
-        // 双排模式下"下一行"更小更淡；滚动模式非当前行常规缩小
         let preview = isDual && idx == activeIndex + 1
         if active, let tokens = line.tokens {
-            // 当前行：卡拉OK k 标签逐字渐变，每个字在 [start,end] 内从左到右由白→金横向扫过
             HStack(spacing: 0) {
                 ForEach(Array(tokens.enumerated()), id: \.element.id) { idx, tok in
                     KaraokeWord(
@@ -273,17 +273,15 @@ struct LyricsView: View {
     /// 带描边的整行文字（非逐字 LRC 用）
     private func strokedLine(_ text: String, fill: Color, size: CGFloat, weight: Font.Weight) -> some View {
         var a = AttributedString(text)
-        a.foregroundColor = fill
-        a.strokeColor = stroke
+        a.foregroundColor = UIColor(fill)
+        a.strokeColor = UIColor(stroke)
         a.strokeWidth = -2.5
-        a.font = .system(size: size, weight: weight)
+        a.font = UIFont.systemFont(ofSize: size, weight: weight == .bold ? .bold : .regular)
         return Text(a)
             .multilineTextAlignment(.center)
     }
-    }
 
-    /// 卡拉OK k 标签：单个字在 [start, end] 区间内的演唱进度 0...1；
-    /// end 取下一个字的起点，最后一字用行尾（无限则 +1.5s 延长音）
+    /// 卡拉OK k 标签：单个字在 [start, end] 区间内的演唱进度 0...1
     private func tokenProgress(_ tok: LyricToken, tokens: [LyricToken], index: Int, lineEnd: Double) -> Double {
         let end: Double
         if index + 1 < tokens.count {
