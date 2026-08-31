@@ -302,10 +302,16 @@ struct FullPlayerView: View {
             Text(title)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(focused ? Color(hex: 0x1a1a2e) : .white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
         }
-        .frame(width: 95, height: 95)
+        .frame(width: 95, height: 95, alignment: .center)
         .background(focused ? Color.white : Color.white.opacity(0.15))
         .cornerRadius(16)
+        .onChange(of: focused) { isFocused in
+            // 焦点移到按钮上时重置隐藏计时，用户操作期间控制条不自动隐藏
+            if isFocused { resetHideTimer() }
+        }
     }
 
     private func setup() {
@@ -591,7 +597,7 @@ struct FullPlayerView: View {
 
     private func resetHideTimer() {
         hideTimer?.invalidate()
-        hideTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { _ in
+        hideTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { _ in
             DispatchQueue.main.async {
                 withAnimation(.easeOut(duration: 0.3)) {
                     showControls = false
