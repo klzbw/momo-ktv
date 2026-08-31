@@ -194,6 +194,13 @@ struct FullPlayerView: View {
                                 TVTightButton(action: { lastFocusedBtn = 9; adjustLyricsOffset(by: 0.05) }, focusedTag: $focusedBtn, focusTag: 9, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
                                     controlContent(icon: "text.badge.plus", title: "词延后", focused: focused)
                                 }
+                                // 复位：歌词偏移归零，并清除服务端保存的偏移
+                                TVTightButton(action: {
+                                    lastFocusedBtn = 11
+                                    resetLyricsOffset()
+                                }, focusedTag: $focusedBtn, focusTag: 11, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                                    controlContent(icon: "arrow.counterclockwise", title: "复位", focused: focused)
+                                }
                             }
 
                             // 动态背景切换（仅纯音频歌）：13 种程序化效果 + 我的图片循环
@@ -382,6 +389,21 @@ struct FullPlayerView: View {
                 pendingOffsetDelta = 0
                 UserDefaults.standard.set(0.0, forKey: offsetKey(songId))
             }
+        }
+    }
+
+    /// 复位歌词偏移：即时归零 + 清除本地记忆 + 向服务端写入0偏移并重新拉取歌词
+    private func resetLyricsOffset() {
+        guard let playing = api.queue.first(where: { $0.isPlaying }) else { return }
+        offsetDebounce?.invalidate()
+        lyricsOffset = 0
+        pendingOffsetDelta = 0
+        UserDefaults.standard.set(0.0, forKey: offsetKey(playing.song_id))
+        FeedbackCenter.shared.show("歌词偏移已复位", icon: "arrow.counterclockwise")
+        // 向服务端写入0偏移，然后重新拉取歌词
+        api.saveLyricsOffset(songId: playing.song_id, offset: 0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            lyricsLoader.reload(server: api.serverAddress, songId: playing.song_id)
         }
     }
 

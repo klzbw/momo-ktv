@@ -292,7 +292,6 @@ header{
 .bg-del:active{background:#ff4f6d}
 .bg-empty{grid-column:1/-1;color:#9a9ab8;font-size:13px;padding:8px 2px}
 </style>
-<link rel="stylesheet" href="/cartoon-theme.css">
 </head>
 <body>
 <header>
@@ -563,21 +562,21 @@ header{
       </div>
     </div>
     <div class="ctrl-row" style="margin-top:8px">
-      <div class="ctrl-btn" style="flex:1;padding:10px 10px;display:flex;align-items:center;gap:6px">
-        <span class="cl" style="white-space:nowrap">描边</span>
-        <input type="range" id="lyrics-width" min="0" max="12" step="0.5" value="5" oninput="sendLyricsStyle()" style="flex:1;min-width:0">
-        <span id="lyrics-width-val" style="min-width:26px;text-align:right">5</span>
+      <div class="ctrl-btn" style="flex:1;padding:8px 8px;display:flex;flex-direction:column;align-items:stretch;gap:4px">
+        <span class="cl" style="white-space:nowrap;font-size:13px">描边</span>
+        <input type="range" id="lyrics-width" min="0" max="12" step="0.5" value="5" oninput="sendLyricsStyle()" style="width:100%;margin:0">
+        <span id="lyrics-width-val" style="text-align:right;font-size:12px;opacity:0.8">5</span>
       </div>
-      <div class="ctrl-btn" style="flex:1;padding:10px 10px;display:flex;align-items:center;gap:6px">
-        <span class="cl" style="white-space:nowrap">字号</span>
-        <input type="range" id="lyrics-scale" min="0.7" max="3" step="0.05" value="1" oninput="sendLyricsStyle()" style="flex:1;min-width:0">
-        <span id="lyrics-scale-val" style="min-width:40px;text-align:right">100%</span>
+      <div class="ctrl-btn" style="flex:1;padding:8px 8px;display:flex;flex-direction:column;align-items:stretch;gap:4px">
+        <span class="cl" style="white-space:nowrap;font-size:13px">字号</span>
+        <input type="range" id="lyrics-scale" min="0.7" max="3" step="0.05" value="1" oninput="sendLyricsStyle()" style="width:100%;margin:0">
+        <span id="lyrics-scale-val" style="text-align:right;font-size:12px;opacity:0.8">100%</span>
       </div>
-    </div>
-    <div class="ctrl-btn" style="padding:10px 14px;display:flex;align-items:center;gap:10px;margin-top:8px">
-      <span class="cl" style="white-space:nowrap">歌词位置</span>
-      <input type="range" id="lyrics-pos" min="0" max="60" step="1" value="18" oninput="sendLyricsStyle()" style="flex:1;min-width:0">
-      <span id="lyrics-pos-val" style="min-width:40px;text-align:right">18</span>
+      <div class="ctrl-btn" style="flex:1;padding:8px 8px;display:flex;flex-direction:column;align-items:stretch;gap:4px">
+        <span class="cl" style="white-space:nowrap;font-size:13px">位置</span>
+        <input type="range" id="lyrics-pos" min="0" max="60" step="1" value="0" oninput="sendLyricsStyle()" style="width:100%;margin:0">
+        <span id="lyrics-pos-val" style="text-align:right;font-size:12px;opacity:0.8">0</span>
+      </div>
     </div>
   </div>
 
@@ -585,8 +584,9 @@ header{
   <div class="ctrl-section">
     <div class="ctrl-title">🎵 歌词快慢校准（唱字同步）</div>
     <div class="ctrl-row">
-      <div class="ctrl-btn" onclick="sendCtrl('lyrics_offset',{delta:-0.2})" style="flex:1;justify-content:center">⏪ 字提前 0.2s</div>
-      <div class="ctrl-btn" onclick="sendCtrl('lyrics_offset',{delta:0.2})" style="flex:1;justify-content:center">⏩ 字延后 0.2s</div>
+      <div class="ctrl-btn" onclick="sendCtrl('lyrics_offset',{delta:-0.05})" style="flex:1;justify-content:center">⏪ 提前</div>
+      <div class="ctrl-btn" onclick="sendCtrl('lyrics_offset',{delta:0})" style="flex:1;justify-content:center;background:rgba(255,140,66,0.25)">↺ 复位</div>
+      <div class="ctrl-btn" onclick="sendCtrl('lyrics_offset',{delta:0.05})" style="flex:1;justify-content:center">⏩ 延后</div>
     </div>
   </div>
   <!-- 手动重新生成当前播放歌曲的逐字歌词（AI工作站：识别+官方歌词纠错） -->

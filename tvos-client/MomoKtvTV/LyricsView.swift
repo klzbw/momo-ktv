@@ -182,7 +182,7 @@ final class LyricsStyleStore: ObservableObject {
         fontScale = savedS > 0 ? CGFloat(savedS) : 1
         if let savedP = UserDefaults.standard.object(forKey: "momoLyricsPos") as? Double {
             posV = CGFloat(savedP)
-        } else { posV = 18 }
+        } else { posV = 0 }
     }
     func apply(color: String?, stroke: String?, width: CGFloat? = nil, scale: CGFloat? = nil, posV: CGFloat? = nil) {
         if let c = color, !c.isEmpty {
@@ -299,7 +299,7 @@ struct LyricsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             // 遥控可调的歌词整体上下位置：posV=18 为默认(位移0)，调大整体上移、调小下移
-            .offset(y: (18 - styleStore.posV) / 100.0 * geo.size.height * 0.62)
+            .offset(y: -styleStore.posV / 100.0 * geo.size.height * 0.62)
             .animation(.easeOut(duration: 0.18), value: styleStore.posV)
         }
     }
