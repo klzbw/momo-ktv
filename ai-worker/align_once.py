@@ -70,13 +70,15 @@ def main():
         print(f'收到官方参考歌词 {len(ref_text)} 字符，将用于纠错', flush=True)
 
     print('PROGRESS 5', flush=True)
-    import torch, whisperx
-    # PyTorch 2.6 默认 torch.load(weights_only=True)，会拒绝 WhisperX 对齐模型里的
-    # omegaconf.listconfig.ListConfig，导致加载崩溃。提前把它加入安全全局白名单。
-    try:
-        torch.serialization.add_safe_globals(['omegaconf.listconfig.ListConfig'])
-    except Exception:
-        pass
+    import torch
+    # PyTorch 2.6 默认 torch.load(weights_only=True)，会拒绝 WhisperX/pyannote/Demucs 模型里的
+    # 自定义类（omegaconf.ListConfig 等），导致加载崩溃。统一 monkey-patch 回 weights_only=False。
+    _orig_load = torch.load
+    def _safe_load(*a, **kw):
+        kw.setdefault('weights_only', False)
+        return _orig_load(*a, **kw)
+    torch.load = _safe_load
+    import whisperx
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     compute = 'float16' if device == 'cuda' else 'int8'
     print(f'设备 {device}, 转写模型 {model_name}', flush=True)
