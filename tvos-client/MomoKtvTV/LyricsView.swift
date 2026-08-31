@@ -220,17 +220,14 @@ struct StrokeFillText: View {
         let on = w > 0.01
         let c = on ? strokeColor : Color.clear
         let r = w * 0.30
-        let d = w * 0.7071
+        // let d = w * 0.7071  // 对角描边已移除，减少GPU开销
         Text(text)
             .foregroundColor(fill)
             .shadow(color: c, radius: r, x: w, y: 0)
             .shadow(color: c, radius: r, x: -w, y: 0)
             .shadow(color: c, radius: r, x: 0, y: w)
             .shadow(color: c, radius: r, x: 0, y: -w)
-            .shadow(color: c, radius: r, x: d, y: d)
-            .shadow(color: c, radius: r, x: -d, y: d)
-            .shadow(color: c, radius: r, x: d, y: -d)
-            .shadow(color: c, radius: r, x: -d, y: -d)
+            // 4方向描边已足够清晰，去掉4个对角减少GPU合成层数（原8层->4层）
     }
 }
 

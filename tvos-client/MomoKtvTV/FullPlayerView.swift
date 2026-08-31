@@ -24,6 +24,8 @@ struct FullPlayerView: View {
     @AppStorage("momoBgMode") private var bgModeRaw: String = AudioBgMode.flow.rawValue
     @State private var lyricsOffset: Double = 0          // 当前歌词时间轴偏移（秒），即时预览
     @State private var pendingOffsetDelta: Double = 0    // 尚未固化到服务端的累计增量
+    @State private var lyricTime: Double = 0              // 歌词用的节流时间（30fps），避免playerTime 60fps触发逐字歌词高频重绘
+    @State private var lyricTimer: Timer?
     @State private var offsetDebounce: Timer?
 
     enum VoiceMode {
@@ -87,7 +89,7 @@ struct FullPlayerView: View {
             // 逐字歌词层：居中滚动、当前行逐字填色；不抢遥控器焦点，控制层在其之上。
             // 视频歌(MKV/MP4 等)自带画面与内嵌字幕，不再叠加 App 歌词。
             if !currentItem.isVideoFile {
-                LyricsView(lyrics: lyricsLoader.lyrics, currentTime: playerManager.currentTime, timeOffset: lyricsOffset)
+                LyricsView(lyrics: lyricsLoader.lyrics, currentTime: lyricTime, timeOffset: lyricsOffset)
                     .allowsHitTesting(false)
                     .opacity(showControls ? 0.35 : 1.0) // 控制条弹出时歌词弱化，避免与底部信息打架
                     .animation(.easeOut(duration: 0.25), value: showControls)
@@ -376,6 +378,11 @@ struct FullPlayerView: View {
     private func setup() {
         showControls = true
         resetHideTimer()
+        // 歌词重绘节流：30fps 足够人眼感知逐字变化，避免 60fps 触发大量 KaraokeWord 重绘拖卡
+        lyricTimer?.invalidate()
+        lyricTimer = Timer.scheduledTimer(withTimeInterval: 1.0/30.0, repeats: true) { _ in
+            lyricTime = PlayerManager.shared.currentTime
+        }
         hasAutoExited = false
         voiceMode = VoiceMode.from(playerManager.vocalTrackIndex)
         // 拉取歌词（优先 AI 逐字增强 LRC，没有则普通 LRC）；视频歌自带字幕不拉取
@@ -645,6 +652,8 @@ struct FullPlayerView: View {
 
     private func cleanup() {
         hideTimer?.invalidate()
+        lyricTimer?.invalidate()
+        lyricTimer = nil
         hideTimer = nil
     }
 

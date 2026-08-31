@@ -57,7 +57,7 @@ struct AudioBackgroundView: View {
                 if mode == .photos {
                     PhotosBg(server: server, w: sw, h: sh)
                 } else {
-                    TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+                    TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { tl in
                         Canvas { ctx, size in
                             render(mode, t: tl.date.timeIntervalSince1970, size: size, ctx: &ctx)
                         }
@@ -88,7 +88,7 @@ struct AudioBackgroundView: View {
                 var p = Path()
                 let base = h * CGFloat(0.35 + 0.12 * Double(k))
                 p.move(to: CGPoint(x: 0, y: h))
-                for x in stride(from: CGFloat(0), through: w, by: CGFloat(12)) {
+                for x in stride(from: CGFloat(0), through: w, by: CGFloat(24)) {
                     let y = base + CGFloat(sin(Double(x) * 0.006 + t * (1.1 + Double(k) * 0.25) + Double(k))) * 70
                     p.addLine(to: CGPoint(x: x, y: y))
                 }
@@ -107,7 +107,7 @@ struct AudioBackgroundView: View {
                 ctx.stroke(Path(ellipseIn: rect), with: .color(palette[k % 3]), lineWidth: 3)
             }
         case .stars:
-            for i in 0..<140 {
+            for i in 0..<80 {
                 let x = CGFloat(bgRand(i)) * w
                 let y = CGFloat(bgRand(i + 999)) * h
                 let tw = 0.3 + 0.7 * (0.5 + 0.5 * sin(t * (1 + bgRand(i + 7) * 2) + bgRand(i + 3) * 6))
@@ -116,7 +116,7 @@ struct AudioBackgroundView: View {
                 ctx.fill(Path(ellipseIn: CGRect(x: x, y: y, width: r, height: r)), with: .color(.white))
             }
         case .meteor:
-            for i in 0..<10 {
+            for i in 0..<6 {
                 let period = 2.4 + bgRand(i) * 2
                 let ph = (t / period + bgRand(i + 5)).truncatingRemainder(dividingBy: 1)
                 let len = CGFloat(120 + bgRand(i + 2) * 160)
@@ -151,7 +151,7 @@ struct AudioBackgroundView: View {
                            with: .color(palette[k % 3]), lineWidth: 6)
             }
         case .bars:
-            let n = 40, bw = w / CGFloat(n)
+            let n = 24, bw = w / CGFloat(n)
             for i in 0..<n {
                 let v = 0.15 + beat(Double(i) * 0.4) * 0.85 * (0.6 + 0.4 * bgRand(i + 4))
                 let bh = CGFloat(v) * h * 0.5
@@ -164,7 +164,7 @@ struct AudioBackgroundView: View {
             for k in 0..<3 {
                 var p = Path()
                 p.move(to: CGPoint(x: 0, y: 0))
-                for x in stride(from: CGFloat(0), through: w, by: CGFloat(14)) {
+                for x in stride(from: CGFloat(0), through: w, by: CGFloat(28)) {
                     let y = h * CGFloat(0.18 + 0.12 * Double(k)) + CGFloat(sin(Double(x) * 0.005 + t * 0.8 + Double(k) * 2)) * 60
                     p.addLine(to: CGPoint(x: x, y: y))
                 }
@@ -174,7 +174,7 @@ struct AudioBackgroundView: View {
                                                    startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: h * 0.5)))
             }
         case .rain:
-            for i in 0..<90 {
+            for i in 0..<50 {
                 let speed = 0.5 + bgRand(i) * 0.9
                 let ph = (bgRand(i + 2) + t * speed / 4).truncatingRemainder(dividingBy: 1)
                 let x = CGFloat(bgRand(i + 6)) * w
@@ -185,7 +185,7 @@ struct AudioBackgroundView: View {
                 ctx.stroke(p, with: .color(palette[i % 3]), lineWidth: 1.5)
             }
         case .bubbles:
-            for i in 0..<40 {
+            for i in 0..<25 {
                 let speed = 0.12 + bgRand(i + 3) * 0.2
                 let ph = (bgRand(i + 8) + t * speed).truncatingRemainder(dividingBy: 1)
                 let r = CGFloat(8 + bgRand(i + 12) * 34)
@@ -196,7 +196,7 @@ struct AudioBackgroundView: View {
                            with: .color(palette[i % 3]), lineWidth: 2)
             }
         case .rays:
-            let n = 18
+            let n = 12
             ctx.opacity = 0.16
             for i in 0..<n {
                 let ang = CGFloat(Double(i) / Double(n) * .pi * 2 + t * 0.3)
@@ -209,9 +209,9 @@ struct AudioBackgroundView: View {
                 ctx.fill(p, with: .color(palette[i % 3]))
             }
         case .vortex:
-            for i in 0..<80 {
-                let base = Double(i) / 80 * .pi * 8
-                let rad = CGFloat(Double(i) / 80) * max(w, h) * 0.45 * CGFloat(0.8 + beat(Double(i)) * 0.3)
+            for i in 0..<50 {
+                let base = Double(i) / 50 * .pi * 8
+                let rad = CGFloat(Double(i) / 50) * max(w, h) * 0.45 * CGFloat(0.8 + beat(Double(i)) * 0.3)
                 let ang = CGFloat(base + t * 1.4)
                 let p = CGPoint(x: cx + cos(ang) * rad, y: cy + sin(ang) * rad)
                 let rr = CGFloat(2) + CGFloat(beat(Double(i))) * 4
@@ -220,7 +220,7 @@ struct AudioBackgroundView: View {
                          with: .color(palette[i % 3]))
             }
         case .flame:
-            for i in 0..<60 {
+            for i in 0..<40 {
                 let speed = 0.3 + bgRand(i) * 0.5
                 let ph = (bgRand(i + 3) + t * speed / 3).truncatingRemainder(dividingBy: 1)
                 let x = CGFloat(0.3 + 0.4 * bgRand(i + 7)) * w + CGFloat(sin(t * 2 + Double(i))) * 40 * CGFloat(ph)
