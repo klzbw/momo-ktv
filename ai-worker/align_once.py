@@ -71,6 +71,12 @@ def main():
 
     print('PROGRESS 5', flush=True)
     import torch, whisperx
+    # PyTorch 2.6 默认 torch.load(weights_only=True)，会拒绝 WhisperX 对齐模型里的
+    # omegaconf.listconfig.ListConfig，导致加载崩溃。提前把它加入安全全局白名单。
+    try:
+        torch.serialization.add_safe_globals(['omegaconf.listconfig.ListConfig'])
+    except Exception:
+        pass
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     compute = 'float16' if device == 'cuda' else 'int8'
     print(f'设备 {device}, 转写模型 {model_name}', flush=True)

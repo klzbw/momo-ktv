@@ -18,6 +18,11 @@ def main():
 
     print('PROGRESS 5', flush=True)
     import torch
+    # PyTorch 2.6 默认 torch.load(weights_only=True)，Demucs/WhisperX 模型里的自定义类会被拒，提前加白名单
+    try:
+        torch.serialization.add_safe_globals(['omegaconf.listconfig.ListConfig'])
+    except Exception:
+        pass
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f'使用设备: {device}' + (f' ({torch.cuda.get_device_name(0)})' if device == 'cuda' else ''), flush=True)
 
