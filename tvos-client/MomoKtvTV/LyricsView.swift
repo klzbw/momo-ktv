@@ -171,7 +171,7 @@ final class LyricsStyleStore: ObservableObject {
     @Published var colorHex: String
     @Published var strokeHex: String
     @Published var lineWidth: CGFloat        // 描边粗细（点），遥控端可调 0...12
-    @Published var fontScale: CGFloat        // 字号倍率，遥控端可调 0.7...2.0，默认 1
+    @Published var fontScale: CGFloat        // 字号倍率，遥控端可调 0.7...3.0，默认 1
     private init() {
         colorHex = UserDefaults.standard.string(forKey: "momoLyricsColor") ?? "#FFD24A"
         strokeHex = UserDefaults.standard.string(forKey: "momoLyricsStroke") ?? "#000000"
@@ -194,7 +194,7 @@ final class LyricsStyleStore: ObservableObject {
             UserDefaults.standard.set(Double(lineWidth), forKey: "momoLyricsWidth")
         }
         if let sc = scale {
-            fontScale = max(0.7, min(2.0, sc))
+            fontScale = max(0.7, min(3.0, sc))
             UserDefaults.standard.set(Double(fontScale), forKey: "momoLyricsScale")
         }
     }
@@ -291,38 +291,38 @@ struct LyricsView: View {
         }
     }
 
-    // 双排模式：当前演唱行靠屏幕右侧，刚唱完的上一行退到左侧——右边这句唱完即切到左边，新一句到右边
-    // 双排模式（复刻网页TV）：当前演唱行按奇偶左右交替；下一句(未唱)在另一侧提前显示，
-    // 前句还在唱时就能看到要唱的词，给足反应时间；当前句唱完，预备句原地变亮开始逐字，新预备句到另一侧。
+    // 双排模式（左右固定槽·歌词不上下动，只羽化）：奇数句永远固定在左槽、偶数句永远固定在右槽，两槽同一水平高度。
+    // 当前演唱句所在槽逐字高亮，另一槽提前显示它的下一句(预备、同字号、暗淡)。某句到来时在自己的固定槽内由暗淡
+    // 原地变亮开始逐字(位置/大小不变)；该句唱完，对面槽羽化(opacity)换为再下一句——全程无上下/左右位移。
     private var dualBody: some View {
         let ai = activeIndex
-        let curRight = ai % 2 == 0   // 偶数句靠右、奇数句靠左，逐句交替
-        return VStack(spacing: compact ? 8 : 22) {
+        let curOnRight = ai % 2 == 0              // 当前句偶数→在右槽；奇数→在左槽
+        let leftIdx = curOnRight ? ai + 1 : ai    // 左槽永远是奇数句
+        let rightIdx = curOnRight ? ai : ai + 1   // 右槽永远是偶数句
+        return VStack(spacing: 0) {
             Spacer(minLength: 0)
-            // 当前演唱行：高亮逐字，按奇偶落在右/左
-            if ai >= 0 {
-                HStack(spacing: 0) {
-                    if curRight { Spacer(minLength: 24) }
-                    lineView(lyrics.lines[ai], idx: ai)
-                        .id(lyrics.lines[ai].id)
-                        .transition(.opacity)
-                    if !curRight { Spacer(minLength: 24) }
-                }
-            }
-            // 下一句预备：在当前行另一侧，暗淡提前出现
-            if ai + 1 < lyrics.lines.count {
-                HStack(spacing: 0) {
-                    if !curRight { Spacer(minLength: 24) }
-                    lineView(lyrics.lines[ai + 1], idx: ai + 1)
-                        .id(lyrics.lines[ai + 1].id)
-                        .transition(.opacity)
-                    if curRight { Spacer(minLength: 24) }
-                }
+            HStack(alignment: .center, spacing: compact ? 12 : 28) {
+                dualSlot(leftIdx, .leading)
+                dualSlot(rightIdx, .trailing)
             }
             Spacer(minLength: 0)
         }
-        .animation(.easeInOut(duration: 0.16), value: ai)
-        .padding(.horizontal, compact ? 16 : 90)
+        .padding(.horizontal, compact ? 16 : 80)
+        .padding(.bottom, compact ? 18 : 56)
+        .animation(.easeInOut(duration: 0.22), value: ai)
+    }
+
+    /// 双排里的一个固定槽：越界留等宽空位；槽内内容变化时仅羽化(opacity)，不产生位移
+    @ViewBuilder
+    private func dualSlot(_ idx: Int, _ align: Alignment) -> some View {
+        if idx >= 0 && idx < lyrics.lines.count {
+            lineView(lyrics.lines[idx], idx: idx)
+                .id(lyrics.lines[idx].id)
+                .transition(.opacity)
+                .frame(maxWidth: .infinity, alignment: align)
+        } else {
+            Color.clear.frame(maxWidth: .infinity)
+        }
     }
 
     private var scrollBody: some View {

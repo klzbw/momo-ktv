@@ -904,6 +904,15 @@ html[data-layout="mobile"] #next-up-track span{font-size:16px}
 #lyrics-layer .ll-line{max-width:100%;line-height:1.3;margin:0}
 #lyrics-layer .ll-line.ll-left{align-self:flex-start;text-align:left;max-width:86%}
 #lyrics-layer .ll-line.ll-right{align-self:flex-end;text-align:right;max-width:86%}
+  /* 双排左右固定槽：奇数句恒在左槽、偶数句恒在右槽，同一水平高度，换行只羽化(fade)不位移 */
+  #lyrics-layer .ll-dualrow{display:flex;align-items:center;justify-content:space-between;gap:28px;width:100%;height:100%}
+  #lyrics-layer .ll-slot{flex:1 1 0;min-width:0;display:flex}
+  #lyrics-layer .ll-slot-l{justify-content:flex-start}
+  #lyrics-layer .ll-slot-l .ll-line{text-align:left}
+  #lyrics-layer .ll-slot-r{justify-content:flex-end}
+  #lyrics-layer .ll-slot-r .ll-line{text-align:right}
+  #lyrics-layer .ll-slot .ll-line{max-width:100%;animation:llFade .22s ease both}
+  @keyframes llFade{from{opacity:0}to{opacity:1}}
 #lyrics-layer .ll-near{font-size:calc(54px * var(--lyrics-scale,1));font-weight:900;letter-spacing:calc(1px * var(--lyrics-scale,1));line-height:1.25;color:rgba(255,255,255,.5);text-shadow:0 2px 10px rgba(0,0,0,.8)}
 #lyrics-layer .ll-cur{font-size:calc(54px * var(--lyrics-scale,1));font-weight:900;letter-spacing:calc(1px * var(--lyrics-scale,1));line-height:1.25;color:#fff;
   text-shadow:0 0 2px rgba(0,0,0,.9),0 3px 14px rgba(0,0,0,.85),0 0 22px rgba(255,199,64,.25)}
@@ -2614,13 +2623,18 @@ const Lyrics = (()=>{
   }
   // —— 双排模式：只渲染 上一行/当前行/下一行 三行窗口 ——
   function renderDual(l,t,idx){
-    // 双排(与tvOS一致)：当前句按奇偶左右交替，下一句在另一侧提前显示给反应时间；当前句唱完预备句原地变亮
-    const cur=idx>=0?lines[idx]:null, next=idx+1<lines.length?lines[idx+1]:null;
-    const curRight=idx%2===0, nextRight=!curRight;
-    let html='';
-    html+= cur?'<div class="ll-line ll-cur '+(curRight?'ll-right':'ll-left')+'">'+curLineHTML(cur,t)+'</div>':'<div class="ll-line ll-none">♪ 纯音乐 · 请欣赏 ♪</div>';
-    if(next)html+='<div class="ll-line ll-near '+(nextRight?'ll-right':'ll-left')+'">'+esc(next.plain)+'</div>';
-    l.innerHTML=html;
+    // 左右固定槽(与tvOS一致)：奇数句恒在左槽、偶数句恒在右槽，两槽同一水平高度、位置不动。
+    // 当前句所在槽逐字高亮，另一槽提前显示下一句(预备/同字号/暗淡)；换行只做羽化，不上下/左右移动。
+    if(idx<0){ l.innerHTML='<div class="ll-line ll-none">♪ 纯音乐 · 请欣赏 ♪</div>'; return; }
+    const curOnRight=idx%2===0;
+    const leftIdx=curOnRight?idx+1:idx, rightIdx=curOnRight?idx:idx+1;
+    const slot=(i,side)=>{
+      if(i<0||i>=lines.length) return '<div class="ll-slot ll-slot-'+side+'"></div>';
+      const isCur=(i===idx);
+      const inner=isCur?curLineHTML(lines[i],t):esc(lines[i].plain);
+      return '<div class="ll-slot ll-slot-'+side+'"><div class="ll-line '+(isCur?'ll-cur':'ll-near')+'">'+inner+'</div></div>';
+    };
+    l.innerHTML='<div class="ll-dualrow">'+slot(leftIdx,'l')+slot(rightIdx,'r')+'</div>';
   }
   // —— 滚动模式：换歌时一次性建整列，当前行平滑滚到中央，逐字填色 ——
   function buildScroll(l){
