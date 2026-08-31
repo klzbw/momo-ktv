@@ -24,6 +24,7 @@ struct ContentView: View {
     @State private var showQR = false
     @State private var shouldResumePlaying = true
     @State private var lastAutoNextQueueId: Int? = nil
+    @State private var recentRandomSongIds: Set<Int> = []  // 最近随机播放过的歌曲ID，避免连续重复
     @FocusState private var searchNavFocused: Bool
     @FocusState private var queueNavFocused: Bool
     @FocusState private var settingsNavFocused: Bool
@@ -604,31 +605,53 @@ struct ContentView: View {
 
     /// 统一推进播放：队列里有待播已点 → 切下一首；已点队列清空 → 自动随机挑一首续播。
     /// 手动切歌、遥控切歌、自然播完三处都走这里，保证行为一致。
+    /// 统一推进播放：队列里有待播已点 → 切下一首；已点队列清空 → 自动随机挑一首续播。
+    /// 手动切歌、遥控切歌、自然播完三处都走这里，保证行为一致。
     private func advancePlayback() {
         // 1) 还有等待中的已点歌曲，直接切下一首
         if api.queue.contains(where: { !$0.isPlaying }) {
             api.nextSong()
             return
         }
-        // 2) 已点队列已空：从曲库随机挑一首（尽量不与当前这首重复）
+        // 2) 已点队列已空：从曲库随机挑一首（排除最近播放过的，避免连续重复）
         let currentId = api.queue.first(where: { $0.isPlaying })?.song_id
         func pick(from list: [Song]) {
-            let pool = list.filter { $0.id != currentId }
-            guard let song = (pool.isEmpty ? list : pool).randomElement() else {
+            // 排除当前歌曲和最近随机播放过的歌曲（最多保留20首历史）
+            var pool = list.filter { $0.id != currentId && !self.recentRandomSongIds.contains($0.id) }
+            // 如果排除后为空（曲库太小），退化为只排除当前歌曲
+            if pool.isEmpty { pool = list.filter { $0.id != currentId } }
+            // 如果还是为空（只有一首歌），用全部列表
+            let finalPool = pool.isEmpty ? list : pool
+            guard let song = finalPool.randomElement() else {
                 // 曲库确实为空、无歌可续播时才退出全屏
                 if self.showingPlayer { self.showingPlayer = false }
                 return
             }
-            // 先把随机歌以 waiting 入队，再让当前歌收尾、随机歌顶上成为 playing
+            // 记录到最近播放历史
+            self.recentRandomSongIds.insert(song.id)
+            if self.recentRandomSongIds.count > 20 {
+                self.recentRandomSongIds.removeFirst()
+            }
+            // 先把随机歌以 waiting 入队，延迟一点再切歌，确保队列已更新（避免卡顿/无歌曲）
             self.api.addToQueue(songId: song.id) { ok in
-                if ok { self.api.nextSong() }
+                if ok {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        self.api.nextSong()
+                    }
+                } else {
+                    // 入队失败，从历史中移除并重试一次
+                    self.recentRandomSongIds.remove(song.id)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        self.advancePlayback()
+                    }
+                }
             }
         }
         if api.songs.isEmpty {
             // 曲库尚未加载到内存，先拉取再随机挑选
             api.fetchSongs { pick(from: self.api.songs) }
         } else {
-            pick(from: api.songs)
+            pick(from: self.api.songs)
         }
     }
 

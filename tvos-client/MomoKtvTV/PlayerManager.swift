@@ -70,6 +70,12 @@ class PlayerManager: ObservableObject {
         if let existingURL = (player?.currentItem?.asset as? AVURLAsset)?.url,
            existingURL == url {
             attachLayerToCurrentHost()
+            // 同一首歌再次播放（重唱/随机重播）时，必须回到曲首0秒并重新播放，
+            // 否则会从上一次暂停位置继续，导致MKV等视频歌不从曲首播放
+            player?.seek(to: CMTime.zero)
+            player?.play()
+            isPlaying = true
+            currentTime = 0
             return
         }
 
