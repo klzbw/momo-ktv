@@ -84,8 +84,8 @@ struct AudioBackgroundView: View {
                 p.addLine(to: CGPoint(x: w, y: h)); p.closeSubpath()
                 ctx.opacity = 0.22
                 ctx.fill(p, with: .linearGradient(Gradient(colors: [palette[k % 3], palette[(k + 1) % 3]]),
-                                                   startPoint: UnitPoint(x: 0, y: base / h),
-                                                   endPoint: UnitPoint(x: 1, y: base / h)))
+                                                   startPoint: CGPoint(x: 0, y: base),
+                                                   endPoint: CGPoint(x: w, y: base)))
             }
         case .ripple:
             for k in 0..<6 {
@@ -117,8 +117,7 @@ struct AudioBackgroundView: View {
                 ctx.opacity = sin(ph * .pi)
                 var p = Path(); p.move(to: head); p.addLine(to: tail)
                 ctx.stroke(p, with: .linearGradient(Gradient(colors: [.white, .clear]),
-                                                    startPoint: UnitPoint(x: head.x / w, y: head.y / h),
-                                                    endPoint: UnitPoint(x: tail.x / w, y: tail.y / h)), lineWidth: 2.5)
+                                                    startPoint: head, endPoint: tail), lineWidth: 2.5)
             }
         case .nebula:
             for k in 0..<5 {
@@ -148,7 +147,7 @@ struct AudioBackgroundView: View {
                 let rect = CGRect(x: CGFloat(i) * bw + 2, y: h - bh, width: bw - 4, height: bh)
                 ctx.fill(Path(roundedRect: rect, cornerRadius: 3),
                          with: .linearGradient(Gradient(colors: [palette[i % 3], palette[(i + 1) % 3]]),
-                                               startPoint: UnitPoint(x: 0, y: 1), endPoint: UnitPoint(x: 0, y: 0.4)))
+                                               startPoint: CGPoint(x: 0, y: h), endPoint: CGPoint(x: 0, y: h * 0.4)))
             }
         case .aurora:
             for k in 0..<3 {
@@ -161,7 +160,7 @@ struct AudioBackgroundView: View {
                 p.addLine(to: CGPoint(x: w, y: 0)); p.closeSubpath()
                 ctx.opacity = 0.3
                 ctx.fill(p, with: .linearGradient(Gradient(colors: [palette[k % 3], .clear]),
-                                                   startPoint: .zero, endPoint: UnitPoint(x: 0, y: 0.5)))
+                                                   startPoint: CGPoint(x: 0, y: 0), endPoint: CGPoint(x: 0, y: h * 0.5)))
             }
         case .rain:
             for i in 0..<90 {
