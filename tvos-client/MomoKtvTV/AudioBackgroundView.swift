@@ -246,12 +246,11 @@ struct PhotosBg: View {
                     switch phase {
                     case .success(let img):
                         img.resizable().scaledToFill().transition(.opacity)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     default:
-                        // 空态/加载中也铺满，避免 ZStack 高度抖动导致控制条位置漂移
-                        Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+                        Color.clear
                     }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .id(idx)
                 .focusable(false)
                 .allowsHitTesting(false)

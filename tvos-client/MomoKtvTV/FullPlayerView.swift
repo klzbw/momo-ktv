@@ -72,6 +72,7 @@ struct FullPlayerView: View {
             // 盖在服务端渐变视频轨之上、歌词层之下，视频歌(MKV/MP4)不显示。
             if !currentItem.isVideoFile {
                 AudioBackgroundView(server: api.serverAddress)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(false)  // 背景层（含我的图片）绝不拦截遥控器焦点/点击，避免控件呼不出
             }
 
@@ -267,6 +268,8 @@ struct FullPlayerView: View {
             // 氛围 emoji 刷屏 + 祝福弹幕（最顶层，不挡操作）
             AtmosphereOverlay().zIndex(21)
         }
+        // 强制 ZStack 铺满全屏，大小不受任何子视图（背景图片/歌词等）影响，彻底杜绝控件位置漂移
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onPlayPauseCommand {
             playerManager.togglePlayPause()
             FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
