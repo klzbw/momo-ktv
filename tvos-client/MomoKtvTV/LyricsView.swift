@@ -235,6 +235,8 @@ struct KaraokeWord: View {
                         .frame(width: geo.size.width * CGFloat(min(max(progress, 0), 1)),
                                alignment: .leading)
                         .clipped()
+                        // 极短线性补间：把 33fps 的离散进度在帧间连续插值，扫色更顺滑，0.05s 滞后几乎无感
+                        .animation(.linear(duration: 0.05), value: progress)
                 }
             }
     }
@@ -276,29 +278,34 @@ struct LyricsView: View {
     // 双排模式：当前演唱行靠屏幕右侧，刚唱完的上一行退到左侧——右边这句唱完即切到左边，新一句到右边
     private var dualBody: some View {
         let ai = activeIndex
+        // 逐句左右交替：偶数行靠右唱、奇数行靠左唱；刚唱完的上一句停在当前句的另一侧，
+        // 于是形成「右唱完切到左、左唱完切到右」的来回流动，而不是每句都固定在同一边。
+        let curRight = ai % 2 == 0
         return VStack(spacing: compact ? 8 : 30) {
             Spacer(minLength: 0)
-            // 上一行（刚唱完）靠左、暗淡
+            // 上一行（刚唱完）在当前行的另一侧、暗淡
             if ai - 1 >= 0 {
                 HStack(spacing: 0) {
+                    if curRight { Spacer(minLength: 0) }
                     lineView(lyrics.lines[ai - 1], idx: ai - 1)
                         .id(lyrics.lines[ai - 1].id)
                         .transition(.opacity)
-                    Spacer(minLength: 24)
+                    if !curRight { Spacer(minLength: 0) }
                 }
             }
-            // 当前演唱行靠右、高亮逐字
+            // 当前演唱行：按奇偶落在右/左，高亮逐字，从它所在的一侧柔和滑入
             if ai >= 0 {
                 HStack(spacing: 0) {
-                    Spacer(minLength: 24)
+                    if curRight { Spacer(minLength: 24) }
                     lineView(lyrics.lines[ai], idx: ai)
                         .id(lyrics.lines[ai].id)
-                        .transition(.opacity.combined(with: .move(edge: .trailing)))
+                        .transition(.opacity.combined(with: .move(edge: curRight ? .trailing : .leading)))
+                    if !curRight { Spacer(minLength: 24) }
                 }
             }
             Spacer(minLength: 0)
         }
-        .animation(.easeOut(duration: 0.25), value: ai)
+        .animation(.easeInOut(duration: 0.32), value: ai)
         .padding(.horizontal, compact ? 16 : 90)
     }
 

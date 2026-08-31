@@ -2610,11 +2610,12 @@ const Lyrics = (()=>{
   }
   // —— 双排模式：只渲染 上一行/当前行/下一行 三行窗口 ——
   function renderDual(l,t,idx){
-    // 双排：当前演唱行靠右，刚唱完的上一行靠左——右边这句唱完即切到左边，新一句到右边
+    // 双排逐句左右交替：偶数行靠右唱、奇数行靠左唱，刚唱完的上一句停在另一侧——右唱完切左、左唱完切右
     const prev=idx>0?lines[idx-1]:null, cur=idx>=0?lines[idx]:null;
+    const curRight=idx%2===0, prevRight=!curRight;
     let html='';
-    if(prev)html+='<div class="ll-line ll-near ll-left">'+esc(prev.plain)+'</div>';
-    html+= cur?'<div class="ll-line ll-cur ll-right">'+curLineHTML(cur,t)+'</div>':'<div class="ll-line ll-none">♪ 纯音乐 · 请欣赏 ♪</div>';
+    if(prev)html+='<div class="ll-line ll-near '+(prevRight?'ll-right':'ll-left')+'">'+esc(prev.plain)+'</div>';
+    html+= cur?'<div class="ll-line ll-cur '+(curRight?'ll-right':'ll-left')+'">'+curLineHTML(cur,t)+'</div>':'<div class="ll-line ll-none">♪ 纯音乐 · 请欣赏 ♪</div>';
     l.innerHTML=html;
   }
   // —— 滚动模式：换歌时一次性建整列，当前行平滑滚到中央，逐字填色 ——
@@ -3327,6 +3328,9 @@ function adjVolume(delta){
 }
 video.addEventListener('timeupdate',()=>{if(!video.duration)return;document.getElementById('prog-fill').style.width=(video.currentTime/video.duration*100)+'%';document.getElementById('tcur').textContent=fmt(video.currentTime);document.getElementById('ttot').textContent=fmt(video.duration);try{Lyrics.render(video.currentTime);}catch(e){}
 });
+// 逐字歌词高频驱动：timeupdate 仅约 4Hz 会让卡拉OK横向扫色一顿一顿，改用 requestAnimationFrame
+// 按真实播放时间每帧刷新（render 内部在行没变时只更新当前行逐字宽度，开销很小），扫色流畅走完。
+(function lyricsFrame(){ try{ if(typeof Lyrics!=='undefined' && !video.paused && !video.ended){ Lyrics.render(video.currentTime||0);} }catch(e){} requestAnimationFrame(lyricsFrame); })();
 // ============ 常驻/全屏滚动横幅 ============
 // 需求演进：v1(老版本)只在播放到最后15秒才弹一次居中 toast 提示"下一首"；
 // v2 挂在 #topbar 正下方、播放期间每隔一段时间自动展开一次滚完再收起；
