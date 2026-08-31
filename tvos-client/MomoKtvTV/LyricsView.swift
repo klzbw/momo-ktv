@@ -307,33 +307,32 @@ struct LyricsView: View {
         }
     }
 
-    // 双排模式（错落上下两排·只羽化不跳动）：奇数句恒固定在上排、偶数句恒固定在下排，每排占满屏宽(字号可放很大)。
-    // 当前演唱句所在排逐字高亮，另一排提前显示下一句(预备、同字号、暗淡)；某句到来时在自己固定排原地变亮，
-    // 唱完后另一排羽化换为再下一句——全程不跨排上下跳，位置/大小不变。
+    // 双排模式（上下两排·左右错落·只羽化不跳动）：奇数句(单)恒在上排且靠左，偶数句(双)恒在下排且靠右(不居中)，
+    // 每排占满屏宽(字号可放很大)。当前演唱句所在排逐字高亮，另一排提前显示下一句(预备、同字号、暗淡)；某句到来时
+    // 在自己固定位置原地变亮，唱完后另一排羽化换为再下一句——全程不跨排跳动，位置/大小不变。
     private var dualBody: some View {
         let ai = activeIndex
         let topIdx = ai % 2 == 0 ? ai + 1 : ai       // 上排恒为奇数句
         let bottomIdx = ai % 2 == 0 ? ai : ai + 1    // 下排恒为偶数句
         return VStack(spacing: compact ? 12 : 34) {
             Spacer(minLength: 0)
-            dualSlot(topIdx)
-            dualSlot(bottomIdx)
+            dualSlot(topIdx, .leading)       // 奇数句(单)固定靠左
+            dualSlot(bottomIdx, .trailing)   // 偶数句(双)固定靠右
             Spacer(minLength: 0)
         }
-        .multilineTextAlignment(.center)
         .padding(.horizontal, compact ? 16 : 70)
         .padding(.bottom, compact ? 16 : 48)
         .animation(.easeInOut(duration: 0.22), value: ai)
     }
 
-    /// 双排里的一个固定排：越界留等高空位；内容变化仅羽化(opacity)不位移；满宽居中
+    /// 双排里的一个固定排：越界留等高空位；内容变化仅羽化(opacity)不位移；满宽并按 align 左右对齐(不居中)
     @ViewBuilder
-    private func dualSlot(_ idx: Int) -> some View {
+    private func dualSlot(_ idx: Int, _ align: Alignment) -> some View {
         if idx >= 0 && idx < lyrics.lines.count {
             lineView(lyrics.lines[idx], idx: idx)
                 .id(lyrics.lines[idx].id)
                 .transition(.opacity)
-                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(maxWidth: .infinity, alignment: align)
         } else {
             Color.clear.frame(maxWidth: .infinity)
         }

@@ -905,8 +905,10 @@ html[data-layout="mobile"] #next-up-track span{font-size:16px}
 #lyrics-layer .ll-line.ll-left{align-self:flex-start;text-align:left;max-width:86%}
 #lyrics-layer .ll-line.ll-right{align-self:flex-end;text-align:right;max-width:86%}
   /* 双排错落上下两排：奇数句恒在上排、偶数句恒在下排，各占满宽(字号可放很大)，换行只羽化(fade)不跨排跳动 */
-  #lyrics-layer .ll-dualcol{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px;width:100%;height:100%}
-  #lyrics-layer .ll-dualslot{width:100%;display:flex;justify-content:center;text-align:center}
+  #lyrics-layer .ll-dualcol{display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:34px;width:100%;height:100%}
+  #lyrics-layer .ll-dualslot{width:100%;display:flex}
+  #lyrics-layer .ll-dualslot.ll-top{justify-content:flex-start;text-align:left}
+  #lyrics-layer .ll-dualslot.ll-bottom{justify-content:flex-end;text-align:right}
   #lyrics-layer .ll-dualslot .ll-line{max-width:100%;animation:llFade .22s ease both}
   @keyframes llFade{from{opacity:0}to{opacity:1}}
 #lyrics-layer .ll-near{font-size:calc(58px * var(--lyrics-scale,1));font-weight:900;letter-spacing:calc(1px * var(--lyrics-scale,1));line-height:1.25;color:rgba(255,255,255,.5);text-shadow:0 2px 10px rgba(0,0,0,.8)}
@@ -2623,13 +2625,13 @@ const Lyrics = (()=>{
     // 另一排提前显示下一句(预备/同字号/暗淡)；某句到来原地变亮，唱完另一排羽化换句，不跨排跳动。
     if(idx<0){ l.innerHTML='<div class="ll-line ll-none">♪ 纯音乐 · 请欣赏 ♪</div>'; return; }
     const topIdx=idx%2===0?idx+1:idx, bottomIdx=idx%2===0?idx:idx+1;
-    const slot=(i)=>{
-      if(i<0||i>=lines.length) return '<div class="ll-dualslot"></div>';
+    const slot=(i,side)=>{
+      if(i<0||i>=lines.length) return '<div class="ll-dualslot ll-'+side+'"></div>';
       const isCur=(i===idx);
       const inner=isCur?curLineHTML(lines[i],t):esc(lines[i].plain);
-      return '<div class="ll-dualslot"><div class="ll-line '+(isCur?'ll-cur':'ll-near')+'">'+inner+'</div></div>';
+      return '<div class="ll-dualslot ll-'+side+'"><div class="ll-line '+(isCur?'ll-cur':'ll-near')+'">'+inner+'</div></div>';
     };
-    l.innerHTML='<div class="ll-dualcol">'+slot(topIdx)+slot(bottomIdx)+'</div>';
+    l.innerHTML='<div class="ll-dualcol">'+slot(topIdx,'top')+slot(bottomIdx,'bottom')+'</div>';
   }
   // —— 滚动模式：换歌时一次性建整列，当前行平滑滚到中央，逐字填色 ——
   function buildScroll(l){
