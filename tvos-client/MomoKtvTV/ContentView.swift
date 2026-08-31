@@ -383,7 +383,7 @@ struct ContentView: View {
                     .id("preview-\(showingPlayer ? "fs" : "normal")")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onAppear {
-                        playerManager.currentAudioTracks = playing.audio_tracks ?? 1
+                        playerManager.vocalTrackCount = playing.audio_tracks ?? 1
                         playerManager.setupPlayer(for: hlsURL)
                         playerManager.setVolume(volume)
                         // Re-attach layer after setup to ensure video shows
@@ -472,7 +472,7 @@ struct ContentView: View {
                 }
                 // Setup new song in shared player
                 if let url = api.hlsURL(songId: playing.song_id) {
-                    playerManager.currentAudioTracks = playing.audio_tracks ?? 1
+                    playerManager.vocalTrackCount = playing.audio_tracks ?? 1
                     playerManager.setupPlayer(for: url)
                     playerManager.setVolume(volume)
                 }

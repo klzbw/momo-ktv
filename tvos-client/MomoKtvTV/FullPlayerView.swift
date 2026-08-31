@@ -17,6 +17,7 @@ struct FullPlayerView: View {
     @State private var showQR = false
     @ObservedObject private var mic = MicLink.shared
     @State private var qrTab: QRTab = .order
+    @StateObject private var lyricsLoader = LyricsLoader()
     @AppStorage("micPublicHost") private var micPublicHost: String = "mktv.klzbw.top"
 
     enum VoiceMode {
@@ -49,7 +50,16 @@ struct FullPlayerView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                         playerManager.attachLayerToCurrentHost()
                     }
+                    if let playing = api.queue.first(where: { $0.isPlaying }) {
+                        lyricsLoader.load(server: api.serverAddress, songId: playing.song_id)
+                    }
                 }
+
+            // 逐字歌词层：居中滚动、当前行逐字填色；不抢遥控器焦点，控制层在其之上
+            LyricsView(lyrics: lyricsLoader.lyrics, currentTime: playerManager.currentTime)
+                .allowsHitTesting(false)
+                .opacity(showControls ? 0.35 : 1.0) // 控制条弹出时歌词弱化，避免与底部信息打架
+                .animation(.easeOut(duration: 0.25), value: showControls)
 
             if showControls && !showQueue && !showQR {
                 VStack {
@@ -121,25 +131,25 @@ struct FullPlayerView: View {
                         }
                         .padding(.horizontal, 10)
 
-                        // 人声大小滑块：仅 AI 分离出多档(>=3)的歌曲出现。左=纯伴奏，右=原唱，
-                        // 在五档间吸附；遥控器聚焦后左右键逐档调节，与上方麦克风按钮联动同一状态。
+                        // 人声大小档位条：仅 AI 分离出多档(>=3)的歌曲出现。左=纯伴奏，右=原唱，
+                        // 聚焦后用遥控器左右键逐档调节（tvOS 无原生 Slider，用 TVSegmentSlider），
+                        // 与上方麦克风按钮共享同一状态并大屏反馈。
                         if playerManager.vocalTrackCount >= 3 {
                             HStack(spacing: 16) {
                                 Text("伴奏")
                                     .font(.system(size: 20, weight: .semibold))
                                     .foregroundColor(.white.opacity(0.75))
-                                Slider(
-                                    value: Binding(
-                                        get: { Double(max(0, playerManager.vocalTrackCount - 1 - playerManager.vocalTrackIndex)) },
-                                        set: { d in
-                                            let idx = playerManager.vocalTrackCount - 1 - Int(d.rounded())
-                                            playerManager.selectVocalTrack(idx)
+                                TVSegmentSlider(
+                                    segments: playerManager.vocalTrackCount,
+                                    selected: Binding(
+                                        get: { max(0, playerManager.vocalTrackCount - 1 - playerManager.vocalTrackIndex) },
+                                        set: { disp in
+                                            playerManager.selectVocalTrack(playerManager.vocalTrackCount - 1 - disp)
                                             FeedbackCenter.shared.show(playerManager.vocalTrackLabel, icon: "mic.fill")
                                         }),
-                                    in: 0...Double(max(1, playerManager.vocalTrackCount - 1)),
-                                    step: 1.0
+                                    onCommit: { _ in }
                                 )
-                                .frame(width: 340)
+                                .frame(width: 300)
                                 Text("原唱 · 人声\(playerManager.vocalVolumePercent)%")
                                     .font(.system(size: 20, weight: .bold))
                                     .foregroundColor(.white)
@@ -253,6 +263,8 @@ struct FullPlayerView: View {
         resetHideTimer()
         hasAutoExited = false
         voiceMode = VoiceMode.from(playerManager.vocalTrackIndex)
+        // 拉取歌词（优先 AI 逐字增强 LRC，没有则普通 LRC）
+        lyricsLoader.load(server: api.serverAddress, songId: song.song_id)
         // 切歌/全屏视图重建时，若麦克风模式仍开着则保持连接不断
         mic.keepAlive(api.serverAddress)
     }

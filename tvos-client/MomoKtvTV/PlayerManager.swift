@@ -91,8 +91,9 @@ class PlayerManager: ObservableObject {
         attachLayerToCurrentHost()
 
         // Time observer
+        // 10Hz 刷新当前时间：逐字歌词需要足够细的时间粒度跟嘴，进度条也更顺滑
         timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+            forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
             queue: .main
         ) { [weak self] time in
             self?.currentTime = time.seconds
