@@ -912,7 +912,7 @@ app.post('/api/backgrounds/upload', bgUpload.array('images', 12), (req, res) => 
   log.info('BG', `网页端上传动态背景图 ${files.length} 张`);
   res.json({ ok: true, images: files });
 });
-app.delete('/api/backgrounds/images/:name', requireAdminAuth, (req, res) => {
+app.delete('/api/backgrounds/images/:name', (req, res) => {
   const name = path.basename(req.params.name || ''); // basename 防目录穿越
   if (!BG_IMG_RE.test(name)) return res.status(400).json({ error: '非法文件名' });
   try { fs.unlinkSync(path.join(BG_IMG_DIR, name)); res.json({ ok: true }); }

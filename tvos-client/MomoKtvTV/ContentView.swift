@@ -530,6 +530,24 @@ struct ContentView: View {
                 showingPlayer = false
                 activePanel = nil
                 activePage = nil
+            case "bg_next":
+                // 遥控端切换动态背景：循环 AudioBgMode 写入 UserDefaults，FullPlayerView 的 @AppStorage 自动响应
+                let curRaw = UserDefaults.standard.string(forKey: "momoBgMode") ?? AudioBgMode.flow.rawValue
+                let nextMode = AudioBgMode.from(curRaw).next
+                UserDefaults.standard.set(nextMode.rawValue, forKey: "momoBgMode")
+                FeedbackCenter.shared.show("背景：\(nextMode.display)", icon: "sparkles")
+            case "bg_set":
+                // 遥控端指定背景模式索引
+                if let idx = (payload["index"] as? NSNumber)?.intValue {
+                    let all = AudioBgMode.allCases
+                    let mode = all[((idx % all.count) + all.count) % all.count]
+                    UserDefaults.standard.set(mode.rawValue, forKey: "momoBgMode")
+                    FeedbackCenter.shared.show("背景：\(mode.display)", icon: "sparkles")
+                }
+            case "lyrics_mode":
+                // 遥控端切换歌词双排/滚动模式
+                let lmRaw = UserDefaults.standard.string(forKey: "momoLyricsMode") ?? "dual"
+                UserDefaults.standard.set(lmRaw == "dual" ? "scroll" : "dual", forKey: "momoLyricsMode")
             default:
                 break
             }
