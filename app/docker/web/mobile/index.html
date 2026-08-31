@@ -283,6 +283,14 @@ header{
 .bless-quick{display:grid;grid-template-columns:repeat(2,1fr);gap:7px}
 .bless-chip{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:9px 10px;font-size:12.5px;color:#eaeaf5;text-align:center;cursor:pointer}
 .bless-chip:active{background:#36d9f7;color:#06121a}
+/* 动态背景图片上传网格 */
+.bg-upload-lb{display:flex;align-items:center;justify-content:center;width:100%;height:100%;cursor:pointer}
+.bg-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.bg-thumb{position:relative;aspect-ratio:16/10;border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,.12);background:#0d0d24}
+.bg-thumb img{width:100%;height:100%;object-fit:cover}
+.bg-del{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer}
+.bg-del:active{background:#ff4f6d}
+.bg-empty{grid-column:1/-1;color:#9a9ab8;font-size:13px;padding:8px 2px}
 </style>
 </head>
 <body>
@@ -530,6 +538,16 @@ header{
     </div>
   </div>
 
+  <!-- 动态背景：切换大屏背景效果 + 上传多张图片做随机背景（纯音频歌曲时显示） -->
+  <div class="ctrl-section">
+    <div class="ctrl-title">🖼 动态背景（纯音频歌曲）</div>
+    <div class="ctrl-row">
+      <div class="ctrl-btn purple" onclick="sendCtrl('bg_next')"><span class="cl">切换效果 ▶</span></div>
+      <div class="ctrl-btn cyan"><label class="bg-upload-lb"><span class="cl">＋上传图片</span><input type="file" id="bg-file-input" accept="image/*" multiple hidden onchange="uploadBgImages(this)"/></label></div>
+    </div>
+    <div id="bg-grid" class="bg-grid"></div>
+  </div>
+
   <!-- D-pad -->
   <div class="ctrl-section">
     <div class="ctrl-title">🕹 方向导航</div>
@@ -632,6 +650,25 @@ setInterval(tickCtrlProgress,500);
 // extra 用来携带 volume 需要的 delta、eq 需要的 name；旧的单参数调用(sendCtrl('home')等)不受影响
 function sendCtrl(action, extra){ sendWS(Object.assign({type:'control',action}, extra||{})); }
 function sendWS(obj){ if(window._ws&&window._ws.readyState===1) window._ws.send(JSON.stringify(obj)); }
+// ===== 动态背景图片：上传多张 / 列表 / 删除（大屏纯音频歌"我的图片"模式随机轮播）=====
+async function loadBgImages(){
+  try{ const d=await fetch('/api/backgrounds/images').then(r=>r.json()); const grid=document.getElementById('bg-grid'); if(!grid)return;
+    const imgs=d.images||[];
+    grid.innerHTML=imgs.length?imgs.map(i=>`<div class="bg-thumb"><img src="${i.url}" alt=""><div class="bg-del" onclick="delBgImage('${i.name}',event)">✕</div></div>`).join(''):'<div class="bg-empty">还没上传图片，点上面"上传图片"可多选</div>';
+  }catch(e){}
+}
+async function uploadBgImages(input){
+  const files=input.files; if(!files||!files.length)return;
+  const fd=new FormData(); for(const f of files)fd.append('images',f);
+  try{ showToast('上传中…'); await fetch('/api/backgrounds/upload',{method:'POST',body:fd}); showToast('背景图已上传 '+files.length+' 张'); loadBgImages(); }
+  catch(e){ showToast('上传失败'); }
+  input.value='';
+}
+async function delBgImage(name,ev){ ev&&ev.stopPropagation();
+  if(!confirm('删除这张背景图？'))return;
+  await fetch('/api/backgrounds/images/'+encodeURIComponent(name),{method:'DELETE'}); loadBgImages();
+}
+document.addEventListener('DOMContentLoaded',loadBgImages); setTimeout(()=>{try{loadBgImages();}catch(e){}},600);
 // 音量加减：播放端 localAdjVolume 每次按 delta(±0.1) 调整 video.volume(0~1)
 function adjVolume(delta){ sendCtrl('volume',{delta}); showToast(delta>0?'音量＋':'音量－'); }
 // 均衡器：发 eq 指令给播放端切换三级滤波器增益，本机只同步选中高亮

@@ -317,6 +317,8 @@ app.use('/mic',   express.static(path.join(__dirname, '../web/mic')));
 // 氛围音效(掌声/干杯/喝彩/倒彩)静态目录：网页 <audio> 与 tvOS AVAudioPlayer 都从这里取
 app.use('/sounds',express.static(path.join(__dirname, '../web/sounds')));
 app.use('/cover', express.static('/data/covers'));
+// 用户上传的动态背景图片（网页遥控端上传、纯音频歌"我的图片"背景模式随机轮播）
+app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 'backgrounds')));
 
 // ---------- HLS 播放 (音轨切换不中断播放、进度可寻址) ----------
 // 取代了旧的"?track=0/1 现场 ffmpeg 重新封装"方案：那个方案吐出的新流没有
@@ -862,6 +864,36 @@ app.post('/api/admin/catalog/import-from-path', requireAdminAuth, (req, res) => 
     try { syncSongArtists(); } catch (e) {}
     res.json({ ok: true, ...r });
   } catch (e) { res.status(400).json({ error: '导入失败: ' + e.message }); }
+});
+
+// ==================== 动态背景图片（网页遥控端上传，纯音频歌"我的图片"模式随机轮播） ====================
+const BG_IMG_DIR = path.join(process.env.DATA_DIR || '/data', 'backgrounds');
+const BG_IMG_RE = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
+function listBgImages() {
+  try { fs.mkdirSync(BG_IMG_DIR, { recursive: true }); return fs.readdirSync(BG_IMG_DIR).filter(f => BG_IMG_RE.test(f)).sort(); }
+  catch (e) { return []; }
+}
+app.get('/api/backgrounds/images', (req, res) => {
+  res.json({ images: listBgImages().map(name => ({ name, url: '/bg-images/' + encodeURIComponent(name) })) });
+});
+const bgUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, f, cb) => { try { fs.mkdirSync(BG_IMG_DIR, { recursive: true }); } catch (e) {} cb(null, BG_IMG_DIR); },
+    filename: (req, f, cb) => { const ext = (path.extname(f.originalname) || '.jpg').toLowerCase().match(/^\.[a-z0-9]+$/)?.[0] || '.jpg';
+      cb(null, 'bg_' + Date.now() + '_' + Math.floor(Math.random() * 1e4) + ext); },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024, files: 12 },
+});
+app.post('/api/backgrounds/upload', bgUpload.array('images', 12), (req, res) => {
+  const files = (req.files || []).map(f => ({ name: f.filename, url: '/bg-images/' + encodeURIComponent(f.filename) }));
+  log.info('BG', `网页端上传动态背景图 ${files.length} 张`);
+  res.json({ ok: true, images: files });
+});
+app.delete('/api/backgrounds/images/:name', requireAdminAuth, (req, res) => {
+  const name = path.basename(req.params.name || ''); // basename 防目录穿越
+  if (!BG_IMG_RE.test(name)) return res.status(400).json({ error: '非法文件名' });
+  try { fs.unlinkSync(path.join(BG_IMG_DIR, name)); res.json({ ok: true }); }
+  catch (e) { res.status(404).json({ error: e.message }); }
 });
 
 // GET /api/songs/:id/source —— worker 下载待处理源音频。普通文件原样下发；CUE 分轨
