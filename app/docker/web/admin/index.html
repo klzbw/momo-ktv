@@ -484,6 +484,15 @@ select option{color:#000}
       <div class="hdrop-item" onclick="doRescanAudioTracks()" title="重新探测【全部】歌曲的音轨数量(含已正确的)，主要用于升级后一次性修复历史遗留问题；只针对某一首歌，用歌曲列表里那一行的「重探音轨」更快">🎚️ 扫描音轨</div>
     </div>
   </div>
+  <div class="hdrop" id="hdrop-catalog">
+    <button class="hbtn" onclick="toggleHdrop('catalog',event)">📦 曲库快照 ▾</button>
+    <div class="hdrop-menu" id="hdrop-catalog-menu">
+      <div class="hdrop-item" onclick="catalogExport()" title="把当前全部曲目元数据导出成一个 JSON 快照文件下载到本机；新机装应用后用它免扫描直接恢复曲库">⬇️ 导出快照(下载)</div>
+      <div class="hdrop-item" onclick="catalogWriteFiles()" title="把快照 JSON 写到每个曲库来源根目录和数据目录，快照随歌曲文件夹一起带走，拷到哪都能恢复">💾 快照写到曲库目录</div>
+      <div class="hdrop-item" onclick="document.getElementById('catalog-file-input').click()" title="选一份之前导出的快照 JSON，免扫描直接把曲目导入新机/新库">⬆️ 导入快照(免扫描)</div>
+    </div>
+  </div>
+  <input type="file" id="catalog-file-input" accept=".json,application/json" hidden onchange="catalogImport(this)">
   <div class="hdrop" id="hdrop-manage">
     <button class="hbtn" onclick="toggleHdrop('manage',event)">🛠️ 文件管理 ▾</button>
     <div class="hdrop-menu" id="hdrop-manage-menu">
@@ -1510,6 +1519,41 @@ async function doScan(mode){
   }
   pre.textContent = msg;
   toast(`${mode==='incremental'?'增量':'全量'}扫描完成，共 ${d.total} 首，新增 ${d.added} 首`+(d.removed?`，移除 ${d.removed} 首`:''));
+  loadAll();
+}
+
+// ===== 曲库快照：导出下载 / 写到曲库目录 / 免扫描导入（新机迁移曲库元数据，不用重新扫描几万首）=====
+async function catalogExport(){
+  toast('正在生成曲库快照…');
+  const res = await fetch('/api/admin/catalog/export');
+  if(!res.ok){ toast('导出失败 '+res.status); return; }
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'momo-catalog-'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  toast('快照已下载，新机可用它免扫描导入');
+}
+async function catalogWriteFiles(){
+  if(!confirm('把当前曲库快照写到每个曲库来源根目录和数据目录？\n快照会随歌曲文件夹一起带走，新机/重装后可免扫描导入。')) return;
+  toast('正在写快照文件…');
+  const res = await fetch('/api/admin/catalog/write-files',{method:'POST'});
+  const d = await res.json().catch(()=>({}));
+  if(!res.ok){ toast('写入失败：'+(d.error||res.status)); return; }
+  toast(`已写出 ${d.count||0} 首快照到 ${(d.written||[]).length} 个位置`);
+  alert('快照已写入：\n'+(d.written||[]).join('\n'));
+}
+async function catalogImport(input){
+  const f = input.files && input.files[0]; input.value='';
+  if(!f) return;
+  if(!confirm('用这份快照免扫描导入曲目？\n只新增/更新，不删除现有曲目，也不跑 ffprobe。')) return;
+  toast('正在导入快照(免扫描)…');
+  const fd = new FormData(); fd.append('catalog', f);
+  const res = await fetch('/api/admin/catalog/import',{method:'POST',body:fd});
+  const d = await res.json().catch(()=>({}));
+  if(!res.ok){ toast('导入失败：'+(d.error||res.status)); return; }
+  toast(`导入完成：新增 ${d.added||0}，更新 ${d.updated||0}，跳过 ${d.skipped||0}`);
+  alert(`快照导入完成（共 ${d.total||0}）\n新增：${d.added||0}\n更新：${d.updated||0}\n跳过：${d.skipped||0}`);
   loadAll();
 }
 
