@@ -77,7 +77,6 @@ class MainActivity : AppCompatActivity() {
 
         // 缓存设置
         settings.cacheMode = WebSettings.LOAD_DEFAULT
-        settings.setAppCacheEnabled(true)
 
         // 媒体播放设置
         settings.mediaPlaybackRequiresUserGesture = false
