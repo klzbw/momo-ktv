@@ -70,6 +70,21 @@ function pickBackgroundVideo() {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+// 用户没放背景视频时的内置"流动渐变"配色池：每首纯音频歌随机挑一套，
+// 都是低饱和深色（保证白色歌词清晰），带 KTV 氛围但不喧宾夺主。
+const FLOW_GRADIENTS = [
+  'c0=0x141428:c1=0x33265c', // 紫夜
+  'c0=0x0b2036:c1=0x125a6e', // 深海蓝
+  'c0=0x2a1230:c1=0x6e2b5a', // 玫红
+  'c0=0x10241a:c1=0x1f5c45', // 森绿
+  'c0=0x301a14:c1=0x7a4326', // 暖橙
+  'c0=0x101a36:c1=0x2b3a8a', // 宝蓝
+  'c0=0x241430:c1=0x4a2b7a', // 薰衣草
+];
+function pickFlowGradient() {
+  return FLOW_GRADIENTS[Math.floor(Math.random() * FLOW_GRADIENTS.length)];
+}
+
 // ---------- VAAPI 硬件加速探测 ----------
 const VAAPI_DEVICE = process.env.VAAPI_DEVICE || '/dev/dri/renderD128';
 
@@ -473,7 +488,7 @@ async function buildAudioBackgroundRendition(song, dir, durSec, songTag) {
   // 背景源优先级：用户背景视频(循环) > 内置流动渐变 > 静态深色，逐级回退
   const sources = [];
   if (bg) sources.push({ kind: 'bg视频:' + path.basename(bg), input: ['-stream_loop', '-1', '-i', bg], fit: true });
-  sources.push({ kind: '流动渐变', input: ['-f', 'lavfi', '-i', `gradients=size=${GW}x${GH}:rate=${FPS}:c0=0x141428:c1=0x33265c:speed=0.02`], fit: false });
+  sources.push({ kind: '流动渐变', input: ['-f', 'lavfi', '-i', `gradients=size=${GW}x${GH}:rate=${FPS}:${pickFlowGradient()}:speed=0.02`], fit: false });
   sources.push({ kind: '静态深色', input: ['-f', 'lavfi', '-i', `color=c=0x141428:size=${GW}x${GH}:rate=${FPS}`], fit: false });
 
   const useVaapi = await detectVAAPI();
@@ -590,7 +605,9 @@ async function buildStereoSplitAudioRendition(filepath, dir, track, songTag, see
 // 如果对应分片还没转出来，由路由层(index.js)负责短暂等待，而不是在这里
 // 阻塞。
 function writeMasterPlaylist(dir, trackCount, names) {
-  const fallback = trackCount >= 3 ? ['原唱', '半消', '伴奏'] : trackCount >= 2 ? ['原唱', '伴唱'] : ['原唱'];
+  const fallback = trackCount >= 5 ? ['原唱', '75%', '半消', '25%', '伴奏']
+    : trackCount >= 3 ? ['原唱', '半消', '伴奏']
+    : trackCount >= 2 ? ['原唱', '伴唱'] : ['原唱'];
   const trackNames = names || fallback;
   let m3u8 = '#EXTM3U\n#EXT-X-VERSION:6\n';
   for (let t = 0; t < trackCount; t++) {
@@ -615,27 +632,33 @@ function resolveSeparated(song) {
   return { vocalAbs, accompAbs };
 }
 
-// 半消人声比例：半消档把人声压到 32%（隐约可闻作引导），伴奏保持全量。
-const HALF_VOCAL_VOLUME = '0.32';
+// AI 分离后的人声衰减档位：track0 永远是未经混合的源原唱(100%)，
+// 其后各档是"伴奏全量 + 人声按比例"，比例见 SEP_VOCAL_LEVELS（0=纯伴奏）。
+// 五档对应人声音量 100%/75%/50%(半消)/25%/0%，滑块在这 5 档间吸附，
+// 原唱/半消/伴奏三个快捷按钮分别直达第 0/2/4 档。
+const SEP_VOCAL_LEVELS = [null, 0.75, 0.5, 0.25, 0];
+const SEP_TRACK_NAMES = ['原唱', '75%', '半消', '25%', '伴奏'];
 // 基于 AI 分离产物生成某一条音频 rendition。
-//   track=1 mode='half'  半消 = 伴奏(全量) + 人声(32%)
-//   track=2 mode='accomp' 伴奏 = 纯 accompaniment.wav
-// 原唱档(track0)直接用源文件走 buildAudioRendition，保证是未经任何损失的原始混音。
+//   vocalVol=0       纯伴奏 = accompaniment.wav
+//   vocalVol∈(0,1)   伴奏(全量) + 人声(vocalVol)
+// 原唱档(track0)由调用方直接用源文件走 buildAudioRendition，保证是未经损失的原始混音。
 // amix 必须 normalize=0，否则它会按输入路数把总音量自动减半；Demucs 的人声/伴奏
 // 本身等长且时间对齐，duration=longest 兜底长度，dropout_transition=0 避免尾部淡出。
-async function buildSeparatedMixRendition(dir, track, sep, mode, songTag) {
+async function buildSeparatedMixRendition(dir, track, sep, vocalVol, songTag) {
   const out = hlsOutArgs(path.join(dir, `audio${track}_%04d.ts`), path.join(dir, `audio${track}.m3u8`));
-  const label = mode === 'accomp' ? '伴奏' : '半消';
+  const isAccomp = !(vocalVol > 0);
+  const label = isAccomp ? '伴奏' : `人声${Math.round(vocalVol * 100)}%`;
   const t0 = Date.now();
   let args;
-  if (mode === 'accomp') {
+  if (isAccomp) {
     args = ['-loglevel', 'error', '-y', '-i', sep.accompAbs, '-map', '0:a:0', '-vn',
       '-c:a', 'aac', '-b:a', '192k', ...out];
   } else {
+    const vol = vocalVol.toFixed(2);
     args = ['-loglevel', 'error', '-y', '-i', sep.vocalAbs, '-i', sep.accompAbs,
       '-filter_complex',
-      `[0:a]volume=${HALF_VOCAL_VOLUME}[v];[1:a][v]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[a]`,
-      '-map', '[a]', '-c:a', 'aac', '-b:a', '192k', ...out];
+      `[0:a]volume=${vol}[v];[1:a][v]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[a]`,
+      '-map', '[a]', '-vn', '-c:a', 'aac', '-b:a', '192k', ...out];
   }
   await runFFmpeg(args);
   log.info('TRANSCODE', `${songTag} 音轨${track}(${label}·AI分离): 完成，耗时 ${Date.now() - t0}ms`);
@@ -662,12 +685,13 @@ async function buildHLS(song, dir, effectiveTrackCount, filepath, durSec, separa
     : buildVideoRendition(filepath, dir, songTag);
   const tasks = [videoTask];
   if (separated) {
-    // AI 人声分离已完成：出 原唱(源混音)/半消(人声32%+伴奏)/纯伴奏 三档，
-    // 复用现有 HLS 多音轨切换，tvOS/网页无需改音轨选择逻辑即可三档互斥切换。
-    log.info('TRANSCODE', `${songTag} 开始转码，AI分离三档：0=原唱(源) 1=半消 2=伴奏`);
+    // AI 人声分离已完成：track0=原唱(源混音)，track1..4 按 SEP_VOCAL_LEVELS
+    // 出 75%/50%(半消)/25%/0%(纯伴奏)，复用 HLS 多音轨互斥切换；滑块在 5 档间吸附。
+    log.info('TRANSCODE', `${songTag} 开始转码，AI分离五档：0=原唱(源) 1=75% 2=半消50% 3=25% 4=纯伴奏`);
     tasks.push(buildAudioRendition(filepath, dir, 0, songTag, seek));
-    tasks.push(buildSeparatedMixRendition(dir, 1, separated, 'half', songTag));
-    tasks.push(buildSeparatedMixRendition(dir, 2, separated, 'accomp', songTag));
+    for (let t = 1; t < SEP_VOCAL_LEVELS.length; t++) {
+      tasks.push(buildSeparatedMixRendition(dir, t, separated, SEP_VOCAL_LEVELS[t], songTag));
+    }
   } else if (declaredTracks >= 2) {
     log.info('TRANSCODE', `${songTag} 开始转码，共 ${declaredTracks} 条真实音轨（1=原唱, 2=伴唱）`);
     for (let t = 0; t < declaredTracks; t++) {
@@ -745,8 +769,8 @@ async function ensureHLS(song) {
     const separated = isAudioSong ? resolveSeparated(song) : null;
     let effectiveTrackCount, trackNames = null;
     if (separated) {
-      effectiveTrackCount = 3;
-      trackNames = ['原唱', '半消', '伴奏'];
+      effectiveTrackCount = SEP_VOCAL_LEVELS.length;
+      trackNames = SEP_TRACK_NAMES.slice();
     } else if (declaredTracks >= 2) effectiveTrackCount = declaredTracks;
     else if (isAudioSong) effectiveTrackCount = 1;
     else effectiveTrackCount = probeAudioChannels(filepath, songTag) >= 2 ? 2 : 1;

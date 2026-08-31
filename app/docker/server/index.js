@@ -658,7 +658,9 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
     const allowOnline = req.query.online !== '0';
     const r = allowOnline ? await obtainLyrics(song) : (song.lyrics ? { lrc: song.lyrics, source: song.lyrics_source || 'stored' } : null);
     if (!r) return res.status(404).json({ id, lyrics: null, message: '暂无歌词（本地无同名lrc，在线三源也未命中）' });
-    res.json({ id, title: song.title, artist: song.artist, lyrics: r.lrc, source: r.source });
+    res.json({ id, title: song.title, artist: song.artist, lyrics: r.lrc,
+               word: song.lyrics_word || null, align_status: song.align_status || 'none',
+               source: r.source });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -672,7 +674,7 @@ app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
     if (!song) return res.status(404).json({ error: 'song not found' });
     const r = await obtainLyrics(song, { forceOnline: true });
     if (!r) return res.status(404).json({ id, lyrics: null, message: '在线三源均未命中' });
-    res.json({ id, lyrics: r.lrc, source: r.source });
+    res.json({ id, lyrics: r.lrc, word: song.lyrics_word || null, source: r.source });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

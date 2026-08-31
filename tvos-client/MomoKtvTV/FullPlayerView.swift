@@ -120,6 +120,33 @@ struct FullPlayerView: View {
                             }
                         }
                         .padding(.horizontal, 10)
+
+                        // 人声大小滑块：仅 AI 分离出多档(>=3)的歌曲出现。左=纯伴奏，右=原唱，
+                        // 在五档间吸附；遥控器聚焦后左右键逐档调节，与上方麦克风按钮联动同一状态。
+                        if playerManager.vocalTrackCount >= 3 {
+                            HStack(spacing: 16) {
+                                Text("伴奏")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.75))
+                                Slider(
+                                    value: Binding(
+                                        get: { Double(max(0, playerManager.vocalTrackCount - 1 - playerManager.vocalTrackIndex)) },
+                                        set: { d in
+                                            let idx = playerManager.vocalTrackCount - 1 - Int(d.rounded())
+                                            playerManager.selectVocalTrack(idx)
+                                            FeedbackCenter.shared.show(playerManager.vocalTrackLabel, icon: "mic.fill")
+                                        }),
+                                    in: 0...Double(max(1, playerManager.vocalTrackCount - 1)),
+                                    step: 1.0
+                                )
+                                .frame(width: 340)
+                                Text("原唱 · 人声\(playerManager.vocalVolumePercent)%")
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(.top, 10)
+                            .padding(.horizontal, 40)
+                        }
                     }
                     .padding(.horizontal, 24)
                     .padding(.bottom, 24)

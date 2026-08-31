@@ -10,18 +10,35 @@ class PlayerManager: ObservableObject {
     @Published var duration: Double = 0
     @Published var isPlaying: Bool = false
     @Published var currentSongId: Int?
-    /// 当前演唱音轨索引：0=原唱，1=半消（人声压低），2=纯伴奏。
-    /// AI 分离完成的纯音频有三档；老式双音轨 MV 只有 0/1；单音轨歌恒为 0。
+    /// 当前演唱音轨索引。AI 分离完成的纯音频有五档：
+    /// 0=原唱 1=人声75% 2=半消(50%) 3=人声25% 4=纯伴奏；老式三档/双音轨按实际音轨数自适应；单音轨恒为 0。
     @Published var vocalTrackIndex: Int = 0
+    /// 当前歌曲 HLS 里实际可选的音轨条数（读到 master 的 audio options 后回填，驱动循环边界与滑块）
+    @Published var vocalTrackCount: Int = 1
     /// 兼容旧代码的二元语义：是否处于原唱档
     var isOriginalVoice: Bool { vocalTrackIndex == 0 }
-    /// 当前档位的中文名（用于反馈提示）
+    /// 当前档位的中文名（用于反馈提示与按钮标题）
     var vocalTrackLabel: String {
-        switch vocalTrackIndex {
-        case 1: return "半消"
-        case 2: return "伴唱"
+        switch vocalTrackCount {
+        case 5:
+            switch vocalTrackIndex {
+            case 0: return "原唱"
+            case 1: return "人声75%"
+            case 2: return "半消"
+            case 3: return "人声25%"
+            default: return "伴奏"
+            }
+        case 3:
+            return vocalTrackIndex == 0 ? "原唱" : (vocalTrackIndex == 1 ? "半消" : "伴唱")
+        case 2:
+            return vocalTrackIndex == 0 ? "原唱" : "伴唱"
         default: return "原唱"
         }
+    }
+    /// 人声音量百分比（滑块用）：五档映射 100/75/50/25/0
+    var vocalVolumePercent: Int {
+        let pct = [100, 75, 50, 25, 0]
+        return (vocalTrackIndex >= 0 && vocalTrackIndex < pct.count) ? pct[vocalTrackIndex] : 0
     }
     var onPlaybackEnd: (() -> Void)?
 
@@ -189,26 +206,30 @@ class PlayerManager: ObservableObject {
         player?.volume = volume
     }
 
-    // MARK: - Voice Toggle (原唱 / 半消 / 伴唱)
-    var currentAudioTracks: Int = 1
+    // MARK: - Voice Toggle (原唱 / 半消 / 伴奏 多档 + 滑块)
 
-    /// 遥控器一个键在三档间循环：原唱 -> 半消 -> 伴唱 -> 原唱。
-    /// 实际只有两档(老MV)时 select 阶段会把"半消/伴唱"都映射到第1条音轨。
+    /// 遥控器一个键在当前歌曲的全部档位间循环：五档(原唱→75%→半消→25%→伴奏)
+    /// 或三档/双档，边界由 HLS 实际音轨数 vocalTrackCount 决定。
     func toggleVoice() {
-        vocalTrackIndex = (vocalTrackIndex + 1) % 3
+        // 音轨尚未探测到时至少允许在 0/1 之间走，options 到位后 trySelect 会回填真实档数并收敛
+        let bound = max(2, vocalTrackCount)
+        vocalTrackIndex = (vocalTrackIndex + 1) % bound
         voiceGeneration += 1
         applyVoiceMode()
     }
 
-    /// 直接选到指定档位（0原唱/1半消/2伴唱），供三档按钮或连续滑块落点使用
+    /// 直接选到指定档位（滑块吸附/快捷按钮用），index 即音轨序号，越界由选择阶段收敛
     func selectVocalTrack(_ index: Int) {
-        vocalTrackIndex = max(0, min(2, index))
+        let clamped = max(0, min(4, index))
+        guard clamped != vocalTrackIndex else { return }
+        vocalTrackIndex = clamped
         voiceGeneration += 1
         applyVoiceMode()
     }
 
+    /// 快捷直达：原唱(第0档) / 纯伴奏(最后一档)
     func setVoiceMode(_ original: Bool) {
-        vocalTrackIndex = original ? 0 : 2
+        vocalTrackIndex = original ? 0 : max(0, vocalTrackCount - 1)
         voiceGeneration += 1
         applyVoiceMode()
     }
@@ -218,7 +239,7 @@ class PlayerManager: ObservableObject {
         let gen = voiceGeneration
 
         // Try immediately. trySelectAudioTrack reads the current
-        // isOriginalVoice fresh on every call, so it never acts on a stale target.
+        // vocalTrackIndex fresh on every call, so it never acts on a stale target.
         trySelectAudioTrack(for: playerItem)
 
         // Retry as HLS audio tracks load asynchronously. Fewer, longer-spaced
@@ -241,13 +262,12 @@ class PlayerManager: ObservableObject {
         let options = audioGroup.options
         guard !options.isEmpty else { return }
 
+        // 回填真实档数，驱动循环边界、按钮标签与滑块段数（在主线程更新 @Published）
         let n = options.count
-        // 三档(AI分离)精确对应 0/1/2；老式双音轨MV：半消(1)与伴唱(2)都落到第1条伴奏轨；
-        // 单音轨歌没有可切的音轨，直接返回。每次都按当前 vocalTrackIndex 现算，不捕获旧值。
-        let targetIndex: Int
-        if n >= 3 { targetIndex = min(vocalTrackIndex, n - 1) }
-        else if n == 2 { targetIndex = vocalTrackIndex == 0 ? 0 : 1 }
-        else { return }
+        if vocalTrackCount != n { vocalTrackCount = n }
+        if vocalTrackIndex >= n { vocalTrackIndex = n - 1 }
+        // 档位索引与 audio rendition 序号一一对应（五档/三档/双档统一），直接收敛选择
+        let targetIndex = min(max(vocalTrackIndex, 0), n - 1)
         let targetOption = options[targetIndex]
 
         if playerItem.selectedMediaOption(in: audioGroup) != targetOption {
