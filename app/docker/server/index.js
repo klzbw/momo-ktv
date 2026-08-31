@@ -15,6 +15,7 @@ const { schedulePreload, setPreloadUpdateNotifier, setDecodeMode } = require('./
 const cacheCleaner = require('./cacheCleaner');
 const lyricsMod = require('./lyrics');
 const sepMod = require('./separate');
+const catalog = require('./catalog');
 const multer = require('multer');
 // 分离产物单首几十 MB，用内存存储收完即落盘到 /data/separated（一首一首传，内存可控）
 const sepUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 512 * 1024 * 1024, files: 4 } });
@@ -660,7 +661,8 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
     if (!r) return res.status(404).json({ id, lyrics: null, message: '暂无歌词（本地无同名lrc，在线三源也未命中）' });
     res.json({ id, title: song.title, artist: song.artist, lyrics: r.lrc,
                word: song.lyrics_word || null, align_status: song.align_status || 'none',
-               source: r.source });
+               mediaType: song.media_type || null, filename: song.filename || '',
+               filepath: song.filepath || '', source: r.source });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -808,6 +810,58 @@ app.get('/api/separate/jobs', (req, res) => {
     ? db.prepare(sql + ' WHERE j.status=? ORDER BY j.id DESC LIMIT 500').all(status)
     : db.prepare(sql + ' ORDER BY j.id DESC LIMIT 500').all();
   res.json(rows);
+});
+
+// ==================== 曲库元数据可移植快照（免重复扫描） ====================
+// 导出当前整张曲库为快照（下载到本地备份）
+app.get('/api/admin/catalog/export', requireAdminAuth, (req, res) => {
+  const cat = catalog.exportCatalog(db, getLibraryRoots());
+  res.setHeader('Content-Disposition', 'attachment; filename="momo-catalog.json"');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.send(JSON.stringify(cat));
+});
+// 把快照写到每个曲库来源根目录(跟歌曲放一起) + /data 留底，方便拷贝/新机取用
+app.post('/api/admin/catalog/write-files', requireAdminAuth, (req, res) => {
+  try {
+    const r = catalog.writeCatalogFiles(db, getLibraryRoots(), process.env.DATA_DIR || '/data');
+    log.info('CATALOG', `曲库快照已写出 ${r.count} 首 -> ${r.written.join(' , ')}`);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+const catalogUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 512 * 1024 * 1024, files: 1 } });
+function parseCatalogBody(req) {
+  if (req.file && req.file.buffer) return JSON.parse(req.file.buffer.toString('utf8'));
+  if (req.body && req.body.catalog) return typeof req.body.catalog === 'string' ? JSON.parse(req.body.catalog) : req.body.catalog;
+  return req.body; // 直接把整个 JSON body 当快照
+}
+// 预览快照里的来源根能映射到本机哪个根（真正导入前确认，缺根会明确列出）
+app.post('/api/admin/catalog/preview', requireAdminAuth, catalogUpload.single('catalog'), (req, res) => {
+  try {
+    const cat = parseCatalogBody(req);
+    res.json({ count: cat.songs.length, roots: catalog.previewRootMatch(cat, getLibraryRoots(), req.body.rootMap || {}) });
+  } catch (e) { res.status(400).json({ error: '快照解析失败: ' + e.message }); }
+});
+// 导入快照：不做 ffprobe，直接恢复元数据；rootMap 可指定 {快照根: 本机根}
+app.post('/api/admin/catalog/import', requireAdminAuth, catalogUpload.single('catalog'), (req, res) => {
+  try {
+    const cat = parseCatalogBody(req);
+    let rootMap = {}; try { rootMap = JSON.parse(req.body.rootMap || '{}'); } catch (e) { rootMap = {}; }
+    const r = catalog.importCatalog(db, cat, { roots: getLibraryRoots(), rootMap, updateExisting: req.body.updateExisting !== 'false' });
+    try { syncSongArtists(); } catch (e) {}
+    log.info('CATALOG', `曲库快照导入完成：新增${r.added} 更新${r.updated} 跳过${r.skipped}（共${r.total}）`);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(400).json({ error: '导入失败: ' + e.message }); }
+});
+// 新机便捷入口：快照已跟歌曲放在某来源根目录(momo-catalog.json)，直接指服务器路径导入
+app.post('/api/admin/catalog/import-from-path', requireAdminAuth, (req, res) => {
+  try {
+    const p = String(req.body.path || '').trim();
+    if (!p) return res.status(400).json({ error: '需要 path' });
+    const cat = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const r = catalog.importCatalog(db, cat, { roots: getLibraryRoots(), rootMap: req.body.rootMap || {}, updateExisting: true });
+    try { syncSongArtists(); } catch (e) {}
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(400).json({ error: '导入失败: ' + e.message }); }
 });
 
 // GET /api/songs/:id/source —— worker 下载待处理源音频。普通文件原样下发；CUE 分轨
@@ -2491,6 +2545,20 @@ async function waitForNetworkMountsStable() {
   // 手动触发，那时候网盘大概率已经完全就绪了。
   scanLibrary('incremental').catch(e => log.error('SCAN', `初始扫描失败: ${e.message}`));
 })();
+
+// 需求(新歌放进目录自动入库)：除启动那次外，每隔一段时间自动跑一轮增量扫描，
+// 只增不删(incremental 模式不会移除任何曲目)，这样往曲库目录丢新歌后无需手动点扫描。
+// 间隔可用环境变量 AUTO_SCAN_MIN 调整，默认 5 分钟；加锁避免上一轮没跑完又起一轮。
+let autoScanBusy = false;
+const AUTO_SCAN_MS = Math.max(1, parseInt(process.env.AUTO_SCAN_MIN || '5', 10) || 5) * 60 * 1000;
+setInterval(() => {
+  if (autoScanBusy) return;
+  autoScanBusy = true;
+  scanLibrary('incremental')
+    .then(r => { if (r && r.added > 0) log.info('SCAN', `自动增量扫描：新增 ${r.added} 首`); })
+    .catch(e => log.warn('SCAN', `自动增量扫描失败(不影响运行): ${e.message}`))
+    .finally(() => { autoScanBusy = false; });
+}, AUTO_SCAN_MS).unref();
 
 // 曲库缓存清理：取代原来写死在环境变量里的"每日按固定天数清理"，改由
 // cacheCleaner.js 按管理员当前保存的策略（按存储空间限额 / 按点歌时间）执行，
