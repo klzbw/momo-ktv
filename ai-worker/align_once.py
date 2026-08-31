@@ -75,7 +75,7 @@ def main():
     # 自定义类（omegaconf.ListConfig 等），导致加载崩溃。统一 monkey-patch 回 weights_only=False。
     _orig_load = torch.load
     def _safe_load(*a, **kw):
-        kw.setdefault('weights_only', False)
+        kw['weights_only'] = False  # 强制覆盖：lightning_fabric/pyannote 显式传 weights_only=True 也改回 False
         return _orig_load(*a, **kw)
     torch.load = _safe_load
     import whisperx

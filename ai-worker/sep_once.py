@@ -21,7 +21,7 @@ def main():
     # PyTorch 2.6 默认 torch.load(weights_only=True)，Demucs 模型里的自定义类会被拒，统一 patch 回 False
     _orig_load = torch.load
     def _safe_load(*a, **kw):
-        kw.setdefault('weights_only', False)
+        kw['weights_only'] = False  # 强制覆盖，不管调用方传了什么
         return _orig_load(*a, **kw)
     torch.load = _safe_load
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
