@@ -236,14 +236,20 @@ struct PhotosBg: View {
     var body: some View {
         ZStack {
             Color(red: 0.03, green: 0.03, blue: 0.08)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             if urls.isEmpty {
                 LinearGradient(colors: [Color(red: 0.12, green: 0.1, blue: 0.3), Color(red: 0.04, green: 0.02, blue: 0.12)],
                                startPoint: .top, endPoint: .bottom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let u = URL(string: urls[idx % urls.count]) {
                 AsyncImage(url: u, transaction: Transaction(animation: .easeInOut(duration: 1.2))) { phase in
                     switch phase {
-                    case .success(let img): img.resizable().scaledToFill().transition(.opacity)
-                    default: Color.clear
+                    case .success(let img):
+                        img.resizable().scaledToFill().transition(.opacity)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    default:
+                        // 空态/加载中也铺满，避免 ZStack 高度抖动导致控制条位置漂移
+                        Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
                 .id(idx)
@@ -251,6 +257,7 @@ struct PhotosBg: View {
                 .allowsHitTesting(false)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
         .onAppear {
             load()

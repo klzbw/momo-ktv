@@ -85,8 +85,8 @@ struct FullPlayerView: View {
             }
 
             if showControls && !showQueue && !showQR {
-                VStack {
-                    Spacer()
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
                     VStack(spacing: 14) {
                         // Progress bar
                         VStack(spacing: 6) {
@@ -215,6 +215,7 @@ struct FullPlayerView: View {
                     .background(LinearGradient(colors: [.clear, Color.black.opacity(0.9)],
                                                startPoint: .top, endPoint: .bottom))
                 }
+                .frame(maxHeight: .infinity, alignment: .bottom)
                 .transition(.opacity)
             }
 
