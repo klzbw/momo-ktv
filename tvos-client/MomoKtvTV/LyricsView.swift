@@ -16,7 +16,7 @@ struct LyricLine: Identifiable {
     let start: Double
     var end: Double
     let plain: String
-    let tokens: [LyricToken]?
+    var tokens: [LyricToken]?
 }
 
 struct SongLyrics {
