@@ -26,6 +26,22 @@ function absUnderData(rel) { return rel ? path.join(DATA_DIR, rel) : null; }
 
 const TYPES = ['separate', 'align'];
 
+// 判断一份歌词能否作为"逐字纠错参考"：去掉时间标签后要有足够比例的中文/字母数字。
+// 乱码（GBK 被按 Latin1 误解码，形如 æµ·åº）CJK 占比极低，直接判不可用，避免反而带偏纠错。
+function isUsableRefLyrics(lrc) {
+  if (!lrc || lrc.length < 4) return false;
+  const body = String(lrc).replace(/\[[^\]]*\]/g, '').replace(/<[^>]*>/g, '');
+  const chars = [...body.replace(/\s/g, '')];
+  if (chars.length < 4) return false;
+  let good = 0;
+  for (const ch of chars) {
+    const code = ch.codePointAt(0);
+    if ((code >= 0x4e00 && code <= 0x9fff) || (code >= 0x30 && code <= 0x39) ||
+        (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a)) good++;
+  }
+  return good / chars.length > 0.3;
+}
+
 // 入队。type: 'separate' | 'align' | 'both'。force=true 时连已完成的也重新排队。
 // 返回 {added, skipped, queued:[songId...]}；幂等：pending/processing 不重复入队，
 // failed 自动重置重试，done 仅在 force 时重排。
@@ -81,6 +97,9 @@ function claimNext(db, { worker = 'anonymous', type = 'separate' } = {}) {
       id: song.id, title: song.title, artist: song.artist, mediaType: song.media_type,
       duration: song.duration, cueTrack: song.cue_track, startOffset: song.start_offset, endOffset: song.end_offset,
       hasLocalLyrics: !!(song.lyrics && song.lyrics.length),
+      // 对齐任务把"官方正确歌词文本"带给 worker，用于逐字纠错（文字以官方为准、时间用WhisperX）；
+      // 分离任务用不到，且乱码歌词不下发（isUsableRefLyrics 过滤）
+      refLyrics: job.job_type === 'align' && isUsableRefLyrics(song.lyrics) ? song.lyrics : null,
     },
     // worker 用这个地址下载待处理音频（CUE 分轨服务端会自动截取对应区间）
     sourceUrl: `/api/songs/${song.id}/source`,

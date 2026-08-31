@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """
 align_once.py —— 单首歌的逐字歌词对齐（被 worker.py 以子进程调用）
-用法: python align_once.py <人声或源音频> <输出逐字增强LRC>
-流程: Whisper 转写(中文) -> WhisperX 强制对齐 -> 每个字精确时间戳 -> 增强 LRC
+用法: python align_once.py <人声或源音频> <输出逐字增强LRC> [模型] [官方参考歌词.lrc]
+流程: Whisper 转写(中文) -> WhisperX 强制对齐 -> 每个字精确时间戳
+      若提供了【官方参考歌词】(本地同名lrc/三源刮削)，再用 lyric_matcher 以官方正确
+      文本校正识别错字/同音字/乱码，并剔除和声，时间戳仍用 WhisperX 的（文字对+时间准）。
 
 增强 LRC 格式（供 tvOS/网页做逐字填色，同时向下兼容逐行）：
   [整句起始] <第1字起始>第1字<第2字起始>第2字...
@@ -38,13 +40,30 @@ def build_enhanced_lrc(aligned):
             out.append(line)
     return '\n'.join(out) + '\n'
 
+# 用官方歌词校正后的逐字结果 -> 增强 LRC（文字=官方正确字，时间=WhisperX对齐）
+def build_corrected_lrc(out_lines):
+    rows = []
+    for ln in out_lines:
+        parts = [f'[{fmt(ln["start"])}]']
+        for tok in ln['tokens']:
+            parts.append(f'<{fmt(tok["t"])}>{tok["ch"]}')
+        if len(parts) > 1:
+            rows.append(''.join(parts))
+    return '\n'.join(rows) + '\n'
+
 def main():
     if len(sys.argv) < 3:
-        print('用法: python align_once.py <音频> <输出.lrc>'); sys.exit(2)
+        print('用法: python align_once.py <音频> <输出.lrc> [模型] [官方参考歌词.lrc]'); sys.exit(2)
     src, out_lrc = sys.argv[1], sys.argv[2]
     model_name = sys.argv[3] if len(sys.argv) > 3 else 'large-v3'
+    ref_path = sys.argv[4] if len(sys.argv) > 4 else ''
     if not os.path.exists(src):
         print('输入不存在:', src); sys.exit(2)
+    ref_text = ''
+    if ref_path and os.path.exists(ref_path):
+        with open(ref_path, 'r', encoding='utf-8', errors='replace') as f:
+            ref_text = f.read()
+        print(f'收到官方参考歌词 {len(ref_text)} 字符，将用于纠错', flush=True)
 
     print('PROGRESS 5', flush=True)
     import torch, whisperx
@@ -65,7 +84,26 @@ def main():
                             return_char_alignments=False)
     print('PROGRESS 85', flush=True)
 
-    lrc = build_enhanced_lrc(aligned)
+    # 优先用官方歌词文本校正（解决识别错字/同音乱码/和声）；失败则回退纯识别结果
+    lrc = ''
+    if ref_text.strip():
+        try:
+            from lyric_matcher import correct_with_reference
+            all_words = [w for seg in aligned.get('segments', []) for w in (seg.get('words') or [])]
+            corr, info = correct_with_reference(all_words, ref_text)
+            print(f'官方歌词校正: 匹配率={info.get("score")} '
+                  f'({info.get("matched")}/{info.get("total")}) 行={info.get("lines")}', flush=True)
+            # 匹配率达到 40% 才采信校正结果（否则说明参考歌词可能不是这首歌，回退更安全）
+            if corr and info.get('score', 0) >= 0.40:
+                lrc = build_corrected_lrc(corr)
+                print('已用官方歌词文本校正逐字结果', flush=True)
+            else:
+                print('匹配率过低，参考歌词疑似不匹配本音频，回退纯WhisperX结果', flush=True)
+        except Exception as e:
+            print('官方歌词校正异常(回退):', repr(e), flush=True)
+
+    if not lrc.strip():
+        lrc = build_enhanced_lrc(aligned)
     if not lrc.strip():
         raise RuntimeError('对齐后没有得到任何歌词行')
     os.makedirs(os.path.dirname(out_lrc) or '.', exist_ok=True)

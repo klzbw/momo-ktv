@@ -5,3 +5,5 @@ requests>=2.31.0
 demucs>=4.0.1
 # whisperx 用于逐字歌词对齐；它会自动带上 ctranslate2、faster-whisper 等依赖
 whisperx>=3.3.1
+# pypinyin 用于"官方歌词 × 识别结果"的同音字/多音字纠错对齐（lyric_matcher.py）；很轻、纯Python
+pypinyin>=0.51.0

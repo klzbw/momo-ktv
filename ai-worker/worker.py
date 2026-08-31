@@ -115,7 +115,23 @@ class MomoWorker:
                 word = os.path.join(tmp, 'word.lrc')
                 # 对齐优先用分离出的纯人声（更准）；没有就用源音频
                 vocal_src = self._separated_vocal(job['songId']) or src
-                self.run_child('align_once.py', [vocal_src, word], job_id, None)
+                args = [vocal_src, word]
+                # 官方参考歌词：优先用任务下发的；为空则当场向服务端要一次（本地同名lrc优先，
+                # 缺则在线网易云/QQ/酷我三源补抓并入库），尽量让每首都能"官方文字+精准时间"
+                ref = (song or {}).get('refLyrics') or ''
+                if not ref.strip():
+                    ref = self.fetch_ref_lyrics(song['id'])
+                    if ref.strip():
+                        log(f'补到官方参考歌词 {len(ref)} 字符（本地/在线）')
+                # 官方参考歌词（本地同名lrc/三源刮削已入库）：传给对齐子进程做逐字纠错
+                if ref.strip():
+                    ref_path = os.path.join(tmp, 'ref.lrc')
+                    with open(ref_path, 'w', encoding='utf-8') as f:
+                        f.write(ref)
+                    args.append('large-v3')   # 第3位是模型名，第4位才是参考歌词路径
+                    args.append(ref_path)
+                    log(f'附带官方参考歌词 {len(ref)} 字符用于纠错')
+                self.run_child('align_once.py', args, job_id, None)
                 files = {'wordLrc': ('word.lrc', open(word, 'rb'), 'text/plain')}
             try:
                 self.progress(job_id, 95)
@@ -139,6 +155,18 @@ class MomoWorker:
     # 若这首歌已分离，直接取服务端产物（对齐用纯人声更准）。没有返回 None。
     def _separated_vocal(self, song_id):
         return None  # 简化：对齐直接用源；后续可扩展下载 /data/separated 下的人声
+
+    # 对齐前向服务端要"官方歌词"：本地同名 lrc 优先，缺则在线三源补抓并入库。失败返回''。
+    def fetch_ref_lyrics(self, song_id):
+        try:
+            r = self.s.get(f'{self.server}/api/songs/{song_id}/lyrics',
+                           params={'online': 1}, timeout=30)
+            if r.status_code == 200:
+                return r.json().get('lyrics') or ''
+            log('取官方参考歌词 HTTP', r.status_code)
+        except Exception as e:
+            log('取官方参考歌词失败(继续纯识别):', e)
+        return ''
 
     def loop(self):
         log(f'Worker 启动 server={self.server} name={self.worker} mode={self.mode}')

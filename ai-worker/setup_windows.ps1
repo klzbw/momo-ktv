@@ -13,8 +13,8 @@ if (-not (Test-Path '.venv')) { python -m venv .venv }
 Write-Host '== 2/4 安装 GPU 版 PyTorch（CUDA 12.4，4070TiS 适用） ==' -ForegroundColor Cyan
 .\.venv\Scripts\python.exe -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
 
-Write-Host '== 3/4 安装 Demucs / WhisperX / requests ==' -ForegroundColor Cyan
-.\.venv\Scripts\python.exe -m pip install requests "demucs>=4.0.1" "whisperx>=3.3.1"
+Write-Host '== 3/4 安装 Demucs / WhisperX / pypinyin / requests ==' -ForegroundColor Cyan
+.\.venv\Scripts\python.exe -m pip install requests "demucs>=4.0.1" "whisperx>=3.3.1" "pypinyin>=0.51.0"
 
 Write-Host '== 4/4 自检：CUDA 是否可用 ==' -ForegroundColor Cyan
 .\.venv\Scripts\python.exe -c "import torch; print('torch', torch.__version__, 'CUDA可用=', torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else '')"
