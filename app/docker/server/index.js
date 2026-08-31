@@ -2534,6 +2534,16 @@ wss.on('connection', (ws, req) => {
           wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(out); });
         }
       }
+      // 歌词字体色/描边色：手机遥控实时改色，广播给所有大屏(tvOS/网页TV)同步刷新
+      else if (p.type === 'lyrics_style') {
+        const msg = { type: 'lyrics_style' };
+        if (typeof p.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(p.color)) msg.color = p.color;
+        if (typeof p.stroke === 'string' && /^#[0-9a-fA-F]{6}$/.test(p.stroke)) msg.stroke = p.stroke;
+        if (msg.color || msg.stroke) {
+          const out = JSON.stringify(msg);
+          wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(out); });
+        }
+      }
     } catch(e) {}
   });
   ws.on('close', () => {
