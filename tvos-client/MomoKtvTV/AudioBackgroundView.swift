@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - 纯音频歌曲动态背景模式（与网页端 BgStage 对应；tvOS 难取实时频谱，
 // 用时间驱动的多层正弦做平滑律动，视觉上随音乐起伏）。@AppStorage 记忆，遥控/按钮可切换。
@@ -43,11 +44,14 @@ struct AudioBackgroundView: View {
     private var mode: AudioBgMode { .from(modeRaw) }
 
     var body: some View {
+        let sw = UIScreen.main.bounds.width
+        let sh = UIScreen.main.bounds.height
         ZStack {
             // 深色底，保证任何效果下都不透出服务端渐变轨
             LinearGradient(colors: [Color(red: 0.04, green: 0.03, blue: 0.12),
                                     Color(red: 0.01, green: 0.01, blue: 0.05)],
                            startPoint: .top, endPoint: .bottom)
+                .frame(width: sw, height: sh)
             if mode == .photos {
                 PhotosBg(server: server)
             } else {
@@ -56,8 +60,10 @@ struct AudioBackgroundView: View {
                         render(mode, t: tl.date.timeIntervalSince1970, size: size, ctx: &ctx)
                     }
                 }
+                .frame(width: sw, height: sh)
             }
         }
+        .frame(width: sw, height: sh)
         .ignoresSafeArea()
         .allowsHitTesting(false)  // 背景层绝不拦截遥控器焦点/点击
     }
@@ -234,13 +240,16 @@ struct PhotosBg: View {
     @State private var timer: Timer?   // 手动 Timer，播放时比 Timer.publish 更可靠
 
     var body: some View {
+        // 固定为屏幕物理尺寸，彻底杜绝不同尺寸图片加载时 ZStack/AsyncImage 大小波动
+        let screenW = UIScreen.main.bounds.width
+        let screenH = UIScreen.main.bounds.height
         ZStack {
             Color(red: 0.03, green: 0.03, blue: 0.08)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(width: screenW, height: screenH)
             if urls.isEmpty {
                 LinearGradient(colors: [Color(red: 0.12, green: 0.1, blue: 0.3), Color(red: 0.04, green: 0.02, blue: 0.12)],
                                startPoint: .top, endPoint: .bottom)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(width: screenW, height: screenH)
             } else if let u = URL(string: urls[idx % urls.count]) {
                 AsyncImage(url: u, transaction: Transaction(animation: .easeInOut(duration: 1.2))) { phase in
                     switch phase {
@@ -250,13 +259,14 @@ struct PhotosBg: View {
                         Color.clear
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(width: screenW, height: screenH)
+                .clipped()
                 .id(idx)
                 .focusable(false)
                 .allowsHitTesting(false)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(width: screenW, height: screenH)
         .allowsHitTesting(false)
         .onAppear {
             load()

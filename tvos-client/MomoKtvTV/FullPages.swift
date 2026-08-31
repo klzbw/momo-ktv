@@ -787,6 +787,7 @@ struct TVTightButton<Label: View>: View {
     let action: () -> Void
     var autoFocus: Bool = false
     var externalFocus: FocusState<Bool>.Binding? = nil
+    var onFocusChange: ((Bool) -> Void)? = nil
     @ViewBuilder let label: (Bool) -> Label
     @FocusState private var focused: Bool
 
@@ -800,6 +801,9 @@ struct TVTightButton<Label: View>: View {
             .modifier(ConditionalFocusModifier(externalFocus: externalFocus, internalFocus: $focused))
             .focusEffectDisabled()
             .onTapGesture { action() }
+            .onChange(of: isFocused) { newVal in
+                onFocusChange?(newVal)
+            }
             .onAppear {
                 if autoFocus {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {

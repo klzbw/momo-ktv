@@ -120,11 +120,11 @@ struct FullPlayerView: View {
                         // 控制按钮：7个固定 + 纯音频歌额外2个（歌词模式/背景切换），共9个。
                         // 用 fixedSize 确保按钮不被父视图压缩，9个和7个时按钮尺寸/垂直位置完全一致。
                         HStack(spacing: 14) {
-                            TVTightButton(action: { FeedbackCenter.shared.show("返回主页", icon: "house.fill"); onClose() }) { focused in
+                            TVTightButton(action: { FeedbackCenter.shared.show("返回主页", icon: "house.fill"); onClose() }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
                                 controlContent(icon: "house", title: "主页", focused: focused)
                             }
 
-                            TVTightButton(action: { playerManager.restart(); api.restartSong(); FeedbackCenter.shared.show("重新演唱", icon: "gobackward") }) { focused in
+                            TVTightButton(action: { playerManager.restart(); api.restartSong(); FeedbackCenter.shared.show("重新演唱", icon: "gobackward") }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
                                 controlContent(icon: "gobackward", title: "重唱", focused: focused)
                             }
 
@@ -132,7 +132,7 @@ struct FullPlayerView: View {
                                 playerManager.togglePlayPause()
                                 FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
                                                           icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
-                            }, autoFocus: true) { focused in
+                            }, autoFocus: true, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
                                 controlContent(
                                     icon: playerManager.isPlaying ? "pause.fill" : "play.fill",
                                     title: playerManager.isPlaying ? "暂停" : "播放",
@@ -140,19 +140,19 @@ struct FullPlayerView: View {
                                 )
                             }
 
-                            TVTightButton(action: { toggleVoice() }) { focused in
+                            TVTightButton(action: { toggleVoice() }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
                                 controlContent(icon: "mic.fill", title: playerManager.vocalTrackLabel, focused: focused)
                             }
 
-                            TVTightButton(action: { FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill"); onNext() }) { focused in
+                            TVTightButton(action: { FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill"); onNext() }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
                                 controlContent(icon: "forward.end.fill", title: "切歌", focused: focused)
                             }
 
-                            TVTightButton(action: { showQueue = true }) { focused in
+                            TVTightButton(action: { showQueue = true }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
                                 controlContent(icon: "list.bullet", title: "队列", focused: focused)
                             }
 
-                            TVTightButton(action: { showQR = true }) { focused in
+                            TVTightButton(action: { showQR = true }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
                                 controlContent(icon: "qrcode", title: "扫码", focused: focused)
                             }
 
@@ -162,7 +162,7 @@ struct FullPlayerView: View {
                                     lyricsModeRaw = LyricsDisplayMode.from(lyricsModeRaw).next.rawValue
                                     FeedbackCenter.shared.show("歌词：\(LyricsDisplayMode.from(lyricsModeRaw).label)模式",
                                                               icon: "text.alignleft")
-                                }) { focused in
+                                }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
                                     controlContent(icon: "text.alignleft",
                                                    title: "歌词·\(LyricsDisplayMode.from(lyricsModeRaw).label)",
                                                    focused: focused)
@@ -175,7 +175,7 @@ struct FullPlayerView: View {
                                     bgModeRaw = AudioBgMode.from(bgModeRaw).next.rawValue
                                     FeedbackCenter.shared.show("背景：\(AudioBgMode.from(bgModeRaw).display)",
                                                               icon: "sparkles")
-                                }) { focused in
+                                }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
                                     controlContent(icon: "sparkles",
                                                    title: "背景·\(AudioBgMode.from(bgModeRaw).display)",
                                                    focused: focused)
@@ -238,6 +238,7 @@ struct FullPlayerView: View {
                         resetHideTimer()
                     }
                     .ignoresSafeArea()
+                    .zIndex(10)
             }
 
             // Queue panel overlay
@@ -318,10 +319,6 @@ struct FullPlayerView: View {
         .frame(width: 95, height: 95, alignment: .center)
         .background(focused ? Color.white : Color.white.opacity(0.15))
         .cornerRadius(16)
-        .onChange(of: focused) { isFocused in
-            // 焦点移到按钮上时重置隐藏计时，用户操作期间控制条不自动隐藏
-            if isFocused { resetHideTimer() }
-        }
     }
 
     private func setup() {
