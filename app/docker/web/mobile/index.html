@@ -563,6 +563,15 @@ header{
     </div>
   </div>
 
+  <!-- 歌词快慢校准：字比声音快/慢时逐档 0.2s 调整，自动固化到歌词 -->
+  <div class="ctrl-section">
+    <div class="ctrl-title">🎵 歌词快慢校准（唱字同步）</div>
+    <div class="ctrl-row">
+      <div class="ctrl-btn" onclick="sendCtrl('lyrics_offset',{delta:-0.2})" style="flex:1;justify-content:center">⏪ 字提前 0.2s</div>
+      <div class="ctrl-btn" onclick="sendCtrl('lyrics_offset',{delta:0.2})" style="flex:1;justify-content:center">⏩ 字延后 0.2s</div>
+    </div>
+  </div>
+
   <!-- D-pad -->
   <div class="ctrl-section">
     <div class="ctrl-title">🕹 方向导航</div>

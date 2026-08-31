@@ -565,6 +565,14 @@ struct ContentView: View {
                 // 遥控端切换歌词双排/滚动模式
                 let lmRaw = UserDefaults.standard.string(forKey: "momoLyricsMode") ?? "dual"
                 UserDefaults.standard.set(lmRaw == "dual" ? "scroll" : "dual", forKey: "momoLyricsMode")
+            case "lyrics_offset":
+                // 遥控端歌词快慢校准：转发给正在显示的全屏播放器
+                let delta = (payload["delta"] as? NSNumber)?.doubleValue
+                    ?? Double(payload["delta"] as? Double ?? 0)
+                if delta != 0 {
+                    NotificationCenter.default.post(name: .momoLyricsOffset, object: nil,
+                                                    userInfo: ["delta": delta])
+                }
             default:
                 break
             }
@@ -1305,3 +1313,7 @@ struct VideoPreview: UIViewRepresentable {
     }
 }
 
+// 歌词快慢校准通知：遥控端 -> 全屏播放器
+extension Notification.Name {
+    static let momoLyricsOffset = Notification.Name("momoLyricsOffset")
+}

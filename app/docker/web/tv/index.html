@@ -2529,7 +2529,7 @@ document.addEventListener('click', () => VoiceManager.wake(video), { once: false
 video.addEventListener('loadedmetadata', () => VoiceManager.onLoad(video, curSong && curSong.audio_tracks));
 // ═══════════ 逐字歌词：解析普通/增强(enhanced)LRC，三行窗口、当前行逐字卡拉OK填色 ═══════════
 const Lyrics = (()=>{
-  let lines=[], loadedId=null, lastIdx=-9;
+  let lines=[], loadedId=null, lastIdx=-9, lrcOff=0; // lrcOff 歌词时间轴校准偏移(秒)
   // 需求2：两种显示模式——dual=双排(当前行+上下行) / scroll=整列上下滚动；localStorage 记住选择
   let mode=(localStorage.getItem('momoLyricsMode')||'dual');
   const SC_ROW=72;                 // 滚动模式每行固定槽位高(px)，用于居中位移
@@ -2581,8 +2581,8 @@ const Lyrics = (()=>{
     scrollBuilt=false; lastIdx=-9; const l=layer(); if(l){l.classList.toggle('is-scroll',m==='scroll'); l.innerHTML='';}
     render(video.currentTime||0); syncModeBtn(); }
   function toggleMode(){ setMode(mode==='dual'?'scroll':'dual'); }
-  function load(songId){
-    if(songId===loadedId)return; loadedId=songId; lines=[]; lastIdx=-9; scrollBuilt=false; render(video.currentTime||0);
+  function load(songId,force){
+    if(songId===loadedId&&!force)return; loadedId=songId; lines=[]; lastIdx=-9; scrollBuilt=false; lrcOff=0; render(video.currentTime||0);
     fetch(BASE+'/api/songs/'+songId+'/lyrics').then(r=>r.json()).then(d=>{
       if(loadedId!==songId)return;
       if(isVideoSong(d)){ lines=[]; lastIdx=-9; const l=layer(); if(l)l.innerHTML=''; return; } // 视频歌不显示歌词
@@ -2637,7 +2637,9 @@ const Lyrics = (()=>{
       track.style.transform='translateY('+(H/2 - idx*SC_ROW - SC_ROW/2)+'px)';
     }
   }
+  function setOffset(v){ lrcOff=v; lastIdx=-9; }
   function render(t){
+    t=(t||0)+lrcOff; // 叠加用户校准的歌词偏移
     const l=layer(); if(!l)return;
     if(!lines.length){ if(l.innerHTML)l.innerHTML=''; return; }
     const idx=idxAt(t);
@@ -2654,7 +2656,7 @@ const Lyrics = (()=>{
   }
   window.addEventListener('resize',()=>{ if(mode==='scroll'){ lastIdx=-9; render(video.currentTime||0); } });
   try{ const l0=layer(); if(l0&&mode==='scroll')l0.classList.add('is-scroll'); syncModeBtn(); }catch(e){}
-  return {load,reset,render,setMode,toggleMode};
+  return {load,reset,render,setMode,toggleMode,setOffset};
 })();
 // ═══════════ 动态背景舞台 BgStage：纯音频歌的实时背景，14 种效果随音乐频谱波动，B键/按钮切换 ═══════════
 const BG_VIDEO_RE=/\.(mkv|mp4|m4v|mov|ts|m2ts|webm|avi|rmvb|rm|wmv|flv|mpg|mpeg|mts)$/i; // 视频歌不显示动态背景
@@ -4643,7 +4645,24 @@ function handleRemote(m){
     case 'ok':activateFocused();break;
     case 'back':closeTopPanel();break;
     case 'seek':if(isActivePlayer&&typeof m.time==='number')video.currentTime=m.time;break;
+    case 'lyrics_offset':if(isActivePlayer&&typeof m.delta==='number')webAdjLyricsOffset(m.delta);break;
   }
+}
+// 网页播放端歌词快慢校准：即时偏移 + 防抖固化到服务端歌词文件（与 tvOS 逻辑一致）
+let webLrcPending=0, webLrcTimer=null;
+function webAdjLyricsOffset(delta){
+  if(!curSong)return;
+  window._lrcOff=Math.max(-5,Math.min(5,(window._lrcOff||0)+delta));
+  Lyrics.setOffset(window._lrcOff);
+  webLrcPending+=delta;
+  showToast('歌词偏移 '+(window._lrcOff>0?'+':'')+window._lrcOff.toFixed(1)+'s（'+(delta>0?'字延后':'字提前')+'）');
+  clearTimeout(webLrcTimer);
+  const sid=curSong.song_id, w=webLrcPending;
+  webLrcTimer=setTimeout(()=>{
+    // 停止调节 1.2s 后把累计增量固化进服务端歌词，再重新拉取并清零本地偏移，避免双重平移
+    fetch(BASE+'/api/songs/'+sid+'/lyrics/offset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({offset:w})}).catch(()=>{});
+    window._lrcOff=0; webLrcPending=0; Lyrics.setOffset(0); try{Lyrics.load(sid,true);}catch(e){}
+  },1200);
 }
 // Fix2：全屏时焦点只在全屏覆盖层，主页时排除全屏层
 let focEls=[],focIdx=0;

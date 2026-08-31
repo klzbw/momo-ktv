@@ -117,6 +117,13 @@ final class LyricsLoader: ObservableObject {
     private var task: URLSessionDataTask?
     private var currentSongId: Int?
 
+    /// 强制重新拉取同一首歌（歌词时间轴被固化写回后调用，绕过 load 的去重守卫）
+    func reload(server: String, songId: Int) {
+        currentSongId = nil
+        loaded = false
+        load(server: server, songId: songId)
+    }
+
     func load(server: String, songId: Int) {
         guard songId != currentSongId || !loaded else { return }
         currentSongId = songId
@@ -158,20 +165,41 @@ private func colorFromHex(_ hex: String) -> Color {
                  green: Double((rgb >> 8) & 0xFF) / 255.0,
                  blue: Double(rgb & 0xFF) / 255.0)
 }
+// MARK: - 歌词样式单例：遥控端改字色/描边色时实时刷新（@AppStorage 在 fullScreenCover 下偶发不刷新，改用可观察对象）
+final class LyricsStyleStore: ObservableObject {
+    static let shared = LyricsStyleStore()
+    @Published var colorHex: String
+    @Published var strokeHex: String
+    private init() {
+        colorHex = UserDefaults.standard.string(forKey: "momoLyricsColor") ?? "#FFD24A"
+        strokeHex = UserDefaults.standard.string(forKey: "momoLyricsStroke") ?? "#000000"
+    }
+    func apply(color: String?, stroke: String?) {
+        if let c = color, !c.isEmpty {
+            colorHex = c
+            UserDefaults.standard.set(c, forKey: "momoLyricsColor")
+        }
+        if let s = stroke, !s.isEmpty {
+            strokeHex = s
+            UserDefaults.standard.set(s, forKey: "momoLyricsStroke")
+        }
+    }
+}
 
-// MARK: - 卡拉OK k 标签逐字渐变：底层未唱(白) + 上层已唱(金)按进度从左到右裁剪叠加，带描边
+// MARK: - 卡拉OK k 标签逐字渐变：底层未唱(白) + 上层已唱(主题色)按进度从左到右裁剪叠加，带描边
 struct KaraokeWord: View {
     let text: String
     let progress: Double
     var highlight: Color = Color(red: 1.0, green: 0.78, blue: 0.25)
     var base: Color = Color.white.opacity(0.42)
     var stroke: Color = .black
+    var strokeWidth: CGFloat = -7   // 负值=填充+描边，绝对值越大描边越粗，按字号外部传入
 
     private func stroked(_ t: String, fill: Color) -> Text {
         var a = AttributedString(t)
         a.foregroundColor = UIColor(fill)
         a.strokeColor = UIColor(stroke)
-        a.strokeWidth = -4
+        a.strokeWidth = strokeWidth
         return Text(a)
     }
 
@@ -192,24 +220,27 @@ struct KaraokeWord: View {
 struct LyricsView: View {
     let lyrics: SongLyrics
     let currentTime: Double
-    var compact: Bool = false   // 首页小窗预览用小字号
-    /// 当前行/预览行字号：全屏 46/40/30，小窗 24/21/16
-    private var activeSize: CGFloat { compact ? 24 : 46 }
-    private var scrollActiveSize: CGFloat { compact ? 21 : 40 }
-    private var nearSize: CGFloat { compact ? 16 : 30 }
-    @AppStorage("momoLyricsColor") private var lyricsColorHex: String = "#FFD24A"
-    @AppStorage("momoLyricsStroke") private var lyricsStrokeHex: String = "#000000"
-    private var highlight: Color { colorFromHex(lyricsColorHex) }
-    private var stroke: Color { colorFromHex(lyricsStrokeHex) }
+    var compact: Bool = false        // 首页小窗预览用小字号
+    var timeOffset: Double = 0       // 歌词时间轴整体偏移（秒）：正值=歌词延后出现，负值=提前出现，用于唱字同步校准
+    @ObservedObject private var styleStore = LyricsStyleStore.shared
     @AppStorage("momoLyricsMode") private var modeRaw: String = LyricsDisplayMode.dual.rawValue
-    private var mode: LyricsDisplayMode { .from(modeRaw) }
 
-    private var activeIndex: Int { lyrics.lineIndex(at: currentTime) }
+    /// 校准后的时间（叠加用户调节的偏移）
+    private var displayTime: Double { currentTime + timeOffset }
+    /// 全屏加大字号以匹配电视观看距离：当前行 58、滚动当前 50、邻近行 40；小窗 24/21/16
+    private var activeSize: CGFloat { compact ? 24 : 58 }
+    private var scrollActiveSize: CGFloat { compact ? 21 : 50 }
+    private var nearSize: CGFloat { compact ? 16 : 40 }
+    private var mode: LyricsDisplayMode { .from(modeRaw) }
+    private var highlight: Color { colorFromHex(styleStore.colorHex) }
+    private var stroke: Color { colorFromHex(styleStore.strokeHex) }
+
+    private var activeIndex: Int { lyrics.lineIndex(at: displayTime) }
 
     var body: some View {
         if lyrics.isEmpty {
             Text("♪ 纯音乐 · 请欣赏 ♪")
-                .font(.system(size: compact ? 16 : 30, weight: .semibold))
+                .font(.system(size: compact ? 16 : 34, weight: .semibold))
                 .foregroundColor(.white.opacity(0.55))
         } else if mode == .dual {
             dualBody
@@ -218,37 +249,44 @@ struct LyricsView: View {
         }
     }
 
+    // 双排模式：当前演唱行靠屏幕左侧，下一句预览靠屏幕右侧，上下两行左右错落分布
     private var dualBody: some View {
         let ai = activeIndex
-        return VStack(spacing: compact ? 8 : 22) {
+        return VStack(spacing: compact ? 8 : 30) {
             Spacer(minLength: 0)
             if ai >= 0 {
-                lineView(lyrics.lines[ai], idx: ai)
-                    .id(lyrics.lines[ai].id)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                HStack(spacing: 0) {
+                    lineView(lyrics.lines[ai], idx: ai)
+                        .id(lyrics.lines[ai].id)
+                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                    Spacer(minLength: 24)
+                }
             }
             if ai + 1 < lyrics.lines.count {
-                lineView(lyrics.lines[ai + 1], idx: ai + 1)
-                    .id(lyrics.lines[ai + 1].id)
-                    .transition(.opacity)
+                HStack(spacing: 0) {
+                    Spacer(minLength: 24)
+                    lineView(lyrics.lines[ai + 1], idx: ai + 1)
+                        .id(lyrics.lines[ai + 1].id)
+                        .transition(.opacity)
+                }
             }
             Spacer(minLength: 0)
         }
         .animation(.easeOut(duration: 0.25), value: ai)
-        .padding(.horizontal, compact ? 16 : 70)
+        .padding(.horizontal, compact ? 16 : 90)
     }
 
     private var scrollBody: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 26) {
+                LazyVStack(spacing: 30) {
                     ForEach(Array(lyrics.lines.enumerated()), id: \.element.id) { idx, line in
                         lineView(line, idx: idx)
                             .id(line.id)
                     }
                 }
-                .padding(.vertical, compact ? 40 : 220)
-                .padding(.horizontal, compact ? 14 : 60)
+                .padding(.vertical, compact ? 40 : 240)
+                .padding(.horizontal, compact ? 14 : 80)
             }
             .onChange(of: activeIndex) { newValue in
                 guard newValue >= 0 else { return }
@@ -265,6 +303,7 @@ struct LyricsView: View {
         let active = idx == activeIndex
         let isDual = mode == .dual
         let preview = isDual && idx == activeIndex + 1
+        let fontSize: CGFloat = active ? (isDual ? activeSize : scrollActiveSize) : nearSize
         if active, let tokens = line.tokens {
             HStack(spacing: 0) {
                 ForEach(Array(tokens.enumerated()), id: \.element.id) { idx, tok in
@@ -272,32 +311,36 @@ struct LyricsView: View {
                         text: tok.text,
                         progress: tokenProgress(tok, tokens: tokens, index: idx, lineEnd: line.end),
                         highlight: highlight,
-                        base: Color.white.opacity(0.42),
-                        stroke: stroke
+                        base: Color.white.opacity(0.45),
+                        stroke: stroke,
+                        strokeWidth: -max(4, fontSize * 0.13)
                     )
                 }
             }
-            .font(.system(size: isDual ? activeSize : scrollActiveSize, weight: .bold))
+            .font(.system(size: fontSize, weight: .bold))
             .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
         } else {
-            let sz: CGFloat = active ? (isDual ? activeSize : scrollActiveSize) : nearSize
-            let fill = active ? highlight : Color.white.opacity(preview ? 0.5 : 0.4)
-            strokedLine(line.plain, fill: fill, size: sz, weight: active ? .bold : .medium)
+            let fill = active ? highlight : Color.white.opacity(preview ? 0.55 : 0.42)
+            strokedLine(line.plain, fill: fill, size: fontSize, weight: active ? .bold : .medium)
         }
     }
 
-    /// 带描边的整行文字（非逐字 LRC 用）
+    /// 带描边的整行文字（非逐字 LRC 用），描边粗细随字号缩放，保证电视远距离轮廓清晰
     private func strokedLine(_ text: String, fill: Color, size: CGFloat, weight: Font.Weight) -> some View {
         var a = AttributedString(text)
         a.foregroundColor = UIColor(fill)
         a.strokeColor = UIColor(stroke)
-        a.strokeWidth = -4
+        a.strokeWidth = -max(4, size * 0.13)
         a.font = UIFont.systemFont(ofSize: size, weight: weight == .bold ? .bold : .regular)
         return Text(a)
             .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
     }
 
-    /// 卡拉OK k 标签：单个字在 [start, end] 区间内的演唱进度 0...1
+    /// 卡拉OK k 标签：单个字在 [start, end] 区间内的演唱进度 0...1（叠加时间偏移）
     private func tokenProgress(_ tok: LyricToken, tokens: [LyricToken], index: Int, lineEnd: Double) -> Double {
         let end: Double
         if index + 1 < tokens.count {
@@ -306,6 +349,6 @@ struct LyricsView: View {
             end = lineEnd < .greatestFiniteMagnitude ? lineEnd : tok.time + 1.5
         }
         let dur = max(0.05, end - tok.time)
-        return min(max((currentTime - tok.time) / dur, 0), 1)
+        return min(max((displayTime - tok.time) / dur, 0), 1)
     }
 }

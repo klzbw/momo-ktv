@@ -189,6 +189,16 @@ class KTVAPIClient: ObservableObject {
         sendWSControl("repeat")
     }
 
+    /// 把歌词时间轴偏移固化到服务端：平移歌词里所有时间标签并写回数据库，之后任何设备拿到的都是校准后的歌词
+    func saveLyricsOffset(songId: Int, offset: Double) {
+        guard let url = apiURL("/api/songs/\(songId)/lyrics/offset") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["offset": offset])
+        URLSession.shared.dataTask(with: req) { _, _, _ in }.resume()
+    }
+
     func toggleVoice() {
         sendWSControl("voice")
     }
@@ -372,13 +382,10 @@ class KTVAPIClient: ObservableObject {
             let from = json["from"] as? String ?? ""
             DispatchQueue.main.async { self.onBlessing?(text, from) }
         } else if type == "lyrics_style" {
-            // 遥控端实时修改歌词字体色/描边色，写入 @AppStorage，LyricsView 自动刷新
-            if let color = json["color"] as? String {
-                UserDefaults.standard.set(color, forKey: "momoLyricsColor")
-            }
-            if let stroke = json["stroke"] as? String {
-                UserDefaults.standard.set(stroke, forKey: "momoLyricsStroke")
-            }
+            // 遥控端实时改歌词字色/描边色：走可观察单例，立即驱动 LyricsView 重绘（同时持久化）
+            let color = json["color"] as? String
+            let stroke = json["stroke"] as? String
+            DispatchQueue.main.async { LyricsStyleStore.shared.apply(color: color, stroke: stroke) }
         }
     }
 

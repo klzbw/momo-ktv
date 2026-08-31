@@ -707,6 +707,45 @@ app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
   }
 });
 
+// 把秒数格式化为 [mm:ss.xx]（负时间钳到 0）
+function shiftLrcTimestamp(lrc, deltaSec) {
+  if (!lrc) return lrc;
+  const fmt = (sec) => {
+    if (sec < 0) sec = 0;
+    const m = Math.floor(sec / 60);
+    const rest = sec - m * 60;
+    const ss = rest.toFixed(2).padStart(5, '0');
+    return String(m).padStart(2, '0') + ':' + ss;
+  };
+  // 同时平移行时间标签 [mm:ss.xx] 和逐字标签 <mm:ss.xx>
+  return lrc.replace(/[\[<](\d{1,3}):(\d{1,2}(?:\.\d+)?)\s*[\]>]/g, (m) => {
+    const open = m[0];
+    const close = open === '[' ? ']' : '>';
+    const inner = m.slice(1, -1);
+    const parts = inner.split(':');
+    const t = parseInt(parts[0], 10) * 60 + parseFloat(parts[1]) + deltaSec;
+    return open + fmt(t) + close;
+  });
+}
+
+// POST /api/songs/:id/lyrics/offset  body:{offset:秒(增量)} —— 把歌词全部时间标签平移增量并写回数据库（固化唱字同步校准）
+app.post('/api/songs/:id/lyrics/offset', (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+    const delta = parseFloat(req.body && req.body.offset);
+    if (!Number.isFinite(delta) || Math.abs(delta) > 30) return res.status(400).json({ error: 'bad offset' });
+    const song = db.prepare('SELECT * FROM songs WHERE id=?').get(id);
+    if (!song) return res.status(404).json({ error: 'song not found' });
+    const newLyrics = song.lyrics ? shiftLrcTimestamp(song.lyrics, delta) : null;
+    const newWord = song.lyrics_word ? shiftLrcTimestamp(song.lyrics_word, delta) : null;
+    db.prepare('UPDATE songs SET lyrics=?, lyrics_word=? WHERE id=?').run(newLyrics, newWord, id);
+    res.json({ id, ok: true, appliedDelta: delta });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 批量补抓状态（防止重复跑），GET 可查进度
 let lyricBatch = { running: false, total: 0, done: 0, ok: 0, fail: 0, startedAt: null, finishedAt: null };
 

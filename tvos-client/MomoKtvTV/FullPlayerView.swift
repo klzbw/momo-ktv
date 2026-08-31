@@ -22,6 +22,9 @@ struct FullPlayerView: View {
     @AppStorage("micPublicHost") private var micPublicHost: String = "mktv.klzbw.top"
     @AppStorage("momoLyricsMode") private var lyricsModeRaw: String = LyricsDisplayMode.dual.rawValue
     @AppStorage("momoBgMode") private var bgModeRaw: String = AudioBgMode.flow.rawValue
+    @State private var lyricsOffset: Double = 0          // 当前歌词时间轴偏移（秒），即时预览
+    @State private var pendingOffsetDelta: Double = 0    // 尚未固化到服务端的累计增量
+    @State private var offsetDebounce: Timer?
 
     enum VoiceMode {
         case original, half, accompaniment
@@ -59,6 +62,7 @@ struct FullPlayerView: View {
                     if let playing = api.queue.first(where: { $0.isPlaying }) {
                         if playing.isVideoFile { lyricsLoader.lyrics = .empty } // 视频歌不显示歌词
                         else { lyricsLoader.load(server: api.serverAddress, songId: playing.song_id) }
+                        restoreOffset(for: playing.song_id)
                     }
                 }
                 .onChange(of: showControls) { shown in
@@ -66,6 +70,10 @@ struct FullPlayerView: View {
                     if !shown && !showQueue && !showQR {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { tapAreaFocused = true }
                     }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .momoLyricsOffset)) { note in
+                    // 手机遥控端歌词快慢校准
+                    if let d = note.userInfo?["delta"] as? Double { adjustLyricsOffset(by: d) }
                 }
 
             // 纯音频歌曲的动态背景（13 种程序化效果 + 我的图片，随律动变化）；
@@ -79,7 +87,7 @@ struct FullPlayerView: View {
             // 逐字歌词层：居中滚动、当前行逐字填色；不抢遥控器焦点，控制层在其之上。
             // 视频歌(MKV/MP4 等)自带画面与内嵌字幕，不再叠加 App 歌词。
             if !currentItem.isVideoFile {
-                LyricsView(lyrics: lyricsLoader.lyrics, currentTime: playerManager.currentTime)
+                LyricsView(lyrics: lyricsLoader.lyrics, currentTime: playerManager.currentTime, timeOffset: lyricsOffset)
                     .allowsHitTesting(false)
                     .opacity(showControls ? 0.35 : 1.0) // 控制条弹出时歌词弱化，避免与底部信息打架
                     .animation(.easeOut(duration: 0.25), value: showControls)
@@ -166,6 +174,14 @@ struct FullPlayerView: View {
                                     controlContent(icon: "text.alignleft",
                                                    title: "歌词·\(LyricsDisplayMode.from(lyricsModeRaw).label)",
                                                    focused: focused)
+                                }
+                                // 歌词提前 0.2s（字比声音快）
+                                TVTightButton(action: { adjustLyricsOffset(by: -0.2) }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                                    controlContent(icon: "text.badge.minus", title: "词提前", focused: focused)
+                                }
+                                // 歌词延后 0.2s（字比声音慢）
+                                TVTightButton(action: { adjustLyricsOffset(by: 0.2) }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                                    controlContent(icon: "text.badge.plus", title: "词延后", focused: focused)
                                 }
                             }
 
@@ -321,6 +337,42 @@ struct FullPlayerView: View {
         .cornerRadius(16)
     }
 
+    // MARK: - 歌词时间轴校准（唱字同步）
+    private func offsetKey(_ songId: Int) -> String { "momoLyricsOffset_\(songId)" }
+
+    /// 切歌/进入时恢复这首歌上次的本地偏移
+    private func restoreOffset(for songId: Int) {
+        offsetDebounce?.invalidate()
+        pendingOffsetDelta = 0
+        lyricsOffset = UserDefaults.standard.double(forKey: offsetKey(songId))
+    }
+
+    /// 调节歌词偏移：即时预览 + 本地按歌记忆 + 防抖固化到服务端歌词文件
+    private func adjustLyricsOffset(by delta: Double) {
+        guard let playing = api.queue.first(where: { $0.isPlaying }) else { return }
+        lyricsOffset = max(-5, min(5, lyricsOffset + delta))
+        UserDefaults.standard.set(lyricsOffset, forKey: offsetKey(playing.song_id))
+        pendingOffsetDelta += delta
+        let sign = lyricsOffset > 0 ? "+" : ""
+        FeedbackCenter.shared.show(String(format: "歌词偏移 %@%.1fs（%@）", sign, lyricsOffset,
+                                          lyricsOffset == 0 ? "已对齐" : (delta > 0 ? "字延后" : "字提前")),
+                                   icon: "timer")
+        // 停止调节 1.2s 后把累计增量写入服务端歌词，再重新拉取并清零本地偏移，避免双重平移
+        offsetDebounce?.invalidate()
+        let songId = playing.song_id
+        let toWrite = pendingOffsetDelta
+        offsetDebounce = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { _ in
+            guard abs(toWrite) > 0.001 else { return }
+            api.saveLyricsOffset(songId: songId, offset: toWrite)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                lyricsLoader.reload(server: api.serverAddress, songId: songId)
+                lyricsOffset = 0
+                pendingOffsetDelta = 0
+                UserDefaults.standard.set(0.0, forKey: offsetKey(songId))
+            }
+        }
+    }
+
     private func setup() {
         showControls = true
         resetHideTimer()
@@ -329,6 +381,7 @@ struct FullPlayerView: View {
         // 拉取歌词（优先 AI 逐字增强 LRC，没有则普通 LRC）；视频歌自带字幕不拉取
         if song.isVideoFile { lyricsLoader.lyrics = .empty }
         else { lyricsLoader.load(server: api.serverAddress, songId: song.song_id) }
+        restoreOffset(for: song.song_id)
         // 切歌/全屏视图重建时，若麦克风模式仍开着则保持连接不断
         mic.keepAlive(api.serverAddress)
     }
