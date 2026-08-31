@@ -6,7 +6,7 @@ struct ContentView: View {
     @StateObject private var api: KTVAPIClient
     @AppStorage("serverAddress") private var serverAddress: String = ""
     @AppStorage("appTheme") private var appThemeRaw: Int = 1
-    // 连接流程：connected=false 时处于"连接确认 / 输入地址"阶段；每次冷启动或从后台返回都会回到该阶段
+    // 连接流程：connected=false 时处于"连接确认 / 输入地址"阶段；冷启动回到该阶段，从后台返回则自动连接
     @State private var connected = false
     @State private var showSetupInput = false
     @State private var hasBeenBackground = false
@@ -82,9 +82,11 @@ struct ContentView: View {
                 if hasBeenBackground {
                     hasBeenBackground = false
                     if !serverAddress.isEmpty {
-                        connected = false
+                        // 从后台返回时直接自动连接上次服务器，不再弹连接确认页让用户手动点击，
+                        // 解决"清出后台后app连接服务器慢"的问题
                         showSetupInput = false
                         showingPlayer = false
+                        connectCurrent()
                     }
                 }
             default:

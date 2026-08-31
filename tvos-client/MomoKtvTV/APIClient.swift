@@ -264,12 +264,13 @@ class KTVAPIClient: ObservableObject {
     }
 
     func fetchNewest() {
-        // Newest = songs sorted by id desc (latest added)
-        guard let url = apiURL("/api/songs") else { return }
+        // 最新入库：调用专门的 /api/songs/newest 接口，服务端直接按 id 降序取前50首，
+        // 避免拉回全部歌曲(50000+)再排序导致的大数据量传输和解析失败
+        guard let url = apiURL("/api/songs/newest?limit=50") else { return }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             DispatchQueue.main.async {
                 if let data = data, let songs = try? JSONDecoder().decode([Song].self, from: data) {
-                    self?.newest = Array(songs.sorted(by: { $0.id > $1.id }).prefix(50))
+                    self?.newest = songs
                 }
             }
         }.resume()

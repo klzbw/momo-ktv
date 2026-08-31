@@ -1073,6 +1073,18 @@ app.get('/api/songs', (req, res) => {
   res.json({ items, total, page, pageSize, totalPages });
 });
 
+// 最新入库：直接按 id 降序取前 N 首，避免拉回全部歌曲再排序导致的大数据量/解析失败
+app.get('/api/songs/newest', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+  try {
+    const rows = db.prepare('SELECT * FROM songs ORDER BY id DESC LIMIT ?').all(limit);
+    res.json(rows);
+  } catch (e) {
+    console.error('[newest] error:', e.message);
+    res.json([]);
+  }
+});
+
 // 按首字母搜索
 app.get('/api/songs/letter/:letter', (req, res) => {
   const letter = req.params.letter.toUpperCase();
