@@ -2242,8 +2242,21 @@ const VoiceManager = (() => {
   const MODE = { UNKNOWN:'unknown', TRACKS:'tracks', STEREO:'stereo', MONO:'mono' };
   let mode = MODE.UNKNOWN;
   let _isOriginal = true;
-  let _trackCount = 1;    // 当前歌曲的音轨数，来自服务端 audio_tracks 字段
+  let _trackCount = 1;    // 服务端 audio_tracks 字段（声道型 MV 用）
   let _loadedTrack = 0;   // 当前 hls.js 已选的音轨号，避免重复设置
+  let _trackIndex = 0;    // 当前演唱档位：AI分离歌为五档 0原唱/1=75%/2=半消/3=25%/4=伴奏
+  // 五档/三档/双档的档位中文名
+  function labelForIndex(i, n) {
+    if (i <= 0) return '原唱';
+    if (n >= 5) return ['原唱','人声75%','半消','人声25%','伴奏'][i] || ('档位'+i);
+    if (n === 3) return ['原唱','半消','伴唱'][i] || ('档位'+i);
+    return '伴唱'; // 双档：第1档即伴唱
+  }
+  // hls.js 实际音轨数（AI分离五档歌最准），拿不到时退回服务端字段
+  function realTrackCount() {
+    const n = hlsInstance && hlsInstance.audioTracks ? hlsInstance.audioTracks.length : 0;
+    return n >= 1 ? n : _trackCount;
+  }
 
   // Web Audio 节点（仅声道型使用，且只初始化一次）
   let actx=null, src=null, split=null, merge=null, waReady=false;
@@ -2290,7 +2303,10 @@ const VoiceManager = (() => {
 
   /** 检测当前 video 的类型 */
   function detect(v) {
-    if (_trackCount >= 2) return MODE.TRACKS; // 服务端探测明确告知有多条音轨
+    // AI 分离五档/三档歌：服务端 audio_tracks 字段可能仍是1，但 hls.js 解析 master 后
+    // audioTracks 已是真实条数(>=2)，以它为准判为音轨型，最可靠。
+    const hlsN = hlsInstance && hlsInstance.audioTracks ? hlsInstance.audioTracks.length : 0;
+    if (hlsN >= 2 || _trackCount >= 2) return MODE.TRACKS;
     if (waReady && src && src.channelCount >= 2) return MODE.STEREO;
     return MODE.UNKNOWN;
   }
@@ -2327,9 +2343,11 @@ const VoiceManager = (() => {
     reportVoiceSwitch('stereo');
   }
 
-  /** 音轨型切换：由 hls.js 负责，只重新拉取目标音轨的分片，视频播放完全不中断。 */
+  /** 音轨型切换：由 hls.js 负责，只重新拉取目标音轨的分片，视频播放完全不中断。
+   *  五档/三档/双档统一：want 就是档位(=audio rendition 序号)，越界收敛到最后一档。 */
   function applyTracks(v) {
-    const want = _isOriginal ? 0 : 1;
+    const total = (hlsInstance && hlsInstance.audioTracks) ? hlsInstance.audioTracks.length : _trackCount;
+    let want = Math.max(0, Math.min(_trackIndex, total - 1));
     if (want === _loadedTrack) return;
     if (!hlsInstance || !hlsInstance.audioTracks || hlsInstance.audioTracks.length <= want) return;
     hlsInstance.audioTrack = want;
@@ -2352,6 +2370,8 @@ const VoiceManager = (() => {
     onLoad(v, trackCount) {
       _trackCount = trackCount || 1;
       _loadedTrack = 0; // 新歌不带 track 参数时，默认拿到的是第0条(原唱)
+      _trackIndex = 0;
+      _isOriginal = true;
       mode = detect(v);
       apply(v);
       console.log('[VoiceManager] mode=' + mode + ' original=' + _isOriginal + ' tracks=' + _trackCount);
@@ -2377,12 +2397,49 @@ const VoiceManager = (() => {
     },
     /** 首次用户交互时调用，激活 Web Audio */
     wake(v) { initWA(v); },
+    /** 直接选到指定档位（0原唱…最后一档纯伴奏） */
+    setTrackIndex(v, i) {
+      if (mode === MODE.STEREO) { // 声道型只有两态
+        _trackIndex = i <= 0 ? 0 : 1;
+      } else {
+        const total = realTrackCount();
+        _trackIndex = Math.max(0, Math.min(i, total - 1));
+      }
+      _isOriginal = _trackIndex === 0;
+      apply(v);
+      return this.trackLabel;
+    },
+    /** 在当前歌曲全部档位间循环（五档/三档/双档自适应）；声道型在两态间切换 */
+    cycle(v) {
+      if (mode === MODE.STEREO) {
+        _trackIndex = _trackIndex === 0 ? 1 : 0;
+      } else {
+        const total = realTrackCount();
+        _trackIndex = (_trackIndex + 1) % Math.max(1, total);
+      }
+      _isOriginal = _trackIndex === 0;
+      apply(v);
+      return this.trackLabel;
+    },
+    /** hls.js MANIFEST_PARSED 后调用：此时才知道真实音轨数，补一次模式判定与选轨 */
+    onManifestParsed(v) {
+      const prev = mode;
+      mode = detect(v);
+      if (mode === MODE.TRACKS) { applyTracks(v); }
+      else if (prev === MODE.UNKNOWN) { apply(v); }
+    },
     /** 切换到原唱 */
-    setOriginal(v) { _isOriginal = true;  apply(v); return mode; },
-    /** 切换到伴唱 */
-    setAccompaniment(v) { _isOriginal = false; apply(v); return mode; },
+    setOriginal(v) { return this.setTrackIndex(v, 0); },
+    /** 切换到纯伴奏（最后一档） */
+    setAccompaniment(v) { return this.setTrackIndex(v, realTrackCount() - 1); },
     /** 当前是否原唱 */
     get isOriginal() { return _isOriginal; },
+    get trackIndex() { return _trackIndex; },
+    /** 当前档位中文名 */
+    get trackLabel() {
+      const n = (mode === MODE.STEREO) ? 2 : realTrackCount();
+      return labelForIndex(_trackIndex, n);
+    },
     /** 当前模式 */
     get mode() { return mode; },
     /** 应用均衡器预设；未初始化(还没播放过歌)时返回 false，由调用方决定怎么提示 */
@@ -2584,7 +2641,11 @@ function loadSong(v,songId,needsDownload){
         fallbackToRaw();
       }
     });
-    hls.on(Hls.Events.MANIFEST_PARSED,()=>{if(!isPaused)tryAutoplay(v,songId);});
+    hls.on(Hls.Events.MANIFEST_PARSED,()=>{
+  // master 解析后才知道真实音轨数（AI分离五档歌此时才识别为音轨型），补判一次并选回当前档
+  try{ VoiceManager.onManifestParsed(video); }catch(e){console.warn('VM manifest',e);}
+  if(!isPaused)tryAutoplay(v,songId);
+});
     hls.loadSource(url);
     hls.attachMedia(v);
     hlsInstance=hls;
@@ -2892,15 +2953,16 @@ function restartSong(){
   localRestartSong();
 }
 function localToggleVoice(){
-  if(VoiceManager.isOriginal) VoiceManager.setAccompaniment(video);
-  else VoiceManager.setOriginal(video);
-  // 按钮文案固定为"原/伴唱"，不再随状态在"原唱"/"伴唱"之间切换文字；
-  // 是否处于伴唱模式仅通过 .act 高亮样式区分。
-  document.getElementById('btn-voice').classList.toggle('act',!VoiceManager.isOriginal);
-  document.getElementById('ob-voice').classList.toggle('act',!VoiceManager.isOriginal);
-  const s3voice=document.getElementById('s3-voice-btn');if(s3voice)s3voice.classList.toggle('act',!VoiceManager.isOriginal);
+  VoiceManager.wake(video);
+  // 多档循环：原唱→75%→半消→25%→伴奏（五档）；老式双档/声道型在两态间切换
+  const label = VoiceManager.cycle(video);
+  const notOrig = !VoiceManager.isOriginal;
+  // 是否处于非原唱档通过 .act 高亮区分；按钮文字保持固定，当前档名用 toast 反馈
+  document.getElementById('btn-voice').classList.toggle('act',notOrig);
+  document.getElementById('ob-voice').classList.toggle('act',notOrig);
+  const s3voice=document.getElementById('s3-voice-btn');if(s3voice)s3voice.classList.toggle('act',notOrig);
   reportPlaybackState();
-  showToast('原/伴唱已切换');
+  showToast(label);
 }
 function toggleVoice(){
   if(!isActivePlayer){sendWS({type:'control',action:'voice'});return;}
