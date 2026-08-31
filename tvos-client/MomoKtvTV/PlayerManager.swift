@@ -91,10 +91,11 @@ class PlayerManager: ObservableObject {
         attachLayerToCurrentHost()
 
         // Time observer
-        // 约 33Hz 刷新当前时间：逐字歌词横向扫色需要足够细的时间粒度才流畅跟嘴，进度条也更顺滑
-        // （仅本地 UI 刷新频率，上报服务端的 progressTimer 仍保持 1 秒一次，不增加网络负担）
+        // 20Hz 刷新当前时间：逐字歌词靠 KaraokeWord 内的 0.05s 线性补间做到视觉平滑，
+        // 不需要更高频地全量重绘整个播放页(过高频率叠加描边/阴影会拖卡整个 app)。
+        // 仅本地 UI 刷新频率，上报服务端的 progressTimer 仍保持 1 秒一次，不增加网络负担。
         timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 0.03, preferredTimescale: 1000),
+            forInterval: CMTime(seconds: 0.05, preferredTimescale: 1000),
             queue: .main
         ) { [weak self] time in
             self?.currentTime = time.seconds

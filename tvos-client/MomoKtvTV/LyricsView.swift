@@ -200,28 +200,29 @@ final class LyricsStyleStore: ObservableObject {
     }
 }
 
-// MARK: - 可靠描边文字：8 方向偏移复制同色文字做轮廓 + 顶层填充色。
-// 不依赖 NSAttributedString.strokeWidth（在 tvOS Text 上经常不渲染/颜色失效），颜色粗细 100% 可控。
+// MARK: - 描边文字：单个 Text 叠加 8 方向锐利阴影形成轮廓。
+// 性能关键：只保留 1 个 Text 视图节点(阴影交给 GPU 合成)，不再为描边复制 8~9 个 Text——
+// 否则逐字双层 × 每行十几字 × 每秒数十次刷新会产生数百个文本视图，拖卡整个 app。
 struct StrokeFillText: View {
     let text: String
     let fill: Color
     let strokeColor: Color
     let w: CGFloat
-    // 8 个方向单位向量
-    private static let dirs: [(CGFloat, CGFloat)] = [
-        (1,0),(-1,0),(0,1),(0,-1),
-        (0.7071,0.7071),(-0.7071,0.7071),(0.7071,-0.7071),(-0.7071,-0.7071)
-    ]
     var body: some View {
-        ZStack {
-            if w > 0.01 {
-                ForEach(Array(Self.dirs.enumerated()), id: \.offset) { _, d in
-                    Text(text).foregroundColor(strokeColor)
-                        .offset(x: d.0 * w, y: d.1 * w)
-                }
-            }
-            Text(text).foregroundColor(fill)
-        }
+        let on = w > 0.01
+        let c = on ? strokeColor : Color.clear
+        let r = w * 0.35
+        let d = w * 0.7071
+        Text(text)
+            .foregroundColor(fill)
+            .shadow(color: c, radius: r, x: w, y: 0)
+            .shadow(color: c, radius: r, x: -w, y: 0)
+            .shadow(color: c, radius: r, x: 0, y: w)
+            .shadow(color: c, radius: r, x: 0, y: -w)
+            .shadow(color: c, radius: r, x: d, y: d)
+            .shadow(color: c, radius: r, x: -d, y: d)
+            .shadow(color: c, radius: r, x: d, y: -d)
+            .shadow(color: c, radius: r, x: -d, y: -d)
     }
 }
 
@@ -242,7 +243,7 @@ struct KaraokeWord: View {
                         .frame(width: geo.size.width * CGFloat(min(max(progress, 0), 1)),
                                alignment: .leading)
                         .clipped()
-                        // 极短线性补间：把 33fps 的离散进度在帧间连续插值，扫色更顺滑，0.05s 滞后几乎无感
+                        // 极短线性补间：把 20Hz 的离散进度在帧间连续插值，扫色视觉顺滑，0.05s 滞后几乎无感
                         .animation(.linear(duration: 0.05), value: progress)
                 }
             }
@@ -365,9 +366,8 @@ struct LyricsView: View {
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .minimumScaleFactor(0.35)                         // 字号调大/长句时自动缩回，保证不超出屏幕
-            .shadow(color: .black.opacity(0.9), radius: 1)
-            .shadow(color: .black.opacity(0.85), radius: 7, x: 0, y: 3)
-            .shadow(color: highlight.opacity(0.25), radius: 11)
+            // 只留一层轻投影(清晰描边由 StrokeFillText 负责)：多层大半径高斯模糊在逐字高频刷新时很耗 GPU
+            .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
         } else {
             // 对齐网页：非逐字当前行整行白色(ll-cur=#fff)，预备/邻近行半透明白；逐字行才用金色扫色
             let fill = active ? Color.white : Color.white.opacity(isNext ? 0.55 : 0.42)
@@ -384,9 +384,7 @@ struct LyricsView: View {
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .minimumScaleFactor(0.35)
-            .shadow(color: .black.opacity(active ? 0.9 : 0.8), radius: active ? 1 : 5, x: 0, y: active ? 0 : 2)
-            .shadow(color: .black.opacity(active ? 0.85 : 0), radius: active ? 7 : 0, x: 0, y: 3)
-            .shadow(color: highlight.opacity(active ? 0.25 : 0), radius: active ? 11 : 0)
+            .shadow(color: .black.opacity(0.55), radius: active ? 3 : 4, x: 0, y: 2)
     }
 
     /// 卡拉OK k 标签：单个字在 [start, end] 区间内的演唱进度 0...1（叠加时间偏移）
