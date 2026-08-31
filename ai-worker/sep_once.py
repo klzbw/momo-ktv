@@ -6,6 +6,9 @@ sep_once.py —— 单首歌的人声分离（被 worker.py 以子进程方式�
 """
 import sys, os, glob, shutil, tempfile, traceback
 
+# 国内直连 HuggingFace 常超时导致 Demucs 模型下载失败，默认走 hf-mirror 镜像（须在 import torch/demucs 前）
+os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
+
 def main():
     if len(sys.argv) < 4:
         print('用法: python sep_once.py <输入> <人声out.wav> <伴奏out.wav>'); sys.exit(2)

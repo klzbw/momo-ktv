@@ -12,6 +12,10 @@ align_once.py —— 单首歌的逐字歌词对齐（被 worker.py 以子进程
 """
 import sys, os, traceback
 
+# 国内直连 HuggingFace 常超时，会导致 Whisper转写模型 / 中文对齐模型下载失败（历史60个对齐任务全因此失败）。
+# 默认走 hf-mirror 镜像；若用户已显式设置 HF_ENDPOINT，则尊重用户设置。必须在 import torch/whisperx 之前执行。
+os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
+
 def fmt(t):
     if t is None or t < 0: t = 0.0
     m = int(t // 60); s = t - m * 60
