@@ -501,6 +501,15 @@ select option{color:#000}
       <div class="hdrop-item" onclick="openCacheModal()" title="清理 HLS 转码缓存，可设置按存储空间限额或按点歌时间自动清理">🗑️ 缓存清理</div>
     </div>
   </div>
+  <div class="hdrop" id="hdrop-ai">
+    <button class="hbtn" onclick="toggleHdrop('ai',event)">🤖 AI工作站 ▾</button>
+    <div class="hdrop-menu" id="hdrop-ai-menu">
+      <div class="hdrop-item" onclick="aiEnqueueMissing('align','逐字歌词')" title="把还没做逐字对齐的音频歌加入队列，由开机的AI工作站自动识别+官方歌词纠错，生成可逐字变色的歌词">🎤 批量生成逐字歌词</div>
+      <div class="hdrop-item" onclick="aiEnqueueMissing('separate','人声分离')" title="把还没做人声分离的音频歌加入队列，分离后人声/伴奏，可切换原唱/半消/伴奏">🎚️ 批量人声分离</div>
+      <div class="hdrop-item" onclick="aiBatchLyrics()" title="给缺少歌词的歌曲从网易云/QQ/酷我在线补抓标准歌词（逐字纠错的官方文本来源），限速串行">📝 补抓在线歌词</div>
+      <div class="hdrop-item" onclick="aiStats()" title="查看逐字对齐/人声分离/歌词覆盖的实时进度">📊 AI处理进度</div>
+    </div>
+  </div>
   <button class="hbtn" onclick="openUserModal()" title="创建/删除用于登录K歌主页面(/tv)的账号，跟管理后台自己的管理员密码是两回事">👤 用户管理</button>
   <button class="hbtn" onclick="doLogout()">🚪 退出登录</button>
 </header>
@@ -1367,6 +1376,41 @@ async function delSong(id, btn){
   selectedIds.delete(id);
   toast('已移除 ✓');
   loadAll();
+}
+
+// ============ AI 工作站：逐字对齐 / 人声分离 队列（GPU 在 192.168.3.51）============
+// 把缺少某类处理的音频歌批量入队，由常驻 worker 自动领取处理（自动触发入口）
+async function aiEnqueueMissing(type, label){
+  if(!confirm(`将把缺少「${label}」的音频歌加入 AI 队列（最多 500 首）。\n请确认显卡电脑(192.168.3.51)上的「启动AI工作站.bat」窗口正开着。\n是否继续？`)) return;
+  try{
+    const r = await fetch(`/api/separate/enqueue-missing?type=${type}&limit=500`, {method:'POST'});
+    if(r.status===401){ showLogin(); return; }
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok){ toast(d.error||'入队失败'); return; }
+    toast(`已入队 ${d.added||0} 首（候选 ${d.candidates||0}，已处理过的自动跳过）`);
+  }catch(e){ toast('请求失败：'+e.message); }
+}
+// 在线补抓标准歌词（逐字纠错所用官方正确文本的来源）
+async function aiBatchLyrics(){
+  if(!confirm('给缺少歌词的歌曲从网易云/QQ/酷我在线补抓（限速串行，约每秒1首）？')) return;
+  try{
+    const r = await fetch('/api/lyrics/batch-missing?limit=300', {method:'POST'});
+    if(r.status===401){ showLogin(); return; }
+    if(r.status===409){ toast('已有补抓任务正在运行'); return; }
+    const d = await r.json().catch(()=>({}));
+    toast(d.message||'已开始后台补抓');
+  }catch(e){ toast('请求失败：'+e.message); }
+}
+// 查看 AI 处理进度与歌词覆盖率
+async function aiStats(){
+  try{
+    const [s,l] = await Promise.all([
+      fetch('/api/separate/stats').then(r=>r.json()),
+      fetch('/api/lyrics/stats').then(r=>r.json()),
+    ]);
+    const f=(o)=>`排队${o.pending||0} · 处理中${o.processing||0} · 完成${o.done||0} · 失败${o.failed||0}`;
+    alert(`【逐字对齐】${f(s.align)}\n【人声分离】${f(s.separate)}\n音频歌共 ${s.songs.audioTotal}｜已对齐 ${s.songs.aligned}｜已分离 ${s.songs.separated}\n\n歌词覆盖 ${l.hasLyrics}/${l.total}（${l.coverage}%）\n\n提示：显卡电脑需开着「启动AI工作站.bat」才会真正处理。`);
+  }catch(e){ toast('请求失败：'+e.message); }
 }
 
 // 只重新探测这一首歌的音轨数量：跟页面顶部"重新检测音轨"的区别是那个会把

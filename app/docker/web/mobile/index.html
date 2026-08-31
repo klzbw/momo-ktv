@@ -588,6 +588,11 @@ header{
       <div class="ctrl-btn" onclick="sendCtrl('lyrics_offset',{delta:0.2})" style="flex:1;justify-content:center">⏩ 字延后 0.2s</div>
     </div>
   </div>
+  <!-- 手动重新生成当前播放歌曲的逐字歌词（AI工作站：识别+官方歌词纠错） -->
+  <div class="ctrl-section">
+    <div class="ctrl-title">🤖 逐字歌词 AI（手动触发）</div>
+    <div class="ctrl-btn" onclick="regenWordLyrics()" style="justify-content:center">🎤 重新生成当前歌曲逐字歌词</div>
+  </div>
 
   </div>
 
@@ -674,6 +679,19 @@ setInterval(tickCtrlProgress,500);
 
 // extra 用来携带 volume 需要的 delta、eq 需要的 name；旧的单参数调用(sendCtrl('home')等)不受影响
 function sendCtrl(action, extra){ sendWS(Object.assign({type:'control',action}, extra||{})); }
+// 手动把"当前播放歌曲"重新加入 AI 队列生成逐字歌词（force：已生成过也重做）
+async function regenWordLyrics(){
+  const playing=(queueData||[]).find(q=>q.status==='playing');
+  if(!playing||!playing.song_id){ showToast('当前没有正在播放的歌曲'); return; }
+  if(!confirm(`把《${playing.title}》重新加入 AI 队列生成逐字歌词？\n需显卡电脑(192.168.3.51)开着「启动AI工作站.bat」，约20-40秒完成，完成后切歌再回来即生效。`)) return;
+  try{
+    const r=await fetch('/api/separate/enqueue',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({song_ids:[playing.song_id],type:'align',force:true})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){ showToast(d.error||'入队失败'); return; }
+    showToast('已加入AI队列，生成后重新播放即可看到逐字歌词');
+  }catch(e){ showToast('请求失败：'+e.message); }
+}
 function sendWS(obj){ if(window._ws&&window._ws.readyState===1) window._ws.send(JSON.stringify(obj)); }
 // ===== 动态背景图片：上传多张 / 列表 / 删除（大屏纯音频歌"我的图片"模式随机轮播）=====
 async function loadBgImages(){
