@@ -44,26 +44,30 @@ struct AudioBackgroundView: View {
     private var mode: AudioBgMode { .from(modeRaw) }
 
     var body: some View {
-        let sw = UIScreen.main.bounds.width
-        let sh = UIScreen.main.bounds.height
-        ZStack {
-            // 深色底，保证任何效果下都不透出服务端渐变轨
-            LinearGradient(colors: [Color(red: 0.04, green: 0.03, blue: 0.12),
-                                    Color(red: 0.01, green: 0.01, blue: 0.05)],
-                           startPoint: .top, endPoint: .bottom)
-                .frame(width: sw, height: sh)
-            if mode == .photos {
-                PhotosBg(server: server)
-            } else {
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
-                    Canvas { ctx, size in
-                        render(mode, t: tl.date.timeIntervalSince1970, size: size, ctx: &ctx)
+        // GeometryReader 自适应容器：全屏铺满屏幕，首页小窗铺满小窗，不再硬编码物理尺寸
+        GeometryReader { geo in
+            let sw = geo.size.width
+            let sh = geo.size.height
+            ZStack {
+                // 深色底，保证任何效果下都不透出服务端渐变轨
+                LinearGradient(colors: [Color(red: 0.04, green: 0.03, blue: 0.12),
+                                        Color(red: 0.01, green: 0.01, blue: 0.05)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(width: sw, height: sh)
+                if mode == .photos {
+                    PhotosBg(server: server, w: sw, h: sh)
+                } else {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { tl in
+                        Canvas { ctx, size in
+                            render(mode, t: tl.date.timeIntervalSince1970, size: size, ctx: &ctx)
+                        }
                     }
+                    .frame(width: sw, height: sh)
                 }
-                .frame(width: sw, height: sh)
             }
+            .frame(width: sw, height: sh)
+            .clipped()
         }
-        .frame(width: sw, height: sh)
         .ignoresSafeArea()
         .allowsHitTesting(false)  // 背景层绝不拦截遥控器焦点/点击
     }
@@ -235,21 +239,21 @@ struct AudioBackgroundView: View {
 // MARK: - 我的图片：拉取服务端用户上传的背景图，多张随机轮播，带柔和交叉淡入
 struct PhotosBg: View {
     let server: String
+    var w: CGFloat = 0   // 容器宽，由 AudioBackgroundView 的 GeometryReader 传入
+    var h: CGFloat = 0   // 容器高
     @State private var urls: [String] = []
     @State private var idx = 0
     @State private var timer: Timer?   // 手动 Timer，播放时比 Timer.publish 更可靠
 
     var body: some View {
-        // 固定为屏幕物理尺寸，彻底杜绝不同尺寸图片加载时 ZStack/AsyncImage 大小波动
-        let screenW = UIScreen.main.bounds.width
-        let screenH = UIScreen.main.bounds.height
+        // 用外部传入的容器尺寸，彻底杜绝不同尺寸图片加载时 ZStack/AsyncImage 大小波动
         ZStack {
             Color(red: 0.03, green: 0.03, blue: 0.08)
-                .frame(width: screenW, height: screenH)
+                .frame(width: w, height: h)
             if urls.isEmpty {
                 LinearGradient(colors: [Color(red: 0.12, green: 0.1, blue: 0.3), Color(red: 0.04, green: 0.02, blue: 0.12)],
                                startPoint: .top, endPoint: .bottom)
-                    .frame(width: screenW, height: screenH)
+                    .frame(width: w, height: h)
             } else if let u = URL(string: urls[idx % urls.count]) {
                 AsyncImage(url: u, transaction: Transaction(animation: .easeInOut(duration: 1.2))) { phase in
                     switch phase {
@@ -259,14 +263,14 @@ struct PhotosBg: View {
                         Color.clear
                     }
                 }
-                .frame(width: screenW, height: screenH)
+                .frame(width: w, height: h)
                 .clipped()
                 .id(idx)
                 .focusable(false)
                 .allowsHitTesting(false)
             }
         }
-        .frame(width: screenW, height: screenH)
+        .frame(width: w, height: h)
         .allowsHitTesting(false)
         .onAppear {
             load()

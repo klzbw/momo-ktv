@@ -192,6 +192,11 @@ struct KaraokeWord: View {
 struct LyricsView: View {
     let lyrics: SongLyrics
     let currentTime: Double
+    var compact: Bool = false   // 首页小窗预览用小字号
+    /// 当前行/预览行字号：全屏 46/40/30，小窗 24/21/16
+    private var activeSize: CGFloat { compact ? 24 : 46 }
+    private var scrollActiveSize: CGFloat { compact ? 21 : 40 }
+    private var nearSize: CGFloat { compact ? 16 : 30 }
     @AppStorage("momoLyricsColor") private var lyricsColorHex: String = "#FFD24A"
     @AppStorage("momoLyricsStroke") private var lyricsStrokeHex: String = "#000000"
     private var highlight: Color { colorFromHex(lyricsColorHex) }
@@ -204,7 +209,7 @@ struct LyricsView: View {
     var body: some View {
         if lyrics.isEmpty {
             Text("♪ 纯音乐 · 请欣赏 ♪")
-                .font(.system(size: 30, weight: .semibold))
+                .font(.system(size: compact ? 16 : 30, weight: .semibold))
                 .foregroundColor(.white.opacity(0.55))
         } else if mode == .dual {
             dualBody
@@ -215,7 +220,7 @@ struct LyricsView: View {
 
     private var dualBody: some View {
         let ai = activeIndex
-        return VStack(spacing: 22) {
+        return VStack(spacing: compact ? 8 : 22) {
             Spacer(minLength: 0)
             if ai >= 0 {
                 lineView(lyrics.lines[ai], idx: ai)
@@ -230,7 +235,7 @@ struct LyricsView: View {
             Spacer(minLength: 0)
         }
         .animation(.easeOut(duration: 0.25), value: ai)
-        .padding(.horizontal, 70)
+        .padding(.horizontal, compact ? 16 : 70)
     }
 
     private var scrollBody: some View {
@@ -242,8 +247,8 @@ struct LyricsView: View {
                             .id(line.id)
                     }
                 }
-                .padding(.vertical, 220)
-                .padding(.horizontal, 60)
+                .padding(.vertical, compact ? 40 : 220)
+                .padding(.horizontal, compact ? 14 : 60)
             }
             .onChange(of: activeIndex) { newValue in
                 guard newValue >= 0 else { return }
@@ -272,10 +277,10 @@ struct LyricsView: View {
                     )
                 }
             }
-            .font(.system(size: isDual ? 46 : 40, weight: .bold))
+            .font(.system(size: isDual ? activeSize : scrollActiveSize, weight: .bold))
             .multilineTextAlignment(.center)
         } else {
-            let sz: CGFloat = active ? (isDual ? 46 : 40) : 30
+            let sz: CGFloat = active ? (isDual ? activeSize : scrollActiveSize) : nearSize
             let fill = active ? highlight : Color.white.opacity(preview ? 0.5 : 0.4)
             strokedLine(line.plain, fill: fill, size: sz, weight: active ? .bold : .medium)
         }

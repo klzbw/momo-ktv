@@ -29,6 +29,7 @@ struct ContentView: View {
     @FocusState private var settingsNavFocused: Bool
     @State private var lastNavButton: String? = nil
     private let playerManager = PlayerManager.shared
+    @StateObject private var previewLyrics = LyricsLoader()  // 首页小窗预览歌词
 
     enum PanelType { case search, queue, settings, eq }
     enum PageType { case order, artists, artistSongs, charts, favorites, history, newest, category }
@@ -386,6 +387,9 @@ struct ContentView: View {
                         playerManager.vocalTrackCount = playing.audio_tracks ?? 1
                         playerManager.setupPlayer(for: hlsURL)
                         playerManager.setVolume(volume)
+                        // 首次进入小窗也加载歌词（onChange 只在切歌时触发）
+                        if playing.isVideoFile { previewLyrics.lyrics = .empty }
+                        else if previewLyrics.lyrics.isEmpty { previewLyrics.load(server: api.serverAddress, songId: playing.song_id) }
                         // Re-attach layer after setup to ensure video shows
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                             playerManager.attachLayerToCurrentHost()
@@ -394,6 +398,15 @@ struct ContentView: View {
                             playerManager.attachLayerToCurrentHost()
                         }
                     }
+
+                // 纯音频歌：小窗也显示动态背景 + 逐字歌词，与全屏 FullPlayerView 一致
+                if !playing.isVideoFile {
+                    AudioBackgroundView(server: api.serverAddress)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .allowsHitTesting(false)
+                    LyricsView(lyrics: previewLyrics.lyrics, currentTime: playerManager.currentTime, compact: true)
+                        .allowsHitTesting(false)
+                }
 
                 // Song intro animation (exact #song-intro)
                 if showSongIntro, let intro = introSong {
@@ -456,6 +469,7 @@ struct ContentView: View {
             }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
             .cornerRadius(16)
             .padding(2)
             .background(focused ? Color.white.opacity(0.15) : Color.clear)
@@ -465,6 +479,9 @@ struct ContentView: View {
             // Reset auto-next guard when song changes
             lastAutoNextQueueId = nil
             if let playing = api.queue.first(where: { $0.isPlaying }) {
+                // 小窗预览歌词：视频歌清空，纯音频歌加载
+                if playing.isVideoFile { previewLyrics.lyrics = .empty }
+                else { previewLyrics.load(server: api.serverAddress, songId: playing.song_id) }
                 introSong = playing
                 showSongIntro = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
