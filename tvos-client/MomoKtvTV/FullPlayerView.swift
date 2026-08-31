@@ -85,9 +85,11 @@ struct FullPlayerView: View {
             }
 
             if showControls && !showQueue && !showQR {
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    VStack(spacing: 14) {
+                // 用 GeometryReader 把控制条绝对固定在屏幕底部，彻底脱离 ZStack/背景图片布局影响
+                GeometryReader { screenGeo in
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        VStack(spacing: 14) {
                         // Progress bar
                         VStack(spacing: 6) {
                             GeometryReader { geo in
@@ -214,9 +216,11 @@ struct FullPlayerView: View {
                     .padding(.top, 16)
                     .background(LinearGradient(colors: [.clear, Color.black.opacity(0.9)],
                                                startPoint: .top, endPoint: .bottom))
+                    }
+                    .frame(width: screenGeo.size.width, height: screenGeo.size.height, alignment: .bottom)
                 }
-                .frame(maxHeight: .infinity, alignment: .bottom)
                 .transition(.opacity)
+                .ignoresSafeArea()
             }
 
             // Transparent focusable area to receive select button when controls are hidden
