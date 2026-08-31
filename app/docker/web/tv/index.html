@@ -920,9 +920,9 @@ html[data-layout="mobile"] #next-up-track span{font-size:16px}
 #lyrics-layer .ll-srow.ll-cur .sung{color:#ffd24a;text-shadow:0 0 12px rgba(255,190,60,.65),0 2px 10px rgba(0,0,0,.8)}
 /* 卡拉OK k 标签逐字渐变：双层叠加——底层未唱(白) + 上层已唱(金)按宽度裁剪，从左到右横向扫过 */
 #lyrics-layer .kw{position:relative;display:inline-block;white-space:nowrap;line-height:1.25;}
-#lyrics-layer .kw-base{color:rgba(255,255,255,.42);-webkit-text-stroke:1px var(--lyrics-stroke,#000);paint-order:stroke fill;}
+#lyrics-layer .kw-base{color:rgba(255,255,255,.42);-webkit-text-stroke:2.5px var(--lyrics-stroke,#000);paint-order:stroke fill;}
 #lyrics-layer .kw-ok{position:absolute;top:0;left:0;overflow:hidden;color:var(--lyrics-color,#ffd24a);white-space:nowrap;
-  -webkit-text-stroke:1px var(--lyrics-stroke,#000);paint-order:stroke fill;
+  -webkit-text-stroke:2.5px var(--lyrics-stroke,#000);paint-order:stroke fill;
   text-shadow:0 0 12px rgba(255,190,60,.45),0 2px 10px rgba(0,0,0,.8);}
 /* 非逐字行（普通LRC）也加描边 */
 #lyrics-layer .ll-cur:not(:has(.kw)),#lyrics-layer .ll-srow.ll-cur:not(:has(.kw)){
@@ -2559,8 +2559,16 @@ const Lyrics = (()=>{
     });
     out.sort((a,b)=>a.start-b.start);
     out.forEach((l,i)=>{ l.end=i+1<out.length?out[i+1].start:Infinity;
-      // 卡拉OK k 标签：给每个逐字 token 补结束时间（下一个字的起点；最后一字用行尾或+1.5s 延长音）
-      if(l.tokens)l.tokens.forEach((tk,j)=>{ tk.end = (j+1<l.tokens.length) ? l.tokens[j+1].t : (isFinite(l.end)?l.end:tk.t+1.5); }); });
+      // 卡拉OK k 标签：给每个逐字 token 补结束时间
+      if(l.tokens)l.tokens.forEach((tk,j)=>{ tk.end = (j+1<l.tokens.length) ? l.tokens[j+1].t : (isFinite(l.end)?l.end:tk.t+1.5); });
+      // 伪逐字：没有逐字标签的行，按字符平均分配行时间，实现近似逐字扫过
+      else if(l.plain && l.plain.trim()){
+        const chars=[...l.plain].filter(c=>c.trim());
+        if(chars.length>=2 && isFinite(l.end) && l.end>l.start){
+          const dur=(l.end-l.start)/chars.length;
+          l.tokens=chars.map((c,j)=>({w:c,t:l.start+dur*j,end:l.start+dur*(j+1)}));
+        }
+      } });
     return out.filter((l,i)=>!i||out[i-1].start!==l.start||out[i-1].plain!==l.plain);
   }
   function esc(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }

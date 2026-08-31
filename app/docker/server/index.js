@@ -641,13 +641,36 @@ app.post('/api/voice/switch', (req, res) => {
 // ============ 歌词（音频K歌改造）============
 // 取一首歌的歌词：DB 已有则直接返回(不联网、最快)；没有则按"本地同名lrc→在线三源"
 // 找一次，找到就落库。forceOnline=true 时忽略 DB 已有结果强制在线重抓。
+// 检测歌词是否乱码（含 Unicode 替换字符 U+FFFD，或高比例不可打印字符）
+function isLyricsMojibake(text) {
+  if (!text) return false;
+  if (text.includes('\uFFFD')) return true;
+  // 统计非 ASCII 可打印字符中，乱码常见的私有区/控制符比例
+  let bad = 0, total = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0);
+    if (code > 127) {
+      total++;
+      // 乱码常见范围：Latin-1 补充(0x80-0xFF)、通用标点区异常、私有区
+      if (code >= 0x80 && code <= 0xFF) bad++;
+      else if (code >= 0xE000 && code <= 0xF8FF) bad++; // 私有区
+    }
+  }
+  return total > 10 && bad / total > 0.3;
+}
+
 async function obtainLyrics(song, { forceOnline = false } = {}) {
-  if (song.lyrics && !forceOnline) return { lrc: song.lyrics, source: song.lyrics_source || 'stored', lines: lyricsMod.parseLrc(song.lyrics).length };
+  // DB 已有歌词且不是乱码 → 直接返回(最快)；是乱码则忽略，重新走本地/在线获取
+  if (song.lyrics && !forceOnline && !isLyricsMojibake(song.lyrics)) {
+    return { lrc: song.lyrics, source: song.lyrics_source || 'stored', lines: lyricsMod.parseLrc(song.lyrics).length };
+  }
   const r = await lyricsMod.resolveLyrics(song, { allowOnline: true });
   if (r && r.lrc) {
     db.prepare('UPDATE songs SET lyrics=?, lyrics_source=? WHERE id=?').run(r.lrc, r.source, song.id);
     return { lrc: r.lrc, source: r.source, lines: lyricsMod.parseLrc(r.lrc).length };
   }
+  // 在线/本地都没拿到，但 DB 有乱码歌词 → 至少返回乱码的（比没有强），但标记 source
+  if (song.lyrics) return { lrc: song.lyrics, source: (song.lyrics_source || 'stored') + '(mojibake)', lines: lyricsMod.parseLrc(song.lyrics).length };
   return null;
 }
 

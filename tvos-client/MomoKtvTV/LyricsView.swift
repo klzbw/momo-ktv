@@ -86,6 +86,17 @@ struct SongLyrics {
         out.sort { $0.start < $1.start }
         for i in out.indices {
             out[i].end = (i + 1 < out.count) ? out[i + 1].start : .greatestFiniteMagnitude
+            // 伪逐字：没有逐字标签的行，按字符平均分配行时间，实现近似逐字扫过
+            if out[i].tokens == nil, !out[i].plain.trimmingCharacters(in: .whitespaces).isEmpty,
+               out[i].end < .greatestFiniteMagnitude, out[i].end > out[i].start {
+                let chars = Array(out[i].plain).filter { !$0.isWhitespace }
+                if chars.count >= 2 {
+                    let dur = (out[i].end - out[i].start) / Double(chars.count)
+                    out[i].tokens = chars.enumerated().map { j, c in
+                        LyricToken(time: out[i].start + dur * Double(j), text: String(c))
+                    }
+                }
+            }
         }
         var dedup: [LyricLine] = []
         for l in out where dedup.last?.start != l.start || dedup.last?.plain != l.plain { dedup.append(l) }
@@ -160,7 +171,7 @@ struct KaraokeWord: View {
         var a = AttributedString(t)
         a.foregroundColor = UIColor(fill)
         a.strokeColor = UIColor(stroke)
-        a.strokeWidth = -2.5
+        a.strokeWidth = -4
         return Text(a)
     }
 
@@ -275,7 +286,7 @@ struct LyricsView: View {
         var a = AttributedString(text)
         a.foregroundColor = UIColor(fill)
         a.strokeColor = UIColor(stroke)
-        a.strokeWidth = -2.5
+        a.strokeWidth = -4
         a.font = UIFont.systemFont(ofSize: size, weight: weight == .bold ? .bold : .regular)
         return Text(a)
             .multilineTextAlignment(.center)

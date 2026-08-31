@@ -59,6 +59,7 @@ struct AudioBackgroundView: View {
             }
         }
         .ignoresSafeArea()
+        .allowsHitTesting(false)  // 背景层绝不拦截遥控器焦点/点击
     }
 
     // MARK: 各效果绘制（所有坐标统一使用 CGFloat，避免 Swift 不自动转换 Double）
@@ -246,8 +247,11 @@ struct PhotosBg: View {
                     }
                 }
                 .id(idx)
+                .focusable(false)
+                .allowsHitTesting(false)
             }
         }
+        .allowsHitTesting(false)
         .onAppear(perform: load)
         .onReceive(timer) { _ in
             guard !urls.isEmpty else { return }
