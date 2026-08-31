@@ -172,6 +172,7 @@ final class LyricsStyleStore: ObservableObject {
     @Published var strokeHex: String
     @Published var lineWidth: CGFloat        // 描边粗细（点），遥控端可调 0...12
     @Published var fontScale: CGFloat        // 字号倍率，遥控端可调 0.7...3.0，默认 1
+    @Published var posV: CGFloat             // 歌词整体垂直位置：距底部百分比 0...60，默认18，越大越靠上
     private init() {
         colorHex = UserDefaults.standard.string(forKey: "momoLyricsColor") ?? "#FFD24A"
         strokeHex = UserDefaults.standard.string(forKey: "momoLyricsStroke") ?? "#000000"
@@ -179,8 +180,11 @@ final class LyricsStyleStore: ObservableObject {
         lineWidth = savedW > 0 ? CGFloat(savedW) : 5
         let savedS = UserDefaults.standard.double(forKey: "momoLyricsScale")
         fontScale = savedS > 0 ? CGFloat(savedS) : 1
+        if let savedP = UserDefaults.standard.object(forKey: "momoLyricsPos") as? Double {
+            posV = CGFloat(savedP)
+        } else { posV = 18 }
     }
-    func apply(color: String?, stroke: String?, width: CGFloat? = nil, scale: CGFloat? = nil) {
+    func apply(color: String?, stroke: String?, width: CGFloat? = nil, scale: CGFloat? = nil, posV: CGFloat? = nil) {
         if let c = color, !c.isEmpty {
             colorHex = c
             UserDefaults.standard.set(c, forKey: "momoLyricsColor")
@@ -197,6 +201,10 @@ final class LyricsStyleStore: ObservableObject {
             fontScale = max(0.7, min(3.0, sc))
             UserDefaults.standard.set(Double(fontScale), forKey: "momoLyricsScale")
         }
+        if let pv = posV {
+            self.posV = max(0, min(60, pv))
+            UserDefaults.standard.set(Double(self.posV), forKey: "momoLyricsPos")
+        }
     }
 }
 
@@ -211,7 +219,7 @@ struct StrokeFillText: View {
     var body: some View {
         let on = w > 0.01
         let c = on ? strokeColor : Color.clear
-        let r = w * 0.35
+        let r = w * 0.30
         let d = w * 0.7071
         Text(text)
             .foregroundColor(fill)
@@ -268,9 +276,9 @@ struct LyricsView: View {
 
     /// 校准后的时间（叠加用户调节的偏移）
     private var displayTime: Double { currentTime + timeOffset }
-    /// 字号对齐网页 TV 端：双排当前/预备均 54(.black 同字号)；滚动当前 52、邻近 36；再统一乘遥控可调倍率 fontScale
+    /// 字号对齐网页 TV 端：双排当前/预备均 58(.black 同字号)；滚动当前 52、邻近 36；再统一乘遥控可调倍率 fontScale
     private var sc: CGFloat { styleStore.fontScale }
-    private var activeSize: CGFloat { (compact ? 24 : 54) * sc }
+    private var activeSize: CGFloat { (compact ? 26 : 58) * sc }
     private var scrollActiveSize: CGFloat { (compact ? 21 : 52) * sc }
     private var near1Size: CGFloat { (compact ? 15 : 36) * sc }
     private var mode: LyricsDisplayMode { .from(modeRaw) }
@@ -280,46 +288,52 @@ struct LyricsView: View {
     private var activeIndex: Int { lyrics.lineIndex(at: displayTime) }
 
     var body: some View {
-        if lyrics.isEmpty {
-            Text("♪ 纯音乐 · 请欣赏 ♪")
-                .font(.system(size: compact ? 16 : 34, weight: .semibold))
-                .foregroundColor(.white.opacity(0.55))
-        } else if mode == .dual {
-            dualBody
-        } else {
-            scrollBody
+        GeometryReader { geo in
+            Group {
+                if lyrics.isEmpty {
+                    Text("♪ 纯音乐 · 请欣赏 ♪")
+                        .font(.system(size: compact ? 16 : 34, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.55))
+                } else if mode == .dual {
+                    dualBody
+                } else {
+                    scrollBody
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // 遥控可调的歌词整体上下位置：posV=18 为默认(位移0)，调大整体上移、调小下移
+            .offset(y: (18 - styleStore.posV) / 100.0 * geo.size.height * 0.62)
+            .animation(.easeOut(duration: 0.18), value: styleStore.posV)
         }
     }
 
-    // 双排模式（左右固定槽·歌词不上下动，只羽化）：奇数句永远固定在左槽、偶数句永远固定在右槽，两槽同一水平高度。
-    // 当前演唱句所在槽逐字高亮，另一槽提前显示它的下一句(预备、同字号、暗淡)。某句到来时在自己的固定槽内由暗淡
-    // 原地变亮开始逐字(位置/大小不变)；该句唱完，对面槽羽化(opacity)换为再下一句——全程无上下/左右位移。
+    // 双排模式（错落上下两排·只羽化不跳动）：奇数句恒固定在上排、偶数句恒固定在下排，每排占满屏宽(字号可放很大)。
+    // 当前演唱句所在排逐字高亮，另一排提前显示下一句(预备、同字号、暗淡)；某句到来时在自己固定排原地变亮，
+    // 唱完后另一排羽化换为再下一句——全程不跨排上下跳，位置/大小不变。
     private var dualBody: some View {
         let ai = activeIndex
-        let curOnRight = ai % 2 == 0              // 当前句偶数→在右槽；奇数→在左槽
-        let leftIdx = curOnRight ? ai + 1 : ai    // 左槽永远是奇数句
-        let rightIdx = curOnRight ? ai : ai + 1   // 右槽永远是偶数句
-        return VStack(spacing: 0) {
+        let topIdx = ai % 2 == 0 ? ai + 1 : ai       // 上排恒为奇数句
+        let bottomIdx = ai % 2 == 0 ? ai : ai + 1    // 下排恒为偶数句
+        return VStack(spacing: compact ? 12 : 34) {
             Spacer(minLength: 0)
-            HStack(alignment: .center, spacing: compact ? 12 : 28) {
-                dualSlot(leftIdx, .leading)
-                dualSlot(rightIdx, .trailing)
-            }
+            dualSlot(topIdx)
+            dualSlot(bottomIdx)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, compact ? 16 : 80)
-        .padding(.bottom, compact ? 18 : 56)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, compact ? 16 : 70)
+        .padding(.bottom, compact ? 16 : 48)
         .animation(.easeInOut(duration: 0.22), value: ai)
     }
 
-    /// 双排里的一个固定槽：越界留等宽空位；槽内内容变化时仅羽化(opacity)，不产生位移
+    /// 双排里的一个固定排：越界留等高空位；内容变化仅羽化(opacity)不位移；满宽居中
     @ViewBuilder
-    private func dualSlot(_ idx: Int, _ align: Alignment) -> some View {
+    private func dualSlot(_ idx: Int) -> some View {
         if idx >= 0 && idx < lyrics.lines.count {
             lineView(lyrics.lines[idx], idx: idx)
                 .id(lyrics.lines[idx].id)
                 .transition(.opacity)
-                .frame(maxWidth: .infinity, alignment: align)
+                .frame(maxWidth: .infinity, alignment: .center)
         } else {
             Color.clear.frame(maxWidth: .infinity)
         }

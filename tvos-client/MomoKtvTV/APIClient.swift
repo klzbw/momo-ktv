@@ -387,7 +387,8 @@ class KTVAPIClient: ObservableObject {
             let stroke = json["stroke"] as? String
             let widthVal = (json["width"] as? Double).map { CGFloat($0) }
             let scaleVal = (json["fontScale"] as? Double).map { CGFloat($0) }
-            DispatchQueue.main.async { LyricsStyleStore.shared.apply(color: color, stroke: stroke, width: widthVal, scale: scaleVal) }
+            let posVal = (json["posV"] as? Double).map { CGFloat($0) }
+            DispatchQueue.main.async { LyricsStyleStore.shared.apply(color: color, stroke: stroke, width: widthVal, scale: scaleVal, posV: posVal) }
         }
     }
 

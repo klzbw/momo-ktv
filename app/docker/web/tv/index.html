@@ -898,23 +898,19 @@ html[data-layout="mobile"] #next-up-track span{font-size:16px}
 #s3-qr-pop .s3-qr-tip{color:#07071a;font-size:13px;text-align:center;max-width:160px;font-weight:600}
 /* ============ 逐字歌词层：盖在视频上、控制条下，纯展示不拦截点击。三行窗口(上/当前/下)，
    当前行逐字卡拉OK填色，已唱字金色、未唱字白色。 ============================ */
-#lyrics-layer{position:absolute;left:0;right:0;top:14%;bottom:18%;z-index:4;display:flex;
+#lyrics-layer{position:absolute;left:0;right:0;top:14%;bottom:calc(var(--lyrics-pos,18) * 1%);z-index:4;display:flex;
   flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:0 8%;
   pointer-events:none;overflow:hidden;text-align:center}
 #lyrics-layer .ll-line{max-width:100%;line-height:1.3;margin:0}
 #lyrics-layer .ll-line.ll-left{align-self:flex-start;text-align:left;max-width:86%}
 #lyrics-layer .ll-line.ll-right{align-self:flex-end;text-align:right;max-width:86%}
-  /* 双排左右固定槽：奇数句恒在左槽、偶数句恒在右槽，同一水平高度，换行只羽化(fade)不位移 */
-  #lyrics-layer .ll-dualrow{display:flex;align-items:center;justify-content:space-between;gap:28px;width:100%;height:100%}
-  #lyrics-layer .ll-slot{flex:1 1 0;min-width:0;display:flex}
-  #lyrics-layer .ll-slot-l{justify-content:flex-start}
-  #lyrics-layer .ll-slot-l .ll-line{text-align:left}
-  #lyrics-layer .ll-slot-r{justify-content:flex-end}
-  #lyrics-layer .ll-slot-r .ll-line{text-align:right}
-  #lyrics-layer .ll-slot .ll-line{max-width:100%;animation:llFade .22s ease both}
+  /* 双排错落上下两排：奇数句恒在上排、偶数句恒在下排，各占满宽(字号可放很大)，换行只羽化(fade)不跨排跳动 */
+  #lyrics-layer .ll-dualcol{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px;width:100%;height:100%}
+  #lyrics-layer .ll-dualslot{width:100%;display:flex;justify-content:center;text-align:center}
+  #lyrics-layer .ll-dualslot .ll-line{max-width:100%;animation:llFade .22s ease both}
   @keyframes llFade{from{opacity:0}to{opacity:1}}
-#lyrics-layer .ll-near{font-size:calc(54px * var(--lyrics-scale,1));font-weight:900;letter-spacing:calc(1px * var(--lyrics-scale,1));line-height:1.25;color:rgba(255,255,255,.5);text-shadow:0 2px 10px rgba(0,0,0,.8)}
-#lyrics-layer .ll-cur{font-size:calc(54px * var(--lyrics-scale,1));font-weight:900;letter-spacing:calc(1px * var(--lyrics-scale,1));line-height:1.25;color:#fff;
+#lyrics-layer .ll-near{font-size:calc(58px * var(--lyrics-scale,1));font-weight:900;letter-spacing:calc(1px * var(--lyrics-scale,1));line-height:1.25;color:rgba(255,255,255,.5);text-shadow:0 2px 10px rgba(0,0,0,.8)}
+#lyrics-layer .ll-cur{font-size:calc(58px * var(--lyrics-scale,1));font-weight:900;letter-spacing:calc(1px * var(--lyrics-scale,1));line-height:1.25;color:#fff;
   text-shadow:0 0 2px rgba(0,0,0,.9),0 3px 14px rgba(0,0,0,.85),0 0 22px rgba(255,199,64,.25)}
 #lyrics-layer .ll-cur .sung{color:#ffd24a;text-shadow:0 0 12px rgba(255,190,60,.65),0 2px 10px rgba(0,0,0,.8)}
 #lyrics-layer .ll-none{font-size:calc(30px * var(--lyrics-scale,1));font-weight:700;color:rgba(255,255,255,.5)}
@@ -2623,18 +2619,17 @@ const Lyrics = (()=>{
   }
   // —— 双排模式：只渲染 上一行/当前行/下一行 三行窗口 ——
   function renderDual(l,t,idx){
-    // 左右固定槽(与tvOS一致)：奇数句恒在左槽、偶数句恒在右槽，两槽同一水平高度、位置不动。
-    // 当前句所在槽逐字高亮，另一槽提前显示下一句(预备/同字号/暗淡)；换行只做羽化，不上下/左右移动。
+    // 错落上下两排(与tvOS一致)：奇数句恒在上排、偶数句恒在下排，各占满宽、满宽居中；当前句所在排逐字高亮，
+    // 另一排提前显示下一句(预备/同字号/暗淡)；某句到来原地变亮，唱完另一排羽化换句，不跨排跳动。
     if(idx<0){ l.innerHTML='<div class="ll-line ll-none">♪ 纯音乐 · 请欣赏 ♪</div>'; return; }
-    const curOnRight=idx%2===0;
-    const leftIdx=curOnRight?idx+1:idx, rightIdx=curOnRight?idx:idx+1;
-    const slot=(i,side)=>{
-      if(i<0||i>=lines.length) return '<div class="ll-slot ll-slot-'+side+'"></div>';
+    const topIdx=idx%2===0?idx+1:idx, bottomIdx=idx%2===0?idx:idx+1;
+    const slot=(i)=>{
+      if(i<0||i>=lines.length) return '<div class="ll-dualslot"></div>';
       const isCur=(i===idx);
       const inner=isCur?curLineHTML(lines[i],t):esc(lines[i].plain);
-      return '<div class="ll-slot ll-slot-'+side+'"><div class="ll-line '+(isCur?'ll-cur':'ll-near')+'">'+inner+'</div></div>';
+      return '<div class="ll-dualslot"><div class="ll-line '+(isCur?'ll-cur':'ll-near')+'">'+inner+'</div></div>';
     };
-    l.innerHTML='<div class="ll-dualrow">'+slot(leftIdx,'l')+slot(rightIdx,'r')+'</div>';
+    l.innerHTML='<div class="ll-dualcol">'+slot(topIdx)+slot(bottomIdx)+'</div>';
   }
   // —— 滚动模式：换歌时一次性建整列，当前行平滑滚到中央，逐字填色 ——
   function buildScroll(l){
@@ -3022,10 +3017,10 @@ function reportPlaybackState(){sendWS({type:'state',paused:isPaused,voice:VoiceM
 // 就是一次全新的 ws 连接，不重新声明的话本机永远停在上一次连接时的
 // isActivePlayer 判定上，可能跟服务端当前真实状态早就对不上。
 function announceRole(password){sendWS({type:'role_announce',deviceId:myDeviceId,deviceName:myDeviceName,role:myRole,password});}
-function connectWS(){const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);ws.onopen=()=>{setConnStatus(true);reportPlaybackState();announceRole();};ws.onmessage=ev=>{const m=JSON.parse(ev.data);if(m.type==='queue'){queueData=m.data;renderAll();}if(m.type==='control')handleRemote(m);if(m.type==='player_changed')handlePlayerChanged(m);if(m.type==='progress')handleProgressBroadcast(m);if(m.type==='role_ack')handleRoleAck(m);if(m.type==='lock_ack')handleLockAck(m);if(m.type==='state')applyRemoteState(m);if(m.type==='atmosphere')playAtmosphere(m.kind);if(m.type==='blessing')showBlessing(m.text,m.from);if(m.type==='lyrics_style'){if(m.color){document.documentElement.style.setProperty('--lyrics-color',m.color);try{localStorage.setItem('momoLyricsColor',m.color);}catch(e){}}if(m.stroke){document.documentElement.style.setProperty('--lyrics-stroke',m.stroke);try{localStorage.setItem('momoLyricsStroke',m.stroke);}catch(e){}}if(typeof m.width==='number'){document.documentElement.style.setProperty('--lyrics-stroke-w',m.width+'px');try{localStorage.setItem('momoLyricsWidth',String(m.width));}catch(e){}}if(typeof m.fontScale==='number'){document.documentElement.style.setProperty('--lyrics-scale',String(m.fontScale));try{localStorage.setItem('momoLyricsScale',String(m.fontScale));}catch(e){}}}};ws.onclose=()=>{setConnStatus(false);setTimeout(connectWS,2000);};ws.onerror=()=>setConnStatus(false);window._ws=ws;}
+function connectWS(){const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);ws.onopen=()=>{setConnStatus(true);reportPlaybackState();announceRole();};ws.onmessage=ev=>{const m=JSON.parse(ev.data);if(m.type==='queue'){queueData=m.data;renderAll();}if(m.type==='control')handleRemote(m);if(m.type==='player_changed')handlePlayerChanged(m);if(m.type==='progress')handleProgressBroadcast(m);if(m.type==='role_ack')handleRoleAck(m);if(m.type==='lock_ack')handleLockAck(m);if(m.type==='state')applyRemoteState(m);if(m.type==='atmosphere')playAtmosphere(m.kind);if(m.type==='blessing')showBlessing(m.text,m.from);if(m.type==='lyrics_style'){if(m.color){document.documentElement.style.setProperty('--lyrics-color',m.color);try{localStorage.setItem('momoLyricsColor',m.color);}catch(e){}}if(m.stroke){document.documentElement.style.setProperty('--lyrics-stroke',m.stroke);try{localStorage.setItem('momoLyricsStroke',m.stroke);}catch(e){}}if(typeof m.width==='number'){document.documentElement.style.setProperty('--lyrics-stroke-w',m.width+'px');try{localStorage.setItem('momoLyricsWidth',String(m.width));}catch(e){}}if(typeof m.fontScale==='number'){document.documentElement.style.setProperty('--lyrics-scale',String(m.fontScale));try{localStorage.setItem('momoLyricsScale',String(m.fontScale));}catch(e){}}if(typeof m.posV==='number'){document.documentElement.style.setProperty('--lyrics-pos',String(m.posV));try{localStorage.setItem('momoLyricsPos',String(m.posV));}catch(e){}}}};ws.onclose=()=>{setConnStatus(false);setTimeout(connectWS,2000);};ws.onerror=()=>setConnStatus(false);window._ws=ws;}
 connectWS();
 // 歌词样式初始化：从 localStorage 恢复字体色/描边色（遥控端可实时修改）
-try{const _lc=localStorage.getItem('momoLyricsColor');if(_lc)document.documentElement.style.setProperty('--lyrics-color',_lc);const _ls=localStorage.getItem('momoLyricsStroke');if(_ls)document.documentElement.style.setProperty('--lyrics-stroke',_ls);const _lw=localStorage.getItem('momoLyricsWidth');if(_lw!==null)document.documentElement.style.setProperty('--lyrics-stroke-w',_lw+'px');const _lsc=localStorage.getItem('momoLyricsScale');if(_lsc!==null)document.documentElement.style.setProperty('--lyrics-scale',_lsc);}catch(e){}
+try{const _lc=localStorage.getItem('momoLyricsColor');if(_lc)document.documentElement.style.setProperty('--lyrics-color',_lc);const _ls=localStorage.getItem('momoLyricsStroke');if(_ls)document.documentElement.style.setProperty('--lyrics-stroke',_ls);const _lw=localStorage.getItem('momoLyricsWidth');if(_lw!==null)document.documentElement.style.setProperty('--lyrics-stroke-w',_lw+'px');const _lsc=localStorage.getItem('momoLyricsScale');if(_lsc!==null)document.documentElement.style.setProperty('--lyrics-scale',_lsc);const _lp=localStorage.getItem('momoLyricsPos');if(_lp!==null)document.documentElement.style.setProperty('--lyrics-pos',_lp);}catch(e){}
 // 服务端播放端归属广播：所有端(含播放端自己)都会收到。本机据此判定自己
 // 到底是不是播放端(isActivePlayer)，身份变化时要重新跑一次 renderAll()
 // 决定要不要真的加载/清掉 <video> 里的媒体流。
