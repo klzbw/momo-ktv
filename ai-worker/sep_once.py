@@ -6,6 +6,14 @@ sep_once.py —— 单首歌的人声分离（被 worker.py 以子进程方式�
 """
 import sys, os, glob, shutil, tempfile, traceback
 
+# Windows GBK控制台强制UTF-8输出
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 # 国内直连 HuggingFace 常超时导致 Demucs 模型下载失败，默认走 hf-mirror 镜像（须在 import torch/demucs 前）
 os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
 
