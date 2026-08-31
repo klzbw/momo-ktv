@@ -561,6 +561,11 @@ header{
         <input type="color" id="lyrics-stroke" value="#000000" oninput="sendLyricsStyle()" style="width:40px;height:40px;border:none;background:none;cursor:pointer;padding:0">
       </div>
     </div>
+    <div class="ctrl-btn" style="padding:10px 14px;display:flex;align-items:center;gap:10px;margin-top:8px">
+      <span class="cl" style="white-space:nowrap">描边粗细</span>
+      <input type="range" id="lyrics-width" min="0" max="12" step="0.5" value="5" oninput="sendLyricsStyle()" style="flex:1">
+      <span id="lyrics-width-val" style="min-width:34px;text-align:right">5</span>
+    </div>
   </div>
 
   <!-- 歌词快慢校准：字比声音快/慢时逐档 0.2s 调整，自动固化到歌词 -->
@@ -731,14 +736,18 @@ renderBlessQuick();
 // ===== 歌词样式：字体色 + 描边色，实时同步大屏/TV =====
 function sendLyricsStyle(){
   const ci=document.getElementById('lyrics-color'); const si=document.getElementById('lyrics-stroke');
+  const wi=document.getElementById('lyrics-width'); const wv=document.getElementById('lyrics-width-val');
   const color=ci?ci.value:'#ffd24a'; const stroke=si?si.value:'#000000';
+  const width=wi?parseFloat(wi.value):5; if(wv)wv.textContent=width;
   localStorage.setItem('momoLyricsColor',color); localStorage.setItem('momoLyricsStroke',stroke);
-  sendWS({type:'lyrics_style',color,stroke});
+  localStorage.setItem('momoLyricsWidth',String(width));
+  sendWS({type:'lyrics_style',color,stroke,width});
 }
 // 初始化：从 localStorage 恢复颜色选择
 try{
   const c=localStorage.getItem('momoLyricsColor'); if(c){const el=document.getElementById('lyrics-color');if(el)el.value=c;}
   const s=localStorage.getItem('momoLyricsStroke'); if(s){const el=document.getElementById('lyrics-stroke');if(el)el.value=s;}
+  const w=localStorage.getItem('momoLyricsWidth'); if(w!==null){const el=document.getElementById('lyrics-width');if(el)el.value=w;const v=document.getElementById('lyrics-width-val');if(v)v.textContent=w;}
 }catch(e){}
 
 function onQueue(){

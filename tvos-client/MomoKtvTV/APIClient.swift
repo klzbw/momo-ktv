@@ -382,10 +382,11 @@ class KTVAPIClient: ObservableObject {
             let from = json["from"] as? String ?? ""
             DispatchQueue.main.async { self.onBlessing?(text, from) }
         } else if type == "lyrics_style" {
-            // 遥控端实时改歌词字色/描边色：走可观察单例，立即驱动 LyricsView 重绘（同时持久化）
+            // 遥控端实时改歌词字色/描边色/描边粗细：走可观察单例，立即驱动 LyricsView 重绘（同时持久化）
             let color = json["color"] as? String
             let stroke = json["stroke"] as? String
-            DispatchQueue.main.async { LyricsStyleStore.shared.apply(color: color, stroke: stroke) }
+            let width = (json["width"] as? NSNumber)?.cgFloatValue
+            DispatchQueue.main.async { LyricsStyleStore.shared.apply(color: color, stroke: stroke, width: width) }
         }
     }
 

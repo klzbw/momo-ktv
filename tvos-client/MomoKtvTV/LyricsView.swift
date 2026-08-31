@@ -165,49 +165,73 @@ private func colorFromHex(_ hex: String) -> Color {
                  green: Double((rgb >> 8) & 0xFF) / 255.0,
                  blue: Double(rgb & 0xFF) / 255.0)
 }
-// MARK: - 歌词样式单例：遥控端改字色/描边色时实时刷新（@AppStorage 在 fullScreenCover 下偶发不刷新，改用可观察对象）
+// MARK: - 歌词样式单例：遥控端改字色/描边色/描边粗细时实时刷新（@AppStorage 在 fullScreenCover 下偶发不刷新，改用可观察对象）
 final class LyricsStyleStore: ObservableObject {
     static let shared = LyricsStyleStore()
     @Published var colorHex: String
     @Published var strokeHex: String
+    @Published var lineWidth: CGFloat        // 描边粗细（点），遥控端可调 0...12
     private init() {
         colorHex = UserDefaults.standard.string(forKey: "momoLyricsColor") ?? "#FFD24A"
         strokeHex = UserDefaults.standard.string(forKey: "momoLyricsStroke") ?? "#000000"
+        let savedW = UserDefaults.standard.double(forKey: "momoLyricsWidth")
+        lineWidth = savedW > 0 ? CGFloat(savedW) : 5
     }
-    func apply(color: String?, stroke: String?) {
+    func apply(color: String?, stroke: String?, width: CGFloat? = nil) {
         if let c = color, !c.isEmpty {
             colorHex = c
             UserDefaults.standard.set(c, forKey: "momoLyricsColor")
         }
-        if let s = stroke, !s.isEmpty {
-            strokeHex = s
-            UserDefaults.standard.set(s, forKey: "momoLyricsStroke")
+        if let st = stroke, !st.isEmpty {
+            strokeHex = st
+            UserDefaults.standard.set(st, forKey: "momoLyricsStroke")
+        }
+        if let w = width {
+            lineWidth = max(0, min(12, w))
+            UserDefaults.standard.set(Double(lineWidth), forKey: "momoLyricsWidth")
         }
     }
 }
 
-// MARK: - 卡拉OK k 标签逐字渐变：底层未唱(白) + 上层已唱(主题色)按进度从左到右裁剪叠加，带描边
+// MARK: - 可靠描边文字：8 方向偏移复制同色文字做轮廓 + 顶层填充色。
+// 不依赖 NSAttributedString.strokeWidth（在 tvOS Text 上经常不渲染/颜色失效），颜色粗细 100% 可控。
+struct StrokeFillText: View {
+    let text: String
+    let fill: Color
+    let strokeColor: Color
+    let w: CGFloat
+    // 8 个方向单位向量
+    private static let dirs: [(CGFloat, CGFloat)] = [
+        (1,0),(-1,0),(0,1),(0,-1),
+        (0.7071,0.7071),(-0.7071,0.7071),(0.7071,-0.7071),(-0.7071,-0.7071)
+    ]
+    var body: some View {
+        ZStack {
+            if w > 0.01 {
+                ForEach(Array(Self.dirs.enumerated()), id: \.offset) { _, d in
+                    Text(text).foregroundColor(strokeColor)
+                        .offset(x: d.0 * w, y: d.1 * w)
+                }
+            }
+            Text(text).foregroundColor(fill)
+        }
+    }
+}
+
+// MARK: - 卡拉OK k 标签逐字渐变：底层未唱(白) + 上层已唱(主题色)按进度从左到右裁剪叠加，描边用 StrokeFillText
 struct KaraokeWord: View {
     let text: String
     let progress: Double
     var highlight: Color = Color(red: 1.0, green: 0.78, blue: 0.25)
     var base: Color = Color.white.opacity(0.42)
     var stroke: Color = .black
-    var strokeWidth: CGFloat = -7   // 负值=填充+描边，绝对值越大描边越粗，按字号外部传入
-
-    private func stroked(_ t: String, fill: Color) -> Text {
-        var a = AttributedString(t)
-        a.foregroundColor = UIColor(fill)
-        a.strokeColor = UIColor(stroke)
-        a.strokeWidth = strokeWidth
-        return Text(a)
-    }
+    var lineW: CGFloat = 5     // 描边粗细（点），由 LyricsStyleStore 提供，遥控可调
 
     var body: some View {
-        stroked(text, fill: base)
+        StrokeFillText(text: text, fill: base, strokeColor: stroke, w: lineW)
             .overlay(alignment: .leading) {
                 GeometryReader { geo in
-                    stroked(text, fill: highlight)
+                    StrokeFillText(text: text, fill: highlight, strokeColor: stroke, w: lineW)
                         .frame(width: geo.size.width * CGFloat(min(max(progress, 0), 1)),
                                alignment: .leading)
                         .clipped()
@@ -249,25 +273,27 @@ struct LyricsView: View {
         }
     }
 
-    // 双排模式：当前演唱行靠屏幕左侧，下一句预览靠屏幕右侧，上下两行左右错落分布
+    // 双排模式：当前演唱行靠屏幕右侧，刚唱完的上一行退到左侧——右边这句唱完即切到左边，新一句到右边
     private var dualBody: some View {
         let ai = activeIndex
         return VStack(spacing: compact ? 8 : 30) {
             Spacer(minLength: 0)
-            if ai >= 0 {
+            // 上一行（刚唱完）靠左、暗淡
+            if ai - 1 >= 0 {
                 HStack(spacing: 0) {
-                    lineView(lyrics.lines[ai], idx: ai)
-                        .id(lyrics.lines[ai].id)
-                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                    lineView(lyrics.lines[ai - 1], idx: ai - 1)
+                        .id(lyrics.lines[ai - 1].id)
+                        .transition(.opacity)
                     Spacer(minLength: 24)
                 }
             }
-            if ai + 1 < lyrics.lines.count {
+            // 当前演唱行靠右、高亮逐字
+            if ai >= 0 {
                 HStack(spacing: 0) {
                     Spacer(minLength: 24)
-                    lineView(lyrics.lines[ai + 1], idx: ai + 1)
-                        .id(lyrics.lines[ai + 1].id)
-                        .transition(.opacity)
+                    lineView(lyrics.lines[ai], idx: ai)
+                        .id(lyrics.lines[ai].id)
+                        .transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
             }
             Spacer(minLength: 0)
@@ -302,7 +328,8 @@ struct LyricsView: View {
     private func lineView(_ line: LyricLine, idx: Int) -> some View {
         let active = idx == activeIndex
         let isDual = mode == .dual
-        let preview = isDual && idx == activeIndex + 1
+        // 双排里与当前行相邻的另一行（上一行或下一行）稍亮，其余更暗
+        let near = isDual && abs(idx - activeIndex) == 1
         let fontSize: CGFloat = active ? (isDual ? activeSize : scrollActiveSize) : nearSize
         if active, let tokens = line.tokens {
             HStack(spacing: 0) {
@@ -313,7 +340,7 @@ struct LyricsView: View {
                         highlight: highlight,
                         base: Color.white.opacity(0.45),
                         stroke: stroke,
-                        strokeWidth: -max(4, fontSize * 0.13)
+                        lineW: styleStore.lineWidth
                     )
                 }
             }
@@ -322,19 +349,15 @@ struct LyricsView: View {
             .lineLimit(1)
             .minimumScaleFactor(0.6)
         } else {
-            let fill = active ? highlight : Color.white.opacity(preview ? 0.55 : 0.42)
+            let fill = active ? highlight : Color.white.opacity(near ? 0.55 : 0.42)
             strokedLine(line.plain, fill: fill, size: fontSize, weight: active ? .bold : .medium)
         }
     }
 
-    /// 带描边的整行文字（非逐字 LRC 用），描边粗细随字号缩放，保证电视远距离轮廓清晰
+    /// 整行文字（非逐字 LRC 用），用 StrokeFillText 多层描边，粗细由遥控端可调，保证电视远距离轮廓清晰
     private func strokedLine(_ text: String, fill: Color, size: CGFloat, weight: Font.Weight) -> some View {
-        var a = AttributedString(text)
-        a.foregroundColor = UIColor(fill)
-        a.strokeColor = UIColor(stroke)
-        a.strokeWidth = -max(4, size * 0.13)
-        a.font = UIFont.systemFont(ofSize: size, weight: weight == .bold ? .bold : .regular)
-        return Text(a)
+        StrokeFillText(text: text, fill: fill, strokeColor: stroke, w: styleStore.lineWidth)
+            .font(.system(size: size, weight: weight == .bold ? .bold : .medium))
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .minimumScaleFactor(0.6)
