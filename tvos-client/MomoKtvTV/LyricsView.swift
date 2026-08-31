@@ -144,6 +144,27 @@ enum LyricsDisplayMode: String {
     var label: String { self == .dual ? "双排" : "滚动" }
 }
 
+// MARK: - 卡拉OK k 标签逐字渐变：底层未唱(白) + 上层已唱(金)按进度从左到右裁剪叠加
+struct KaraokeWord: View {
+    let text: String
+    let progress: Double  // 0...1，字在 [start,end] 区间内的演唱进度
+    let highlight: Color
+    let base: Color
+    var body: some View {
+        Text(text)
+            .foregroundColor(base)
+            .overlay(alignment: .leading) {
+                GeometryReader { geo in
+                    Text(text)
+                        .foregroundColor(highlight)
+                        .frame(width: geo.size.width * CGFloat(min(max(progress, 0), 1)),
+                               alignment: .leading)
+                        .clipped()
+                }
+            }
+    }
+}
+
 // MARK: - 歌词滚动 + 逐字填色视图（双模式）
 struct LyricsView: View {
     let lyrics: SongLyrics
@@ -219,11 +240,15 @@ struct LyricsView: View {
         // 双排模式下"下一行"更小更淡；滚动模式非当前行常规缩小
         let preview = isDual && idx == activeIndex + 1
         if active, let tokens = line.tokens {
-            // 当前行：逐字填色，已唱的点亮，未到的半透明白
+            // 当前行：卡拉OK k 标签逐字渐变，每个字在 [start,end] 内从左到右由白→金横向扫过
             HStack(spacing: 0) {
-                ForEach(tokens) { tok in
-                    Text(tok.text)
-                        .foregroundColor(currentTime >= tok.time ? highlight : Color.white.opacity(0.42))
+                ForEach(Array(tokens.enumerated()), id: \.element.id) { idx, tok in
+                    KaraokeWord(
+                        text: tok.text,
+                        progress: tokenProgress(tok, tokens: tokens, index: idx, lineEnd: line.end),
+                        highlight: highlight,
+                        base: Color.white.opacity(0.42)
+                    )
                 }
             }
             .font(.system(size: isDual ? 46 : 40, weight: .bold))
@@ -237,5 +262,18 @@ struct LyricsView: View {
                 .multilineTextAlignment(.center)
                 .shadow(color: .black.opacity(active ? 0.6 : 0), radius: active ? 6 : 0, x: 0, y: 2)
         }
+    }
+
+    /// 卡拉OK k 标签：单个字在 [start, end] 区间内的演唱进度 0...1；
+    /// end 取下一个字的起点，最后一字用行尾（无限则 +1.5s 延长音）
+    private func tokenProgress(_ tok: LyricToken, tokens: [LyricToken], index: Int, lineEnd: Double) -> Double {
+        let end: Double
+        if index + 1 < tokens.count {
+            end = tokens[index + 1].time
+        } else {
+            end = lineEnd < .greatestFiniteMagnitude ? lineEnd : tok.time + 1.5
+        }
+        let dur = max(0.05, end - tok.time)
+        return min(max((currentTime - tok.time) / dur, 0), 1)
     }
 }

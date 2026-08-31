@@ -15,6 +15,7 @@ struct FullPlayerView: View {
     @State private var hasAutoExited = false
     @State private var showQueue = false
     @State private var showQR = false
+    @FocusState private var tapAreaFocused: Bool  // 控制条隐藏后，透明点击区自动获得遥控器焦点，确保按确认键能呼出控制条
     @ObservedObject private var mic = MicLink.shared
     @State private var qrTab: QRTab = .order
     @StateObject private var lyricsLoader = LyricsLoader()
@@ -60,11 +61,18 @@ struct FullPlayerView: View {
                         else { lyricsLoader.load(server: api.serverAddress, songId: playing.song_id) }
                     }
                 }
+                .onChange(of: showControls) { shown in
+                    // 控制条隐藏后，延迟把遥控器焦点交给透明点击区，确保按确认键能呼出控制条（图片背景时尤其关键）
+                    if !shown && !showQueue && !showQR {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { tapAreaFocused = true }
+                    }
+                }
 
             // 纯音频歌曲的动态背景（13 种程序化效果 + 我的图片，随律动变化）；
             // 盖在服务端渐变视频轨之上、歌词层之下，视频歌(MKV/MP4)不显示。
             if !currentItem.isVideoFile {
                 AudioBackgroundView(server: api.serverAddress)
+                    .allowsHitTesting(false)  // 背景层（含我的图片）绝不拦截遥控器焦点/点击，避免控件呼不出
             }
 
             // 逐字歌词层：居中滚动、当前行逐字填色；不抢遥控器焦点，控制层在其之上。
@@ -214,6 +222,7 @@ struct FullPlayerView: View {
                     .contentShape(Rectangle())
                     .focusable(true)
                     .focusEffectDisabled()
+                    .focused($tapAreaFocused)
                     .onTapGesture {
                         withAnimation(.easeOut(duration: 0.2)) {
                             showControls = true

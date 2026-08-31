@@ -918,6 +918,11 @@ html[data-layout="mobile"] #next-up-track span{font-size:16px}
 #lyrics-layer .ll-srow.ll-cur{color:#fff;font-size:52px;font-weight:900;letter-spacing:1px;
   text-shadow:0 0 2px rgba(0,0,0,.9),0 3px 14px rgba(0,0,0,.85),0 0 22px rgba(255,199,64,.25)}
 #lyrics-layer .ll-srow.ll-cur .sung{color:#ffd24a;text-shadow:0 0 12px rgba(255,190,60,.65),0 2px 10px rgba(0,0,0,.8)}
+/* 卡拉OK k 标签逐字渐变：当前行每个字用 background-clip:text 实现白→金横向扫过 */
+#lyrics-layer .ll-cur span, #lyrics-layer .ll-srow.ll-cur span{
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+  -webkit-text-fill-color:transparent; padding:0 1px;
+}
 /* 歌词双排↔滚动 切换小胶囊（可遥控聚焦/鼠标点，平时半透明不挡画面） */
 #lyrics-mode-btn{position:absolute;top:14px;right:14px;z-index:6;pointer-events:auto;cursor:pointer;
   background:rgba(10,10,30,.55);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:999px;
@@ -2549,7 +2554,9 @@ const Lyrics = (()=>{
       starts.forEach(st=>out.push({start:st,plain,tokens}));
     });
     out.sort((a,b)=>a.start-b.start);
-    out.forEach((l,i)=>{ l.end=i+1<out.length?out[i+1].start:Infinity; });
+    out.forEach((l,i)=>{ l.end=i+1<out.length?out[i+1].start:Infinity;
+      // 卡拉OK k 标签：给每个逐字 token 补结束时间（下一个字的起点；最后一字用行尾或+1.5s 延长音）
+      if(l.tokens)l.tokens.forEach((tk,j)=>{ tk.end = (j+1<l.tokens.length) ? l.tokens[j+1].t : (isFinite(l.end)?l.end:tk.t+1.5); }); });
     return out.filter((l,i)=>!i||out[i-1].start!==l.start||out[i-1].plain!==l.plain);
   }
   function esc(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
@@ -2568,9 +2575,17 @@ const Lyrics = (()=>{
   }
   function reset(){ loadedId=null; lines=[]; lastIdx=-9; scrollBuilt=false; const l=layer(); if(l)l.innerHTML=''; }
   function idxAt(t){ let idx=-1; for(let i=0;i<lines.length;i++){ if(lines[i].start<=t+0.01)idx=i; else break; } return idx; }
+  // 卡拉OK k 标签逐字渐变：字在 [start,end] 区间内从左到右由白→金横向扫过
+  function tokStyle(tok,t){
+    const dur=Math.max(0.05,(tok.end||tok.t+1.5)-tok.t);
+    const p=Math.max(0,Math.min(1,(t-tok.t)/dur));
+    const P=(p*100).toFixed(1);
+    return 'background:linear-gradient(90deg,#ffd24a 0%,#ffd24a '+P+'%,#ffffff '+P+'%,#ffffff 100%);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none;';
+  }
+  function applyTokStyle(span,tok,t){ if(span)span.style.cssText=tokStyle(tok,t); }
   function curLineHTML(line,t){
     if(!line.tokens)return esc(line.plain);
-    return line.tokens.map(tok=>'<span class="'+(t>=tok.t?'sung':'')+'">'+esc(tok.w)+'</span>').join('');
+    return line.tokens.map(tok=>'<span style="'+tokStyle(tok,t)+'">'+esc(tok.w)+'</span>').join('');
   }
   // —— 双排模式：只渲染 上一行/当前行/下一行 三行窗口 ——
   function renderDual(l,t,idx){
@@ -2607,10 +2622,10 @@ const Lyrics = (()=>{
     const l=layer(); if(!l)return;
     if(!lines.length){ if(l.innerHTML)l.innerHTML=''; return; }
     const idx=idxAt(t);
-    if(idx===lastIdx){ // 行没变：只更新当前行逐字填色（高频、轻量）
+    if(idx===lastIdx){ // 行没变：只更新当前行逐字渐变进度（高频、轻量）
       if(idx<0)return;
       if(mode==='dual'){ const cur=l.querySelector('.ll-cur');
-        if(cur&&lines[idx].tokens){ const sp=cur.children; lines[idx].tokens.forEach((tok,k)=>{ if(sp[k])sp[k].className=t>=tok.t?'sung':''; }); } }
+        if(cur&&lines[idx].tokens){ const sp=cur.children; lines[idx].tokens.forEach((tok,k)=>{ applyTokStyle(sp[k],tok,t); }); } }
       else { const cur=l.querySelector('.ll-strack .ll-cur');
         if(cur&&lines[idx].tokens)cur.innerHTML=curLineHTML(lines[idx],t); }
       return;
@@ -4585,8 +4600,8 @@ function handleRemote(m){
     case 'repeat':if(isActivePlayer)localRestartSong();break;
     case 'volume':if(isActivePlayer&&typeof m.delta==='number')localAdjVolume(m.delta);break;
     case 'eq':if(isActivePlayer&&typeof m.name==='string')localSetEQ(m.name);break;
-    case 'bg_next':if(isActivePlayer){try{BgStage.next();}catch(e){}}break;
-    case 'bg_set':if(isActivePlayer&&typeof m.index==='number'){try{BgStage.setMode(m.index);}catch(e){}}break;
+    case 'bg_next':try{BgStage.next();}catch(e){}break; // 背景是本机纯展示，不受播放端身份限制
+    case 'bg_set':if(typeof m.index==='number'){try{BgStage.setMode(m.index);}catch(e){}}break;
     case 'fullscreen':if(isActivePlayer){isFS?exitKtvFullscreen():enterFullscreen();}break;
     case 'home':if(isFS)exitKtvFullscreen();if(window.closeAllOpenPanels)closeAllOpenPanels();break;
     case 'focus_up':moveFocus('up');break;
