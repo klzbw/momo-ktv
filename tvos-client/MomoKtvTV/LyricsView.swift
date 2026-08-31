@@ -171,13 +171,16 @@ final class LyricsStyleStore: ObservableObject {
     @Published var colorHex: String
     @Published var strokeHex: String
     @Published var lineWidth: CGFloat        // 描边粗细（点），遥控端可调 0...12
+    @Published var fontScale: CGFloat        // 字号倍率，遥控端可调 0.7...1.6，默认 1
     private init() {
         colorHex = UserDefaults.standard.string(forKey: "momoLyricsColor") ?? "#FFD24A"
         strokeHex = UserDefaults.standard.string(forKey: "momoLyricsStroke") ?? "#000000"
         let savedW = UserDefaults.standard.double(forKey: "momoLyricsWidth")
         lineWidth = savedW > 0 ? CGFloat(savedW) : 5
+        let savedS = UserDefaults.standard.double(forKey: "momoLyricsScale")
+        fontScale = savedS > 0 ? CGFloat(savedS) : 1
     }
-    func apply(color: String?, stroke: String?, width: CGFloat? = nil) {
+    func apply(color: String?, stroke: String?, width: CGFloat? = nil, scale: CGFloat? = nil) {
         if let c = color, !c.isEmpty {
             colorHex = c
             UserDefaults.standard.set(c, forKey: "momoLyricsColor")
@@ -189,6 +192,10 @@ final class LyricsStyleStore: ObservableObject {
         if let w = width {
             lineWidth = max(0, min(12, w))
             UserDefaults.standard.set(Double(lineWidth), forKey: "momoLyricsWidth")
+        }
+        if let sc = scale {
+            fontScale = max(0.7, min(1.6, sc))
+            UserDefaults.standard.set(Double(fontScale), forKey: "momoLyricsScale")
         }
     }
 }
@@ -253,10 +260,12 @@ struct LyricsView: View {
 
     /// 校准后的时间（叠加用户调节的偏移）
     private var displayTime: Double { currentTime + timeOffset }
-    /// 全屏加大字号以匹配电视观看距离：当前行 58、滚动当前 50、邻近行 40；小窗 24/21/16
-    private var activeSize: CGFloat { compact ? 24 : 58 }
-    private var scrollActiveSize: CGFloat { compact ? 21 : 50 }
-    private var nearSize: CGFloat { compact ? 16 : 40 }
+    /// 字号对齐网页 TV 端：双排当前 54(.black)、预备行 28；滚动当前 52、邻近 36；再统一乘遥控可调倍率 fontScale
+    private var sc: CGFloat { styleStore.fontScale }
+    private var activeSize: CGFloat { (compact ? 24 : 54) * sc }
+    private var scrollActiveSize: CGFloat { (compact ? 21 : 52) * sc }
+    private var nearSize: CGFloat { (compact ? 15 : 28) * sc }
+    private var near1Size: CGFloat { (compact ? 15 : 36) * sc }
     private var mode: LyricsDisplayMode { .from(modeRaw) }
     private var highlight: Color { colorFromHex(styleStore.colorHex) }
     private var stroke: Color { colorFromHex(styleStore.strokeHex) }
@@ -276,24 +285,14 @@ struct LyricsView: View {
     }
 
     // 双排模式：当前演唱行靠屏幕右侧，刚唱完的上一行退到左侧——右边这句唱完即切到左边，新一句到右边
+    // 双排模式（复刻网页TV）：当前演唱行按奇偶左右交替；下一句(未唱)在另一侧提前显示，
+    // 前句还在唱时就能看到要唱的词，给足反应时间；当前句唱完，预备句原地变亮开始逐字，新预备句到另一侧。
     private var dualBody: some View {
         let ai = activeIndex
-        // 逐句左右交替：偶数行靠右唱、奇数行靠左唱；刚唱完的上一句停在当前句的另一侧，
-        // 于是形成「右唱完切到左、左唱完切到右」的来回流动，而不是每句都固定在同一边。
-        let curRight = ai % 2 == 0
-        return VStack(spacing: compact ? 8 : 30) {
+        let curRight = ai % 2 == 0   // 偶数句靠右、奇数句靠左，逐句交替
+        return VStack(spacing: compact ? 8 : 22) {
             Spacer(minLength: 0)
-            // 上一行（刚唱完）在当前行的另一侧、暗淡
-            if ai - 1 >= 0 {
-                HStack(spacing: 0) {
-                    if curRight { Spacer(minLength: 0) }
-                    lineView(lyrics.lines[ai - 1], idx: ai - 1)
-                        .id(lyrics.lines[ai - 1].id)
-                        .transition(.opacity)
-                    if !curRight { Spacer(minLength: 0) }
-                }
-            }
-            // 当前演唱行：按奇偶落在右/左，高亮逐字，从它所在的一侧柔和滑入
+            // 当前演唱行：高亮逐字，按奇偶落在右/左
             if ai >= 0 {
                 HStack(spacing: 0) {
                     if curRight { Spacer(minLength: 24) }
@@ -303,9 +302,19 @@ struct LyricsView: View {
                     if !curRight { Spacer(minLength: 24) }
                 }
             }
+            // 下一句预备：在当前行另一侧，暗淡提前出现
+            if ai + 1 < lyrics.lines.count {
+                HStack(spacing: 0) {
+                    if !curRight { Spacer(minLength: 24) }
+                    lineView(lyrics.lines[ai + 1], idx: ai + 1)
+                        .id(lyrics.lines[ai + 1].id)
+                        .transition(.opacity)
+                    if curRight { Spacer(minLength: 24) }
+                }
+            }
             Spacer(minLength: 0)
         }
-        .animation(.easeInOut(duration: 0.32), value: ai)
+        .animation(.easeInOut(duration: 0.28), value: ai)
         .padding(.horizontal, compact ? 16 : 90)
     }
 
@@ -335,9 +344,9 @@ struct LyricsView: View {
     private func lineView(_ line: LyricLine, idx: Int) -> some View {
         let active = idx == activeIndex
         let isDual = mode == .dual
-        // 双排里与当前行相邻的另一行（上一行或下一行）稍亮，其余更暗
-        let near = isDual && abs(idx - activeIndex) == 1
-        let fontSize: CGFloat = active ? (isDual ? activeSize : scrollActiveSize) : nearSize
+        // 双排里下一句预备行稍亮；滚动模式非当前行统一用邻近字号
+        let isNext = isDual && idx == activeIndex + 1
+        let fontSize: CGFloat = active ? (isDual ? activeSize : scrollActiveSize) : (isDual ? nearSize : near1Size)
         if active, let tokens = line.tokens {
             HStack(spacing: 0) {
                 ForEach(Array(tokens.enumerated()), id: \.element.id) { idx, tok in
@@ -345,29 +354,39 @@ struct LyricsView: View {
                         text: tok.text,
                         progress: tokenProgress(tok, tokens: tokens, index: idx, lineEnd: line.end),
                         highlight: highlight,
-                        base: Color.white.opacity(0.45),
+                        base: Color.white.opacity(0.42),
                         stroke: stroke,
                         lineW: styleStore.lineWidth
                     )
                 }
             }
-            .font(.system(size: fontSize, weight: .bold))
+            .font(.system(size: fontSize, weight: .black))   // 对齐网页 font-weight:900
+            .tracking(compact ? 0 : 1)                        // 对齐网页 letter-spacing:1px
             .multilineTextAlignment(.center)
             .lineLimit(1)
-            .minimumScaleFactor(0.6)
+            .minimumScaleFactor(0.35)                         // 字号调大/长句时自动缩回，保证不超出屏幕
+            .shadow(color: .black.opacity(0.9), radius: 1)
+            .shadow(color: .black.opacity(0.85), radius: 7, x: 0, y: 3)
+            .shadow(color: highlight.opacity(0.25), radius: 11)
         } else {
-            let fill = active ? highlight : Color.white.opacity(near ? 0.55 : 0.42)
-            strokedLine(line.plain, fill: fill, size: fontSize, weight: active ? .bold : .medium)
+            // 对齐网页：非逐字当前行整行白色(ll-cur=#fff)，预备/邻近行半透明白；逐字行才用金色扫色
+            let fill = active ? Color.white : Color.white.opacity(isNext ? 0.55 : 0.42)
+            strokedLine(line.plain, fill: fill, size: fontSize,
+                        weight: active ? .black : (isNext ? .bold : .medium), active: active)
         }
     }
 
-    /// 整行文字（非逐字 LRC 用），用 StrokeFillText 多层描边，粗细由遥控端可调，保证电视远距离轮廓清晰
-    private func strokedLine(_ text: String, fill: Color, size: CGFloat, weight: Font.Weight) -> some View {
+    /// 整行文字（非逐字 LRC 用），StrokeFillText 多层描边 + 与网页一致的投影；字号/粗细遥控可调
+    private func strokedLine(_ text: String, fill: Color, size: CGFloat, weight: Font.Weight, active: Bool) -> some View {
         StrokeFillText(text: text, fill: fill, strokeColor: stroke, w: styleStore.lineWidth)
-            .font(.system(size: size, weight: weight == .bold ? .bold : .medium))
+            .font(.system(size: size, weight: weight))
+            .tracking(active && !compact ? 1 : 0)
             .multilineTextAlignment(.center)
             .lineLimit(1)
-            .minimumScaleFactor(0.6)
+            .minimumScaleFactor(0.35)
+            .shadow(color: .black.opacity(active ? 0.9 : 0.8), radius: active ? 1 : 5, x: 0, y: active ? 0 : 2)
+            .shadow(color: .black.opacity(active ? 0.85 : 0), radius: active ? 7 : 0, x: 0, y: 3)
+            .shadow(color: highlight.opacity(active ? 0.25 : 0), radius: active ? 11 : 0)
     }
 
     /// 卡拉OK k 标签：单个字在 [start, end] 区间内的演唱进度 0...1（叠加时间偏移）
