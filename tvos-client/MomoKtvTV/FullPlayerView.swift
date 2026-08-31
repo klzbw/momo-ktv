@@ -19,6 +19,8 @@ struct FullPlayerView: View {
     @State private var qrTab: QRTab = .order
     @StateObject private var lyricsLoader = LyricsLoader()
     @AppStorage("micPublicHost") private var micPublicHost: String = "mktv.klzbw.top"
+    @AppStorage("momoLyricsMode") private var lyricsModeRaw: String = LyricsDisplayMode.dual.rawValue
+    @AppStorage("momoBgMode") private var bgModeRaw: String = AudioBgMode.flow.rawValue
 
     enum VoiceMode {
         case original, half, accompaniment
@@ -36,6 +38,9 @@ struct FullPlayerView: View {
 
     enum QRTab { case order, micMode }
 
+    /// 当前真正在播放的队列项（切歌后以队列状态为准，兜底用传入的 song）
+    private var currentItem: QueueItem { api.queue.first(where: { $0.isPlaying }) ?? song }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -51,15 +56,25 @@ struct FullPlayerView: View {
                         playerManager.attachLayerToCurrentHost()
                     }
                     if let playing = api.queue.first(where: { $0.isPlaying }) {
-                        lyricsLoader.load(server: api.serverAddress, songId: playing.song_id)
+                        if playing.isVideoFile { lyricsLoader.lyrics = .empty } // 视频歌不显示歌词
+                        else { lyricsLoader.load(server: api.serverAddress, songId: playing.song_id) }
                     }
                 }
 
-            // 逐字歌词层：居中滚动、当前行逐字填色；不抢遥控器焦点，控制层在其之上
-            LyricsView(lyrics: lyricsLoader.lyrics, currentTime: playerManager.currentTime)
-                .allowsHitTesting(false)
-                .opacity(showControls ? 0.35 : 1.0) // 控制条弹出时歌词弱化，避免与底部信息打架
-                .animation(.easeOut(duration: 0.25), value: showControls)
+            // 纯音频歌曲的动态背景（13 种程序化效果 + 我的图片，随律动变化）；
+            // 盖在服务端渐变视频轨之上、歌词层之下，视频歌(MKV/MP4)不显示。
+            if !currentItem.isVideoFile {
+                AudioBackgroundView(server: api.serverAddress)
+            }
+
+            // 逐字歌词层：居中滚动、当前行逐字填色；不抢遥控器焦点，控制层在其之上。
+            // 视频歌(MKV/MP4 等)自带画面与内嵌字幕，不再叠加 App 歌词。
+            if !currentItem.isVideoFile {
+                LyricsView(lyrics: lyricsLoader.lyrics, currentTime: playerManager.currentTime)
+                    .allowsHitTesting(false)
+                    .opacity(showControls ? 0.35 : 1.0) // 控制条弹出时歌词弱化，避免与底部信息打架
+                    .animation(.easeOut(duration: 0.25), value: showControls)
+            }
 
             if showControls && !showQueue && !showQR {
                 VStack {
@@ -127,6 +142,32 @@ struct FullPlayerView: View {
 
                             TVTightButton(action: { showQR = true }) { focused in
                                 controlContent(icon: "qrcode", title: "扫码", focused: focused)
+                            }
+
+                            // 歌词显示模式：双排 / 上下滚动 循环切换（纯音频歌才显示）
+                            if !currentItem.isVideoFile {
+                                TVTightButton(action: {
+                                    lyricsModeRaw = LyricsDisplayMode.from(lyricsModeRaw).next.rawValue
+                                    FeedbackCenter.shared.show("歌词：\(LyricsDisplayMode.from(lyricsModeRaw).label)模式",
+                                                              icon: "text.alignleft")
+                                }) { focused in
+                                    controlContent(icon: "text.alignleft",
+                                                   title: "歌词·\(LyricsDisplayMode.from(lyricsModeRaw).label)",
+                                                   focused: focused)
+                                }
+                            }
+
+                            // 动态背景切换（仅纯音频歌）：13 种程序化效果 + 我的图片循环
+                            if !currentItem.isVideoFile {
+                                TVTightButton(action: {
+                                    bgModeRaw = AudioBgMode.from(bgModeRaw).next.rawValue
+                                    FeedbackCenter.shared.show("背景：\(AudioBgMode.from(bgModeRaw).display)",
+                                                              icon: "sparkles")
+                                }) { focused in
+                                    controlContent(icon: "sparkles",
+                                                   title: "背景·\(AudioBgMode.from(bgModeRaw).display)",
+                                                   focused: focused)
+                                }
                             }
                         }
                         .padding(.horizontal, 10)
@@ -263,8 +304,9 @@ struct FullPlayerView: View {
         resetHideTimer()
         hasAutoExited = false
         voiceMode = VoiceMode.from(playerManager.vocalTrackIndex)
-        // 拉取歌词（优先 AI 逐字增强 LRC，没有则普通 LRC）
-        lyricsLoader.load(server: api.serverAddress, songId: song.song_id)
+        // 拉取歌词（优先 AI 逐字增强 LRC，没有则普通 LRC）；视频歌自带字幕不拉取
+        if song.isVideoFile { lyricsLoader.lyrics = .empty }
+        else { lyricsLoader.load(server: api.serverAddress, songId: song.song_id) }
         // 切歌/全屏视图重建时，若麦克风模式仍开着则保持连接不断
         mic.keepAlive(api.serverAddress)
     }

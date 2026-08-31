@@ -43,6 +43,14 @@ struct QueueItem: Codable, Identifiable, Hashable {
     var isPlaying: Bool { status == "playing" }
     var isTop: Bool { (is_top ?? 0) == 1 }
     var hasMultiTrack: Bool { (audio_tracks ?? 1) >= 2 }
+    /// 是否视频歌曲（MKV/MP4 等）。服务端 media_type 历史数据大量为空，用扩展名兜底；
+    /// 视频歌自带画面与内嵌字幕，不再叠加 App 歌词层。
+    var isVideoFile: Bool {
+        guard let fn = filename?.lowercased() else { return false }
+        let videoExts = [".mkv",".mp4",".m4v",".mov",".ts",".m2ts",".webm",".avi",
+                         ".rmvb",".rm",".wmv",".flv",".mpg",".mpeg",".mts"]
+        return videoExts.contains { fn.hasSuffix($0) }
+    }
 }
 
 struct Artist: Codable, Identifiable, Hashable {

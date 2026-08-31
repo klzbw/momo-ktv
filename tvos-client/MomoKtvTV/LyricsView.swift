@@ -135,12 +135,24 @@ final class LyricsLoader: ObservableObject {
     }
 }
 
-// MARK: - 歌词滚动 + 逐字填色视图
+// MARK: - 歌词显示模式（双排 / 上下滚动），遥控器或全屏按钮可切换，@AppStorage 全局记忆
+enum LyricsDisplayMode: String {
+    case dual    // 双排卡拉OK式：当前行大字逐字 + 下一行小字预告
+    case scroll  // 上下滚动：整列歌词平滑滚动，当前行居中
+    static func from(_ raw: String) -> LyricsDisplayMode { raw == "scroll" ? .scroll : .dual }
+    var next: LyricsDisplayMode { self == .dual ? .scroll : .dual }
+    var label: String { self == .dual ? "双排" : "滚动" }
+}
+
+// MARK: - 歌词滚动 + 逐字填色视图（双模式）
 struct LyricsView: View {
     let lyrics: SongLyrics
     let currentTime: Double
     /// 主题高亮色（已唱部分）
     var highlight: Color = Color(red: 1.0, green: 0.78, blue: 0.25)
+    /// 显示模式，默认双排；与全屏控制页用同一个 AppStorage key 共享
+    @AppStorage("momoLyricsMode") private var modeRaw: String = LyricsDisplayMode.dual.rawValue
+    private var mode: LyricsDisplayMode { .from(modeRaw) }
 
     private var activeIndex: Int { lyrics.lineIndex(at: currentTime) }
 
@@ -149,47 +161,79 @@ struct LyricsView: View {
             Text("♪ 纯音乐 · 请欣赏 ♪")
                 .font(.system(size: 30, weight: .semibold))
                 .foregroundColor(.white.opacity(0.55))
+        } else if mode == .dual {
+            dualBody
         } else {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 26) {
-                        ForEach(Array(lyrics.lines.enumerated()), id: \.element.id) { idx, line in
-                            lineView(line, idx: idx)
-                                .id(line.id)
-                        }
+            scrollBody
+        }
+    }
+
+    // 双排：当前行（大字逐字）+ 下一行（小字预告），固定居中不滚动
+    private var dualBody: some View {
+        let ai = activeIndex
+        return VStack(spacing: 22) {
+            Spacer(minLength: 0)
+            if ai >= 0 {
+                lineView(lyrics.lines[ai], idx: ai)
+                    .id(lyrics.lines[ai].id)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+            if ai + 1 < lyrics.lines.count {
+                lineView(lyrics.lines[ai + 1], idx: ai + 1)
+                    .id(lyrics.lines[ai + 1].id)
+                    .transition(.opacity)
+            }
+            Spacer(minLength: 0)
+        }
+        .animation(.easeOut(duration: 0.25), value: ai)
+        .padding(.horizontal, 70)
+    }
+
+    // 上下滚动：整列歌词，当前行平滑滚到中间
+    private var scrollBody: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 26) {
+                    ForEach(Array(lyrics.lines.enumerated()), id: \.element.id) { idx, line in
+                        lineView(line, idx: idx)
+                            .id(line.id)
                     }
-                    .padding(.vertical, 220) // 上下留白，让首/末行也能滚到中间
-                    .padding(.horizontal, 60)
                 }
-                .onChange(of: activeIndex) { newValue in
-                    guard newValue >= 0 else { return }
-                    withAnimation(.easeOut(duration: 0.35)) {
-                        proxy.scrollTo(lyrics.lines[newValue].id, anchor: .center)
-                    }
+                .padding(.vertical, 220) // 上下留白，让首/末行也能滚到中间
+                .padding(.horizontal, 60)
+            }
+            .onChange(of: activeIndex) { newValue in
+                guard newValue >= 0 else { return }
+                withAnimation(.easeOut(duration: 0.35)) {
+                    proxy.scrollTo(lyrics.lines[newValue].id, anchor: .center)
                 }
             }
-            .disabled(true) // 歌词区不抢遥控器焦点，只做展示
         }
+        .disabled(true) // 歌词区不抢遥控器焦点，只做展示
     }
 
     @ViewBuilder
     private func lineView(_ line: LyricLine, idx: Int) -> some View {
         let active = idx == activeIndex
+        let isDual = mode == .dual
+        // 双排模式下"下一行"更小更淡；滚动模式非当前行常规缩小
+        let preview = isDual && idx == activeIndex + 1
         if active, let tokens = line.tokens {
             // 当前行：逐字填色，已唱的点亮，未到的半透明白
             HStack(spacing: 0) {
                 ForEach(tokens) { tok in
                     Text(tok.text)
-                        .foregroundColor(currentTime >= tok.time ? highlight : Color.white.opacity(0.4))
+                        .foregroundColor(currentTime >= tok.time ? highlight : Color.white.opacity(0.42))
                 }
             }
-            .font(.system(size: 40, weight: .bold))
+            .font(.system(size: isDual ? 46 : 40, weight: .bold))
             .multilineTextAlignment(.center)
             .shadow(color: .black.opacity(0.6), radius: 6, x: 0, y: 2)
         } else {
             Text(line.plain)
-                .font(.system(size: active ? 40 : 30, weight: active ? .bold : .medium))
-                .foregroundColor(active ? Color.white : Color.white.opacity(0.4))
+                .font(.system(size: active ? (isDual ? 46 : 40) : (preview ? 30 : 30),
+                              weight: active ? .bold : .medium))
+                .foregroundColor(active ? Color.white : Color.white.opacity(preview ? 0.5 : 0.4))
                 .multilineTextAlignment(.center)
                 .shadow(color: .black.opacity(active ? 0.6 : 0), radius: active ? 6 : 0, x: 0, y: 2)
         }
