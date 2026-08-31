@@ -175,12 +175,12 @@ struct FullPlayerView: View {
                                                    title: "歌词·\(LyricsDisplayMode.from(lyricsModeRaw).label)",
                                                    focused: focused)
                                 }
-                                // 歌词提前 0.2s（字比声音快）
-                                TVTightButton(action: { adjustLyricsOffset(by: -0.2) }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                                // 歌词提前 0.05s（字比声音快）
+                                TVTightButton(action: { adjustLyricsOffset(by: -0.05) }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
                                     controlContent(icon: "text.badge.minus", title: "词提前", focused: focused)
                                 }
-                                // 歌词延后 0.2s（字比声音慢）
-                                TVTightButton(action: { adjustLyricsOffset(by: 0.2) }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                                // 歌词延后 0.05s（字比声音慢）
+                                TVTightButton(action: { adjustLyricsOffset(by: 0.05) }, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
                                     controlContent(icon: "text.badge.plus", title: "词延后", focused: focused)
                                 }
                             }
@@ -354,7 +354,7 @@ struct FullPlayerView: View {
         UserDefaults.standard.set(lyricsOffset, forKey: offsetKey(playing.song_id))
         pendingOffsetDelta += delta
         let sign = lyricsOffset > 0 ? "+" : ""
-        FeedbackCenter.shared.show(String(format: "歌词偏移 %@%.1fs（%@）", sign, lyricsOffset,
+        FeedbackCenter.shared.show(String(format: "歌词偏移 %@%.2fs（%@）", sign, lyricsOffset,
                                           lyricsOffset == 0 ? "已对齐" : (delta > 0 ? "字延后" : "字提前")),
                                    icon: "timer")
         // 停止调节 1.2s 后把累计增量写入服务端歌词，再重新拉取并清零本地偏移，避免双重平移
