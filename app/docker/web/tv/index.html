@@ -896,6 +896,18 @@ html[data-layout="mobile"] #next-up-track span{font-size:16px}
 #s3-qr-pop.show{display:flex}
 #s3-qr-code{width:140px;height:140px}
 #s3-qr-pop .s3-qr-tip{color:#07071a;font-size:13px;text-align:center;max-width:160px;font-weight:600}
+/* ============ 逐字歌词层：盖在视频上、控制条下，纯展示不拦截点击。三行窗口(上/当前/下)，
+   当前行逐字卡拉OK填色，已唱字金色、未唱字白色。 ============================ */
+#lyrics-layer{position:absolute;left:0;right:0;top:16%;bottom:20%;z-index:4;display:flex;
+  flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:0 8%;
+  pointer-events:none;overflow:hidden;text-align:center;transition:opacity .3s ease}
+#lyrics-layer .ll-line{max-width:100%;line-height:1.35;text-shadow:0 2px 8px rgba(0,0,0,.75);margin:0}
+#lyrics-layer .ll-near{font-size:24px;font-weight:600;color:rgba(255,255,255,.42)}
+#lyrics-layer .ll-cur{font-size:42px;font-weight:800;color:#fff;letter-spacing:.5px}
+#lyrics-layer .ll-cur .sung{color:#ffc740}
+#lyrics-layer .ll-none{font-size:26px;font-weight:600;color:rgba(255,255,255,.5)}
+html[data-layout="mobile"] #lyrics-layer .ll-cur{font-size:30px}
+html[data-layout="mobile"] #lyrics-layer .ll-near{font-size:18px}
 /* ============ 新增：切歌/开唱时 MV 框内展示几秒"话筒+歌名+歌手"开场卡片 ============
    参考效果图：左侧一个带脉冲光圈的话筒图标，右侧歌名(渐变大字)+歌手(圆角胶囊小标签)，
    铺满整个 MV 框、盖在视频上方，几秒后自动淡出退回正常播放画面，不需要用户操作。
@@ -1674,6 +1686,8 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
         <div id="now-idle"><div class="idle-big">墨墨爱K歌</div><div class="idle-sub">扫码点歌 · 大屏沉浸演唱</div></div>
         <div id="now-info"><div class="ni-t" id="ni-title">—</div><div class="ni-m" id="ni-meta">—</div></div>
         <div id="now-qr-corner"><div id="now-qr-code2"></div></div>
+        <!-- 逐字歌词层：JS 渲染当前行(逐字卡拉OK填色)+上下行，纯展示不拦截点击 -->
+        <div id="lyrics-layer" aria-hidden="true"><div id="lyrics-pad"></div></div>
         <div id="song-intro">
           <div class="si-mic">
             <div class="si-ring si-ring1"></div><div class="si-ring si-ring2"></div><div class="si-ring si-ring3"></div>
@@ -2456,6 +2470,63 @@ const VoiceManager = (() => {
 document.addEventListener('click', () => VoiceManager.wake(video), { once: false, passive: true });
 // 新歌加载后重新检测，trackCount 由服务端 ffprobe 探测得出，见 renderAll() 里 curSong 的赋值
 video.addEventListener('loadedmetadata', () => VoiceManager.onLoad(video, curSong && curSong.audio_tracks));
+// ═══════════ 逐字歌词：解析普通/增强(enhanced)LRC，三行窗口、当前行逐字卡拉OK填色 ═══════════
+const Lyrics = (()=>{
+  let lines=[], loadedId=null, lastIdx=-9;
+  const layer=()=>document.getElementById('lyrics-layer');
+  function t2s(s){ s=(s||'').replace(/[\[\]<>]/g,''); const p=s.split(':'); if(p.length<2)return null;
+    const m=parseFloat(p[0]), x=parseFloat(p[1]); return (isNaN(m)||isNaN(x))?null:m*60+x; }
+  function parse(lrc){
+    const out=[]; if(!lrc)return out;
+    lrc.split(/\r?\n/).forEach(raw=>{
+      if(!raw.trim())return;
+      const tags=[...raw.matchAll(/\[([^\]]+)\]/g)];
+      let bodyStart=0; const starts=[];
+      tags.forEach(m=>{ const t=t2s(m[1]); if(t!==null){starts.push(t); bodyStart=Math.max(bodyStart,m.index+m[0].length);} });
+      const body=raw.slice(bodyStart).trim(); if(!starts.length||!body)return;
+      const wm=[...body.matchAll(/<([0-9:.]+)>/g)]; let tokens=null;
+      if(wm.length>=2){ tokens=[];
+        wm.forEach((m,i)=>{ const t=t2s(m[1]); if(t===null)return;
+          const a=m.index+m[0].length, b=i+1<wm.length?wm[i+1].index:body.length;
+          const piece=body.slice(a,b).trim(); if(piece)tokens.push({t,w:piece}); });
+      }
+      const plain=tokens?tokens.map(x=>x.w).join(''):body;
+      starts.forEach(st=>out.push({start:st,plain,tokens}));
+    });
+    out.sort((a,b)=>a.start-b.start);
+    out.forEach((l,i)=>{ l.end=i+1<out.length?out[i+1].start:Infinity; });
+    return out.filter((l,i)=>!i||out[i-1].start!==l.start||out[i-1].plain!==l.plain);
+  }
+  function esc(s){ return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  function load(songId){
+    if(songId===loadedId)return; loadedId=songId; lines=[]; lastIdx=-9; render(video.currentTime||0);
+    fetch(BASE+'/api/songs/'+songId+'/lyrics').then(r=>r.json()).then(d=>{
+      if(loadedId!==songId)return;
+      lines=parse(d.word||d.lyrics); lastIdx=-9; render(video.currentTime||0);
+    }).catch(()=>{});
+  }
+  function reset(){ loadedId=null; lines=[]; lastIdx=-9; const l=layer(); if(l)l.innerHTML=''; }
+  function idxAt(t){ let idx=-1; for(let i=0;i<lines.length;i++){ if(lines[i].start<=t+0.01)idx=i; else break; } return idx; }
+  function curLineHTML(line,t){
+    if(!line.tokens)return esc(line.plain);
+    return line.tokens.map(tok=>'<span class="'+(t>=tok.t?'sung':'')+'">'+esc(tok.w)+'</span>').join('');
+  }
+  function render(t){
+    const l=layer(); if(!l)return;
+    if(!lines.length){ if(l.innerHTML)l.innerHTML=''; return; }
+    const idx=idxAt(t);
+    if(idx===lastIdx){ if(idx>=0&&lines[idx].tokens){ const cur=l.querySelector('.ll-cur');
+      if(cur){ const sp=cur.children; lines[idx].tokens.forEach((tok,k)=>{ if(sp[k])sp[k].className=t>=tok.t?'sung':''; }); } } return; }
+    lastIdx=idx;
+    const prev=idx>0?lines[idx-1]:null, cur=idx>=0?lines[idx]:null, next=idx+1<lines.length?lines[idx+1]:null;
+    let html='';
+    if(prev)html+='<div class="ll-line ll-near">'+esc(prev.plain)+'</div>';
+    html+= cur?'<div class="ll-line ll-cur">'+curLineHTML(cur,t)+'</div>':'<div class="ll-line ll-none">♪ 纯音乐 · 请欣赏 ♪</div>';
+    if(next)html+='<div class="ll-line ll-near">'+esc(next.plain)+'</div>';
+    l.innerHTML=html;
+  }
+  return {load,reset,render};
+})();
 // 拼音映射
 const PM={"啊":"A","阿":"A","爱":"A","安":"A","暗":"A","岸":"A","昂":"A","傲":"A","澳":"A","哎":"A","唉":"A","挨":"A","艾":"A","按":"A","案":"A","把":"B","八":"B","吧":"B","白":"B","百":"B","拜":"B","班":"B","伴":"B","半":"B","帮":"B","包":"B","宝":"B","保":"B","报":"B","爸":"B","背":"B","被":"B","本":"B","比":"B","彼":"B","别":"B","变":"B","冰":"B","病":"B","步":"B","布":"B","不":"B","波":"B","博":"B","奔":"B","笔":"B","标":"B","才":"C","唱":"C","超":"C","沉":"C","成":"C","城":"C","出":"C","春":"C","层":"C","灿":"C","参":"C","差":"C","残":"C","草":"C","彩":"C","仓":"C","曾":"C","丛":"C","此":"C","词":"C","从":"C","存":"C","长":"C","称":"C","初":"C","创":"C","除":"C","曹":"C","采":"C","大":"D","当":"D","道":"D","地":"D","第":"D","懂":"D","多":"D","断":"D","带":"D","动":"D","等":"D","的":"D","登":"D","都":"D","对":"D","独":"D","淡":"D","蝶":"D","跌":"D","灯":"D","点":"D","额":"E","而":"E","恩":"E","鹅":"E","呢":"E","俄":"E","发":"F","飞":"F","分":"F","风":"F","父":"F","复":"F","放":"F","方":"F","烦":"F","飘":"F","奋":"F","赴":"F","费":"F","封":"F","丰":"F","富":"F","感":"G","高":"G","个":"G","给":"G","更":"G","光":"G","归":"G","过":"G","国":"G","跟":"G","共":"G","孤":"G","挂":"G","贵":"G","滚":"G","干":"G","刚":"G","格":"G","歌":"G","还":"H","海":"H","好":"H","和":"H","后":"H","花":"H","回":"H","害":"H","恨":"H","红":"H","很":"H","含":"H","欢":"H","黄":"H","喉":"H","呼":"H","怀":"H","家":"J","见":"J","今":"J","经":"J","就":"J","记":"J","旧":"J","解":"J","几":"J","敬":"J","降":"J","吉":"J","将":"J","进":"J","静":"J","角":"J","坚":"J","开":"K","看":"K","哭":"K","快":"K","苦":"K","靠":"K","空":"K","可":"K","跨":"K","来":"L","浪":"L","老":"L","乐":"L","了":"L","里":"L","留":"L","落":"L","泪":"L","蓝":"L","凉":"L","恋":"L","路":"L","旅":"L","懒":"L","没":"M","明":"M","梦":"M","面":"M","迷":"M","美":"M","满":"M","慢":"M","么":"M","莫":"M","那":"N","年":"N","你":"N","难":"N","念":"N","南":"N","哪":"N","哦":"O","噢":"O","欧":"O","旁":"P","漂":"P","平":"P","片":"P","起":"Q","前":"Q","千":"Q","情":"Q","轻":"Q","去":"Q","求":"Q","亲":"Q","其":"Q","切":"Q","然":"R","让":"R","热":"R","人":"R","忍":"R","柔":"R","三":"S","伤":"S","上":"S","少":"S","失":"S","说":"S","随":"S","生":"S","声":"S","思":"S","是":"S","岁":"S","太":"T","特":"T","天":"T","听":"T","同":"T","头":"T","痛":"T","万":"W","为":"W","我":"W","无":"W","往":"W","忘":"W","晚":"W","想":"X","象":"X","小":"X","心":"X","星":"X","现":"X","希":"X","寻":"X","也":"Y","一":"Y","已":"Y","忆":"Y","因":"Y","用":"Y","又":"Y","有":"Y","眼":"Y","烟":"Y","要":"Y","云":"Y","以":"Y","遥":"Y","夜":"Y","鱼":"Y","再":"Z","在":"Z","找":"Z","真":"Z","中":"Z","走":"Z","总":"Z","紫":"Z","知":"Z","赵":"Z","张":"Z","郑":"Z","周":"Z","庄":"Z","怎":"Z","醉":"Z"};
 const PB=[['啊','A'],['芭','B'],['擦','C'],['搭','D'],['蛾','E'],['发','F'],['噶','G'],['哈','H'],['击','J'],['喀','K'],['垃','L'],['妈','M'],['拿','N'],['哦','O'],['啪','P'],['期','Q'],['然','R'],['撒','S'],['塌','T'],['挖','W'],['昔','X'],['压','Y'],['匝','Z']];
@@ -2841,7 +2912,7 @@ function renderAll(){
       // 才真正加载媒体流解码播放，其余分支(下面 else)保持 MV 框在品牌
       // slogan 画面，从源头避免建立第二路视频流。
       document.getElementById('now-idle').style.display='none';video.style.display='block';
-      if(!curSong||curSong.queue_id!==playing.queue_id){curSong=playing;loadSong(video,playing.song_id,!!(playing.is_network||playing.is_strm));
+      if(!curSong||curSong.queue_id!==playing.queue_id){curSong=playing;loadSong(video,playing.song_id,!!(playing.is_network||playing.is_strm));try{Lyrics.load(playing.song_id);}catch(e){console.warn('lyrics load',e);}
         showSongIntro(playing.title,`${playing.artist||''} · ${playing.nickname}`);
         curSongStartTime=Date.now();armFsBannerTimer();} // 需求(全屏横幅改为每首歌开始2分钟后展示一次)：换了新歌就重新起计时
       else if(curSong.audio_tracks!==playing.audio_tracks){
@@ -2862,9 +2933,9 @@ function renderAll(){
       // 下来的、之前 curSong 里还留着旧的媒体资源，这里顺手清掉，避免残留
       // 的 HLS/video 对象继续占用资源。
       document.getElementById('now-idle').style.display='flex';video.style.display='none';
-      if(curSong){curSong=null;destroyHls();video.removeAttribute('src');video.load();document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();}
+      if(curSong){curSong=null;try{Lyrics.reset();}catch(e){}destroyHls();video.removeAttribute('src');video.load();document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();}
     }
-  }else{document.getElementById('now-idle').style.display='flex';video.style.display='none';document.getElementById('now-info').classList.remove('show');document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();hideToast();curSong=null;destroyHls();video.removeAttribute('src');video.load();
+  }else{document.getElementById('now-idle').style.display='flex';video.style.display='none';document.getElementById('now-info').classList.remove('show');document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();hideToast();curSong=null;try{Lyrics.reset();}catch(e){}destroyHls();video.removeAttribute('src');video.load();
     if(!queueData.length)singSessionStart=null; // 队列彻底清空，视为这一场欢唱结束，下次开唱重新计时
     curSongStartTime=null;clearTimeout(fsBannerTimer); // 没歌在播，全屏"每首歌2分钟后展示一次"的计时器也一并作废
     hideSongIntro();
@@ -3000,7 +3071,7 @@ function adjVolume(delta){
   if(!isActivePlayer){sendWS({type:'control',action:'volume',delta});showToast('已发送音量调节指令');return;}
   localAdjVolume(delta);
 }
-video.addEventListener('timeupdate',()=>{if(!video.duration)return;document.getElementById('prog-fill').style.width=(video.currentTime/video.duration*100)+'%';document.getElementById('tcur').textContent=fmt(video.currentTime);document.getElementById('ttot').textContent=fmt(video.duration);
+video.addEventListener('timeupdate',()=>{if(!video.duration)return;document.getElementById('prog-fill').style.width=(video.currentTime/video.duration*100)+'%';document.getElementById('tcur').textContent=fmt(video.currentTime);document.getElementById('ttot').textContent=fmt(video.duration);try{Lyrics.render(video.currentTime);}catch(e){}
 });
 // ============ 常驻/全屏滚动横幅 ============
 // 需求演进：v1(老版本)只在播放到最后15秒才弹一次居中 toast 提示"下一首"；
