@@ -171,7 +171,7 @@ final class LyricsStyleStore: ObservableObject {
     @Published var colorHex: String
     @Published var strokeHex: String
     @Published var lineWidth: CGFloat        // 描边粗细（点），遥控端可调 0...12
-    @Published var fontScale: CGFloat        // 字号倍率，遥控端可调 0.7...1.6，默认 1
+    @Published var fontScale: CGFloat        // 字号倍率，遥控端可调 0.7...2.0，默认 1
     private init() {
         colorHex = UserDefaults.standard.string(forKey: "momoLyricsColor") ?? "#FFD24A"
         strokeHex = UserDefaults.standard.string(forKey: "momoLyricsStroke") ?? "#000000"
@@ -194,7 +194,7 @@ final class LyricsStyleStore: ObservableObject {
             UserDefaults.standard.set(Double(lineWidth), forKey: "momoLyricsWidth")
         }
         if let sc = scale {
-            fontScale = max(0.7, min(1.6, sc))
+            fontScale = max(0.7, min(2.0, sc))
             UserDefaults.standard.set(Double(fontScale), forKey: "momoLyricsScale")
         }
     }
@@ -226,26 +226,33 @@ struct StrokeFillText: View {
     }
 }
 
-// MARK: - 卡拉OK k 标签逐字渐变：底层未唱(白) + 上层已唱(主题色)按进度从左到右裁剪叠加，描边用 StrokeFillText
+// MARK: - 卡拉OK k 标签逐字渐变：底层未唱(白) + 上层已唱(主题色)用遮罩从左到右揭开，
+// 扫色前缘带一段线性羽化(黑→透明)形成"消色过渡"，比硬边裁剪更顺滑；遮罩走 GPU，且省掉 GeometryReader。
 struct KaraokeWord: View {
     let text: String
     let progress: Double
     var highlight: Color = Color(red: 1.0, green: 0.78, blue: 0.25)
     var base: Color = Color.white.opacity(0.42)
     var stroke: Color = .black
-    var lineW: CGFloat = 5     // 描边粗细（点），由 LyricsStyleStore 提供，遥控可调
+    var lineW: CGFloat = 5
 
     var body: some View {
+        let p = CGFloat(min(max(progress, 0), 1))
+        let edge: CGFloat = 0.14   // 扫色前缘羽化带占该字宽度比例
         StrokeFillText(text: text, fill: base, strokeColor: stroke, w: lineW)
-            .overlay(alignment: .leading) {
-                GeometryReader { geo in
-                    StrokeFillText(text: text, fill: highlight, strokeColor: stroke, w: lineW)
-                        .frame(width: geo.size.width * CGFloat(min(max(progress, 0), 1)),
-                               alignment: .leading)
-                        .clipped()
-                        // 极短线性补间：把 20Hz 的离散进度在帧间连续插值，扫色视觉顺滑，0.05s 滞后几乎无感
-                        .animation(.linear(duration: 0.05), value: progress)
-                }
+            .overlay {
+                StrokeFillText(text: text, fill: highlight, strokeColor: stroke, w: lineW)
+                    .mask(
+                        LinearGradient(
+                            stops: [
+                                .init(color: .black, location: 0),
+                                .init(color: .black, location: max(0, p - edge)),
+                                .init(color: .clear, location: min(1, p)),
+                                .init(color: .clear, location: 1)
+                            ],
+                            startPoint: .leading, endPoint: .trailing)
+                    )
+                    .animation(.linear(duration: 0.06), value: p)
             }
     }
 }
@@ -362,7 +369,7 @@ struct LyricsView: View {
                 }
             }
             .font(.system(size: fontSize, weight: .black))   // 对齐网页 font-weight:900
-            .tracking(compact ? 0 : 1)                        // 对齐网页 letter-spacing:1px
+            .tracking((compact ? 0 : 1) * sc)                 // 字距随字号同比放大，字号变大时相对间距保持一致
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .minimumScaleFactor(0.35)                         // 字号调大/长句时自动缩回，保证不超出屏幕
@@ -380,7 +387,7 @@ struct LyricsView: View {
     private func strokedLine(_ text: String, fill: Color, size: CGFloat, weight: Font.Weight, active: Bool) -> some View {
         StrokeFillText(text: text, fill: fill, strokeColor: stroke, w: styleStore.lineWidth)
             .font(.system(size: size, weight: weight))
-            .tracking(active && !compact ? 1 : 0)
+            .tracking((active && !compact ? 1 : 0) * styleStore.fontScale)
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .minimumScaleFactor(0.35)

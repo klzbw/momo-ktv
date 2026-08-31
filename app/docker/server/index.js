@@ -2540,7 +2540,7 @@ wss.on('connection', (ws, req) => {
         if (typeof p.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(p.color)) msg.color = p.color;
         if (typeof p.stroke === 'string' && /^#[0-9a-fA-F]{6}$/.test(p.stroke)) msg.stroke = p.stroke;
         if (typeof p.width === 'number' && p.width >= 0 && p.width <= 12) msg.width = p.width;
-        if (typeof p.fontScale === 'number' && p.fontScale >= 0.7 && p.fontScale <= 1.6) msg.fontScale = p.fontScale;
+        if (typeof p.fontScale === 'number' && p.fontScale >= 0.7 && p.fontScale <= 2.0) msg.fontScale = p.fontScale;
         if (msg.color || msg.stroke || typeof msg.width === 'number' || typeof msg.fontScale === 'number') {
           const out = JSON.stringify(msg);
           wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(out); });

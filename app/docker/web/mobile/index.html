@@ -561,15 +561,17 @@ header{
         <input type="color" id="lyrics-stroke" value="#000000" oninput="sendLyricsStyle()" style="width:40px;height:40px;border:none;background:none;cursor:pointer;padding:0">
       </div>
     </div>
-    <div class="ctrl-btn" style="padding:10px 14px;display:flex;align-items:center;gap:10px;margin-top:8px">
-      <span class="cl" style="white-space:nowrap">描边粗细</span>
-      <input type="range" id="lyrics-width" min="0" max="12" step="0.5" value="5" oninput="sendLyricsStyle()" style="flex:1">
-      <span id="lyrics-width-val" style="min-width:34px;text-align:right">5</span>
-    </div>
-    <div class="ctrl-btn" style="padding:10px 14px;display:flex;align-items:center;gap:10px;margin-top:8px">
-      <span class="cl" style="white-space:nowrap">歌词字号</span>
-      <input type="range" id="lyrics-scale" min="0.7" max="1.6" step="0.05" value="1" oninput="sendLyricsStyle()" style="flex:1">
-      <span id="lyrics-scale-val" style="min-width:44px;text-align:right">100%</span>
+    <div class="ctrl-row" style="margin-top:8px">
+      <div class="ctrl-btn" style="flex:1;padding:10px 10px;display:flex;align-items:center;gap:6px">
+        <span class="cl" style="white-space:nowrap">描边</span>
+        <input type="range" id="lyrics-width" min="0" max="12" step="0.5" value="5" oninput="sendLyricsStyle()" style="flex:1;min-width:0">
+        <span id="lyrics-width-val" style="min-width:26px;text-align:right">5</span>
+      </div>
+      <div class="ctrl-btn" style="flex:1;padding:10px 10px;display:flex;align-items:center;gap:6px">
+        <span class="cl" style="white-space:nowrap">字号</span>
+        <input type="range" id="lyrics-scale" min="0.7" max="2" step="0.05" value="1" oninput="sendLyricsStyle()" style="flex:1;min-width:0">
+        <span id="lyrics-scale-val" style="min-width:40px;text-align:right">100%</span>
+      </div>
     </div>
   </div>
 
@@ -582,23 +584,7 @@ header{
     </div>
   </div>
 
-  <!-- D-pad -->
-  <div class="ctrl-section">
-    <div class="ctrl-title">🕹 方向导航</div>
-    <div class="dpad">
-      <div class="dpad-btn dpad-empty"></div>
-      <div class="dpad-btn" onclick="sendCtrl('focus_up')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg></div>
-      <div class="dpad-btn dpad-empty"></div>
-      <div class="dpad-btn" onclick="sendCtrl('focus_left')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></div>
-      <div class="dpad-btn dpad-ok" onclick="sendCtrl('ok')">确认</div>
-      <div class="dpad-btn" onclick="sendCtrl('focus_right')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></div>
-      <div class="dpad-btn dpad-empty"></div>
-      <div class="dpad-btn" onclick="sendCtrl('focus_down')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></div>
-      <div class="dpad-btn dpad-empty"></div>
-    </div>
   </div>
-
-</div>
 
 <div id="queue-fab" onclick="switchTabByName('queue')">
   🎵 当前队列 <span class="fab-badge" id="fab-badge">0</span>
