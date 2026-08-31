@@ -771,10 +771,14 @@ struct CategoryPage: View {
 private struct ConditionalFocusModifier: ViewModifier {
     let externalFocus: FocusState<Bool>.Binding?
     let internalFocus: FocusState<Bool>.Binding
+    let focusedTag: FocusState<Int?>.Binding?
+    let focusTag: Int?
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if let ext = externalFocus {
+        if let ft = focusedTag, let tag = focusTag {
+            content.focused(ft, equals: tag)
+        } else if let ext = externalFocus {
             content.focused(ext)
         } else {
             content.focused(internalFocus)
@@ -787,18 +791,23 @@ struct TVTightButton<Label: View>: View {
     let action: () -> Void
     var autoFocus: Bool = false
     var externalFocus: FocusState<Bool>.Binding? = nil
+    var focusedTag: FocusState<Int?>.Binding? = nil
+    var focusTag: Int? = nil
     var onFocusChange: ((Bool) -> Void)? = nil
     @ViewBuilder let label: (Bool) -> Label
     @FocusState private var focused: Bool
 
     private var isFocused: Bool {
-        externalFocus?.wrappedValue ?? focused
+        if let ft = focusedTag, let tag = focusTag {
+            return ft.wrappedValue == tag
+        }
+        return externalFocus?.wrappedValue ?? focused
     }
 
     var body: some View {
         label(isFocused)
             .focusable(true)
-            .modifier(ConditionalFocusModifier(externalFocus: externalFocus, internalFocus: $focused))
+            .modifier(ConditionalFocusModifier(externalFocus: externalFocus, internalFocus: $focused, focusedTag: focusedTag, focusTag: focusTag))
             .focusEffectDisabled()
             .onTapGesture { action() }
             .onChange(of: isFocused) { newVal in
@@ -807,7 +816,9 @@ struct TVTightButton<Label: View>: View {
             .onAppear {
                 if autoFocus {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        if let ext = externalFocus {
+                        if let ft = focusedTag, let tag = focusTag {
+                            ft.wrappedValue = tag
+                        } else if let ext = externalFocus {
                             ext.wrappedValue = true
                         } else {
                             focused = true
