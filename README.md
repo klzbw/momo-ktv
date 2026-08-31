@@ -1,27 +1,51 @@
 # 墨墨爱K歌（momo-ktv）
 
-局域网 KTV 系统：手机扫码点歌 / 手机当无线麦克风，电视或投影仪全屏播放，支持原唱/伴唱切换、已点队列、收藏、分类点歌等。本仓库为个人独立维护的二次开发版本。
+> 一套完整的家庭点歌系统，就像KTV包厢里的点歌机一样！手机点歌、电视播放、原唱伴唱切换、逐字歌词、AI自动生成歌词、动态背景，全都有。
 
-## 目录结构
+---
 
-```
-app/docker/server   Node 服务端（点歌/队列/HLS 转码/手机麦克风中转）
-app/docker/web      前端页面：tv（电视网页）、mobile（手机点歌）、mic（手机麦克风）、admin（曲库管理）
-tvos-client         Apple TV 原生客户端（SwiftUI，工程名 MomoKtvTV）
-cmd / wizard        飞牛 fnOS 应用套件生命周期脚本（可选，直接用 Docker 时不需要）
-.github/workflows   CI：docker.yml 构建推送镜像；build-tvos.yml 构建 tvOS IPA
-```
+## ✨ 功能特性
 
-## 自有镜像（GitHub Container Registry）
+- 🎤 **多端点歌**：Apple TV、Android TV、电视浏览器、手机浏览器，全都能用
+- 📱 **手机遥控**：手机当遥控器点歌、切歌、调音量，还能当麦克风唱歌
+- 🎵 **海量格式**：支持MKV、MP4、MP3、FLAC、WAV、APE、CUE等各种格式
+- 🎤 **原唱/伴唱**：MKV多音轨一键切换，不中断播放
+- 📝 **逐字歌词**：唱到哪个字哪个字变色，就像KTV里一样
+- 🤖 **AI歌词**：没有歌词的歌曲，AI自动生成精准的逐字歌词
+- 🎨 **动态背景**：纯音频歌曲自动显示水波纹、星空、极光等14种动态背景
+- 🌟 **氛围特效**：掌声、干杯、喝彩、倒彩，祝福语全屏滚动
+- 💾 **曲库管理**：自动扫描新歌，支持多个曲库目录
+- 🔧 **管理后台**：网页管理曲库、用户、AI任务、背景图片
 
-每次向 `main` 推送 `app/docker/**` 改动，会自动构建并推送：
+---
 
-- `ghcr.io/klzbw/momo-ktv:latest`
-- `ghcr.io/klzbw/momo-ktv:sha-短提交号`
+## 🚀 5分钟快速上手
 
-## 飞牛 fnOS 上部署（推荐 docker compose）
+### 你需要准备
 
-在飞牛上准备目录 `app/docker/docker-compose.yml`（内容见仓库同名文件），核心如下：
+| 设备 | 说明 |
+|------|------|
+| 一台服务器 | 飞牛NAS / 普通电脑 / 树莓派（存放歌曲，运行服务端） |
+| 一个播放设备 | Apple TV / Android TV / 智能电视浏览器 |
+| 一个手机 | 当遥控器点歌（连同一个WiFi） |
+| 一些歌曲 | MKV/MP4/MP3/FLAC等格式，放在服务器的文件夹里 |
+
+### 第1步：安装服务端
+
+#### 飞牛NAS（推荐）
+
+1. 打开飞牛NAS「应用商店」
+2. 搜索「墨墨爱K歌」
+3. 点击安装，等待完成
+4. 打开应用，按引导设置曲库目录
+
+> 没有应用商店版本？用Docker手动部署，看《docs/03-服务端部署.md》
+
+#### 普通电脑（Windows/Mac/Linux）
+
+1. 安装 [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+2. 创建文件夹 `D:\momo-ktv\`
+3. 在里面创建 `docker-compose.yml`：
 
 ```yaml
 services:
@@ -31,36 +55,159 @@ services:
     restart: unless-stopped
     ports:
       - "8083:8080"
+    environment:
+      - TZ=Asia/Shanghai
+      - ADMIN_PASSWORD=admin888
     volumes:
-      - /vol1/@appshare/momo-ktv/data:/data
-      - /vol1/@appshare/momo-ktv/mv:/mv
-    devices:
-      - /dev/dri:/dev/dri     # 有核显/独显硬件转码才需要，无则删掉本段
+      - D:\momo-ktv\data:/data
+      - D:\momo-ktv\music:/mv/library1
 ```
 
-然后：
+4. 打开命令行，执行：
+```bash
+cd D:\momo-ktv
+docker compose up -d
+```
+
+### 第2步：添加歌曲
+
+1. 把你的歌曲文件放到曲库目录（飞牛NAS的共享文件夹，或电脑的 `D:\momo-ktv\music\`）
+2. 打开管理后台：`http://服务器IP:8083/admin`
+3. 登录（账号admin，密码admin888）
+4. 进入「曲库管理」→「曲库来源」
+5. 确认曲库目录已添加，点击「扫描」
+6. 等待扫描完成（1000首约1-2分钟）
+
+### 第3步：电视端点歌
+
+#### 方式A：Apple TV（体验最佳）
+1. 下载最新的 `MomoKtvTV.ipa`（在GitHub Actions产物里）
+2. 用Apple Configurator 2或Sideloadly安装到Apple TV
+3. 打开「墨墨爱K歌」，输入服务器地址（如 `192.168.3.16:8083`）
+4. 登录后开始点歌！
+
+#### 方式B：Android TV
+1. 下载 `MomoKtvTV-Android.apk`
+2. U盘拷到电视，点击安装
+3. 打开应用，输入服务器地址
+4. 登录后开始点歌！
+
+#### 方式C：智能电视浏览器（零安装）
+1. 打开电视浏览器
+2. 访问 `http://服务器IP:8083/tv/`
+3. 登录后开始点歌！
+
+### 第4步：手机当遥控器
+
+1. 手机连家里WiFi
+2. 打开手机浏览器，访问 `http://服务器IP:8083/mobile/`
+3. 登录后就是遥控器界面
+4. 点歌、切歌、调音量、当麦克风唱歌！
+
+> 💡 建议添加到手机主屏幕，下次直接点图标打开，像APP一样。
+
+---
+
+## 📚 学习文档（小白也能看懂）
+
+| 文档 | 内容 | 适合谁 |
+|------|------|--------|
+| [01-从零开始.md](docs/01-从零开始.md) | 项目介绍、5分钟上手、常见问题 | 完全零基础 |
+| [02-架构详解.md](docs/02-架构详解.md) | 每个模块怎么工作的，数据流向 | 想了解原理 |
+| [03-服务端部署.md](docs/03-服务端部署.md) | 飞牛NAS/电脑/Docker部署，独立显卡 | 要部署服务端 |
+| [04-AI工作站.md](docs/04-AI工作站.md) | AI歌词生成，一键安装，防闪退 | 要自动生成歌词 |
+| [05-客户端使用.md](docs/05-客户端使用.md) | 各客户端安装使用，遥控器操作 | 要安装客户端 |
+
+---
+
+## 📁 项目结构
+
+```
+momo-ktv/
+├── app/                          # 服务端 + 网页端
+│   └── docker/
+│       ├── server/               # Node.js 服务端（API、曲库、转码）
+│       └── web/                  # 网页端
+│           ├── tv/               # 电视端点歌界面
+│           ├── mobile/           # 手机遥控端
+│           ├── admin/            # 管理后台
+│           └── mic/              # 手机麦克风端
+├── tvos-client/                  # Apple TV 客户端（Swift/SwiftUI）
+├── android-tv-client/            # Android TV 客户端（Kotlin + WebView）
+├── ai-worker/                    # AI歌词精准化工作站（Python）
+├── docs/                         # 学习文档（小白友好）
+├── cmd/ + wizard/                # 飞牛fnOS应用套件脚本
+└── .github/workflows/            # CI自动构建（Docker镜像 + tvOS IPA + Android APK）
+```
+
+---
+
+## 🔄 更新到最新版本
+
+### 服务端更新（飞牛NAS/电脑Docker）
 
 ```bash
+cd /vol1/docker/momo-ktv    # 或你的docker-compose.yml所在目录
 docker compose pull
 docker compose up -d
 ```
 
-- 电视/投影网页端：`http://飞牛IP:8083/tv`
-- 手机点歌：`http://飞牛IP:8083/m`
-- 手机麦克风：经 HTTPS 反代域名访问 `/mic`（浏览器要求安全上下文才允许调用麦克风）
-- 曲库管理：`http://飞牛IP:8083/admin`（首次设置管理员密码）
-- MV 文件放进共享目录 `momo-ktv/mv`，会自动扫描入库。
+### tvOS客户端更新
+1. 下载最新IPA（GitHub Actions产物）
+2. 用Apple Configurator 2重新安装（覆盖安装，设置保留）
 
-> 镜像若为私有，需要先 `docker login ghcr.io -u klzbw`（用 GitHub 个人访问令牌）；将 package 设为 public 后可匿名拉取。
+### Android TV客户端更新
+1. 下载最新APK
+2. 覆盖安装即可
 
-## 二次开发闭环
+### 网页端更新
+刷新页面即可，服务端更新后自动生效。
 
-1. 修改代码并推送到 `main`；
-2. `docker.yml` 自动出新镜像（改 `tvos-client/**` 时 `build-tvos.yml` 自动出新 IPA，在 Actions 产物下载）；
-3. 飞牛上 `docker compose pull && docker compose up -d` 即更新到最新版。
+---
 
-## 技术说明
+## ❓ 常见问题
 
-- 服务端：Node + Express + better-sqlite3 + ffmpeg（HLS 双音轨，原唱/伴唱切换不中断）。
-- Apple TV 端：SwiftUI + AVPlayer（伴奏）与 AVAudioEngine（手机麦克风人声）实时混音。
-- 手机麦克风链路：手机经 HTTPS 域名(wss) → 本服务 `/mic` → Apple TV 局域网(ws)，两端在同一服务进程会合。
+### Q：我完全不懂技术，能搞定吗？
+**A**：能！跟着《01-从零开始.md》一步步来，5分钟就能跑起来。遇到问题看各文档最后的「常见问题」章节，90%的问题都有答案。
+
+### Q：没有NAS，用普通电脑能跑吗？
+**A**：能！电脑安装Docker后，一条命令就能启动。看《03-服务端部署.md》的「电脑Docker部署」章节。
+
+### Q：歌曲从哪里来？
+**A**：你可以从网上下载MKV格式的KTV歌曲（带MV和字幕），也可以用普通的MP3/FLAC音频文件。纯音频歌曲会自动显示动态背景和AI生成的歌词。
+
+### Q：AI歌词精准化是什么？需要吗？
+**A**：AI歌词精准化是用人工智能为没有歌词的歌曲自动生成逐字同步歌词。如果你大部分歌曲是MKV格式（自带字幕），就不需要。如果有很多MP3/FLAC没有歌词，建议配置AI工作站。看《04-AI工作站.md》。
+
+### Q：手机麦克风有延迟怎么办？
+**A**：确保手机和服务器连同一个WiFi，用5GHz频段，离路由器近一些。延迟通常在100-300毫秒，唱歌时基本感觉不到。
+
+### Q：原唱/伴唱切换不了？
+**A**：只有MKV文件有多个音轨才能切换。MP4可能有，MP3/FLAC等纯音频只有一个音轨。用MediaInfo查看文件有几个音轨。
+
+### Q：播放卡顿？
+**A**：可能原因：网络带宽不够（用有线网络）、服务器性能太弱、歌曲码率太高。开启硬件转码（NVENC）可以大幅改善。看《03-服务端部署.md》的「独立显卡支持」章节。
+
+---
+
+## 🛠️ 技术栈
+
+- **服务端**：Node.js + Express + better-sqlite3 + FFmpeg（HLS转码，双音轨切换）
+- **tvOS客户端**：Swift + SwiftUI + AVPlayer + AVAudioEngine
+- **Android TV客户端**：Kotlin + WebView
+- **网页端**：纯HTML + CSS + JavaScript（无框架，轻量快速）
+- **AI工作站**：Python + PyTorch + Demucs + WhisperX
+- **数据库**：SQLite（文件型，零配置，备份方便）
+- **部署**：Docker + docker-compose（一键部署，跨平台）
+
+---
+
+## 📝 说明
+
+本项目为个人独立维护的二次开发版本，基于开源KTV项目进行了大量功能增强和优化。仅供学习和家庭使用，请勿用于商业用途。
+
+---
+
+## ⭐ 喜欢这个项目？
+
+觉得好用的话，给个Star支持一下吧！有问题欢迎提Issue。

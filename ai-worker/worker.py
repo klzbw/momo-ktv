@@ -17,7 +17,7 @@
   python worker.py --server http://192.168.3.16:8083 --worker pc-51 --mode both
   --mode 可选 separate（只分离）/ align（只对齐）/ both（先分离后对齐，默认）
 """
-import argparse, os, sys, time, subprocess, tempfile, shutil, urllib.parse, re
+import argparse, os, sys, time, subprocess, tempfile, shutil, urllib.parse, re, json
 import requests
 
 # Windows GBK控制台无法输出部分Unicode字符(如子进程错误里的\ufffd)，强制UTF-8避免log时主进程崩溃
@@ -197,13 +197,43 @@ class MomoWorker:
                 if idle_round % 20 == 1:
                     log('队列空闲，等待新任务...')
 
+def load_config():
+    """从 worker_config.json 加载配置（图形化界面生成的配置文件）"""
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'worker_config.json')
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            log('已加载 worker_config.json 配置')
+            return cfg
+        except Exception as e:
+            log(f'读取 worker_config.json 失败: {e}，使用命令行参数')
+    return {}
+
 def main():
+    # 先尝试从配置文件加载
+    cfg = load_config()
+
     ap = argparse.ArgumentParser()
-    ap.add_argument('--server', default=os.environ.get('MOMO_SERVER', 'http://192.168.3.16:8083'))
-    ap.add_argument('--worker', default=os.environ.get('MOMO_WORKER', 'pc-gpu'))
-    ap.add_argument('--mode', default='both', choices=['separate', 'align', 'both'])
-    ap.add_argument('--python', default='', help='子进程用的 python（默认与本进程一致）')
+    ap.add_argument('--server', default=cfg.get('server_url', os.environ.get('MOMO_SERVER', 'http://192.168.3.16:8083')))
+    ap.add_argument('--worker', default=cfg.get('worker_name', os.environ.get('MOMO_WORKER', 'pc-gpu')))
+    ap.add_argument('--mode', default=cfg.get('mode', 'both'), choices=['separate', 'align', 'both'])
+    ap.add_argument('--python', default=cfg.get('python_exe', ''), help='子进程用的 python（默认与本进程一致）')
     a = ap.parse_args()
+
+    # 把配置传给子进程（通过环境变量）
+    if cfg.get('device'):
+        os.environ['MOMO_DEVICE'] = cfg['device']
+    if cfg.get('demucs_model'):
+        os.environ['MOMO_DEMUCS_MODEL'] = cfg['demucs_model']
+    if cfg.get('whisper_model'):
+        os.environ['MOMO_WHISPER_MODEL'] = cfg['whisper_model']
+    if cfg.get('batch_size'):
+        os.environ['MOMO_BATCH_SIZE'] = str(cfg['batch_size'])
+
+    log(f'服务器: {a.server}')
+    log(f'Worker: {a.worker}')
+    log(f'模式: {a.mode}')
     MomoWorker(a.server, a.worker, a.mode, a.python).loop()
 
 if __name__ == '__main__':
