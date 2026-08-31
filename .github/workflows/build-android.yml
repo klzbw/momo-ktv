@@ -1,0 +1,71 @@
+name: Build Android TV APK
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'android-tv-client/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-tv-client
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.2'
+
+      - name: Generate app icons
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+          # 创建图标目录
+          mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/res/mipmap-xhdpi
+          mkdir -p app/src/main/res/mipmap-xxhdpi
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
+          # 生成不同尺寸的图标
+          declare -A sizes=( ["hdpi"]=72 ["xhdpi"]=96 ["xxhdpi"]=144 ["xxxhdpi"]=192 )
+          for density in hdpi xhdpi xxhdpi xxxhdpi; do
+            size=${sizes[$density]}
+            convert -size ${size}x${size} \
+              gradient:'#C736F7'-'#36D9F7' \
+              -rotate 135 \
+              -fill white \
+              -gravity center \
+              -font DejaVu-Sans-Bold \
+              -pointsize $((size/2)) \
+              -annotate +0+0 '♪' \
+              app/src/main/res/mipmap-${density}/ic_launcher.png
+            cp app/src/main/res/mipmap-${density}/ic_launcher.png app/src/main/res/mipmap-${density}/ic_launcher_round.png
+          done
+          echo "Icons generated:"
+          ls -la app/src/main/res/mipmap-xxxhdpi/
+
+      - name: Build with Gradle
+        run: |
+          gradle assembleRelease --no-daemon --stacktrace
+
+      - name: List build outputs
+        run: |
+          find app/build/outputs -name "*.apk" -ls
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MomoKtvTV-Android
+          path: android-tv-client/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
