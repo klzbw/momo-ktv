@@ -114,8 +114,9 @@ struct FullPlayerView: View {
                             }
                         }
 
-                        // 7 control buttons - standard tvOS focusable buttons
-                        HStack(spacing: 20) {
+                        // 控制按钮：7个固定 + 纯音频歌额外2个（歌词模式/背景切换），共9个。
+                        // 用 fixedSize 确保按钮不被父视图压缩，9个和7个时按钮尺寸/垂直位置完全一致。
+                        HStack(spacing: 14) {
                             TVTightButton(action: { FeedbackCenter.shared.show("返回主页", icon: "house.fill"); onClose() }) { focused in
                                 controlContent(icon: "house", title: "主页", focused: focused)
                             }
@@ -178,6 +179,7 @@ struct FullPlayerView: View {
                                 }
                             }
                         }
+                        .fixedSize(horizontal: true, vertical: false)
                         .padding(.horizontal, 10)
 
                         // 人声大小档位条：仅 AI 分离出多档(>=3)的歌曲出现。左=纯伴奏，右=原唱，

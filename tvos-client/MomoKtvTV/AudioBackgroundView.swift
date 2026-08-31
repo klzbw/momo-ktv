@@ -231,7 +231,7 @@ struct PhotosBg: View {
     let server: String
     @State private var urls: [String] = []
     @State private var idx = 0
-    private let timer = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
+    @State private var timer: Timer?   // 手动 Timer，播放时比 Timer.publish 更可靠
 
     var body: some View {
         ZStack {
@@ -252,12 +252,26 @@ struct PhotosBg: View {
             }
         }
         .allowsHitTesting(false)
-        .onAppear(perform: load)
-        .onReceive(timer) { _ in
+        .onAppear {
+            load()
+            startSlideshow()
+        }
+        .onDisappear {
+            timer?.invalidate()
+            timer = nil
+        }
+    }
+
+    /// 启动图片轮播：每6秒随机切换一张，播放/暂停时均正常运行
+    private func startSlideshow() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 6, repeats: true) { _ in
             guard !urls.isEmpty else { return }
             var n = Int.random(in: 0..<urls.count)
             if urls.count > 1 && n == idx { n = (n + 1) % urls.count }
-            withAnimation(.easeInOut(duration: 1.0)) { idx = n }
+            DispatchQueue.main.async {
+                withAnimation(.easeInOut(duration: 1.0)) { idx = n }
+            }
         }
     }
 
