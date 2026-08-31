@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">墨墨爱K歌</string>
+    <string name="server_config_title">墨墨爱K歌</string>
+    <string name="server_config_subtitle">请输入服务器地址</string>
+    <string name="server_hint">例如：192.168.3.16:8083</string>
+    <string name="connect_button">连接</string>
+    <string name="connecting">正在连接...</string>
+    <string name="connection_failed">连接失败，请检查服务器地址</string>
+    <string name="change_server">更换服务器</string>
+</resources>
