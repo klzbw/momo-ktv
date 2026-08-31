@@ -48,8 +48,16 @@ def is_sung(ch):
 _LRC_T = re.compile(r'\[(\d{1,3}):(\d{1,2}(?:[.:]\d{1,3})?)\]')
 _WORD_T = re.compile(r'<[^>]*>')
 
+# 官方 LRC 开头常见的"制作信息行"（不是唱词，WhisperX 不会识别到，保留只会产生无意义插值）
+_META_LINE = re.compile(
+    r'^\s*(词|曲|作词|作曲|词曲|编曲|制作人|制片人|监制|和声|和音|混音|母带|录音|录音师|录音棚|'
+    r'吉他|贝斯|鼓|键盘|弦乐|钢琴|编曲人|原唱|封面|设计|发行|出品|出品人|OP|SP|ISRC|'
+    r'专辑|歌手|歌名|标题|制作|编写|歌词|program|Program|PROGRAM)\s*[:：]')
+# 0 秒处的"歌名 - 歌手"标题行（不是唱词）
+_TITLE_LINE = re.compile(r'\s*[-–—~]\s*\S')  # 含分隔符，结合 t<0.5s 判断
+
 def parse_ref_lrc(text):
-    """官方 LRC -> [(line_time_sec 或 None, 纯歌词文本)]。兼容增强LRC的<t>标签。"""
+    """官方 LRC -> [(line_time_sec 或 None, 纯歌词文本)]。兼容增强LRC的<t>标签；过滤制作信息/标题行。"""
     lines = []
     for raw in str(text or '').splitlines():
         ts = []
@@ -61,9 +69,14 @@ def parse_ref_lrc(text):
                 frac = int((parts[1] + '00')[:2]) / 100.0
             ts.append(mm * 60 + ss + frac)
         body = _WORD_T.sub('', _LRC_T.sub('', raw)).strip()
+        if not body:
+            continue
+        if _META_LINE.match(body):
+            continue  # 词：/曲：/编曲：/OP：等制作信息，不是唱词
         t0 = min(ts) if ts else None
-        if body:
-            lines.append((t0, body))
+        if t0 is not None and t0 < 0.5 and _TITLE_LINE.search(body):
+            continue  # 0 秒处的"歌名 - 歌手"标题行
+        lines.append((t0, body))
     lines.sort(key=lambda x: (x[0] is None, x[0] if x[0] is not None else 0))
     return lines
 
