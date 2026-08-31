@@ -76,8 +76,8 @@ private struct _KeyCatcher: UIViewRepresentable {
             for p in presses {
                 guard let key = p.key else { continue }
                 switch key.keyCode {
-                case .leftArrow:  onStep?(-1); handled = true
-                case .rightArrow: onStep?(1);  handled = true
+                case .keyboardLeftArrow:  onStep?(-1); handled = true
+                case .keyboardRightArrow: onStep?(1);  handled = true
                 default: break
                 }
             }
