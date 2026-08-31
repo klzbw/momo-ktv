@@ -230,7 +230,7 @@ struct PhotosBg: View {
     let server: String
     @State private var urls: [String] = []
     @State private var idx = 0
-    private let timer = Timer.publish(every: 8, on: .main, in: .common).autoconnect()
+    private let timer = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
@@ -238,7 +238,7 @@ struct PhotosBg: View {
             if urls.isEmpty {
                 LinearGradient(colors: [Color(red: 0.12, green: 0.1, blue: 0.3), Color(red: 0.04, green: 0.02, blue: 0.12)],
                                startPoint: .top, endPoint: .bottom)
-            } else if let u = URL(string: urls[idx]) {
+            } else if let u = URL(string: urls[idx % urls.count]) {
                 AsyncImage(url: u, transaction: Transaction(animation: .easeInOut(duration: 1.2))) { phase in
                     switch phase {
                     case .success(let img): img.resizable().scaledToFill().transition(.opacity)
@@ -250,8 +250,10 @@ struct PhotosBg: View {
         }
         .onAppear(perform: load)
         .onReceive(timer) { _ in
-            guard urls.count > 1 else { return }
-            var n = Int.random(in: 0..<urls.count); if n == idx { n = (n + 1) % urls.count }; idx = n
+            guard !urls.isEmpty else { return }
+            var n = Int.random(in: 0..<urls.count)
+            if urls.count > 1 && n == idx { n = (n + 1) % urls.count }
+            withAnimation(.easeInOut(duration: 1.0)) { idx = n }
         }
     }
 
@@ -262,8 +264,14 @@ struct PhotosBg: View {
         URLSession.shared.dataTask(with: u) { data, _, _ in
             guard let data,
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let arr = obj["images"] as? [[String: Any]] else { return }
-            let list: [String] = arr.compactMap { ($0["url"] as? String).map { host + $0 } }
+                  let arr = obj["images"] as? [Any] else { return }
+            let list: [String] = arr.compactMap { item in
+                if let dict = item as? [String: Any], let urlPath = dict["url"] as? String {
+                    return urlPath.hasPrefix("http") ? urlPath : host + urlPath
+                }
+                if let s = item as? String { return s.hasPrefix("http") ? s : host + s }
+                return nil
+            }
             DispatchQueue.main.async {
                 self.urls = list
                 self.idx = list.isEmpty ? 0 : Int.random(in: 0..<list.count)

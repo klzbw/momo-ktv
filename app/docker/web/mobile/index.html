@@ -548,6 +548,21 @@ header{
     <div id="bg-grid" class="bg-grid"></div>
   </div>
 
+  <!-- 歌词样式：字体颜色 + 描边颜色，实时同步大屏和TV -->
+  <div class="ctrl-section">
+    <div class="ctrl-title">🎨 歌词样式（实时同步大屏）</div>
+    <div class="ctrl-row">
+      <div class="ctrl-btn" style="padding:10px 14px;display:flex;align-items:center;gap:8px">
+        <span class="cl">字体色</span>
+        <input type="color" id="lyrics-color" value="#ffd24a" oninput="sendLyricsStyle()" style="width:40px;height:40px;border:none;background:none;cursor:pointer;padding:0">
+      </div>
+      <div class="ctrl-btn" style="padding:10px 14px;display:flex;align-items:center;gap:8px">
+        <span class="cl">描边色</span>
+        <input type="color" id="lyrics-stroke" value="#000000" oninput="sendLyricsStyle()" style="width:40px;height:40px;border:none;background:none;cursor:pointer;padding:0">
+      </div>
+    </div>
+  </div>
+
   <!-- D-pad -->
   <div class="ctrl-section">
     <div class="ctrl-title">🕹 方向导航</div>
@@ -703,6 +718,19 @@ function sendBlessing(preset){
   if(inp) inp.value='';
 }
 renderBlessQuick();
+
+// ===== 歌词样式：字体色 + 描边色，实时同步大屏/TV =====
+function sendLyricsStyle(){
+  const ci=document.getElementById('lyrics-color'); const si=document.getElementById('lyrics-stroke');
+  const color=ci?ci.value:'#ffd24a'; const stroke=si?si.value:'#000000';
+  localStorage.setItem('momoLyricsColor',color); localStorage.setItem('momoLyricsStroke',stroke);
+  sendWS({type:'lyrics_style',color,stroke});
+}
+// 初始化：从 localStorage 恢复颜色选择
+try{
+  const c=localStorage.getItem('momoLyricsColor'); if(c){const el=document.getElementById('lyrics-color');if(el)el.value=c;}
+  const s=localStorage.getItem('momoLyricsStroke'); if(s){const el=document.getElementById('lyrics-stroke');if(el)el.value=s;}
+}catch(e){}
 
 function onQueue(){
   const playing=queueData.find(q=>q.status==='playing');

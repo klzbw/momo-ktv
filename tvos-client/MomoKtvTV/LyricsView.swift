@@ -144,19 +144,25 @@ enum LyricsDisplayMode: String {
     var label: String { self == .dual ? "双排" : "滚动" }
 }
 
-// MARK: - 卡拉OK k 标签逐字渐变：底层未唱(白) + 上层已唱(金)按进度从左到右裁剪叠加
+// MARK: - 卡拉OK k 标签逐字渐变：底层未唱(白) + 上层已唱(金)按进度从左到右裁剪叠加，带描边
 struct KaraokeWord: View {
     let text: String
     let progress: Double  // 0...1，字在 [start,end] 区间内的演唱进度
-    let highlight: Color
-    let base: Color
+    var highlight: Color = Color(red: 1.0, green: 0.78, blue: 0.25)
+    var base: Color = Color.white.opacity(0.42)
+    var stroke: Color = .black
+    private func stroked(_ t: String, fill: Color) -> Text {
+        var a = AttributedString(t)
+        a.foregroundColor = fill
+        a.strokeColor = stroke
+        a.strokeWidth = -2.5  // 负值=同时填充+描边
+        return Text(a)
+    }
     var body: some View {
-        Text(text)
-            .foregroundColor(base)
+        stroked(text, fill: base)
             .overlay(alignment: .leading) {
                 GeometryReader { geo in
-                    Text(text)
-                        .foregroundColor(highlight)
+                    stroked(text, fill: highlight)
                         .frame(width: geo.size.width * CGFloat(min(max(progress, 0), 1)),
                                alignment: .leading)
                         .clipped()
@@ -169,8 +175,11 @@ struct KaraokeWord: View {
 struct LyricsView: View {
     let lyrics: SongLyrics
     let currentTime: Double
-    /// 主题高亮色（已唱部分）
-    var highlight: Color = Color(red: 1.0, green: 0.78, blue: 0.25)
+    /// 主题高亮色（已唱部分），可由遥控端实时修改
+    @AppStorage("momoLyricsColor") private var lyricsColorHex: String = "#FFD24A"
+    @AppStorage("momoLyricsStroke") private var lyricsStrokeHex: String = "#000000"
+    private var highlight: Color { Color(hex: lyricsColorHex) ?? Color(red: 1.0, green: 0.78, blue: 0.25) }
+    private var stroke: Color { Color(hex: lyricsStrokeHex) ?? .black }
     /// 显示模式，默认双排；与全屏控制页用同一个 AppStorage key 共享
     @AppStorage("momoLyricsMode") private var modeRaw: String = LyricsDisplayMode.dual.rawValue
     private var mode: LyricsDisplayMode { .from(modeRaw) }
@@ -247,21 +256,30 @@ struct LyricsView: View {
                         text: tok.text,
                         progress: tokenProgress(tok, tokens: tokens, index: idx, lineEnd: line.end),
                         highlight: highlight,
-                        base: Color.white.opacity(0.42)
+                        base: Color.white.opacity(0.42),
+                        stroke: stroke
                     )
                 }
             }
             .font(.system(size: isDual ? 46 : 40, weight: .bold))
             .multilineTextAlignment(.center)
-            .shadow(color: .black.opacity(0.6), radius: 6, x: 0, y: 2)
         } else {
-            Text(line.plain)
-                .font(.system(size: active ? (isDual ? 46 : 40) : (preview ? 30 : 30),
-                              weight: active ? .bold : .medium))
-                .foregroundColor(active ? Color.white : Color.white.opacity(preview ? 0.5 : 0.4))
-                .multilineTextAlignment(.center)
-                .shadow(color: .black.opacity(active ? 0.6 : 0), radius: active ? 6 : 0, x: 0, y: 2)
+            let sz: CGFloat = active ? (isDual ? 46 : 40) : 30
+            let fill = active ? highlight : Color.white.opacity(preview ? 0.5 : 0.4)
+            strokedLine(line.plain, fill: fill, size: sz, weight: active ? .bold : .medium)
         }
+    }
+
+    /// 带描边的整行文字（非逐字 LRC 用）
+    private func strokedLine(_ text: String, fill: Color, size: CGFloat, weight: Font.Weight) -> some View {
+        var a = AttributedString(text)
+        a.foregroundColor = fill
+        a.strokeColor = stroke
+        a.strokeWidth = -2.5
+        a.font = .system(size: size, weight: weight)
+        return Text(a)
+            .multilineTextAlignment(.center)
+    }
     }
 
     /// 卡拉OK k 标签：单个字在 [start, end] 区间内的演唱进度 0...1；

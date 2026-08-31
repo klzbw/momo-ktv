@@ -61,8 +61,15 @@ function findLocalLrc(song) {
     bases.push(path.join(dir, stem + '.lrc'));
     if (song.media_type === 'cue' && song.title) bases.push(path.join(dir, `${stem}-${song.title}.lrc`));
   }
+// 智能读取文本：先 UTF-8，出现乱码替换符则回退 GBK（大量老 LRC 是 GBK 编码）
+function readTextSmart(p){
+  const buf=fs.readFileSync(p);
+  let s=buf.toString('utf8');
+  if(s.includes('\uFFFD')){ try{ s=new TextDecoder('gbk').decode(buf); }catch(e){} }
+  return s;
+}
   for (const p of bases) {
-    try { if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8'); } catch (e) { /* 忽略，继续候选 */ }
+    try { if (fs.existsSync(p)) return readTextSmart(p); } catch (e) { /* 忽略，继续候选 */ }
   }
   return null;
 }

@@ -371,6 +371,14 @@ class KTVAPIClient: ObservableObject {
         } else if type == "blessing", let text = json["text"] as? String {
             let from = json["from"] as? String ?? ""
             DispatchQueue.main.async { self.onBlessing?(text, from) }
+        } else if type == "lyrics_style" {
+            // 遥控端实时修改歌词字体色/描边色，写入 @AppStorage，LyricsView 自动刷新
+            if let color = json["color"] as? String {
+                UserDefaults.standard.set(color, forKey: "momoLyricsColor")
+            }
+            if let stroke = json["stroke"] as? String {
+                UserDefaults.standard.set(stroke, forKey: "momoLyricsStroke")
+            }
         }
     }
 
