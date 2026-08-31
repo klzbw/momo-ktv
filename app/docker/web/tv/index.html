@@ -936,6 +936,10 @@ html[data-layout="mobile"] #lyrics-layer .ll-cur,html[data-layout="mobile"] #lyr
 html[data-layout="mobile"] #lyrics-layer .ll-near,html[data-layout="mobile"] #lyrics-layer .ll-srow{font-size:18px}
 /* ============ 纯音频歌实时动态背景画布：铺满播放框，在视频层之上、歌词层之下 ============ */
 #bg-stage{position:absolute;inset:0;z-index:2;width:100%;height:100%;display:none;background:#0a0a1c}
+/* 全屏时 bg-stage/lyrics-layer 被 JS 移到 body 下，用 .fs-layer 固定铺满，z-index 在全屏 video(50) 之上 */
+#bg-stage.fs-layer{position:fixed;top:0;right:0;bottom:0;left:0;width:100%;height:100%;z-index:51}
+#lyrics-layer.fs-layer{position:fixed;top:14%;bottom:18%;left:0;right:0;z-index:52}
+#bg-mode-btn.fs-layer,#lyrics-mode-btn.fs-layer{z-index:53}
 #bg-mode-btn{position:absolute;top:14px;left:14px;z-index:6;pointer-events:auto;cursor:pointer;
   background:rgba(10,10,30,.55);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:999px;
   padding:8px 16px;font-size:18px;font-weight:700;backdrop-filter:blur(6px);opacity:.5;transition:opacity .2s,background .2s,transform .15s}
@@ -3557,6 +3561,13 @@ function handleNowPanelClick(){
 function enterFullscreen(){if(!curSong){showToast('先点一首歌吧 🎵');return;}closeAllOpenPanels();pushFocus();isFS=true;window.ktv_fs=true;
   var wasPlaying=!video.paused,t=video.currentTime;
   document.body.appendChild(video);video.className='video-fs';
+  // 音频歌全屏：把动态背景画布、歌词层、切换按钮一起移到 body 下并 fixed 铺满，
+  // 否则它们留在 #now-panel 小窗里，会被 z-index:50 的全屏 video 完全盖住
+  ['bg-stage','bg-mode-btn','lyrics-layer','lyrics-mode-btn'].forEach(function(id){
+    var el=document.getElementById(id); if(el){document.body.appendChild(el);el.classList.add('fs-layer');}
+  });
+  try{BgStage.show(curSong?!BG_VIDEO_RE.test(curSong.filename||''):false);}catch(e){}
+  try{if(window.__fitViewport)window.__fitViewport();}catch(e){}
   restoreVideoPlayback(wasPlaying,t);setTimeout(function(){restoreVideoPlayback(wasPlaying,t);},120);
   if(window.__fitViewport)window.__fitViewport();fsTap.classList.add('on');showOverlay();
   // 需求(全屏横幅改为每首歌开始2分钟后展示一次)：进全屏默认先把常驻横幅收起
@@ -3593,6 +3604,10 @@ function exitKtvFullscreen(){
   isFS=false;window.ktv_fs=false;
   var wasPlaying=!video.paused,t=video.currentTime;
   video.className='video-home';video.style.width='';video.style.height='';nowPanel.insertBefore(video,nowPanel.firstChild);
+  // 退出全屏：把背景画布/歌词层/按钮移回小窗容器，移除 fixed 定位（按原始 DOM 顺序）
+  ['bg-stage','bg-mode-btn','lyrics-layer','lyrics-mode-btn'].forEach(function(id){
+    var el=document.getElementById(id); if(el){el.classList.remove('fs-layer');nowPanel.appendChild(el);}
+  });
   restoreVideoPlayback(wasPlaying,t);setTimeout(function(){restoreVideoPlayback(wasPlaying,t);},120);
   fsTap.classList.remove('on');fsOv.classList.remove('show');document.getElementById('fsq').classList.remove('open');clearTimeout(ovTimer);popFocus();forceS3CarouselRepaint();
   // 退回主界面：常驻横幅重新接管——去掉全屏专用的隐藏态，续上持续滚动循环
