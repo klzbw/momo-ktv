@@ -191,11 +191,11 @@ def _interpolate(times, per_char=0.22, max_gap=1.5):
         if n_missing <= 0:
             continue
         if gap > max_gap:
-            # 长间隔（WhisperX漏字+间奏）：未匹配字紧凑排列在后锚点之前
-            # 每个字 per_char 秒，向前排列，剩余时间留给间奏
+            # 长间隔（WhisperX漏字+间奏）：未匹配字紧凑排列在前锚点之后
+            # 漏的字应该紧跟前一个唱完的字，剩余时间留给间奏
             for k in range(a + 1, b):
-                offset_from_b = b - k  # 距离后锚点几个字
-                times[k] = times[b] - offset_from_b * per_char
+                offset_from_a = k - a  # 距离前锚点几个字
+                times[k] = times[a] + offset_from_a * per_char
         else:
             # 正常间隔：线性插值
             for k in range(a + 1, b):
@@ -230,6 +230,27 @@ def correct_with_reference(asr_words, ref_lrc_text):
     score = matched / len(ref_chars)
     if not _interpolate(times):
         return None, {'score': 0.0, 'matched': matched, 'total': len(ref_chars), 'reason': 'no-anchor'}
+    # 同一行内相邻已匹配锚点间隔过长（>3秒）时，前一个锚点很可能是WhisperX误识别
+    # （如歌曲开头噪声被识别成"2002"），把该行所有锚点时间统一到最后一个合理锚点附近
+    INLINE_LONG_GAP = 3.0
+    for li, (line_t, body) in enumerate(ref_lines):
+        a, b = spans[li]
+        if b - a < 2:
+            continue
+        # 找该行内所有已匹配锚点
+        anchors = [(k, times[k]) for k in range(a, b) if times[k] is not None]
+        if len(anchors) < 2:
+            continue
+        # 检查相邻锚点间隔
+        for idx in range(len(anchors) - 1):
+            k1, t1 = anchors[idx]
+            k2, t2 = anchors[idx + 1]
+            if t2 - t1 > INLINE_LONG_GAP:
+                # 前锚点是误识别，把前锚点及其之前的字都移到后锚点附近
+                per = 0.22
+                for k in range(a, k2):
+                    times[k] = max(0.0, times[k2] - (k2 - k) * per)
+
     out_lines = []
     for li, (line_t, body) in enumerate(ref_lines):
         a, b = spans[li]
