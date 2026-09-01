@@ -311,14 +311,14 @@ struct LyricsView: View {
         let ai = activeIndex
         let topIdx = ai % 2 == 0 ? ai + 1 : ai       // 上排恒为奇数句
         let bottomIdx = ai % 2 == 0 ? ai : ai + 1    // 下排恒为偶数句
-        return VStack(spacing: compact ? 12 : 34) {
+        return VStack(spacing: compact ? 12 : 28) {
             Spacer(minLength: 0)
             dualSlot(topIdx, .leading)       // 奇数句(单)固定靠左
             dualSlot(bottomIdx, .trailing)   // 偶数句(双)固定靠右
-            Spacer(minLength: 0)
+            // 去掉底部Spacer：posV=0时字幕位于屏幕最底部，posV增大时通过offset向上移动
         }
         .padding(.horizontal, compact ? 16 : 70)
-        .padding(.bottom, compact ? 16 : 48)
+        .padding(.bottom, compact ? 8 : 16)
         .animation(.easeInOut(duration: 0.22), value: ai)
     }
 
@@ -326,7 +326,8 @@ struct LyricsView: View {
     @ViewBuilder
     private func dualSlot(_ idx: Int, _ align: Alignment) -> some View {
         if idx >= 0 && idx < lyrics.lines.count {
-            lineView(lyrics.lines[idx], idx: idx)
+            lineView(lyrics.lines[idx], idx: idx,
+                     multilineAlign: align == .leading ? .leading : .trailing)
                 .id(lyrics.lines[idx].id)
                 .transition(.opacity)
                 .frame(maxWidth: .infinity, alignment: align)
@@ -358,7 +359,7 @@ struct LyricsView: View {
     }
 
     @ViewBuilder
-    private func lineView(_ line: LyricLine, idx: Int) -> some View {
+    private func lineView(_ line: LyricLine, idx: Int, multilineAlign: TextAlignment = .center) -> some View {
         let active = idx == activeIndex
         let isDual = mode == .dual
         // 双排当前句与预备句同字号：预备句不再是小字，唱到时原地变亮、无缩放不晃眼；仅滚动模式保留"当前大/邻近小"
@@ -378,27 +379,28 @@ struct LyricsView: View {
             }
             .font(.system(size: fontSize, weight: .black))   // 对齐网页 font-weight:900
             .tracking((compact ? 0 : 1) * sc)                 // 字距随字号同比放大，字号变大时相对间距保持一致
-            .multilineTextAlignment(.center)
-            .lineLimit(1)
-            .minimumScaleFactor(0.35)                         // 字号调大/长句时自动缩回，保证不超出屏幕
+            .multilineTextAlignment(multilineAlign)
+            .lineLimit(nil)                                    // 双排长句不缩小字体，多余的字自动换行到对应一边
+            .fixedSize(horizontal: false, vertical: true)     // 垂直方向自适应内容高度
             // 只留一层轻投影(清晰描边由 StrokeFillText 负责)：多层大半径高斯模糊在逐字高频刷新时很耗 GPU
             .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
         } else {
             // 对齐网页：当前行整行白色(ll-cur=#fff)；双排预备句同字重、仅以半透明区分"还没唱到"；滚动邻近行更暗、字重中等
             let fill = active ? Color.white : Color.white.opacity(isDual ? 0.5 : 0.42)
             strokedLine(line.plain, fill: fill, size: fontSize,
-                        weight: (active || isDual) ? .black : .medium, active: active)
+                        weight: (active || isDual) ? .black : .medium, active: active,
+                        multilineAlign: multilineAlign)
         }
     }
 
     /// 整行文字（非逐字 LRC 用），StrokeFillText 多层描边 + 与网页一致的投影；字号/粗细遥控可调
-    private func strokedLine(_ text: String, fill: Color, size: CGFloat, weight: Font.Weight, active: Bool) -> some View {
+    private func strokedLine(_ text: String, fill: Color, size: CGFloat, weight: Font.Weight, active: Bool, multilineAlign: TextAlignment = .center) -> some View {
         StrokeFillText(text: text, fill: fill, strokeColor: stroke, w: styleStore.lineWidth)
             .font(.system(size: size, weight: weight))
             .tracking((!compact ? 1 : 0) * styleStore.fontScale)
-            .multilineTextAlignment(.center)
-            .lineLimit(1)
-            .minimumScaleFactor(0.35)
+            .multilineTextAlignment(multilineAlign)
+            .lineLimit(nil)                  // 长句不缩小字体，自动换行到对应一边
+            .fixedSize(horizontal: false, vertical: true)
             .shadow(color: .black.opacity(0.55), radius: active ? 3 : 4, x: 0, y: 2)
     }
 
