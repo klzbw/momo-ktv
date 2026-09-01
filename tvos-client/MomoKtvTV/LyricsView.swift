@@ -127,18 +127,15 @@ final class LyricsLoader: ObservableObject {
     private var lastReloadTime: TimeInterval = 0  // reload防抖：避免服务端生成过程中频繁触发
 
     /// 强制重新拉取同一首歌（歌词时间轴被固化写回后调用，绕过 load 的去重守卫）
+    /// 无缝替换：不清空旧歌词，直接加载新歌词，加载完成后平滑替换（播放不中断、无空白）
     func reload(server: String, songId: Int) {
-        // 防抖：2秒内同一首歌只允许reload一次，避免服务端逐字生成过程中频繁替换导致双重歌词
+        // 防抖：2秒内同一首歌只允许reload一次，避免频繁替换
         let now = Date().timeIntervalSince1970
         guard now - lastReloadTime > 2.0 else { return }
         lastReloadTime = now
-        // 先清空旧歌词+标记加载中，避免旧歌词和新歌词同时显示导致"双重歌词"
-        DispatchQueue.main.async {
-            self.lyrics = .empty
-            self.loaded = false
-            self.loading = true
-        }
+        // 不清空旧歌词（无缝衔接），直接加载新歌词，加载完成后替换
         currentSongId = nil
+        loaded = false
         load(server: server, songId: songId)
     }
 

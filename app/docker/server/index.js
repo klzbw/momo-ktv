@@ -850,6 +850,14 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
     const done = sepMod.complete(db, jobId, { lyricsWord, result: { saved, worker: job.worker } });
     // 分离产物到位后清掉这首歌旧 HLS，下次播放按"原唱/半消/伴奏"三轨重新生成（P4）
     try { removeHLS(job.song_id); } catch (e) { /* 旧产物不存在无妨 */ }
+    // 逐字歌词重新生成完成：WebSocket广播给所有客户端，tvOS端收到后无缝替换当前歌词（不清空、不中断播放）
+    if (lyricsWord) {
+      try {
+        const payload = JSON.stringify({ type: 'lyrics_updated', songId: job.song_id });
+        wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(payload); });
+        log.info('LYRIC', `[歌曲 id=${job.song_id}] 逐字歌词重新生成完成，已广播 lyrics_updated`);
+      } catch (e) { log.warn('LYRIC', `广播 lyrics_updated 失败: ${e.message}`); }
+    }
     res.json({ ok: true, status: done.status, saved });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

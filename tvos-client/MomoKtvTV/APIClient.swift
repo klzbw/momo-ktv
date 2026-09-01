@@ -336,6 +336,7 @@ class KTVAPIClient: ObservableObject {
 
     // MARK: - WebSocket
     var onControlMessage: ((String, [String: Any]) -> Void)?
+    var onLyricsUpdated: ((Int) -> Void)?  // 逐字歌词重新生成完成，无缝替换当前歌词
     /// 手机遥控氛围特效 / 祝福弹幕回调
     var onAtmosphere: ((String) -> Void)?
     var onBlessing: ((String, String) -> Void)?
@@ -382,6 +383,11 @@ class KTVAPIClient: ObservableObject {
         } else if type == "blessing", let text = json["text"] as? String {
             let from = json["from"] as? String ?? ""
             DispatchQueue.main.async { self.onBlessing?(text, from) }
+        } else if type == "lyrics_updated" {
+            // 逐字歌词重新生成完成：无缝替换当前歌曲歌词（不清空、不中断播放）
+            if let songId = json["songId"] as? Int {
+                DispatchQueue.main.async { self.onLyricsUpdated?(songId) }
+            }
         } else if type == "lyrics_style" {
             // 遥控端实时改歌词字色/描边色/描边粗细/左右翻转：走可观察单例，立即驱动 LyricsView 重绘（同时持久化）
             let color = json["color"] as? String
