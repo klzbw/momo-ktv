@@ -2596,11 +2596,17 @@ const Lyrics = (()=>{
     render(video.currentTime||0); syncModeBtn(); }
   function toggleMode(){ setMode(mode==='dual'?'scroll':'dual'); }
   function load(songId,force){
-    if(songId===loadedId&&!force)return; loadedId=songId; lines=[]; lastIdx=-9; scrollBuilt=false; lrcOff=0; render(video.currentTime||0);
+    if(songId===loadedId&&!force)return;
+    const wasAlreadyLoaded = loadedId !== null;  // 记录之前是否已加载（用于判断是否是重新生成后的刷新）
+    loadedId=songId; lines=[]; lastIdx=-9; scrollBuilt=false; lrcOff=0; render(video.currentTime||0);
     fetch(BASE+'/api/songs/'+songId+'/lyrics').then(r=>r.json()).then(d=>{
       if(loadedId!==songId)return;
       if(isVideoSong(d)){ lines=[]; lastIdx=-9; const l=layer(); if(l)l.innerHTML=''; return; } // 视频歌不显示歌词
       lines=parse(d.word||d.lyrics); scrollBuilt=false; lastIdx=-9; render(video.currentTime||0);
+      // 非首次加载（force刷新 或 之前已加载过），显示"歌词已刷新"提示
+      if(force || wasAlreadyLoaded){
+        try{ showToast('歌词已刷新'); }catch(e){}
+      }
     }).catch(()=>{});
   }
   function reset(){ loadedId=null; lines=[]; lastIdx=-9; scrollBuilt=false; const l=layer(); if(l)l.innerHTML=''; }
