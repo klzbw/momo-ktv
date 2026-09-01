@@ -37,7 +37,7 @@ def build_enhanced_lrc(aligned):
         words = [w for w in words if w.get('word')]
         if not words:
             continue
-        t0 = words.get('start')
+        t0 = words[0].get('start') if words else None
         if t0 is None: t0 = seg.get('start', 0.0) or 0.0
         parts = [f'[{fmt(t0)}]']
         cur = t0
