@@ -77,14 +77,14 @@ class ServerSetupViewController: UIViewController, UITextFieldDelegate {
         connectBtn.setTitle("连接并进入", for: .normal)
         connectBtn.titleLabel?.font = .systemFont(ofSize: 19, weight: .bold)
         connectBtn.setTitleColor(.white, for: .normal)
-        connectBtn.backgroundColor = UIColor.systemPink
+        connectBtn.backgroundColor = UIColor(red: 1.0, green: 0.18, blue: 0.33, alpha: 1.0)
         connectBtn.layer.cornerRadius = 14
         connectBtn.translatesAutoresizingMaskIntoConstraints = false
         connectBtn.addTarget(self, action: #selector(connectTapped), for: .touchUpInside)
         content.addSubview(connectBtn)
 
         // 状态
-        statusLabel.textColor = UIColor.systemYellow
+        statusLabel.textColor = UIColor(red: 1.0, green: 0.8, blue: 0.0, alpha: 1.0)
         statusLabel.font = .systemFont(ofSize: 14, weight: .medium)
         statusLabel.textAlignment = .center
         statusLabel.numberOfLines = 0

@@ -75,7 +75,7 @@ class WebViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
     }
 
     private func setupProgressBar() {
-        progressBar.progressTintColor = UIColor.systemPink
+        progressBar.progressTintColor = UIColor(red: 1.0, green: 0.18, blue: 0.33, alpha: 1.0)
         progressBar.trackTintColor = UIColor.white.withAlphaComponent(0.1)
         progressBar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(progressBar)
@@ -125,20 +125,14 @@ class WebViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
         scheduleHideToolbar()
     }
 
-    private func makeToolButton(_ systemName: String, action: Selector) -> UIButton {
+    private func makeToolButton(_ title: String, action: Selector) -> UIButton {
         let btn = UIButton(type: .system)
-        if #available(iOS 13.0, *) {
-            let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-            btn.setImage(UIImage(systemName: systemName, withConfiguration: cfg), for: .normal)
-            btn.tintColor = .white
-        } else {
-            btn.setTitle(systemName, for: .normal)
-            btn.setTitleColor(.white, for: .normal)
-            btn.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
-        }
-        btn.frame = CGRect(x: 0, y: 0, width: 44, height: 36)
+        btn.setTitle(title, for: .normal)
+        btn.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        btn.setTitleColor(.white, for: .normal)
         btn.addTarget(self, action: action, for: .touchUpInside)
-        btn.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        btn.widthAnchor.constraint(greaterThanOrEqualToConstant: 52).isActive = true
+        btn.contentEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
         return btn
     }
 
@@ -255,7 +249,7 @@ class WebViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
         toast?.text = "  连接失败：\(msg)，点齿轮检查服务器地址  "
         toast?.alpha = 1
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-            UIView.animate(withDuration: 0.5) { self.toast?.alpha = 0 }
+            UIView.animate(withDuration: 0.5) { self?.toast?.alpha = 0 }
         }
     }
 
