@@ -376,31 +376,6 @@ struct LyricsView: View {
 
     var body: some View {
         GeometryReader { geo in
-            ZStack {
-                // 歌词已更新提示（右上角浮动提示，2.5秒后自动消失）
-                if loader.lyricsUpdated {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            Text("歌词已刷新")
-                                .font(.system(size: 28, weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 24)
-                                .padding(.vertical, 12)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .fill(Color.green.opacity(0.85))
-                                        .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 4)
-                                )
-                                .padding(.top, 60)
-                                .padding(.trailing, 40)
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                        }
-                        Spacer()
-                    }
-                    .zIndex(100)
-                    .transition(.opacity)
-                }
             Group {
                 if lyrics.isEmpty {
                     Text("♪ 纯音乐 · 请欣赏 ♪")
@@ -416,6 +391,25 @@ struct LyricsView: View {
             // 遥控可调的歌词整体上下位置：posV=18 为默认(位移0)，调大整体上移、调小下移
             .offset(y: -styleStore.posV / 100.0 * geo.size.height * 0.62)
             .animation(.easeOut(duration: 0.18), value: styleStore.posV)
+            // 歌词已更新提示（右上角浮动提示，2.5秒后自动消失）
+            .overlay(alignment: .topTrailing) {
+                if loader.lyricsUpdated {
+                    Text("歌词已刷新")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color.green.opacity(0.85))
+                                .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 4)
+                        )
+                        .padding(.top, 60)
+                        .padding(.trailing, 40)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.3), value: loader.lyricsUpdated)
         }
     }
 
