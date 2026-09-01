@@ -327,7 +327,6 @@ struct LyricsView: View {
     @State private var hintPulse = false  // 间奏提示呼吸脉冲动画状态
     @State private var showUpdatedTip = false  // 歌词已更新提示（2.5秒后自动消失）
     @State private var firstLyricsLoad = true  // 首次加载不显示提示，后续刷新才显示
-    @State private var lastLyricsSignature = ""  // 上一次歌词的签名（行数+首句文本），用于检测歌词变化
 
     /// 校准后的时间（叠加用户调节的偏移）
     private var displayTime: Double { currentTime + timeOffset }
@@ -378,32 +377,12 @@ struct LyricsView: View {
         return s
     }
 
-    /// 检测歌词是否更新，如果是后续刷新（非首次），显示"歌词已刷新"提示
-    private func checkLyricsUpdatedIfNeeded(_ currentSig: String) {
-        guard !currentSig.isEmpty else { return }
-        if lastLyricsSignature.isEmpty {
-            // 首次加载，记录签名，不显示提示
-            lastLyricsSignature = currentSig
-            firstLyricsLoad = false
-            return
-        }
-        if currentSig != lastLyricsSignature {
-            // 歌词变化了
-            lastLyricsSignature = currentSig
-            if !firstLyricsLoad {
-                showUpdatedTip = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                    showUpdatedTip = false
-                }
-            }
-            firstLyricsLoad = false
-        }
+    /// 歌词签名（行数+首句文本），用于 onChange 检测歌词变化
+    private var lyricsSignature: String {
+        "\(lyrics.lines.count)_\(lyrics.lines.first?.plain ?? "")"
     }
 
     var body: some View {
-        // 检测歌词是否更新（用签名比较，避免 SongLyrics 不遵循 Equatable 的问题）
-        let currentSig = "\(lyrics.lines.count)_\(lyrics.lines.first?.plain ?? "")"
-        let _ = checkLyricsUpdatedIfNeeded(currentSig)
         GeometryReader { geo in
             Group {
                 if lyrics.isEmpty {
