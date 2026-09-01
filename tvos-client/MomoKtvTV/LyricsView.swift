@@ -269,27 +269,6 @@ struct StrokeFillText: View {
     let fill: Color
     let strokeColor: Color
     let w: CGFloat
-    /// 检测歌词是否更新，如果是后续刷新（非首次），显示"歌词已刷新"提示
-    private func checkLyricsUpdatedIfNeeded(_ currentSig: String) {
-        guard !currentSig.isEmpty else { return }
-        if lastLyricsSignature.isEmpty {
-            // 首次加载，记录签名，不显示提示
-            lastLyricsSignature = currentSig
-            firstLyricsLoad = false
-            return
-        }
-        if currentSig != lastLyricsSignature {
-            // 歌词变化了
-            lastLyricsSignature = currentSig
-            if !firstLyricsLoad {
-                showUpdatedTip = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                    showUpdatedTip = false
-                }
-            }
-            firstLyricsLoad = false
-        }
-    }
 
     var body: some View {
         let on = w > 0.01
