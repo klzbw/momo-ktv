@@ -560,16 +560,9 @@ struct LyricsView: View {
         let fixedSpacing = (compact ? 0 : 1) * sc
         let baseColor = active ? Color.white.opacity(0.42) : Color.white.opacity(isDual ? 0.5 : 0.42)
         
-        // 获取所有字
-        let allChars: [String]
-        let allTokens: [LyricToken]?
-        if let tokens = line.tokens, !tokens.isEmpty {
-            allChars = tokens.map { $0.text }
-            allTokens = tokens
-        } else {
-            allChars = Array(line.plain).filter { !$0.isWhitespace }.map { String($0) }
-            allTokens = nil
-        }
+        // 获取所有字（用三元运算符，避免在@ViewBuilder中使用if/else赋值）
+        let allTokens: [LyricToken]? = (line.tokens?.isEmpty == false) ? line.tokens : nil
+        let allChars: [String] = allTokens?.map { $0.text } ?? Array(line.plain).filter { !$0.isWhitespace }.map { String($0) }
         
         // 计算每排最大显示字数
         let screenWidth: CGFloat = UIScreen.main.bounds.width
