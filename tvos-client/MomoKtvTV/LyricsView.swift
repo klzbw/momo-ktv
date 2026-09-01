@@ -290,6 +290,14 @@ struct LyricsView: View {
 
     private var activeIndex: Int { lyrics.lineIndex(at: displayTime) }
 
+    /// 下一句歌词的索引（用于间奏时的预唱提示）：找到第一句 start > 当前时间的歌词
+    private var nextLyricIndex: Int {
+        for (i, line) in lyrics.lines.enumerated() {
+            if line.start > displayTime { return i }
+        }
+        return -1
+    }
+
     var body: some View {
         GeometryReader { geo in
             Group {
@@ -333,17 +341,45 @@ struct LyricsView: View {
         .animation(.easeInOut(duration: 0.22), value: ai)
     }
 
-    /// 双排里的一个固定排：越界留等高空位；内容变化仅羽化(opacity)不位移；满宽并按 align 左右对齐(不居中)
+    /// 双排里的一个固定排：越界时如果在间奏且等待>1.5秒，显示 🎵🎵🎵 预唱提示；内容变化仅羽化(opacity)不位移
     @ViewBuilder
     private func dualSlot(_ idx: Int, _ align: Alignment) -> some View {
         if idx >= 0 && idx < lyrics.lines.count {
             lineView(lyrics.lines[idx], idx: idx,
                      multilineAlign: align == .leading ? .leading : .trailing)
-                .id(idx)                                   // 用行索引做id，供 scrollTo 定位
+                .id(idx)
                 .transition(.opacity)
-                .frame(maxWidth: .infinity, alignment: align)  // 占满整行：长句换行后可延伸到另一侧
+                .frame(maxWidth: .infinity, alignment: align)
+        } else if let hint = preludeHintText(align: align) {
+            // 间奏预唱提示：🎵🎵🎵 帮助用户把握节奏点，知道即将开始唱歌
+            hint
+                .transition(.opacity)
+                .frame(maxWidth: .infinity, alignment: align)
         } else {
             Color.clear.frame(maxWidth: .infinity)
+        }
+    }
+
+    /// 间奏预唱提示文本：下一句歌词等待>1.5秒时显示 🎵🎵🎵，否则返回nil
+    @ViewBuilder
+    private func preludeHintText(align: Alignment) -> some View {
+        let next = nextLyricIndex
+        if next >= 0 && next < lyrics.lines.count {
+            let wait = lyrics.lines[next].start - displayTime
+            if wait > 1.5 {
+                HStack(spacing: compact ? 6 : 12) {
+                    Text("🎵")
+                    Text("🎵")
+                    Text("🎵")
+                }
+                .font(.system(size: compact ? 22 : 44, weight: .regular))
+                .foregroundColor(.white.opacity(0.35))
+                .multilineTextAlignment(align == .leading ? .leading : .trailing)
+            } else {
+                EmptyView()
+            }
+        } else {
+            EmptyView()
         }
     }
 
