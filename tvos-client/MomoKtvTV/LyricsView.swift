@@ -418,8 +418,17 @@ struct LyricsView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: showUpdatedTip)
-            // 检测歌词变化：用签名（行数+首句文本）判断，首次加载不提示，后续刷新才显示"歌词已刷新"
-
+            // 检测歌词变化：首次加载不提示，后续刷新（重新生成）才显示"歌词已刷新"
+            .onChange(of: lyricsSignature) { _, newSig in
+                guard !newSig.isEmpty else { return }
+                if !firstLyricsLoad {
+                    showUpdatedTip = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                        showUpdatedTip = false
+                    }
+                }
+                firstLyricsLoad = false
+            }
         }
     }
 
