@@ -398,7 +398,7 @@ struct LyricsView: View {
         // dualFlip=false: 单左双右；dualFlip=true: 单右双左
         let topAlign: Alignment = styleStore.dualFlip ? .trailing : .leading
         let bottomAlign: Alignment = styleStore.dualFlip ? .leading : .trailing
-        return VStack(spacing: compact ? 10 : 22) {
+        return VStack(spacing: compact ? 12 : 32) {  // 增加行间距，防止两排歌词挤在一起
             Spacer(minLength: 0)
             if il.isInterlude {
                 // 间奏/前奏：当前行歌词淡出，不显示
@@ -489,7 +489,10 @@ struct LyricsView: View {
         // 双排当前句与预备句同字号：预备句不再是小字，唱到时原地变亮、无缩放不晃眼；仅滚动模式保留"当前大/邻近小"
         let fontSize: CGFloat = isDual ? activeSize : (active ? scrollActiveSize : near1Size)
         if active, let tokens = line.tokens {
-            HStack(spacing: 0) {
+            // 每个字固定宽度=字号（中文字符等宽），防止HStack压缩导致字变形
+            // 字距=tracking，总宽度=字数*(字号+字距)
+            let charWidth = fontSize + (compact ? 0 : 1) * sc
+            HStack(spacing: (compact ? 0 : 1) * sc) {
                 ForEach(Array(tokens.enumerated()), id: \.element.id) { idx, tok in
                     KaraokeWord(
                         text: tok.text,
@@ -499,12 +502,14 @@ struct LyricsView: View {
                         stroke: stroke,
                         lineW: styleStore.lineWidth
                     )
+                    .frame(width: charWidth)   // 固定字宽，防止被压缩
+                    .fixedSize(horizontal: true, vertical: false)
                 }
             }
             .font(.system(size: fontSize, weight: .black))   // 对齐网页 font-weight:900
-            .tracking((compact ? 0 : 1) * sc)                 // 字距随字号同比放大，字号变大时相对间距保持一致
+            .fixedSize(horizontal: true, vertical: false)     // 整行不压缩，超出部分溢出（长句换对边逻辑在dualSlot处理）
             .multilineTextAlignment(multilineAlign)
-            .lineLimit(1)                                      // 长句不换行，保持一行；跨对边占满整行显示
+            .lineLimit(1)                                      // 长句不换行，保持一行
             // 只留一层轻投影(清晰描边由 StrokeFillText 负责)：多层大半径高斯模糊在逐字高频刷新时很耗 GPU
             .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
         } else {
@@ -513,6 +518,7 @@ struct LyricsView: View {
             strokedLine(line.plain, fill: fill, size: fontSize,
                         weight: (active || isDual) ? .black : .medium, active: active,
                         multilineAlign: multilineAlign)
+                .fixedSize(horizontal: true, vertical: false)  // 防止长句被压缩
         }
     }
 
