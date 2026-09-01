@@ -173,6 +173,7 @@ final class LyricsStyleStore: ObservableObject {
     @Published var lineWidth: CGFloat        // 描边粗细（点），遥控端可调 0...12
     @Published var fontScale: CGFloat        // 字号倍率，遥控端可调 0.7...3.0，默认 1
     @Published var posV: CGFloat             // 歌词整体垂直位置：距底部百分比 0...60，默认18，越大越靠上
+    @Published var dualFlip: Bool            // 双排左右翻转：false=单左双右，true=单右双左
     private init() {
         colorHex = UserDefaults.standard.string(forKey: "momoLyricsColor") ?? "#FFD24A"
         strokeHex = UserDefaults.standard.string(forKey: "momoLyricsStroke") ?? "#000000"
@@ -183,8 +184,9 @@ final class LyricsStyleStore: ObservableObject {
         if let savedP = UserDefaults.standard.object(forKey: "momoLyricsPos") as? Double {
             posV = CGFloat(savedP)
         } else { posV = 0 }
+        dualFlip = UserDefaults.standard.bool(forKey: "momoLyricsDualFlip")  // 默认false=单左双右
     }
-    func apply(color: String?, stroke: String?, width: CGFloat? = nil, scale: CGFloat? = nil, posV: CGFloat? = nil) {
+    func apply(color: String?, stroke: String?, width: CGFloat? = nil, scale: CGFloat? = nil, posV: CGFloat? = nil, dualFlip: Bool? = nil) {
         if let c = color, !c.isEmpty {
             colorHex = c
             UserDefaults.standard.set(c, forKey: "momoLyricsColor")
@@ -204,6 +206,10 @@ final class LyricsStyleStore: ObservableObject {
         if let pv = posV {
             self.posV = max(0, min(60, pv))
             UserDefaults.standard.set(Double(self.posV), forKey: "momoLyricsPos")
+        }
+        if let df = dualFlip {
+            self.dualFlip = df
+            UserDefaults.standard.set(df, forKey: "momoLyricsDualFlip")
         }
     }
 }
@@ -309,15 +315,20 @@ struct LyricsView: View {
     // 在自己固定位置原地变亮，唱完后另一排羽化换为再下一句——全程不跨排跳动，位置/大小不变。
     private var dualBody: some View {
         let ai = activeIndex
-        let topIdx = ai % 2 == 0 ? ai + 1 : ai       // 上排恒为奇数句
-        let bottomIdx = ai % 2 == 0 ? ai : ai + 1    // 下排恒为偶数句
-        return VStack(spacing: compact ? 12 : 28) {
+        let topIdx = ai % 2 == 0 ? ai + 1 : ai       // 上排恒为奇数句(单)
+        let bottomIdx = ai % 2 == 0 ? ai : ai + 1    // 下排恒为偶数句(双)
+        // dualFlip=false: 单左双右；dualFlip=true: 单右双左
+        let topAlign: Alignment = styleStore.dualFlip ? .trailing : .leading
+        let bottomAlign: Alignment = styleStore.dualFlip ? .leading : .trailing
+        return VStack(spacing: compact ? 10 : 22) {
             Spacer(minLength: 0)
-            dualSlot(topIdx, .leading)       // 奇数句(单)固定靠左
-            dualSlot(bottomIdx, .trailing)   // 偶数句(双)固定靠右
-            // 去掉底部Spacer：posV=0时字幕位于屏幕最底部，posV增大时通过offset向上移动
+            // 奇数句(单)：默认靠左，翻转后靠右；长句占满整行宽度延伸到另一侧
+            dualSlot(topIdx, topAlign)
+            // 偶数句(双)：默认靠右，翻转后靠左；长句占满整行宽度延伸到另一侧
+            dualSlot(bottomIdx, bottomAlign)
+            // posV=0时字幕位于屏幕最底部，posV增大时通过offset向上移动
         }
-        .padding(.horizontal, compact ? 16 : 70)
+        .padding(.horizontal, compact ? 16 : 60)
         .padding(.bottom, compact ? 8 : 16)
         .animation(.easeInOut(duration: 0.22), value: ai)
     }
@@ -328,9 +339,9 @@ struct LyricsView: View {
         if idx >= 0 && idx < lyrics.lines.count {
             lineView(lyrics.lines[idx], idx: idx,
                      multilineAlign: align == .leading ? .leading : .trailing)
-                .id(lyrics.lines[idx].id)
+                .id(idx)                                   // 用行索引做id，供 scrollTo 定位
                 .transition(.opacity)
-                .frame(maxWidth: .infinity, alignment: align)
+                .frame(maxWidth: .infinity, alignment: align)  // 占满整行：长句换行后可延伸到另一侧
         } else {
             Color.clear.frame(maxWidth: .infinity)
         }
@@ -380,8 +391,7 @@ struct LyricsView: View {
             .font(.system(size: fontSize, weight: .black))   // 对齐网页 font-weight:900
             .tracking((compact ? 0 : 1) * sc)                 // 字距随字号同比放大，字号变大时相对间距保持一致
             .multilineTextAlignment(multilineAlign)
-            .lineLimit(nil)                                    // 双排长句不缩小字体，多余的字自动换行到对应一边
-            .fixedSize(horizontal: false, vertical: true)     // 垂直方向自适应内容高度
+            .lineLimit(1)                                      // 每排只显示一行，总共只有两行；长句超出截断，不缩小
             // 只留一层轻投影(清晰描边由 StrokeFillText 负责)：多层大半径高斯模糊在逐字高频刷新时很耗 GPU
             .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
         } else {
@@ -399,8 +409,7 @@ struct LyricsView: View {
             .font(.system(size: size, weight: weight))
             .tracking((!compact ? 1 : 0) * styleStore.fontScale)
             .multilineTextAlignment(multilineAlign)
-            .lineLimit(nil)                  // 长句不缩小字体，自动换行到对应一边
-            .fixedSize(horizontal: false, vertical: true)
+            .lineLimit(1)                    // 每排只显示一行，总共只有两行；长句超出截断，不缩小
             .shadow(color: .black.opacity(0.55), radius: active ? 3 : 4, x: 0, y: 2)
     }
 
