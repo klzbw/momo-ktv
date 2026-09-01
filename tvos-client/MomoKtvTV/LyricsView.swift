@@ -505,9 +505,8 @@ struct LyricsView: View {
     private func dualSlot(_ idx: Int, _ align: Alignment) -> some View {
         if idx >= 0 && idx < lyrics.lines.count {
             lineView(lyrics.lines[idx], idx: idx,
-                     multilineAlign: align == .leading ? .leading : .trailing)
-                // 移除 .id 和 .transition：歌词切换直接替换，不重建视图不淡入淡出
-                .frame(maxWidth: .infinity, alignment: align)
+                     multilineAlign: align == .leading ? .leading : .trailing,
+                     rowAlignment: align)
         } else {
             Color.clear.frame(maxWidth: .infinity)
         }
@@ -552,7 +551,7 @@ struct LyricsView: View {
     }
 
     @ViewBuilder
-        private func lineView(_ line: LyricLine, idx: Int, multilineAlign: TextAlignment = .center) -> some View {
+        private func lineView(_ line: LyricLine, idx: Int, multilineAlign: TextAlignment = .center, rowAlignment: Alignment = .center) -> some View {
         let active = idx == activeIndex
         let isDual = mode == .dual
         let fontSize: CGFloat = isDual ? activeSize : (active ? scrollActiveSize : near1Size)
@@ -622,7 +621,7 @@ struct LyricsView: View {
                 .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: rowAlignment)
         .clipped()
     }
 
