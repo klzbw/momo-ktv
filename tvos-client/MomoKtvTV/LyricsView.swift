@@ -269,6 +269,28 @@ struct StrokeFillText: View {
     let fill: Color
     let strokeColor: Color
     let w: CGFloat
+    /// 检测歌词是否更新，如果是后续刷新（非首次），显示"歌词已刷新"提示
+    private func checkLyricsUpdatedIfNeeded(_ currentSig: String) {
+        guard !currentSig.isEmpty else { return }
+        if lastLyricsSignature.isEmpty {
+            // 首次加载，记录签名，不显示提示
+            lastLyricsSignature = currentSig
+            firstLyricsLoad = false
+            return
+        }
+        if currentSig != lastLyricsSignature {
+            // 歌词变化了
+            lastLyricsSignature = currentSig
+            if !firstLyricsLoad {
+                showUpdatedTip = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                    showUpdatedTip = false
+                }
+            }
+            firstLyricsLoad = false
+        }
+    }
+
     var body: some View {
         let on = w > 0.01
         let c = on ? strokeColor : Color.clear
@@ -326,6 +348,7 @@ struct LyricsView: View {
     @State private var hintPulse = false  // 间奏提示呼吸脉冲动画状态
     @State private var showUpdatedTip = false  // 歌词已更新提示（2.5秒后自动消失）
     @State private var firstLyricsLoad = true  // 首次加载不显示提示，后续刷新才显示
+    @State private var lastLyricsSignature = ""  // 上一次歌词的签名（行数+首句文本），用于检测歌词变化
 
     /// 校准后的时间（叠加用户调节的偏移）
     private var displayTime: Double { currentTime + timeOffset }
@@ -377,6 +400,9 @@ struct LyricsView: View {
     }
 
     var body: some View {
+        // 检测歌词是否更新（用签名比较，避免 SongLyrics 不遵循 Equatable 的问题）
+        let currentSig = "\(lyrics.lines.count)_\(lyrics.lines.first?.plain ?? "")"
+        let _ = checkLyricsUpdatedIfNeeded(currentSig)
         GeometryReader { geo in
             Group {
                 if lyrics.isEmpty {
@@ -412,16 +438,8 @@ struct LyricsView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: showUpdatedTip)
-            // 检测歌词变化：首次加载不提示，后续刷新（重新生成）才显示"歌词已刷新"
-            .onChange(of: lyrics) { _, _ in
-                if !firstLyricsLoad {
-                    showUpdatedTip = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                        showUpdatedTip = false
-                    }
-                }
-                firstLyricsLoad = false
-            }
+            // 检测歌词变化：用签名（行数+首句文本）判断，首次加载不提示，后续刷新才显示"歌词已刷新"
+
         }
     }
 
