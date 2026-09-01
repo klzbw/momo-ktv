@@ -125,6 +125,7 @@ final class LyricsLoader: ObservableObject {
     private var task: URLSessionDataTask?
     private var currentSongId: Int?
     private var lastReloadTime: TimeInterval = 0  // reload防抖：避免服务端生成过程中频繁触发
+    private var requestGeneration = 0       // 请求版本号：防止旧回调覆盖新歌词（竞态条件修复）
 
     /// 强制重新拉取同一首歌（歌词时间轴被固化写回后调用，绕过 load 的去重守卫）
     /// 无缝替换：不清空旧歌词，直接加载新歌词，加载完成后平滑替换（播放不中断、无空白）
@@ -145,13 +146,25 @@ final class LyricsLoader: ObservableObject {
         loaded = true
         loading = true
         task?.cancel()
+        // 递增请求版本号：旧回调发现版本号不匹配时自动丢弃，防止覆盖新歌词
+        requestGeneration += 1
+        let myGeneration = requestGeneration
         let host = server.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
         guard let url = URL(string: "http://\(host)/api/songs/\(songId)/lyrics") else {
             loading = false
             return
         }
-        task = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+        task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             guard let self else { return }
+            // 竞态条件修复：如果这不是最新的请求，直接丢弃结果，不覆盖新歌词
+            guard myGeneration == self.requestGeneration else {
+                print("[LyricsLoader] 丢弃旧请求结果 (generation=\(myGeneration), current=\(self.requestGeneration))")
+                return
+            }
+            // 如果请求被取消，也不处理
+            if let error = error as? URLError, error.code == .cancelled {
+                return
+            }
             DispatchQueue.main.async { self.loading = false }
             guard let data,
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -162,6 +175,8 @@ final class LyricsLoader: ObservableObject {
             let plain = obj["lyrics"] as? String
             let parsed = SongLyrics.parse((word?.isEmpty == false) ? word : plain)
             DispatchQueue.main.async {
+                // 再次检查版本号，确保主线程设置时还是最新请求
+                guard myGeneration == self.requestGeneration else { return }
                 self.lyrics = parsed
             }
         }
