@@ -385,27 +385,32 @@ struct LyricsView: View {
         let bottomAlign: Alignment = styleStore.dualFlip ? .leading : .trailing
         return VStack(spacing: compact ? 10 : 22) {
             Spacer(minLength: 0)
-            if showHint {
-                // 间奏/前奏：上排显示 🎵🎵🎵 预唱提示，使用歌词样式+呼吸脉冲动画（闪烁+颜色过渡+轻微放大）
-                HStack(spacing: compact ? 6 : 14) {
-                    StrokeFillText(text: "🎵🎵🎵",
-                                   fill: hintPulse ? .white : highlight,  // 颜色过渡：高亮色↔白色
-                                   strokeColor: stroke,
-                                   w: styleStore.lineWidth)
-                        .font(.system(size: activeSize, weight: .black))
-                }
-                .opacity(hintPulse ? 0.5 : 1.0)              // 呼吸闪烁：1.0↔0.5
-                .scaleEffect(hintPulse ? 1.05 : 1.0)         // 轻微脉冲：1.0↔1.05
-                .frame(maxWidth: .infinity, alignment: topAlign)
-                .transition(.opacity)
-                .onAppear {
-                    // 启动呼吸脉冲动画，周期1.5秒，repeatForever，柔和提醒歌唱者间奏即将结束
-                    withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                        hintPulse = true
+            if il.isInterlude {
+                // 间奏/前奏：当前行歌词淡出，不显示
+                // 上排：间奏>1.5秒显示🎵🎵🎵预唱提示，否则留空（当前行已淡出）
+                if showHint {
+                    HStack(spacing: compact ? 6 : 14) {
+                        StrokeFillText(text: "🎵🎵🎵",
+                                       fill: hintPulse ? .white : highlight,
+                                       strokeColor: stroke,
+                                       w: styleStore.lineWidth)
+                            .font(.system(size: activeSize, weight: .black))
                     }
-                }
-                .onDisappear {
-                    hintPulse = false  // 间奏结束时重置动画状态
+                    .opacity(hintPulse ? 0.5 : 1.0)
+                    .scaleEffect(hintPulse ? 1.05 : 1.0)
+                    .frame(maxWidth: .infinity, alignment: topAlign)
+                    .transition(.opacity)
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                            hintPulse = true
+                        }
+                    }
+                    .onDisappear {
+                        hintPulse = false
+                    }
+                } else {
+                    // 间奏较短：上排空位，当前行歌词已淡出
+                    Color.clear.frame(maxWidth: .infinity)
                 }
                 // 下排显示下一句预备歌词
                 let next = il.nextIdx
@@ -508,18 +513,28 @@ struct LyricsView: View {
 
     /// 卡拉OK k 标签：单个字在 [start, end] 区间内的演唱进度 0...1（叠加时间偏移）
     private func tokenProgress(_ tok: LyricToken, tokens: [LyricToken], index: Int, lineEnd: Double) -> Double {
+        // 计算平均字持续时间（修正ai-worker生成的不准确时间轴，句尾常见间隔过长）
+        let avgDur: Double
+        if tokens.count >= 2 {
+            avgDur = (tokens[tokens.count - 1].time - tokens[0].time) / Double(tokens.count - 1)
+        } else {
+            avgDur = 0.3
+        }
+        let normalDur = max(0.15, min(avgDur, 0.8))
+
         let end: Double
         if index + 1 < tokens.count {
-            end = tokens[index + 1].time
-        } else {
-            // 最后一个字：用前面字的平均持续时间，不被lineEnd拉长
-            // 保证所有字的羽化速度一致，间奏由预唱符号占位
-            if tokens.count >= 2 {
-                let avgDur = (tokens[tokens.count - 1].time - tokens[0].time) / Double(tokens.count - 1)
-                end = tok.time + max(0.15, min(avgDur, 0.8))
+            let nextTime = tokens[index + 1].time
+            let gap = nextTime - tok.time
+            // 间隔超过1.2秒说明ai-worker时间轴不准确（句尾常见），用平均持续时间代替
+            if gap > 1.2 {
+                end = tok.time + normalDur
             } else {
-                end = tok.time + 0.3
+                end = nextTime
             }
+        } else {
+            // 最后一个字：用平均持续时间，不被lineEnd拉长
+            end = tok.time + normalDur
         }
         let dur = max(0.05, end - tok.time)
         return min(max((displayTime - tok.time) / dur, 0), 1)
