@@ -149,7 +149,7 @@ def main():
             print(f'官方歌词校正: 匹配率={info.get("score")} '
                   f'({info.get("matched")}/{info.get("total")}) 行={info.get("lines")}', flush=True)
             # 匹配率达到 40% 才采信校正结果（否则说明参考歌词可能不是这首歌，回退更安全）
-            if corr and info.get('score', 0) >= 0.40:
+            if corr and info.get('score', 0) >= 0.25:
                 lrc = build_corrected_lrc(corr)
                 print('已用官方歌词文本校正逐字结果', flush=True)
             else:
