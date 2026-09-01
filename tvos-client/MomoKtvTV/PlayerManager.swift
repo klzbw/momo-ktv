@@ -86,6 +86,9 @@ class PlayerManager: ObservableObject {
         voiceGeneration += 1
 
         let playerItem = AVPlayerItem(url: url)
+        // 增加前向缓冲到 30 秒，减少网络波动导致的卡顿
+        // （默认缓冲时长由系统决定，在局域网 HLS 场景下可能偏短）
+        playerItem.preferredForwardBufferDuration = 30
         let player = AVPlayer(playerItem: playerItem)
         self.player = player
 
@@ -138,6 +141,18 @@ class PlayerManager: ObservableObject {
 
         player.play()
         isPlaying = true
+
+        // 修复随机播放不从开头开始：HLS event 类型在转码完成前没有 #EXT-X-ENDLIST，
+        // AVPlayer 误认为是直播流，从"最新分片"开始播放而不是从开头。
+        // 这里在 item 准备好后强制 seek 到 0，确保从歌曲开头播放。
+        // 分两次 seek：立即一次(可能被忽略)，0.5秒后 item 准备好时再一次(确保生效)
+        player.seek(to: CMTime.zero)
+        currentTime = 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self, self.player === player else { return }
+            self.player?.seek(to: CMTime.zero)
+            self.currentTime = 0
+        }
 
         // Apply voice mode immediately (may no-op if tracks not loaded yet;
         // the itemStatusObserver + retries will pick it up)
