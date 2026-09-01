@@ -482,44 +482,59 @@ struct LyricsView: View {
     }
 
     @ViewBuilder
-    private func lineView(_ line: LyricLine, idx: Int, multilineAlign: TextAlignment = .center) -> some View {
+        private func lineView(_ line: LyricLine, idx: Int, multilineAlign: TextAlignment = .center) -> some View {
         let active = idx == activeIndex
         let isDual = mode == .dual
         // 双排当前句与预备句同字号：预备句不再是小字，唱到时原地变亮、无缩放不晃眼；仅滚动模式保留"当前大/邻近小"
         let fontSize: CGFloat = isDual ? activeSize : (active ? scrollActiveSize : near1Size)
-        if active, let tokens = line.tokens {
-            // 每个字固定宽度=字号（中文字符等宽），防止HStack压缩导致字变形
-            // 字距=tracking，总宽度=字数*(字号+字距)
-            let charWidth = fontSize + (compact ? 0 : 1) * sc
-            HStack(spacing: (compact ? 0 : 1) * sc) {
-                ForEach(Array(tokens.enumerated()), id: \.element.id) { idx, tok in
-                    KaraokeWord(
-                        text: tok.text,
-                        progress: tokenProgress(tok, tokens: tokens, index: idx, lineEnd: line.end),
-                        highlight: highlight,
-                        base: Color.white.opacity(0.42),
-                        stroke: stroke,
-                        lineW: styleStore.lineWidth
-                    )
-                    .frame(width: charWidth)   // 固定字宽，防止被压缩
-                    .fixedSize(horizontal: true, vertical: false)
+        // 统一使用 HStack+固定字宽+KaraokeWord 结构：预备句和当前演唱句字间距100%一致，
+        // 避免从预备(Text结构)切到当前演唱(HStack结构)时字间距变化导致画面不稳定
+        let charWidth = fontSize + (compact ? 0 : 1) * sc
+        let fixedSpacing = (compact ? 0 : 1) * sc
+        // 预备句底色更暗(0.5)，当前演唱句未唱到的字底色(0.42)
+        let baseColor = active ? Color.white.opacity(0.42) : Color.white.opacity(isDual ? 0.5 : 0.42)
+        return Group {
+            if let tokens = line.tokens, !tokens.isEmpty {
+                HStack(spacing: fixedSpacing) {
+                    ForEach(Array(tokens.enumerated()), id: \.element.id) { tokIdx, tok in
+                        KaraokeWord(
+                            text: tok.text,
+                            // 当前演唱句逐字羽化；预备句progress=0，只显示底色不高亮，字间距与当前句完全一致
+                            progress: active ? tokenProgress(tok, tokens: tokens, index: tokIdx, lineEnd: line.end) : 0,
+                            highlight: highlight,
+                            base: baseColor,
+                            stroke: stroke,
+                            lineW: styleStore.lineWidth
+                        )
+                        .frame(width: charWidth)   // 固定字宽，防止被压缩
+                        .fixedSize(horizontal: true, vertical: false)
+                    }
                 }
+                .font(.system(size: fontSize, weight: .black))   // 对齐网页 font-weight:900
+                .fixedSize(horizontal: true, vertical: false)     // 整行不压缩
+                .multilineTextAlignment(multilineAlign)
+                .lineLimit(1)
+                .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
+            } else {
+                // 非逐字歌词：也用固定字宽结构，逐字显示确保字间距一致
+                let chars = Array(line.plain).filter { !$0.isWhitespace }
+                HStack(spacing: fixedSpacing) {
+                    ForEach(Array(chars.enumerated()), id: \.offset) { _, ch in
+                        StrokeFillText(text: String(ch), fill: baseColor, strokeColor: stroke, w: styleStore.lineWidth)
+                            .font(.system(size: fontSize, weight: (active || isDual) ? .black : .medium))
+                            .frame(width: charWidth)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+                .font(.system(size: fontSize, weight: .black))
+                .fixedSize(horizontal: true, vertical: false)
+                .multilineTextAlignment(multilineAlign)
+                .lineLimit(1)
+                .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
             }
-            .font(.system(size: fontSize, weight: .black))   // 对齐网页 font-weight:900
-            .fixedSize(horizontal: true, vertical: false)     // 整行不压缩，超出部分溢出（长句换对边逻辑在dualSlot处理）
-            .multilineTextAlignment(multilineAlign)
-            .lineLimit(1)                                      // 长句不换行，保持一行
-            // 只留一层轻投影(清晰描边由 StrokeFillText 负责)：多层大半径高斯模糊在逐字高频刷新时很耗 GPU
-            .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
-        } else {
-            // 对齐网页：当前行整行白色(ll-cur=#fff)；双排预备句同字重、仅以半透明区分"还没唱到"；滚动邻近行更暗、字重中等
-            let fill = active ? Color.white : Color.white.opacity(isDual ? 0.5 : 0.42)
-            strokedLine(line.plain, fill: fill, size: fontSize,
-                        weight: (active || isDual) ? .black : .medium, active: active,
-                        multilineAlign: multilineAlign)
-                .fixedSize(horizontal: true, vertical: false)  // 防止长句被压缩
         }
     }
+
 
     /// 整行文字（非逐字 LRC 用），StrokeFillText 多层描边 + 与网页一致的投影；字号/粗细遥控可调
     private func strokedLine(_ text: String, fill: Color, size: CGFloat, weight: Font.Weight, active: Bool, multilineAlign: TextAlignment = .center) -> some View {
