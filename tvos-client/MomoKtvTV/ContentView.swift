@@ -2,6 +2,23 @@ import SwiftUI
 import AVKit
 import CoreImage
 
+
+// MARK: - 小屏歌词独立视图（10Hz Timer 驱动，避免 ContentView 观察 20Hz 的 playerManager.currentTime 导致整页高频重绘）
+struct CompactLyricsView: View {
+    let lyrics: SongLyrics
+    @State private var displayTime: Double = 0
+    // 小屏用 10Hz 刷新足够：字小、逐字效果在 0.1s 间隔下依然流畅，且 GPU 负载减半
+    private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        LyricsView(lyrics: lyrics, currentTime: displayTime, compact: true)
+            .onReceive(timer) { _ in
+                // 直接读取单例的当前时间，不通过 @ObservedObject 订阅，避免 20Hz 触发本视图之外的重绘
+                displayTime = PlayerManager.shared.currentTime
+            }
+    }
+}
+
 struct ContentView: View {
     @StateObject private var api: KTVAPIClient
     @AppStorage("serverAddress") private var serverAddress: String = ""
@@ -407,7 +424,7 @@ struct ContentView: View {
                     AudioBackgroundView(server: api.serverAddress)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .allowsHitTesting(false)
-                    LyricsView(lyrics: previewLyrics.lyrics, currentTime: playerManager.currentTime, compact: true)
+                    CompactLyricsView(lyrics: previewLyrics.lyrics)
                         .allowsHitTesting(false)
                 }
 
