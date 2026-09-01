@@ -122,6 +122,7 @@ final class LyricsLoader: ObservableObject {
     @Published var lyrics = SongLyrics.empty
     @Published var loaded = false
     @Published var loading = false          // 正在加载/更新歌词（用于显示"歌词更新中"）
+    @Published var lyricsUpdated = false    // 歌词已更新提示（显示"歌词已刷新"2.5秒后自动消失）
     private var task: URLSessionDataTask?
     private var currentSongId: Int?
     private var lastReloadTime: TimeInterval = 0  // reload防抖：避免服务端生成过程中频繁触发
@@ -367,6 +368,31 @@ struct LyricsView: View {
 
     var body: some View {
         GeometryReader { geo in
+            ZStack {
+                // 歌词已更新提示（右上角浮动提示，2.5秒后自动消失）
+                if loader.lyricsUpdated {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Text("歌词已刷新")
+                                .font(.system(size: 28, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 24)
+                                .padding(.vertical, 12)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16)
+                                        .fill(Color.green.opacity(0.85))
+                                        .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 4)
+                                )
+                                .padding(.top, 60)
+                                .padding(.trailing, 40)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                        Spacer()
+                    }
+                    .zIndex(100)
+                    .transition(.opacity)
+                }
             Group {
                 if lyrics.isEmpty {
                     Text("♪ 纯音乐 · 请欣赏 ♪")
