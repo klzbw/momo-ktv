@@ -412,9 +412,9 @@ struct LyricsView: View {
                             .font(.system(size: activeSize, weight: .black))
                     }
                     .opacity(hintPulse ? 0.5 : 1.0)
-                    .scaleEffect(hintPulse ? 1.05 : 1.0)
+                    // 移除 scaleEffect：间奏提示只呼吸不缩放，避免视觉跳动
                     .frame(maxWidth: .infinity, alignment: topAlign)
-                    .transition(.opacity)
+                    // 移除 transition：间奏提示直接显示/消失
                     .onAppear {
                         withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
                             hintPulse = true
@@ -443,7 +443,7 @@ struct LyricsView: View {
         }
         .padding(.horizontal, compact ? 16 : 60)
         .padding(.bottom, compact ? 8 : 16)
-        .animation(.easeInOut(duration: 0.22), value: ai)
+        // 移除整行动画：歌词切换直接替换，不收缩不铺展不闪烁，只保留逐字羽化扫色
     }
 
     /// 双排里的一个固定排：越界留等高空位；内容变化仅羽化(opacity)不位移；满宽并按 align 左右对齐
@@ -452,8 +452,7 @@ struct LyricsView: View {
         if idx >= 0 && idx < lyrics.lines.count {
             lineView(lyrics.lines[idx], idx: idx,
                      multilineAlign: align == .leading ? .leading : .trailing)
-                .id(idx)
-                .transition(.opacity)
+                // 移除 .id 和 .transition：歌词切换直接替换，不重建视图不淡入淡出
                 .frame(maxWidth: .infinity, alignment: align)
         } else {
             Color.clear.frame(maxWidth: .infinity)
