@@ -172,8 +172,12 @@ def align_sequences(asr, ref_chars):
     matches.reverse()
     return matches
 
-def _interpolate(times, per_char=0.22):
-    """对 None（未匹配字）用相邻已匹配时间线性插值；首尾用每字估计时长外推。保证单调不减。"""
+def _interpolate(times, per_char=0.22, max_gap=1.5):
+    """对 None（未匹配字）用相邻已匹配时间线性插值；首尾用每字估计时长外推。保证单调不减。
+    
+    修复：当两个已匹配锚点之间间隔 > max_gap 秒时（WhisperX漏字+间奏），
+    未匹配字紧凑排列在后一个锚点之前，而不是把长间隔均摊给每个字（会导致逐字扫色被拉长）。
+    """
     m = len(times)
     known = [k for k, t in enumerate(times) if t is not None]
     if not known:
@@ -182,8 +186,20 @@ def _interpolate(times, per_char=0.22):
     for k in range(f0 - 1, -1, -1):
         times[k] = max(0.0, times[f0] - (f0 - k) * per_char)
     for a, b in zip(known, known[1:]):
-        for k in range(a + 1, b):
-            times[k] = times[a] + (times[b] - times[a]) * (k - a) / (b - a)
+        gap = times[b] - times[a]
+        n_missing = b - a - 1
+        if n_missing <= 0:
+            continue
+        if gap > max_gap:
+            # 长间隔（WhisperX漏字+间奏）：未匹配字紧凑排列在后锚点之前
+            # 每个字 per_char 秒，向前排列，剩余时间留给间奏
+            for k in range(a + 1, b):
+                offset_from_b = b - k  # 距离后锚点几个字
+                times[k] = times[b] - offset_from_b * per_char
+        else:
+            # 正常间隔：线性插值
+            for k in range(a + 1, b):
+                times[k] = times[a] + gap * (k - a) / (b - a)
     fl = known[-1]
     for k in range(fl + 1, m):
         times[k] = times[fl] + (k - fl) * per_char
