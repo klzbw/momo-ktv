@@ -63,6 +63,10 @@ class PlayerManager: ObservableObject {
     /// delayed retry blocks from a previous toggle are invalidated and cannot
     /// fight the newer selection (root cause of the multi-click + stutter bug).
     private var voiceGeneration: Int = 0
+    /// 播放卡死检测：记录上一次检测时的 currentTime，如果连续3秒不变且isPlaying=true则判定卡死
+    private var stuckCheckTimer: Timer?
+    private var lastStuckCheckTime: Double = -1
+    private var stuckCounter: Int = 0
 
     private init() {}
 
@@ -163,6 +167,44 @@ class PlayerManager: ObservableObject {
         // server; mobile remote controllers interpolate between these reports
         // to show a smoothly moving progress bar synced to the TV.
         startProgressTimer()
+        startStuckCheck()
+    }
+
+    /// 播放卡死检测：每秒检查currentTime是否前进，连续3秒不前进且isPlaying则自动恢复
+    private func startStuckCheck() {
+        stuckCheckTimer?.invalidate()
+        lastStuckCheckTime = -1
+        stuckCounter = 0
+        stuckCheckTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self, let player = self.player else { return }
+            let cur = player.currentTime().seconds
+            // 只在播放状态下检测
+            guard self.isPlaying && player.timeControlStatus == .playing else {
+                self.lastStuckCheckTime = cur
+                self.stuckCounter = 0
+                return
+            }
+            if self.lastStuckCheckTime >= 0 && abs(cur - self.lastStuckCheckTime) < 0.01 {
+                self.stuckCounter += 1
+                if self.stuckCounter >= 3 {
+                    print("[PlayerManager] playback stuck at \(cur)s, auto recovery")
+                    self.stuckCounter = 0
+                    // 恢复策略：先seek到前1秒再play；如果item failed则重建
+                    if player.currentItem?.status == .failed {
+                        if let url = (player.currentItem?.asset as? AVURLAsset)?.url {
+                            self.setupPlayer(for: url)
+                            self.seek(to: max(0, cur - 1))
+                        }
+                    } else {
+                        player.seek(to: CMTime(seconds: max(0, cur - 1), preferredTimescale: 600))
+                        player.play()
+                    }
+                }
+            } else {
+                self.stuckCounter = 0
+            }
+            self.lastStuckCheckTime = cur
+        }
     }
 
     private func startProgressTimer() {
@@ -198,8 +240,29 @@ class PlayerManager: ObservableObject {
     }
 
     func play() {
-        player?.play()
+        guard let player = player else { return }
+        // 如果 currentItem 已经 failed，先重建再播放
+        if player.currentItem?.status == .failed {
+            print("[PlayerManager] currentItem failed, attempting recovery")
+            if let url = (player.currentItem?.asset as? AVURLAsset)?.url {
+                let curTime = player.currentTime().seconds
+                setupPlayer(for: url)
+                seek(to: max(0, curTime - 1))
+            }
+            return
+        }
+        player.play()
         isPlaying = true
+        // 播放后0.5秒检查：如果rate仍为0且不是暂停，尝试seek恢复
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self, let p = self.player else { return }
+            if p.rate == 0 && self.isPlaying && p.timeControlStatus != .paused {
+                print("[PlayerManager] play stuck, seek recovery")
+                let t = p.currentTime().seconds
+                p.seek(to: CMTime(seconds: max(0, t - 0.5), preferredTimescale: 600))
+                p.play()
+            }
+        }
     }
 
     func pause() {
@@ -301,6 +364,8 @@ class PlayerManager: ObservableObject {
 
     func cleanup() {
         stopProgressTimer()
+        stuckCheckTimer?.invalidate()
+        stuckCheckTimer = nil
         if let observer = timeObserver {
             player?.removeTimeObserver(observer)
             timeObserver = nil

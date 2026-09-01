@@ -521,15 +521,10 @@ struct LyricsView: View {
                     Color.clear.frame(maxWidth: .infinity)
                 }
             } else if ai >= 0 && ai < lyrics.lines.count {
-                // 正常演唱：用稳定排位缓存决定上下排，预读歌词位置固定不跳排
-                let currentKey = lyrics.lines[ai].stableKey
-                let currentSide = lineSideCache[currentKey] ?? 0
+                // 正常演唱：当前句永远在上排，预读句(下一句)永远在下排——位置绝对固定不跳排
                 let nextIdx = (ai + 1 < lyrics.lines.count) ? ai + 1 : -1
-                // 上排显示 side=0 的句，下排显示 side=1 的句；当前句和预读句分居两排
-                let topIdx = (nextIdx >= 0) ? ((currentSide == 0) ? ai : nextIdx) : ai
-                let bottomIdx = (nextIdx >= 0) ? ((currentSide == 0) ? nextIdx : ai) : -1
-                dualSlot(topIdx, topAlign)
-                dualSlot(bottomIdx, bottomAlign)
+                dualSlot(ai, topAlign)           // 上排：当前演唱句
+                dualSlot(nextIdx, bottomAlign)    // 下排：下一句预备歌词
             } else {
                 // ai=-1边界（前奏/间奏即将结束的过渡窗口）：显示空位，防止数组越界闪退
                 Color.clear.frame(maxWidth: .infinity)
