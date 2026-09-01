@@ -535,6 +535,22 @@ struct LyricsView: View {
         .disabled(true)
     }
 
+    /// 计算跑马灯水平偏移量（独立函数，避免在@ViewBuilder中使用for循环）
+    private func marqueeXOffset(needsMarquee: Bool, active: Bool, tokens: [LyricToken]?,
+                                charCount: Int, maxChars: Int, charWidth: CGFloat, spacing: CGFloat) -> CGFloat {
+        guard needsMarquee, active, let tokens = tokens else { return 0 }
+        var currentIdx = 0
+        for (i, tok) in tokens.enumerated() {
+            if displayTime >= tok.time { currentIdx = i }
+        }
+        let targetPos = min(maxChars / 3, maxChars - 1)
+        let rawOffset = CGFloat(currentIdx - targetPos) * (charWidth + spacing)
+        let totalWidth = CGFloat(charCount) * (charWidth + spacing)
+        let visibleWidth = CGFloat(maxChars) * (charWidth + spacing)
+        let maxOffset = max(0, totalWidth - visibleWidth)
+        return -min(max(0, rawOffset), maxOffset)
+    }
+
     @ViewBuilder
         private func lineView(_ line: LyricLine, idx: Int, multilineAlign: TextAlignment = .center) -> some View {
         let active = idx == activeIndex
@@ -561,22 +577,16 @@ struct LyricsView: View {
         let maxCharsPerRow = max(8, Int(availableWidth / (charWidth + fixedSpacing)))
         let needsMarquee = allChars.count > maxCharsPerRow
         
-        // 计算跑马灯偏移
-        let marqueeOffset: CGFloat
-        if needsMarquee, active, let tokens = allTokens {
-            var currentIdx = 0
-            for (i, tok) in tokens.enumerated() {
-                if displayTime >= tok.time { currentIdx = i }
-            }
-            let targetPos = min(maxCharsPerRow / 3, maxCharsPerRow - 1)
-            let rawOffset = CGFloat(currentIdx - targetPos) * (charWidth + fixedSpacing)
-            let totalWidth = CGFloat(allChars.count) * (charWidth + fixedSpacing)
-            let visibleWidth = CGFloat(maxCharsPerRow) * (charWidth + fixedSpacing)
-            let maxOffset = max(0, totalWidth - visibleWidth)
-            marqueeOffset = -min(max(0, rawOffset), maxOffset)
-        } else {
-            marqueeOffset = 0
-        }
+        // 计算跑马灯偏移（调用独立辅助函数，避免在@ViewBuilder中使用for循环）
+        let marqueeOffset: CGFloat = marqueeXOffset(
+            needsMarquee: needsMarquee,
+            active: active,
+            tokens: allTokens,
+            charCount: allChars.count,
+            maxChars: maxCharsPerRow,
+            charWidth: charWidth,
+            spacing: fixedSpacing
+        )
         
         Group {
             if let tokens = allTokens {
