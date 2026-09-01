@@ -4,14 +4,14 @@ import UIKit
 
 // MARK: - 歌词模型与解析
 // 一个"字/词"及其开始时间（增强 LRC 的 <mm:ss.xx>）
-struct LyricToken: Identifiable {
+struct LyricToken: Identifiable, Equatable {
     let id = UUID()
     let time: Double
     let text: String
 }
 
 // 一行歌词：start 行起始；tokens 非空时可逐字填色，为空时整行高亮；plain 为纯文本
-struct LyricLine: Identifiable {
+struct LyricLine: Identifiable, Equatable {
     let id = UUID()
     let start: Double
     var end: Double
@@ -19,7 +19,7 @@ struct LyricLine: Identifiable {
     var tokens: [LyricToken]?
 }
 
-struct SongLyrics {
+struct SongLyrics: Equatable {
     let lines: [LyricLine]
     static let empty = SongLyrics(lines: [])
     var isEmpty: Bool { lines.isEmpty }
