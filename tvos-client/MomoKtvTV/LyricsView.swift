@@ -449,18 +449,14 @@ struct LyricsView: View {
     /// 双排里的一个固定排：越界留等高空位；内容变化仅羽化(opacity)不位移；满宽并按 align 左右对齐
     @ViewBuilder
     private func dualSlot(_ idx: Int, _ align: Alignment) -> some View {
-        // 固定高度：空位和有歌词时高度一致，确保上下排位置不跳动
-        let fixedHeight: CGFloat = compact ? 40 : activeSize * 1.5
-        return Group {
-            if idx >= 0 && idx < lyrics.lines.count {
-                lineView(lyrics.lines[idx], idx: idx,
-                         multilineAlign: align == .leading ? .leading : .trailing)
-                    .frame(maxWidth: .infinity, alignment: align)
-            } else {
-                Color.clear.frame(maxWidth: .infinity)
-            }
+        if idx >= 0 && idx < lyrics.lines.count {
+            lineView(lyrics.lines[idx], idx: idx,
+                     multilineAlign: align == .leading ? .leading : .trailing)
+                // 移除 .id 和 .transition：歌词切换直接替换，不重建视图不淡入淡出
+                .frame(maxWidth: .infinity, alignment: align)
+        } else {
+            Color.clear.frame(maxWidth: .infinity)
         }
-        .frame(height: fixedHeight, alignment: .center)  // 固定高度，位置绝对稳定
     }
 
     private var scrollBody: some View {
