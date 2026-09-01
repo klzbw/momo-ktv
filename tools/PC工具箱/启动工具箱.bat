@@ -23,7 +23,8 @@ if errorlevel 1 (
 python -c "import requests" >nul 2>&1
 if errorlevel 1 (
     echo [INFO] First run, installing dependencies...
-    pip install requests paramiko
+    python -m pip install --upgrade pip
+    python -m pip install requests paramiko -i https://pypi.tuna.tsinghua.edu.cn/simple
     echo.
 )
 
@@ -33,5 +34,6 @@ python momo_toolbox.py
 if errorlevel 1 (
     echo.
     echo [ERROR] Failed to start!
+    echo If module missing, run install-dependencies.bat
     pause
 )

@@ -9,12 +9,19 @@ echo    Install tvOS Toolbox Dependencies
 echo ========================================
 echo.
 
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Python not found! Please install Python 3.10+ first.
+    pause
+    exit /b 1
+)
+
 echo [1/2] Upgrading pip...
-python -m pip install --upgrade pip
+python -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
 echo.
 
 echo [2/2] Installing core dependencies...
-pip install requests
+python -m pip install requests -i https://pypi.tuna.tsinghua.edu.cn/simple
 echo.
 
 echo ========================================
