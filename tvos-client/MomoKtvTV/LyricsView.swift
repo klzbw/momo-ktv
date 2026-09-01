@@ -376,12 +376,11 @@ struct LyricsView: View {
         return VStack(spacing: compact ? 10 : 22) {
             Spacer(minLength: 0)
             if showHint {
-                // 间奏/前奏：上排显示 🎵🎵🎵 预唱提示，帮助用户把握节奏点
+                // 间奏/前奏：上排显示 🎵🎵🎵 预唱提示，使用歌词样式（颜色/描边/字号与歌词同步，受遥控端调节）
                 HStack(spacing: compact ? 6 : 14) {
-                    Text("🎵"); Text("🎵"); Text("🎵")
+                    StrokeFillText(text: "🎵🎵🎵", fill: highlight, strokeColor: stroke, w: styleStore.lineWidth)
+                        .font(.system(size: activeSize, weight: .black))
                 }
-                .font(.system(size: compact ? 24 : 48, weight: .regular))
-                .foregroundColor(.white.opacity(0.45))
                 .frame(maxWidth: .infinity, alignment: topAlign)
                 .transition(.opacity)
                 // 下排显示下一句预备歌词
