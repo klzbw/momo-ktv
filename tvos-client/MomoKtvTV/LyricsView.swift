@@ -85,7 +85,14 @@ struct SongLyrics {
         }
         out.sort { $0.start < $1.start }
         for i in out.indices {
-            out[i].end = (i + 1 < out.count) ? out[i + 1].start : .greatestFiniteMagnitude
+            // 逐字歌词行的end取最后一个token的时间（而非下一行start），
+            // 避免行间距被算进行持续时间，导致间奏判断异常
+            if let tokens = out[i].tokens, !tokens.isEmpty {
+                let lastTok = tokens.max(by: { $0.time < $1.time })!
+                out[i].end = (i + 1 < out.count) ? min(out[i + 1].start, lastTok.time + 1.0) : lastTok.time + 1.0
+            } else {
+                out[i].end = (i + 1 < out.count) ? out[i + 1].start : .greatestFiniteMagnitude
+            }
             // 伪逐字：没有逐字标签的行，按字符平均分配行时间，实现近似逐字扫过
             if out[i].tokens == nil, !out[i].plain.trimmingCharacters(in: .whitespaces).isEmpty,
                out[i].end < .greatestFiniteMagnitude, out[i].end > out[i].start {
@@ -337,9 +344,11 @@ struct LyricsView: View {
         GeometryReader { geo in
             Group {
                 if lyrics.isEmpty {
-                    Text("♪ 纯音乐 · 请欣赏 ♪")
+                    // 歌词加载/更新中显示提示，reload清空旧歌词后不显示空白
+                    let isLoading = LyricsLoader.shared.loading
+                    Text(isLoading ? "♪ 歌词更新中… ♪" : "♪ 纯音乐 · 请欣赏 ♪")
                         .font(.system(size: compact ? 16 : 34, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.55))
+                        .foregroundColor(.white.opacity(isLoading ? 0.8 : 0.55))
                 } else if mode == .dual {
                     dualBody
                 } else {
@@ -359,7 +368,10 @@ struct LyricsView: View {
     private var dualBody: some View {
         let ai = activeIndex
         let il = interlude
-        let showHint = il.isInterlude && il.wait > 1.5
+        // 间奏预唱提示只在非逐字歌词时显示：逐字歌词时间轴精确，每句紧跟演唱，不需要预唱提示
+        // 且阈值提高到3秒，避免正常前奏/换气频繁显示🎵🎵🎵覆盖歌词
+        let curLineHasTokens = (ai >= 0 && ai < lyrics.lines.count) ? (lyrics.lines[ai].tokens != nil) : false
+        let showHint = il.isInterlude && il.wait > 3.0 && !curLineHasTokens
         // dualFlip=false: 单左双右；dualFlip=true: 单右双左
         let topAlign: Alignment = styleStore.dualFlip ? .trailing : .leading
         let bottomAlign: Alignment = styleStore.dualFlip ? .leading : .trailing
