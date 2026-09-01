@@ -114,13 +114,24 @@ struct SongLyrics {
 final class LyricsLoader: ObservableObject {
     @Published var lyrics = SongLyrics.empty
     @Published var loaded = false
+    @Published var loading = false          // 正在加载/更新歌词（用于显示"歌词更新中"）
     private var task: URLSessionDataTask?
     private var currentSongId: Int?
+    private var lastReloadTime: TimeInterval = 0  // reload防抖：避免服务端生成过程中频繁触发
 
     /// 强制重新拉取同一首歌（歌词时间轴被固化写回后调用，绕过 load 的去重守卫）
     func reload(server: String, songId: Int) {
+        // 防抖：2秒内同一首歌只允许reload一次，避免服务端逐字生成过程中频繁替换导致双重歌词
+        let now = Date().timeIntervalSince1970
+        guard now - lastReloadTime > 2.0 else { return }
+        lastReloadTime = now
+        // 先清空旧歌词+标记加载中，避免旧歌词和新歌词同时显示导致"双重歌词"
+        DispatchQueue.main.async {
+            self.lyrics = .empty
+            self.loaded = false
+            self.loading = true
+        }
         currentSongId = nil
-        loaded = false
         load(server: server, songId: songId)
     }
 
@@ -128,19 +139,29 @@ final class LyricsLoader: ObservableObject {
         guard songId != currentSongId || !loaded else { return }
         currentSongId = songId
         loaded = true
+        loading = true
         task?.cancel()
         let host = server.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
-        guard let url = URL(string: "http://\(host)/api/songs/\(songId)/lyrics") else { return }
+        guard let url = URL(string: "http://\(host)/api/songs/\(songId)/lyrics") else {
+            loading = false
+            return
+        }
         task = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let self else { return }
+            DispatchQueue.main.async { self.loading = false }
             guard let data,
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                DispatchQueue.main.async { self?.lyrics = .empty }
+                DispatchQueue.main.async { self.lyrics = .empty }
                 return
             }
             let word = obj["word"] as? String
             let plain = obj["lyrics"] as? String
             let parsed = SongLyrics.parse((word?.isEmpty == false) ? word : plain)
-            DispatchQueue.main.async { self?.lyrics = parsed }
+            DispatchQueue.main.async {
+                // 内容相同不替换，避免不必要的重绘和卡顿
+                guard parsed.lines != self.lyrics.lines else { return }
+                self.lyrics = parsed
+            }
         }
         task?.resume()
     }
@@ -290,36 +311,28 @@ struct LyricsView: View {
 
     private var activeIndex: Int { lyrics.lineIndex(at: displayTime) }
 
-    /// 下一句歌词的索引：找到第一句 start > 当前时间的歌词
-    private var nextLyricIndex: Int {
-        for (i, line) in lyrics.lines.enumerated() {
-            if line.start > displayTime { return i }
-        }
-        return -1
+    /// 间奏状态：一次遍历同时算出nextIdx/isInterlude/wait，避免多次O(n)遍历拖卡
+    private struct InterludeState {
+        var nextIdx: Int = -1
+        var isInterlude: Bool = false
+        var wait: Double = 0
     }
-
-    /// 是否处于间奏/前奏（没有正在唱的歌词）
-    private var isInterlude: Bool {
+    private var interlude: InterludeState {
+        let t = displayTime
+        var s = InterludeState()
+        for (i, line) in lyrics.lines.enumerated() {
+            if line.start > t { s.nextIdx = i; s.wait = max(0, line.start - t); break }
+        }
         let ai = activeIndex
         if ai < 0 {
-            // 前奏：第一句还没开始
-            return lyrics.lines.first.map { displayTime < $0.start - 0.3 } ?? false
+            s.isInterlude = lyrics.lines.first.map { t < $0.start - 0.3 } ?? false
+        } else if ai < lyrics.lines.count {
+            let cur = lyrics.lines[ai]
+            if t > cur.end + 0.3 {
+                s.isInterlude = (ai + 1 >= lyrics.lines.count) || (t < lyrics.lines[ai + 1].start)
+            }
         }
-        let cur = lyrics.lines[ai]
-        // 当前句已结束（超过end 0.3秒容错）
-        guard displayTime > cur.end + 0.3 else { return false }
-        // 还有下一句且下一句没开始
-        if ai + 1 < lyrics.lines.count {
-            return displayTime < lyrics.lines[ai + 1].start
-        }
-        return false
-    }
-
-    /// 间奏等待秒数（距离下一句还有多久）
-    private var interludeWait: Double {
-        let next = nextLyricIndex
-        guard next >= 0 else { return 0 }
-        return max(0, lyrics.lines[next].start - displayTime)
+        return s
     }
 
     var body: some View {
@@ -347,7 +360,8 @@ struct LyricsView: View {
     // 在自己固定位置原地变亮，唱完后另一排羽化换为再下一句——全程不跨排跳动，位置/大小不变。
     private var dualBody: some View {
         let ai = activeIndex
-        let showHint = isInterlude && interludeWait > 1.5
+        let il = interlude
+        let showHint = il.isInterlude && il.wait > 1.5
         // dualFlip=false: 单左双右；dualFlip=true: 单右双左
         let topAlign: Alignment = styleStore.dualFlip ? .trailing : .leading
         let bottomAlign: Alignment = styleStore.dualFlip ? .leading : .trailing
@@ -363,7 +377,7 @@ struct LyricsView: View {
                 .frame(maxWidth: .infinity, alignment: topAlign)
                 .transition(.opacity)
                 // 下排显示下一句预备歌词
-                let next = nextLyricIndex
+                let next = il.nextIdx
                 if next >= 0 {
                     dualSlot(next, bottomAlign)
                 } else {
@@ -439,7 +453,7 @@ struct LyricsView: View {
             .font(.system(size: fontSize, weight: .black))   // 对齐网页 font-weight:900
             .tracking((compact ? 0 : 1) * sc)                 // 字距随字号同比放大，字号变大时相对间距保持一致
             .multilineTextAlignment(multilineAlign)
-            .lineLimit(2)                                      // 每排最多两行：长句超出部分换行到对应一侧，不显示...
+            .lineLimit(1)                                      // 逐字歌词用HStack不会换行，保持一行避免混乱
             // 只留一层轻投影(清晰描边由 StrokeFillText 负责)：多层大半径高斯模糊在逐字高频刷新时很耗 GPU
             .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
         } else {

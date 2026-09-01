@@ -26,7 +26,7 @@ struct FullPlayerView: View {
     @AppStorage("momoBgMode") private var bgModeRaw: String = AudioBgMode.flow.rawValue
     @State private var lyricsOffset: Double = 0          // 当前歌词时间轴偏移（秒），即时预览
     @State private var pendingOffsetDelta: Double = 0    // 尚未固化到服务端的累计增量
-    @State private var lyricTime: Double = 0              // 歌词用的节流时间（30fps），避免playerTime 60fps触发逐字歌词高频重绘
+    @State private var lyricTime: Double = 0              // 歌词用的节流时间（15fps），避免playerTime高频触发逐字歌词重绘
     @State private var lyricTimer: Timer?
     @State private var offsetDebounce: Timer?
 
@@ -410,9 +410,9 @@ struct FullPlayerView: View {
     private func setup() {
         showControls = true
         resetHideTimer()
-        // 歌词重绘节流：30fps 足够人眼感知逐字变化，避免 60fps 触发大量 KaraokeWord 重绘拖卡
+        // 歌词重绘节流：15fps 足够人眼感知逐字变化，避免高频触发大量 KaraokeWord 遮罩重绘拖卡
         lyricTimer?.invalidate()
-        lyricTimer = Timer.scheduledTimer(withTimeInterval: 1.0/30.0, repeats: true) { _ in
+        lyricTimer = Timer.scheduledTimer(withTimeInterval: 1.0/15.0, repeats: true) { _ in
             lyricTime = PlayerManager.shared.currentTime
         }
         hasAutoExited = false
