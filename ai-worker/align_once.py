@@ -61,15 +61,16 @@ def insert_interlude_hints(raw, threshold=3.0, lead_time=2.5):
     """在间奏/前奏插入🎵🎵🎵预唱提示行（专业KTV演唱体验优化）
     threshold: 超过3.0秒的间奏才插入提示（正常换气0.5-2秒不需要提示）
     lead_time: 提示在下一句开始前2.5秒出现（选手看到提示马上准备唱，时机最佳）
-    前奏超过5秒才提示，在开唱前3秒出现
+    前奏：每一首歌开唱前3秒都显示提示（不管前奏多长，帮助选手找准起唱点）
     raw: [(start_time, lrc_line, end_time), ...] 已按时间排序
     """
     if not raw:
         return ''
     out = []
     for i, (t0, line, end_t) in enumerate(raw):
-        # 前奏：第一句之前超过5秒，在开唱前3秒出现提示
-        if i == 0 and t0 > 5.0:
+        # 前奏：每一首歌开唱前3秒都显示🎵🎵🎵（不管前奏多长，帮助选手找准起唱点）
+        # 前奏>=3秒：开唱前3秒出现；前奏<3秒：歌曲一开始(0.5秒)就出现，持续到开唱
+        if i == 0 and t0 > 0:
             hint_t = max(0.5, t0 - 3.0)
             out.append(f'[{fmt(hint_t)}]🎵🎵🎵')
         # 间奏：上一句结束到这一句开始超过threshold秒
