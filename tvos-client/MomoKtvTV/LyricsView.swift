@@ -616,7 +616,6 @@ struct LyricsView: View {
                 .lineLimit(1)
                 .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
             }
-        }
     }
     
     /// 跑马灯滚动行：长句从右向左滚动，唱到哪个字哪个字羽化变色
@@ -688,7 +687,6 @@ struct LyricsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .clipped()  // 裁切超出可视区域的部分
         .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
-    }
     }
 
 
