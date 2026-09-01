@@ -536,18 +536,16 @@ struct LyricsView: View {
     }
 
     @ViewBuilder
+    @ViewBuilder
         private func lineView(_ line: LyricLine, idx: Int, multilineAlign: TextAlignment = .center) -> some View {
         let active = idx == activeIndex
         let isDual = mode == .dual
-        // 双排当前句与预备句同字号：预备句不再是小字，唱到时原地变亮、无缩放不晃眼；仅滚动模式保留"当前大/邻近小"
         let fontSize: CGFloat = isDual ? activeSize : (active ? scrollActiveSize : near1Size)
-        // 统一使用 HStack+固定字宽+KaraokeWord 结构：预备句和当前演唱句字间距100%一致，
-        // 避免从预备(Text结构)切到当前演唱(HStack结构)时字间距变化导致画面不稳定
         let charWidth = fontSize + (compact ? 0 : 1) * sc
         let fixedSpacing = (compact ? 0 : 1) * sc
-        // 预备句底色更暗(0.5)，当前演唱句未唱到的字底色(0.42)
         let baseColor = active ? Color.white.opacity(0.42) : Color.white.opacity(isDual ? 0.5 : 0.42)
-        // 获取当前行的所有字（逐字tokens或纯文本字符）
+        
+        // 获取所有字
         let allChars: [String]
         let allTokens: [LyricToken]?
         if let tokens = line.tokens, !tokens.isEmpty {
@@ -557,30 +555,32 @@ struct LyricsView: View {
             allChars = Array(line.plain).filter { !$0.isWhitespace }.map { String($0) }
             allTokens = nil
         }
-        // 计算每排最大显示字数（根据屏幕宽度动态计算）
-        // 双排模式：屏幕宽度 - 左右padding(60*2) = 可用宽度；每字宽度=charWidth+spacing
-        // 预留10%余量，避免边缘字被裁切
+        
+        // 计算每排最大显示字数
         let screenWidth: CGFloat = UIScreen.main.bounds.width
-        let availableWidth = screenWidth - (compact ? 32 : 120) - 40  // 左右padding + 余量
+        let availableWidth = screenWidth - (compact ? 32 : 120) - 40
         let maxCharsPerRow = max(8, Int(availableWidth / (charWidth + fixedSpacing)))
         let needsMarquee = allChars.count > maxCharsPerRow
         
-        return Group {
-            if needsMarquee {
-                // 长句：跑马灯滚动显示
-                marqueeLineView(
-                    chars: allChars,
-                    tokens: allTokens,
-                    active: active,
-                    fontSize: fontSize,
-                    charWidth: charWidth,
-                    fixedSpacing: fixedSpacing,
-                    baseColor: baseColor,
-                    line: line,
-                    maxChars: maxCharsPerRow
-                )
-            } else if let tokens = allTokens {
-                // 短句：正常逐字显示
+        // 计算跑马灯偏移
+        let marqueeOffset: CGFloat
+        if needsMarquee && active && let tokens = allTokens {
+            var currentIdx = 0
+            for (i, tok) in tokens.enumerated() where displayTime >= tok.time {
+                currentIdx = i
+            }
+            let targetPos = min(maxCharsPerRow / 3, maxCharsPerRow - 1)
+            let rawOffset = CGFloat(currentIdx - targetPos) * (charWidth + fixedSpacing)
+            let totalWidth = CGFloat(allChars.count) * (charWidth + fixedSpacing)
+            let visibleWidth = CGFloat(maxCharsPerRow) * (charWidth + fixedSpacing)
+            let maxOffset = max(0, totalWidth - visibleWidth)
+            marqueeOffset = -min(max(0, rawOffset), maxOffset)
+        } else {
+            marqueeOffset = 0
+        }
+        
+        Group {
+            if let tokens = allTokens {
                 HStack(spacing: fixedSpacing) {
                     ForEach(Array(tokens.enumerated()), id: \.element.id) { tokIdx, tok in
                         KaraokeWord(
@@ -597,11 +597,12 @@ struct LyricsView: View {
                 }
                 .font(.system(size: fontSize, weight: .black))
                 .fixedSize(horizontal: true, vertical: false)
+                .offset(x: marqueeOffset)
+                .animation(.linear(duration: 0.15), value: marqueeOffset)
                 .multilineTextAlignment(multilineAlign)
                 .lineLimit(1)
                 .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
             } else {
-                // 短句：非逐字显示
                 HStack(spacing: fixedSpacing) {
                     ForEach(Array(allChars.enumerated()), id: \.offset) { _, ch in
                         StrokeFillText(text: ch, fill: baseColor, strokeColor: stroke, w: styleStore.lineWidth)
@@ -612,82 +613,17 @@ struct LyricsView: View {
                 }
                 .font(.system(size: fontSize, weight: .black))
                 .fixedSize(horizontal: true, vertical: false)
+                .offset(x: marqueeOffset)
+                .animation(.linear(duration: 0.15), value: marqueeOffset)
                 .multilineTextAlignment(multilineAlign)
                 .lineLimit(1)
                 .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
             }
-    }
-    
-    /// 跑马灯滚动行：长句从右向左滚动，唱到哪个字哪个字羽化变色
-    /// 滚动逻辑：当前演唱字保持在可视区域中心，未唱的字从右侧滑入，已唱的字从左侧滑出
-    @ViewBuilder
-    private func marqueeLineView(
-        chars: [String],
-        tokens: [LyricToken]?,
-        active: Bool,
-        fontSize: CGFloat,
-        charWidth: CGFloat,
-        fixedSpacing: CGFloat,
-        baseColor: Color,
-        line: LyricLine,
-        maxChars: Int
-    ) -> some View {
-        // 计算当前演唱到第几个字
-        let currentCharIndex: Int
-        if let tokens = tokens, active {
-            var idx = 0
-            for (i, tok) in tokens.enumerated() {
-                if displayTime >= tok.time { idx = i }
-            }
-            currentCharIndex = idx
-        } else {
-            currentCharIndex = 0
-        }
-        
-        // 计算滚动偏移量：让当前演唱字显示在可视区域中心偏左位置
-        // 偏移量 = -(当前字位置 - 目标位置) * 每字宽度
-        let targetPosition = min(maxChars / 3, maxChars - 1)  // 目标位置：可视区域1/3处
-        let rawOffset = CGFloat(currentCharIndex - targetPosition) * (charWidth + fixedSpacing)
-        // 限制偏移范围：不小于0（开头不滚动），不超过总宽度-可视宽度（结尾不滚动）
-        let totalWidth = CGFloat(chars.count) * (charWidth + fixedSpacing)
-        let visibleWidth = CGFloat(maxChars) * (charWidth + fixedSpacing)
-        let maxOffset = max(0, totalWidth - visibleWidth)
-        let offsetX = -min(max(0, rawOffset), maxOffset)
-        
-        return ZStack(alignment: .leading) {
-            // 滚动内容：所有字水平排列
-            HStack(spacing: fixedSpacing) {
-                if let tokens = tokens {
-                    ForEach(Array(tokens.enumerated()), id: \.element.id) { tokIdx, tok in
-                        KaraokeWord(
-                            text: tok.text,
-                            progress: active ? tokenProgress(tok, tokens: tokens, index: tokIdx, lineEnd: line.end) : 0,
-                            highlight: highlight,
-                            base: baseColor,
-                            stroke: stroke,
-                            lineW: styleStore.lineWidth
-                        )
-                        .frame(width: charWidth)
-                        .fixedSize(horizontal: true, vertical: false)
-                    }
-                } else {
-                    ForEach(Array(chars.enumerated()), id: \.offset) { _, ch in
-                        StrokeFillText(text: ch, fill: baseColor, strokeColor: stroke, w: styleStore.lineWidth)
-                            .font(.system(size: fontSize, weight: .black))
-                            .frame(width: charWidth)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-            }
-            .font(.system(size: fontSize, weight: .black))
-            .fixedSize(horizontal: true, vertical: false)
-            .offset(x: offsetX)
-            .animation(.linear(duration: 0.15), value: offsetX)  // 平滑滚动过渡
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .clipped()  // 裁切超出可视区域的部分
-        .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
+        .clipped()
     }
+
 
 
     /// 整行文字（非逐字 LRC 用），StrokeFillText 多层描边 + 与网页一致的投影；字号/粗细遥控可调
