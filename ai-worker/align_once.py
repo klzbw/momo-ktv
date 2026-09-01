@@ -30,38 +30,68 @@ def fmt(t):
     return f'{m:02d}:{s:05.2f}'  # mm:ss.xx（LRC 百分秒）
 
 def build_enhanced_lrc(aligned):
-    out = []
+    """生成增强LRC，并在间奏/前奏(两句间隔>1.5秒)插入🎵🎵🎵预唱提示行"""
+    raw = []  # (start_time, lrc_line, end_time)
     for seg in aligned.get('segments', []):
         words = seg.get('words') or []
         words = [w for w in words if w.get('word')]
         if not words:
             continue
-        t0 = words[0].get('start')
+        t0 = words.get('start')
         if t0 is None: t0 = seg.get('start', 0.0) or 0.0
         parts = [f'[{fmt(t0)}]']
         cur = t0
+        last_end = t0
         for w in words:
             st = w.get('start')
             if st is None: st = cur          # 个别字没对齐到时间就沿用上一字结尾
             txt = (w.get('word') or '').strip()
             if not txt: continue
             parts.append(f'<{fmt(st)}>{txt}')
-            if w.get('end') is not None: cur = w['end']
+            if w.get('end') is not None:
+                cur = w['end']
+                last_end = w['end']
         line = ''.join(parts)
         if len(line) > len('[00:00.00]'):
-            out.append(line)
+            raw.append((t0, line, last_end + 0.5))
+    return insert_interlude_hints(raw)
+
+
+def insert_interlude_hints(raw, threshold=1.5):
+    """在间奏/前奏(两句间隔>threshold秒)插入🎵🎵🎵预唱提示行
+    raw: [(start_time, lrc_line, end_time), ...] 已按时间排序
+    返回: 增强LRC文本
+    """
+    if not raw:
+        return ''
+    out = []
+    for i, (t0, line, end_t) in enumerate(raw):
+        # 前奏：第一句之前>1.5秒
+        if i == 0 and t0 > threshold:
+            hint_t = t0 * 0.5  # 前奏中间
+            out.append(f'[{fmt(hint_t)}]🎵🎵🎵')
+        # 间奏：上一句结束到这一句开始>1.5秒
+        elif i > 0:
+            prev_end = raw[i - 1][2]
+            gap = t0 - prev_end
+            if gap > threshold:
+                hint_t = prev_end + gap * 0.4  # 间奏偏前，给用户反应时间
+                out.append(f'[{fmt(hint_t)}]🎵🎵🎵')
+        out.append(line)
     return '\n'.join(out) + '\n'
 
-# 用官方歌词校正后的逐字结果 -> 增强 LRC（文字=官方正确字，时间=WhisperX对齐）
 def build_corrected_lrc(out_lines):
-    rows = []
+    """生成校正后的增强LRC，并在间奏/前奏插入🎵🎵🎵预唱提示行"""
+    raw = []  # (start_time, lrc_line, end_time)
     for ln in out_lines:
         parts = [f'[{fmt(ln["start"])}]']
+        last_t = ln['start']
         for tok in ln['tokens']:
             parts.append(f'<{fmt(tok["t"])}>{tok["ch"]}')
+            last_t = tok['t']
         if len(parts) > 1:
-            rows.append(''.join(parts))
-    return '\n'.join(rows) + '\n'
+            raw.append((ln['start'], ''.join(parts), last_t + 0.5))
+    return insert_interlude_hints(raw)
 
 def main():
     if len(sys.argv) < 3:
