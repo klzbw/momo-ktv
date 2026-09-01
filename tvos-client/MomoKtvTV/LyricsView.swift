@@ -398,7 +398,7 @@ struct LyricsView: View {
         // dualFlip=false: 单左双右；dualFlip=true: 单右双左
         let topAlign: Alignment = styleStore.dualFlip ? .trailing : .leading
         let bottomAlign: Alignment = styleStore.dualFlip ? .leading : .trailing
-        return VStack(spacing: compact ? 12 : 32) {  // 增加行间距，防止两排歌词挤在一起
+        return VStack(spacing: 0) {  // spacing=0，两排通过maxHeight:infinity平分空间，位置绝对稳定
             Spacer(minLength: 0)
             if il.isInterlude {
                 // 间奏/前奏：当前行歌词淡出，不显示
@@ -449,8 +449,7 @@ struct LyricsView: View {
     /// 双排里的一个固定排：越界留等高空位；内容变化仅羽化(opacity)不位移；满宽并按 align 左右对齐
     @ViewBuilder
     private func dualSlot(_ idx: Int, _ align: Alignment) -> some View {
-        // 固定高度：空位和有歌词时高度一致，确保上下排位置不跳动
-        let fixedHeight: CGFloat = compact ? 40 : activeSize * 1.5
+        // 使用 maxHeight: .infinity 让两排平分VStack空间，位置绝对稳定，不随内容变化
         return Group {
             if idx >= 0 && idx < lyrics.lines.count {
                 lineView(lyrics.lines[idx], idx: idx,
@@ -460,7 +459,7 @@ struct LyricsView: View {
                 Color.clear.frame(maxWidth: .infinity)
             }
         }
-        .frame(height: fixedHeight, alignment: .center)  // 固定高度，位置绝对稳定
+        .frame(maxHeight: .infinity, alignment: .center)  // 平分空间，位置绝对稳定
     }
 
     private var scrollBody: some View {
@@ -506,8 +505,7 @@ struct LyricsView: View {
                         stroke: stroke,
                         lineW: styleStore.lineWidth
                     )
-                    .frame(width: charWidth)   // 固定字宽
-                    .fixedSize(horizontal: true, vertical: false)  // 单字固定，不被压缩
+                    .frame(width: charWidth)   // 固定字宽，不使用fixedSize避免宽度冲突，间距绝对稳定
                 }
             }
             .font(.system(size: fontSize, weight: .black))   // 对齐网页 font-weight:900
