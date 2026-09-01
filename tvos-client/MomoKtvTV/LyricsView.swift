@@ -158,8 +158,6 @@ final class LyricsLoader: ObservableObject {
             let plain = obj["lyrics"] as? String
             let parsed = SongLyrics.parse((word?.isEmpty == false) ? word : plain)
             DispatchQueue.main.async {
-                // 内容相同不替换，避免不必要的重绘和卡顿
-                guard parsed.lines != self.lyrics.lines else { return }
                 self.lyrics = parsed
             }
         }
