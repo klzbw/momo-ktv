@@ -17,6 +17,8 @@ struct LyricLine: Identifiable, Equatable {
     var end: Double
     let plain: String
     var tokens: [LyricToken]?
+    /// 稳定标识：基于开始时间和文本，用于歌词刷新后保持同一句的排位不变
+    var stableKey: String { "\(Int(start * 100))_\(plain)" }
 }
 
 struct SongLyrics: Equatable {
@@ -328,6 +330,8 @@ struct LyricsView: View {
     @State private var showUpdatedTip = false  // 歌词已更新提示（2.5秒后自动消失）
     // 用@AppStorage持久化记录上一次歌词签名，避免视图重建时@State被重置导致提示失效
     @AppStorage("momoLastLyricsSig") private var lastLyricsSig: String = ""
+    /// 每句歌词的稳定排位缓存：key=stableKey, value=0上排/1下排。歌词刷新后同一句保持排位不变
+    @State private var lineSideCache: [String: Int] = [:]
 
     /// 校准后的时间（叠加用户调节的偏移）
     private var displayTime: Double { currentTime + timeOffset }
@@ -426,6 +430,21 @@ struct LyricsView: View {
             .animation(.easeInOut(duration: 0.3), value: showUpdatedTip)
         }
         // onChange 放在 GeometryReader 外部，避免内部重绘时反复注册
+        // 歌词变化时更新每句稳定排位缓存（不在body中改@State避免无限重绘）
+        .onChange(of: lyrics) { _, newLyrics in
+            var cache = lineSideCache
+            var lastSide = -1
+            for line in newLyrics.lines {
+                if let s = cache[line.stableKey] {
+                    lastSide = s
+                } else {
+                    let newSide = (lastSide == 0) ? 1 : 0
+                    cache[line.stableKey] = newSide
+                    lastSide = newSide
+                }
+            }
+            lineSideCache = cache
+        }
         // 用@AppStorage持久化记录上一次签名，首次加载不提示，后续刷新才显示
         .onChange(of: lyricsSignature) { _, newSig in
             guard !newSig.isEmpty && newSig != "empty" else { return }
@@ -489,8 +508,20 @@ struct LyricsView: View {
                     Color.clear.frame(maxWidth: .infinity)
                 }
             } else {
-                let topIdx = ai % 2 == 0 ? ai + 1 : ai       // 上排恒为奇数句(单)
-                let bottomIdx = ai % 2 == 0 ? ai : ai + 1    // 下排恒为偶数句(双)
+                // 用稳定排位缓存决定上下排，预读歌词(下一句)位置固定不跳排
+                let currentKey = lyrics.lines[ai].stableKey
+                let currentSide = lineSideCache[currentKey] ?? 0
+                let nextIdx = (ai + 1 < lyrics.lines.count) ? ai + 1 : -1
+                // 上排显示 side=0 的句，下排显示 side=1 的句；当前句和预读句分居两排
+                let topIdx: Int
+                let bottomIdx: Int
+                if nextIdx >= 0 {
+                    topIdx = (currentSide == 0) ? ai : nextIdx
+                    bottomIdx = (currentSide == 0) ? nextIdx : ai
+                } else {
+                    topIdx = ai
+                    bottomIdx = -1
+                }
                 dualSlot(topIdx, topAlign)
                 dualSlot(bottomIdx, bottomAlign)
             }
