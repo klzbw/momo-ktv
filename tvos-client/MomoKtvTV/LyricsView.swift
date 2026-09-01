@@ -520,18 +520,16 @@ struct LyricsView: View {
         } else {
             avgDur = 0.3
         }
-        let normalDur = max(0.15, min(avgDur, 0.8))
+        let normalDur = max(0.15, min(avgDur, 0.6))
+        // 每个字的最大持续时间：平均持续时间的1.5倍，防止句尾字被拉长
+        let maxDur = normalDur * 1.5
 
         let end: Double
         if index + 1 < tokens.count {
             let nextTime = tokens[index + 1].time
-            let gap = nextTime - tok.time
-            // 间隔超过1.2秒说明ai-worker时间轴不准确（句尾常见），用平均持续时间代替
-            if gap > 1.2 {
-                end = tok.time + normalDur
-            } else {
-                end = nextTime
-            }
+            // 直接限制每个字的最大持续时间，不检查间隔阈值
+            // 这样不管ai-worker生成的间隔多长，每个字的羽化速度都不会超过正常范围
+            end = min(nextTime, tok.time + maxDur)
         } else {
             // 最后一个字：用平均持续时间，不被lineEnd拉长
             end = tok.time + normalDur
