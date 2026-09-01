@@ -418,11 +418,10 @@ struct FullPlayerView: View {
         hasAutoExited = false
         voiceMode = VoiceMode.from(playerManager.vocalTrackIndex)
         // 逐字歌词重新生成完成：WebSocket推送，无缝替换当前歌曲歌词（不清空、不中断播放）
-        api.onLyricsUpdated = { [weak self] updatedSongId in
-            guard let self = self else { return }
+        api.onLyricsUpdated = { updatedSongId in
             // 只替换当前正在播放的歌曲；其他歌曲下次播放时自动拉取新歌词
-            if let playing = self.api.queue.first(where: { $0.isPlaying }), playing.song_id == updatedSongId {
-                self.lyricsLoader.reload(server: self.api.serverAddress, songId: updatedSongId)
+            if let playing = api.queue.first(where: { $0.isPlaying }), playing.song_id == updatedSongId {
+                lyricsLoader.reload(server: api.serverAddress, songId: updatedSongId)
             }
         }
         // 拉取歌词（优先 AI 逐字增强 LRC，没有则普通 LRC）；视频歌自带字幕不拉取
