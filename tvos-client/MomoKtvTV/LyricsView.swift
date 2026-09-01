@@ -302,6 +302,7 @@ struct LyricsView: View {
     var timeOffset: Double = 0       // 歌词时间轴整体偏移（秒）：正值=歌词延后出现，负值=提前出现，用于唱字同步校准
     @ObservedObject private var styleStore = LyricsStyleStore.shared
     @AppStorage("momoLyricsMode") private var modeRaw: String = LyricsDisplayMode.dual.rawValue
+    @State private var hintPulse = false  // 间奏提示呼吸脉冲动画状态
 
     /// 校准后的时间（叠加用户调节的偏移）
     private var displayTime: Double { currentTime + timeOffset }
@@ -376,13 +377,27 @@ struct LyricsView: View {
         return VStack(spacing: compact ? 10 : 22) {
             Spacer(minLength: 0)
             if showHint {
-                // 间奏/前奏：上排显示 🎵🎵🎵 预唱提示，使用歌词样式（颜色/描边/字号与歌词同步，受遥控端调节）
+                // 间奏/前奏：上排显示 🎵🎵🎵 预唱提示，使用歌词样式+呼吸脉冲动画（闪烁+颜色过渡+轻微放大）
                 HStack(spacing: compact ? 6 : 14) {
-                    StrokeFillText(text: "🎵🎵🎵", fill: highlight, strokeColor: stroke, w: styleStore.lineWidth)
+                    StrokeFillText(text: "🎵🎵🎵",
+                                   fill: hintPulse ? .white : highlight,  // 颜色过渡：高亮色↔白色
+                                   strokeColor: stroke,
+                                   w: styleStore.lineWidth)
                         .font(.system(size: activeSize, weight: .black))
                 }
+                .opacity(hintPulse ? 0.5 : 1.0)              // 呼吸闪烁：1.0↔0.5
+                .scaleEffect(hintPulse ? 1.05 : 1.0)         // 轻微脉冲：1.0↔1.05
                 .frame(maxWidth: .infinity, alignment: topAlign)
                 .transition(.opacity)
+                .onAppear {
+                    // 启动呼吸脉冲动画，周期1.5秒，repeatForever，柔和提醒歌唱者间奏即将结束
+                    withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                        hintPulse = true
+                    }
+                }
+                .onDisappear {
+                    hintPulse = false  // 间奏结束时重置动画状态
+                }
                 // 下排显示下一句预备歌词
                 let next = il.nextIdx
                 if next >= 0 {
