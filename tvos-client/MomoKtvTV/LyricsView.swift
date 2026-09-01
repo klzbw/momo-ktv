@@ -449,14 +449,18 @@ struct LyricsView: View {
     /// 双排里的一个固定排：越界留等高空位；内容变化仅羽化(opacity)不位移；满宽并按 align 左右对齐
     @ViewBuilder
     private func dualSlot(_ idx: Int, _ align: Alignment) -> some View {
-        if idx >= 0 && idx < lyrics.lines.count {
-            lineView(lyrics.lines[idx], idx: idx,
-                     multilineAlign: align == .leading ? .leading : .trailing)
-                // 移除 .id 和 .transition：歌词切换直接替换，不重建视图不淡入淡出
-                .frame(maxWidth: .infinity, alignment: align)
-        } else {
-            Color.clear.frame(maxWidth: .infinity)
+        // 固定高度：空位和有歌词时高度一致，确保上下排位置不跳动
+        let fixedHeight: CGFloat = compact ? 40 : activeSize * 1.5
+        return Group {
+            if idx >= 0 && idx < lyrics.lines.count {
+                lineView(lyrics.lines[idx], idx: idx,
+                         multilineAlign: align == .leading ? .leading : .trailing)
+                    .frame(maxWidth: .infinity, alignment: align)
+            } else {
+                Color.clear.frame(maxWidth: .infinity)
+            }
         }
+        .frame(height: fixedHeight, alignment: .center)  // 固定高度，位置绝对稳定
     }
 
     private var scrollBody: some View {
@@ -488,10 +492,11 @@ struct LyricsView: View {
         // 双排当前句与预备句同字号：预备句不再是小字，唱到时原地变亮、无缩放不晃眼；仅滚动模式保留"当前大/邻近小"
         let fontSize: CGFloat = isDual ? activeSize : (active ? scrollActiveSize : near1Size)
         if active, let tokens = line.tokens {
-            // 每个字固定宽度=字号（中文字符等宽），防止HStack压缩导致字变形
-            // 字距=tracking，总宽度=字数*(字号+字距)
-            let charWidth = fontSize + (compact ? 0 : 1) * sc
-            HStack(spacing: (compact ? 0 : 1) * sc) {
+            // 字宽和字间距绝对固定：不随内容/刷新变化，确保歌词位置稳定
+            // 每个字固定宽度=字号+字距，HStack间距=字距，总宽度=字数*(字号+2*字距)
+            let charWidth = fontSize + (compact ? 0 : 2) * sc
+            let fixedSpacing = (compact ? 0 : 2) * sc
+            HStack(spacing: fixedSpacing) {
                 ForEach(Array(tokens.enumerated()), id: \.element.id) { idx, tok in
                     KaraokeWord(
                         text: tok.text,
@@ -501,12 +506,13 @@ struct LyricsView: View {
                         stroke: stroke,
                         lineW: styleStore.lineWidth
                     )
-                    .frame(width: charWidth)   // 固定字宽，防止被压缩
-                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(width: charWidth)   // 固定字宽
+                    .fixedSize(horizontal: true, vertical: false)  // 单字固定，不被压缩
                 }
             }
             .font(.system(size: fontSize, weight: .black))   // 对齐网页 font-weight:900
-            .fixedSize(horizontal: true, vertical: false)     // 整行不压缩，超出部分溢出（长句换对边逻辑在dualSlot处理）
+            // 整行不使用fixedSize：HStack宽度=父视图maxWidth，对齐方式固定，确保位置不跳动
+            .frame(maxWidth: .infinity, alignment: multilineAlign == .leading ? .leading : .trailing)
             .multilineTextAlignment(multilineAlign)
             .lineLimit(1)                                      // 长句不换行，保持一行
             // 只留一层轻投影(清晰描边由 StrokeFillText 负责)：多层大半径高斯模糊在逐字高频刷新时很耗 GPU
@@ -517,7 +523,8 @@ struct LyricsView: View {
             strokedLine(line.plain, fill: fill, size: fontSize,
                         weight: (active || isDual) ? .black : .medium, active: active,
                         multilineAlign: multilineAlign)
-                .fixedSize(horizontal: true, vertical: false)  // 防止长句被压缩
+                .frame(maxWidth: .infinity, alignment: multilineAlign == .leading ? .leading : .trailing)
+                .lineLimit(1)
         }
     }
 
