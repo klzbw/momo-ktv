@@ -424,17 +424,18 @@ struct LyricsView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: showUpdatedTip)
-            // 检测歌词变化：首次加载不提示，后续刷新（重新生成）才显示"歌词已刷新"
-            .onChange(of: lyricsSignature) { _, newSig in
-                guard !newSig.isEmpty else { return }
-                if !firstLyricsLoad {
-                    showUpdatedTip = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                        showUpdatedTip = false
-                    }
+        }
+        // onChange 放在 GeometryReader 外部，避免内部重绘时反复注册
+        // 用@AppStorage持久化记录上一次签名，首次加载不提示，后续刷新才显示
+        .onChange(of: lyricsSignature) { _, newSig in
+            guard !newSig.isEmpty && newSig != "empty" else { return }
+            if !lastLyricsSig.isEmpty && newSig != lastLyricsSig {
+                showUpdatedTip = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                    showUpdatedTip = false
                 }
-                firstLyricsLoad = false
             }
+            lastLyricsSig = newSig
         }
     }
 
