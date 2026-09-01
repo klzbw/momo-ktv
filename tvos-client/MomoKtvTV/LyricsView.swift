@@ -17,8 +17,8 @@ struct LyricLine: Identifiable, Equatable {
     var end: Double
     let plain: String
     var tokens: [LyricToken]?
-    /// 稳定标识：基于开始时间和文本，用于歌词刷新后保持同一句的排位不变
-    var stableKey: String { "\(Int(start * 100))_\(plain)" }
+    /// 稳定标识：只用文本（不用开始时间），AI重新生成后时间微调不影响匹配，确保同一句排位不变
+    var stableKey: String { plain }
 }
 
 struct SongLyrics: Equatable {
@@ -158,7 +158,12 @@ final class LyricsLoader: ObservableObject {
             loading = false
             return
         }
-        task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+        // 超时保护：15秒，防止服务器AI生成歌词时无限等待导致TV端假死
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 20
+        let session = URLSession(configuration: config)
+        task = session.dataTask(with: url) { [weak self] data, response, error in
             guard let self else { return }
             // 竞态条件修复：如果这不是最新的请求，直接丢弃结果，不覆盖新歌词
             guard myGeneration == self.requestGeneration else {
@@ -169,6 +174,12 @@ final class LyricsLoader: ObservableObject {
             if let error = error as? URLError, error.code == .cancelled {
                 return
             }
+            // 超时错误：保持旧歌词继续播放，不替换为空
+            if let error = error as? URLError, error.code == .timedOut {
+                print("[LyricsLoader] 歌词加载超时，保持旧歌词")
+                DispatchQueue.main.async { self.loading = false }
+                return
+            }
             DispatchQueue.main.async { self.loading = false }
             guard let data,
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -177,7 +188,11 @@ final class LyricsLoader: ObservableObject {
             }
             let word = obj["word"] as? String
             let plain = obj["lyrics"] as? String
-            let parsed = SongLyrics.parse((word?.isEmpty == false) ? word : plain)
+            var parsed = SongLyrics.parse((word?.isEmpty == false) ? word : plain)
+            // 安全限制：逐字歌词行数过多时截断，避免主线程重建数百个KaraokeWord导致卡死
+            if parsed.lines.count > 180 {
+                parsed.lines = Array(parsed.lines.prefix(180))
+            }
             DispatchQueue.main.async {
                 // 再次检查版本号，确保主线程设置时还是最新请求
                 guard myGeneration == self.requestGeneration else { return }
