@@ -481,9 +481,7 @@ struct LyricsView: View {
     private var dualBody: some View {
         let ai = activeIndex
         let il = interlude
-        // 间奏预唱提示：TV端自己判断字词间隔，超过3秒的间奏才显示🎵🎵🎵
-        // 不依赖PC端worker生成预唱符号，纯前端时间判断
-        let showHint = il.isInterlude && il.wait > 3.0
+        // 间奏预唱倒计时：TV端自己判断字词间隔，音符数量随剩余时间递减(3→2→1→0)
         // dualFlip=false: 单左双右；dualFlip=true: 单右双左
         let topAlign: Alignment = styleStore.dualFlip ? .trailing : .leading
         let bottomAlign: Alignment = styleStore.dualFlip ? .leading : .trailing
@@ -491,21 +489,43 @@ struct LyricsView: View {
             Spacer(minLength: 0)
             if il.isInterlude {
                 // 间奏/前奏：当前行歌词淡出，不显示
-                // 上排：间奏>3秒显示🎵🎵🎵预唱提示（TV端自己判断），否则留空
-                if showHint {
-                    HStack(spacing: compact ? 6 : 14) {
-                        StrokeFillText(text: "🎵🎵🎵",
-                                       fill: hintPulse ? .white : highlight,
-                                       strokeColor: stroke,
-                                       w: styleStore.lineWidth)
-                            .font(.system(size: activeSize, weight: .black))
+                // 上排：预唱倒计时提示——剩余>3秒显示3个音符，每秒减一个(3→2→1→0)
+                // 歌手通过音符数量知道还有多久开唱；样式(颜色/描边/字号)与歌词控制完全一致
+                let hintCount: Int = {
+                    if il.wait > 3.0 { return 3 }
+                    if il.wait > 2.0 { return 2 }
+                    if il.wait > 1.0 { return 1 }
+                    return 0
+                }()
+                if hintCount > 0 {
+                    HStack(spacing: compact ? 8 : 18) {
+                        ForEach(0..<hintCount, id: \.self) { idx in
+                            Image(systemName: "music.note")
+                                .font(.system(size: activeSize * 0.85, weight: .black))
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [highlight, Color.white.opacity(0.9)],
+                                        startPoint: .top, endPoint: .bottom
+                                    )
+                                )
+                                .shadow(color: stroke.opacity(0.8), radius: styleStore.lineWidth * 0.4, x: 0, y: 2)
+                                .overlay(
+                                    Image(systemName: "music.note")
+                                        .font(.system(size: activeSize * 0.85, weight: .black))
+                                        .foregroundColor(.clear)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 4)
+                                                .stroke(stroke, lineWidth: max(1, styleStore.lineWidth * 0.3))
+                                                .padding(-2)
+                                        )
+                                )
+                                .opacity(hintPulse ? 0.6 : 1.0)
+                                .animation(.easeInOut(duration: 0.4).delay(Double(idx) * 0.1), value: hintPulse)
+                        }
                     }
-                    .opacity(hintPulse ? 0.5 : 1.0)
-                    // 移除 scaleEffect：间奏提示只呼吸不缩放，避免视觉跳动
                     .frame(maxWidth: .infinity, alignment: topAlign)
-                    // 移除 transition：间奏提示直接显示/消失
                     .onAppear {
-                        withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
+                        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
                             hintPulse = true
                         }
                     }
@@ -513,7 +533,7 @@ struct LyricsView: View {
                         hintPulse = false
                     }
                 } else {
-                    // 间奏较短：上排空位，当前行歌词已淡出
+                    // 倒计时结束(<=1秒)：上排空位，下一句歌词即将出现
                     Color.clear.frame(maxWidth: .infinity)
                 }
                 // 下排显示下一句预备歌词
