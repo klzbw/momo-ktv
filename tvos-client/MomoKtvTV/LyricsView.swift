@@ -360,27 +360,22 @@ struct LyricsView: View {
         }
     }
 
-    /// 间奏预唱提示文本：下一句歌词等待>1.5秒时显示 🎵🎵🎵，否则返回nil
-    @ViewBuilder
-    private func preludeHintText(align: Alignment) -> some View {
+    /// 间奏预唱提示文本：下一句歌词等待>1.5秒时返回 🎵🎵🎵 视图，否则返回 nil
+    private func preludeHintText(align: Alignment) -> AnyView? {
         let next = nextLyricIndex
-        if next >= 0 && next < lyrics.lines.count {
-            let wait = lyrics.lines[next].start - displayTime
-            if wait > 1.5 {
-                HStack(spacing: compact ? 6 : 12) {
-                    Text("🎵")
-                    Text("🎵")
-                    Text("🎵")
-                }
-                .font(.system(size: compact ? 22 : 44, weight: .regular))
-                .foregroundColor(.white.opacity(0.35))
-                .multilineTextAlignment(align == .leading ? .leading : .trailing)
-            } else {
-                EmptyView()
+        guard next >= 0 && next < lyrics.lines.count else { return nil }
+        let wait = lyrics.lines[next].start - displayTime
+        guard wait > 1.5 else { return nil }
+        return AnyView(
+            HStack(spacing: compact ? 6 : 12) {
+                Text("🎵")
+                Text("🎵")
+                Text("🎵")
             }
-        } else {
-            EmptyView()
-        }
+            .font(.system(size: compact ? 22 : 44, weight: .regular))
+            .foregroundColor(.white.opacity(0.35))
+            .multilineTextAlignment(align == .leading ? .leading : .trailing)
+        )
     }
 
     private var scrollBody: some View {
