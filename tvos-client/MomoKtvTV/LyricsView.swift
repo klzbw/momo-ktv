@@ -22,7 +22,7 @@ struct LyricLine: Identifiable, Equatable {
 }
 
 struct SongLyrics: Equatable {
-    let lines: [LyricLine]
+    var lines: [LyricLine]   // var：允许行数截断（防卡死）
     static let empty = SongLyrics(lines: [])
     var isEmpty: Bool { lines.isEmpty }
 
