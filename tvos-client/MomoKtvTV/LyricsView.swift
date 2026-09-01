@@ -158,12 +158,10 @@ final class LyricsLoader: ObservableObject {
             loading = false
             return
         }
-        // 超时保护：15秒，防止服务器AI生成歌词时无限等待导致TV端假死
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 20
-        let session = URLSession(configuration: config)
-        task = session.dataTask(with: url) { [weak self] data, response, error in
+        // 超时保护：用URLRequest设置15秒超时，防止服务器AI生成时无限等待
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.httpMethod = "GET"
+        task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
             // 竞态条件修复：如果这不是最新的请求，直接丢弃结果，不覆盖新歌词
             guard myGeneration == self.requestGeneration else {

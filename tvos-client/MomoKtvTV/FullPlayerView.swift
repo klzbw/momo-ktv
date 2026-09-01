@@ -54,7 +54,7 @@ struct FullPlayerView: View {
 
     @State private var pendingOffsetDelta: Double = 0    // 尚未固化到服务端的累计增量
 
-    @State private var lyricTime: Double = 0              // 歌词用的节流时间（60fps），与屏幕刷新率同步保证逐字羽化平滑
+    @State private var lyricTime: Double = 0              // 歌词用的节流时间（30fps），平衡逐字羽化流畅度与tvOS性能
 
     @State private var lyricTimer: Timer?
 
@@ -822,11 +822,11 @@ struct FullPlayerView: View {
 
         resetHideTimer()
 
-        // 歌词重绘节流：60fps 与屏幕刷新率同步，逐字羽化最平滑；KaraokeWord遮罩走GPU合成
+        // 歌词重绘节流：30fps 平衡流畅度与性能（60fps在tvOS逐字歌词下会闪退）
 
         lyricTimer?.invalidate()
 
-        lyricTimer = Timer.scheduledTimer(withTimeInterval: 1.0/60.0, repeats: true) { _ in
+        lyricTimer = Timer.scheduledTimer(withTimeInterval: 1.0/30.0, repeats: true) { _ in
 
             lyricTime = PlayerManager.shared.currentTime
 
