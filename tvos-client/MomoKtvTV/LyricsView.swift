@@ -143,6 +143,7 @@ final class LyricsLoader: ObservableObject {
 
     func load(server: String, songId: Int) {
         guard songId != currentSongId || !loaded else { return }
+        let wasAlreadyLoaded = loaded  // 记录之前是否已加载（用于判断是否是重新生成后的刷新）
         currentSongId = songId
         loaded = true
         loading = true
@@ -179,6 +180,13 @@ final class LyricsLoader: ObservableObject {
                 // 再次检查版本号，确保主线程设置时还是最新请求
                 guard myGeneration == self.requestGeneration else { return }
                 self.lyrics = parsed
+                // 非首次加载（重新生成后的刷新），显示"歌词已刷新"提示
+                if wasAlreadyLoaded {
+                    self.lyricsUpdated = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+                        self?.lyricsUpdated = false
+                    }
+                }
             }
         }
         task?.resume()
