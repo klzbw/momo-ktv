@@ -30,7 +30,7 @@ def fmt(t):
     return f'{m:02d}:{s:05.2f}'  # mm:ss.xx（LRC 百分秒）
 
 def build_enhanced_lrc(aligned):
-    """生成增强LRC，并在间奏/前奏(两句间隔>1.5秒)插入🎵🎵🎵预唱提示行"""
+    """生成增强LRC，并在间奏/前奏(两句间隔>3.0秒)插入🎵🎵🎵预唱提示行"""
     raw = []  # (start_time, lrc_line, end_time)
     for seg in aligned.get('segments', []):
         words = seg.get('words') or []
@@ -57,9 +57,9 @@ def build_enhanced_lrc(aligned):
     return insert_interlude_hints(raw)
 
 
-def insert_interlude_hints(raw, threshold=2.5, lead_time=2.5):
+def insert_interlude_hints(raw, threshold=3.0, lead_time=2.5):
     """在间奏/前奏插入🎵🎵🎵预唱提示行（专业KTV演唱体验优化）
-    threshold: 超过2.5秒的间奏才插入提示（正常换气0.5-1.5秒不需要提示）
+    threshold: 超过3.0秒的间奏才插入提示（正常换气0.5-2秒不需要提示）
     lead_time: 提示在下一句开始前2.5秒出现（选手看到提示马上准备唱，时机最佳）
     前奏超过5秒才提示，在开唱前3秒出现
     raw: [(start_time, lrc_line, end_time), ...] 已按时间排序
