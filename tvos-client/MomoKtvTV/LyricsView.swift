@@ -324,6 +324,8 @@ struct LyricsView: View {
     @ObservedObject private var styleStore = LyricsStyleStore.shared
     @AppStorage("momoLyricsMode") private var modeRaw: String = LyricsDisplayMode.dual.rawValue
     @State private var hintPulse = false  // 间奏提示呼吸脉冲动画状态
+    @State private var showUpdatedTip = false  // 歌词已更新提示（2.5秒后自动消失）
+    @State private var firstLyricsLoad = true  // 首次加载不显示提示，后续刷新才显示
 
     /// 校准后的时间（叠加用户调节的偏移）
     private var displayTime: Double { currentTime + timeOffset }
@@ -393,7 +395,7 @@ struct LyricsView: View {
             .animation(.easeOut(duration: 0.18), value: styleStore.posV)
             // 歌词已更新提示（右上角浮动提示，2.5秒后自动消失）
             .overlay(alignment: .topTrailing) {
-                if loader.lyricsUpdated {
+                if showUpdatedTip {
                     Text("歌词已刷新")
                         .font(.system(size: 28, weight: .bold))
                         .foregroundColor(.white)
@@ -409,7 +411,17 @@ struct LyricsView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
-            .animation(.easeInOut(duration: 0.3), value: loader.lyricsUpdated)
+            .animation(.easeInOut(duration: 0.3), value: showUpdatedTip)
+            // 检测歌词变化：首次加载不提示，后续刷新（重新生成）才显示"歌词已刷新"
+            .onChange(of: lyrics) { _, _ in
+                if !firstLyricsLoad {
+                    showUpdatedTip = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                        showUpdatedTip = false
+                    }
+                }
+                firstLyricsLoad = false
+            }
         }
     }
 
