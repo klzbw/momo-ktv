@@ -463,7 +463,7 @@ struct LyricsView: View {
             .font(.system(size: fontSize, weight: .black))   // 对齐网页 font-weight:900
             .tracking((compact ? 0 : 1) * sc)                 // 字距随字号同比放大，字号变大时相对间距保持一致
             .multilineTextAlignment(multilineAlign)
-            .lineLimit(1)                                      // 逐字歌词用HStack不会换行，保持一行避免混乱
+            .lineLimit(1)                                      // 长句不换行，保持一行；跨对边占满整行显示
             // 只留一层轻投影(清晰描边由 StrokeFillText 负责)：多层大半径高斯模糊在逐字高频刷新时很耗 GPU
             .shadow(color: .black.opacity(0.55), radius: 3, x: 0, y: 2)
         } else {
@@ -481,7 +481,7 @@ struct LyricsView: View {
             .font(.system(size: size, weight: weight))
             .tracking((!compact ? 1 : 0) * styleStore.fontScale)
             .multilineTextAlignment(multilineAlign)
-            .lineLimit(2)                    // 每排最多两行：长句超出部分换行到对应一侧，不显示...
+            .lineLimit(1)                    // 长句不换行，保持一行；跨对边占满整行显示
             .shadow(color: .black.opacity(0.55), radius: active ? 3 : 4, x: 0, y: 2)
     }
 
