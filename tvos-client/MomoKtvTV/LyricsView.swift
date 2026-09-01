@@ -344,11 +344,9 @@ struct LyricsView: View {
         GeometryReader { geo in
             Group {
                 if lyrics.isEmpty {
-                    // 歌词加载/更新中显示提示，reload清空旧歌词后不显示空白
-                    let isLoading = LyricsLoader.shared.loading
-                    Text(isLoading ? "♪ 歌词更新中… ♪" : "♪ 纯音乐 · 请欣赏 ♪")
+                    Text("♪ 纯音乐 · 请欣赏 ♪")
                         .font(.system(size: compact ? 16 : 34, weight: .semibold))
-                        .foregroundColor(.white.opacity(isLoading ? 0.8 : 0.55))
+                        .foregroundColor(.white.opacity(0.55))
                 } else if mode == .dual {
                     dualBody
                 } else {
