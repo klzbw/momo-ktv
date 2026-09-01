@@ -536,7 +536,6 @@ struct LyricsView: View {
     }
 
     @ViewBuilder
-    @ViewBuilder
         private func lineView(_ line: LyricLine, idx: Int, multilineAlign: TextAlignment = .center) -> some View {
         let active = idx == activeIndex
         let isDual = mode == .dual
@@ -564,10 +563,10 @@ struct LyricsView: View {
         
         // 计算跑马灯偏移
         let marqueeOffset: CGFloat
-        if needsMarquee && active && let tokens = allTokens {
+        if needsMarquee, active, let tokens = allTokens {
             var currentIdx = 0
-            for (i, tok) in tokens.enumerated() where displayTime >= tok.time {
-                currentIdx = i
+            for (i, tok) in tokens.enumerated() {
+                if displayTime >= tok.time { currentIdx = i }
             }
             let targetPos = min(maxCharsPerRow / 3, maxCharsPerRow - 1)
             let rawOffset = CGFloat(currentIdx - targetPos) * (charWidth + fixedSpacing)
