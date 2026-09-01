@@ -57,25 +57,29 @@ def build_enhanced_lrc(aligned):
     return insert_interlude_hints(raw)
 
 
-def insert_interlude_hints(raw, threshold=1.5):
-    """在间奏/前奏(两句间隔>threshold秒)插入🎵🎵🎵预唱提示行
+def insert_interlude_hints(raw, threshold=2.5, lead_time=2.5):
+    """在间奏/前奏插入🎵🎵🎵预唱提示行（专业KTV演唱体验优化）
+    threshold: 超过2.5秒的间奏才插入提示（正常换气0.5-1.5秒不需要提示）
+    lead_time: 提示在下一句开始前2.5秒出现（选手看到提示马上准备唱，时机最佳）
+    前奏超过5秒才提示，在开唱前3秒出现
     raw: [(start_time, lrc_line, end_time), ...] 已按时间排序
-    返回: 增强LRC文本
     """
     if not raw:
         return ''
     out = []
     for i, (t0, line, end_t) in enumerate(raw):
-        # 前奏：第一句之前>1.5秒
-        if i == 0 and t0 > threshold:
-            hint_t = t0 * 0.5  # 前奏中间
+        # 前奏：第一句之前超过5秒，在开唱前3秒出现提示
+        if i == 0 and t0 > 5.0:
+            hint_t = max(0.5, t0 - 3.0)
             out.append(f'[{fmt(hint_t)}]🎵🎵🎵')
-        # 间奏：上一句结束到这一句开始>1.5秒
+        # 间奏：上一句结束到这一句开始超过threshold秒
         elif i > 0:
             prev_end = raw[i - 1][2]
             gap = t0 - prev_end
             if gap > threshold:
-                hint_t = prev_end + gap * 0.4  # 间奏偏前，给用户反应时间
+                # 提示在下一句开始前lead_time秒出现；间奏较短时在中间出现
+                hint_t = t0 - min(lead_time, gap * 0.6)
+                hint_t = max(prev_end + 0.3, hint_t)  # 不紧跟上一句，避免混淆
                 out.append(f'[{fmt(hint_t)}]🎵🎵🎵')
         out.append(line)
     return '\n'.join(out) + '\n'
