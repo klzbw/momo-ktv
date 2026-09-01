@@ -17,8 +17,7 @@ struct LyricLine: Identifiable, Equatable {
     var end: Double
     let plain: String
     var tokens: [LyricToken]?
-    /// 稳定标识：只用文本（不用开始时间），AI重新生成后时间微调不影响匹配，确保同一句排位不变
-    var stableKey: String { plain }
+    // 稳定标识已改用 LyricsView.stableKey(for:at:in:) 辅助函数（文本+出现序号）
 }
 
 struct SongLyrics: Equatable {
@@ -444,15 +443,20 @@ struct LyricsView: View {
         }
         // onChange 放在 GeometryReader 外部，避免内部重绘时反复注册
         // 歌词变化时更新每句稳定排位缓存（不在body中改@State避免无限重绘）
+        // key=文本+出现序号，重复歌词（副歌）各自独立排位，刷新后同一句排位不变
         .onChange(of: lyrics) { _, newLyrics in
             var cache = lineSideCache
             var lastSide = -1
-            for line in newLyrics.lines {
-                if let s = cache[line.stableKey] {
+            var occurrenceCount: [String: Int] = [:]
+            for (i, line) in newLyrics.lines.enumerated() {
+                let occ = occurrenceCount[line.plain] ?? 0
+                occurrenceCount[line.plain] = occ + 1
+                let key = "\(line.plain)#\(occ)"
+                if let s = cache[key] {
                     lastSide = s
                 } else {
                     let newSide = (lastSide == 0) ? 1 : 0
-                    cache[line.stableKey] = newSide
+                    cache[key] = newSide
                     lastSide = newSide
                 }
             }
@@ -521,10 +525,15 @@ struct LyricsView: View {
                     Color.clear.frame(maxWidth: .infinity)
                 }
             } else if ai >= 0 && ai < lyrics.lines.count {
-                // 正常演唱：当前句永远在上排，预读句(下一句)永远在下排——位置绝对固定不跳排
+                // 正常演唱：单左双右布局，用稳定排位缓存决定上下排，刷新后同一句排位不变
+                let currentKey = stableKey(for: lyrics.lines[ai], at: ai, in: lyrics.lines)
+                let currentSide = lineSideCache[currentKey] ?? (ai % 2)
                 let nextIdx = (ai + 1 < lyrics.lines.count) ? ai + 1 : -1
-                dualSlot(ai, topAlign)           // 上排：当前演唱句
-                dualSlot(nextIdx, bottomAlign)    // 下排：下一句预备歌词
+                // 上排显示 side=0(单/奇数句)，下排显示 side=1(双/偶数句)；当前句和预读句分居两排
+                let topIdx = (nextIdx >= 0) ? ((currentSide == 0) ? ai : nextIdx) : ai
+                let bottomIdx = (nextIdx >= 0) ? ((currentSide == 0) ? nextIdx : ai) : -1
+                dualSlot(topIdx, topAlign)
+                dualSlot(bottomIdx, bottomAlign)
             } else {
                 // ai=-1边界（前奏/间奏即将结束的过渡窗口）：显示空位，防止数组越界闪退
                 Color.clear.frame(maxWidth: .infinity)
@@ -546,6 +555,17 @@ struct LyricsView: View {
         } else {
             Color.clear.frame(maxWidth: .infinity)
         }
+    }
+
+    /// 稳定排位key：文本 + 该文本在歌词中的出现序号。
+    /// 解决重复歌词（副歌）plain相同导致共享缓存条目的问题——
+    /// 副歌第一次出现key="文本#0"，第二次出现key="文本#1"，排位各自独立，刷新后不变。
+    private func stableKey(for line: LyricLine, at index: Int, in lines: [LyricLine]) -> String {
+        var occurrence = 0
+        for i in 0..<index {
+            if lines[i].plain == line.plain { occurrence += 1 }
+        }
+        return "\(line.plain)#\(occurrence)"
     }
 
     private var scrollBody: some View {
