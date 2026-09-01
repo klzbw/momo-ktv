@@ -326,7 +326,8 @@ struct LyricsView: View {
     @AppStorage("momoLyricsMode") private var modeRaw: String = LyricsDisplayMode.dual.rawValue
     @State private var hintPulse = false  // 间奏提示呼吸脉冲动画状态
     @State private var showUpdatedTip = false  // 歌词已更新提示（2.5秒后自动消失）
-    @State private var firstLyricsLoad = true  // 首次加载不显示提示，后续刷新才显示
+    // 用@AppStorage持久化记录上一次歌词签名，避免视图重建时@State被重置导致提示失效
+    @AppStorage("momoLastLyricsSig") private var lastLyricsSig: String = ""
 
     /// 校准后的时间（叠加用户调节的偏移）
     private var displayTime: Double { currentTime + timeOffset }
@@ -377,9 +378,14 @@ struct LyricsView: View {
         return s
     }
 
-    /// 歌词签名（行数+首句文本），用于 onChange 检测歌词变化
+    /// 歌词签名（行数+首句+末句+总字符数），用于检测歌词内容变化
+    /// 比只用行数+首句更可靠，避免重新生成后签名相同不触发
     private var lyricsSignature: String {
-        "\(lyrics.lines.count)_\(lyrics.lines.first?.plain ?? "")"
+        guard !lyrics.lines.isEmpty else { return "empty" }
+        let first = lyrics.lines.first?.plain ?? ""
+        let last = lyrics.lines.last?.plain ?? ""
+        let totalChars = lyrics.lines.reduce(0) { $0 + $1.plain.count }
+        return "\(lyrics.lines.count)_\(first)_\(last)_\(totalChars)"
     }
 
     var body: some View {
