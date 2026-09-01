@@ -331,7 +331,19 @@ struct LyricsView: View {
             s.isInterlude = lyrics.lines.first.map { t < $0.start - 0.3 } ?? false
         } else if ai < lyrics.lines.count {
             let cur = lyrics.lines[ai]
-            if t > cur.end + 0.3 {
+            // 逐字歌词：用实际最后一个字结束时间判断间奏，不被lineEnd拉长
+            let actualEnd: Double
+            if let tokens = cur.tokens, !tokens.isEmpty {
+                if tokens.count >= 2 {
+                    let avgDur = (tokens[tokens.count - 1].time - tokens[0].time) / Double(tokens.count - 1)
+                    actualEnd = tokens[tokens.count - 1].time + max(0.15, min(avgDur, 0.8))
+                } else {
+                    actualEnd = tokens[0].time + 0.3
+                }
+            } else {
+                actualEnd = cur.end
+            }
+            if t > actualEnd + 0.2 {
                 s.isInterlude = (ai + 1 >= lyrics.lines.count) || (t < lyrics.lines[ai + 1].start)
             }
         }
@@ -364,10 +376,10 @@ struct LyricsView: View {
     private var dualBody: some View {
         let ai = activeIndex
         let il = interlude
-        // 间奏预唱提示只在非逐字歌词时显示：逐字歌词时间轴精确，每句紧跟演唱，不需要预唱提示
-        // 且阈值提高到3秒，避免正常前奏/换气频繁显示🎵🎵🎵覆盖歌词
-        let curLineHasTokens = (ai >= 0 && ai < lyrics.lines.count) ? (lyrics.lines[ai].tokens != nil) : false
-        let showHint = il.isInterlude && il.wait > 3.0 && !curLineHasTokens
+        // 间奏预唱提示：逐字歌词和非逐字歌词都显示
+        // 逐字歌词最后一个字羽化正常结束后，间奏用🎵🎵🎵占位
+        // 阈值1.5秒：超过1.5秒的间奏才显示预唱提示
+        let showHint = il.isInterlude && il.wait > 1.5
         // dualFlip=false: 单左双右；dualFlip=true: 单右双左
         let topAlign: Alignment = styleStore.dualFlip ? .trailing : .leading
         let bottomAlign: Alignment = styleStore.dualFlip ? .leading : .trailing
@@ -500,7 +512,14 @@ struct LyricsView: View {
         if index + 1 < tokens.count {
             end = tokens[index + 1].time
         } else {
-            end = lineEnd < .greatestFiniteMagnitude ? lineEnd : tok.time + 1.5
+            // 最后一个字：用前面字的平均持续时间，不被lineEnd拉长
+            // 保证所有字的羽化速度一致，间奏由预唱符号占位
+            if tokens.count >= 2 {
+                let avgDur = (tokens[tokens.count - 1].time - tokens[0].time) / Double(tokens.count - 1)
+                end = tok.time + max(0.15, min(avgDur, 0.8))
+            } else {
+                end = tok.time + 0.3
+            }
         }
         let dur = max(0.05, end - tok.time)
         return min(max((displayTime - tok.time) / dur, 0), 1)
