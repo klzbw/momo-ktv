@@ -513,15 +513,9 @@ struct LyricsView: View {
                 let currentSide = lineSideCache[currentKey] ?? 0
                 let nextIdx = (ai + 1 < lyrics.lines.count) ? ai + 1 : -1
                 // 上排显示 side=0 的句，下排显示 side=1 的句；当前句和预读句分居两排
-                let topIdx: Int
-                let bottomIdx: Int
-                if nextIdx >= 0 {
-                    topIdx = (currentSide == 0) ? ai : nextIdx
-                    bottomIdx = (currentSide == 0) ? nextIdx : ai
-                } else {
-                    topIdx = ai
-                    bottomIdx = -1
-                }
+                // 用三元运算符避免在@ViewBuilder中使用if/else赋值
+                let topIdx = (nextIdx >= 0) ? ((currentSide == 0) ? ai : nextIdx) : ai
+                let bottomIdx = (nextIdx >= 0) ? ((currentSide == 0) ? nextIdx : ai) : -1
                 dualSlot(topIdx, topAlign)
                 dualSlot(bottomIdx, bottomAlign)
             }
