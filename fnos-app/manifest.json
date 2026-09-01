@@ -1,0 +1,39 @@
+{
+  "name": "墨墨爱K歌",
+  "name_en": "MomoKtv",
+  "version": "1.0.0",
+  "description": "家庭KTV点歌系统，支持手机扫码点歌、无线麦克风、AI逐字歌词、原唱/伴奏切换，多端同步（Apple TV/安卓TV/网页）",
+  "description_en": "Home KTV system with mobile QR ordering, wireless mic, AI word-by-word lyrics, vocal/accompaniment switching, multi-device sync (Apple TV/Android TV/Web)",
+  "author": "klzbw",
+  "icon": "icon.png",
+  "icon_256": "icon_256.png",
+  "category": "娱乐",
+  "category_en": "Entertainment",
+  "port": 8083,
+  "container_port": 8080,
+  "image": "ghcr.io/klzbw/momo-ktv:latest",
+  "platforms": ["linux/amd64"],
+  "volumes": [
+    {
+      "host": "/vol1/@appshare/momo-ktv/data",
+      "container": "/data",
+      "description": "数据库/封面/配置"
+    },
+    {
+      "host": "/vol1/@appshare/momo-ktv/mv",
+      "container": "/mv",
+      "description": "MV曲库文件"
+    }
+  ],
+  "environment": [
+    {"name": "TZ", "value": "Asia/Shanghai", "description": "时区"},
+    {"name": "PORT", "value": "8080", "description": "容器内端口"},
+    {"name": "HLS_CACHE_MAX_AGE_DAYS", "value": "3", "description": "HLS缓存保留天数"}
+  ],
+  "devices": [
+    {"host": "/dev/dri", "container": "/dev/dri", "description": "硬件加速（可选）"}
+  ],
+  "restart": "unless-stopped",
+  "homepage": "https://github.com/klzbw/momo-ktv",
+  "support_url": "https://github.com/klzbw/momo-ktv/issues"
+}

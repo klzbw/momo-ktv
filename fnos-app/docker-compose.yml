@@ -1,0 +1,20 @@
+version: "3.8"
+services:
+  momo-ktv:
+    image: ghcr.io/klzbw/momo-ktv:latest
+    container_name: momo-ktv
+    restart: unless-stopped
+    ports:
+      - "8083:8080"
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=8080
+      - DATA_DIR=/data
+      - MV_DIR=/mv
+      - VAAPI_DEVICE=/dev/dri/renderD128
+      - HLS_CACHE_MAX_AGE_DAYS=3
+    volumes:
+      - /vol1/@appshare/momo-ktv/data:/data
+      - /vol1/@appshare/momo-ktv/mv:/mv
+    devices:
+      - /dev/dri:/dev/dri
