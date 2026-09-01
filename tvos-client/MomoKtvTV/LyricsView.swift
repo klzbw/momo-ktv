@@ -290,12 +290,36 @@ struct LyricsView: View {
 
     private var activeIndex: Int { lyrics.lineIndex(at: displayTime) }
 
-    /// 下一句歌词的索引（用于间奏时的预唱提示）：找到第一句 start > 当前时间的歌词
+    /// 下一句歌词的索引：找到第一句 start > 当前时间的歌词
     private var nextLyricIndex: Int {
         for (i, line) in lyrics.lines.enumerated() {
             if line.start > displayTime { return i }
         }
         return -1
+    }
+
+    /// 是否处于间奏/前奏（没有正在唱的歌词）
+    private var isInterlude: Bool {
+        let ai = activeIndex
+        if ai < 0 {
+            // 前奏：第一句还没开始
+            return lyrics.lines.first.map { displayTime < $0.start - 0.3 } ?? false
+        }
+        let cur = lyrics.lines[ai]
+        // 当前句已结束（超过end 0.3秒容错）
+        guard displayTime > cur.end + 0.3 else { return false }
+        // 还有下一句且下一句没开始
+        if ai + 1 < lyrics.lines.count {
+            return displayTime < lyrics.lines[ai + 1].start
+        }
+        return false
+    }
+
+    /// 间奏等待秒数（距离下一句还有多久）
+    private var interludeWait: Double {
+        let next = nextLyricIndex
+        guard next >= 0 else { return 0 }
+        return max(0, lyrics.lines[next].start - displayTime)
     }
 
     var body: some View {
@@ -323,25 +347,41 @@ struct LyricsView: View {
     // 在自己固定位置原地变亮，唱完后另一排羽化换为再下一句——全程不跨排跳动，位置/大小不变。
     private var dualBody: some View {
         let ai = activeIndex
-        let topIdx = ai % 2 == 0 ? ai + 1 : ai       // 上排恒为奇数句(单)
-        let bottomIdx = ai % 2 == 0 ? ai : ai + 1    // 下排恒为偶数句(双)
+        let showHint = isInterlude && interludeWait > 1.5
         // dualFlip=false: 单左双右；dualFlip=true: 单右双左
         let topAlign: Alignment = styleStore.dualFlip ? .trailing : .leading
         let bottomAlign: Alignment = styleStore.dualFlip ? .leading : .trailing
         return VStack(spacing: compact ? 10 : 22) {
             Spacer(minLength: 0)
-            // 奇数句(单)：默认靠左，翻转后靠右；长句占满整行宽度延伸到另一侧
-            dualSlot(topIdx, topAlign)
-            // 偶数句(双)：默认靠右，翻转后靠左；长句占满整行宽度延伸到另一侧
-            dualSlot(bottomIdx, bottomAlign)
-            // posV=0时字幕位于屏幕最底部，posV增大时通过offset向上移动
+            if showHint {
+                // 间奏/前奏：上排显示 🎵🎵🎵 预唱提示，帮助用户把握节奏点
+                HStack(spacing: compact ? 6 : 14) {
+                    Text("🎵"); Text("🎵"); Text("🎵")
+                }
+                .font(.system(size: compact ? 24 : 48, weight: .regular))
+                .foregroundColor(.white.opacity(0.45))
+                .frame(maxWidth: .infinity, alignment: topAlign)
+                .transition(.opacity)
+                // 下排显示下一句预备歌词
+                let next = nextLyricIndex
+                if next >= 0 {
+                    dualSlot(next, bottomAlign)
+                } else {
+                    Color.clear.frame(maxWidth: .infinity)
+                }
+            } else {
+                let topIdx = ai % 2 == 0 ? ai + 1 : ai       // 上排恒为奇数句(单)
+                let bottomIdx = ai % 2 == 0 ? ai : ai + 1    // 下排恒为偶数句(双)
+                dualSlot(topIdx, topAlign)
+                dualSlot(bottomIdx, bottomAlign)
+            }
         }
         .padding(.horizontal, compact ? 16 : 60)
         .padding(.bottom, compact ? 8 : 16)
         .animation(.easeInOut(duration: 0.22), value: ai)
     }
 
-    /// 双排里的一个固定排：越界时如果在间奏且等待>1.5秒，显示 🎵🎵🎵 预唱提示；内容变化仅羽化(opacity)不位移
+    /// 双排里的一个固定排：越界留等高空位；内容变化仅羽化(opacity)不位移；满宽并按 align 左右对齐
     @ViewBuilder
     private func dualSlot(_ idx: Int, _ align: Alignment) -> some View {
         if idx >= 0 && idx < lyrics.lines.count {
@@ -350,32 +390,9 @@ struct LyricsView: View {
                 .id(idx)
                 .transition(.opacity)
                 .frame(maxWidth: .infinity, alignment: align)
-        } else if let hint = preludeHintText(align: align) {
-            // 间奏预唱提示：🎵🎵🎵 帮助用户把握节奏点，知道即将开始唱歌
-            hint
-                .transition(.opacity)
-                .frame(maxWidth: .infinity, alignment: align)
         } else {
             Color.clear.frame(maxWidth: .infinity)
         }
-    }
-
-    /// 间奏预唱提示文本：下一句歌词等待>1.5秒时返回 🎵🎵🎵 视图，否则返回 nil
-    private func preludeHintText(align: Alignment) -> AnyView? {
-        let next = nextLyricIndex
-        guard next >= 0 && next < lyrics.lines.count else { return nil }
-        let wait = lyrics.lines[next].start - displayTime
-        guard wait > 1.5 else { return nil }
-        return AnyView(
-            HStack(spacing: compact ? 6 : 12) {
-                Text("🎵")
-                Text("🎵")
-                Text("🎵")
-            }
-            .font(.system(size: compact ? 22 : 44, weight: .regular))
-            .foregroundColor(.white.opacity(0.35))
-            .multilineTextAlignment(align == .leading ? .leading : .trailing)
-        )
     }
 
     private var scrollBody: some View {
