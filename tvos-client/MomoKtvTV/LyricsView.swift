@@ -481,10 +481,9 @@ struct LyricsView: View {
     private var dualBody: some View {
         let ai = activeIndex
         let il = interlude
-        // 间奏预唱提示：逐字歌词和非逐字歌词都显示
-        // 逐字歌词最后一个字羽化正常结束后，间奏用🎵🎵🎵占位
-        // 阈值1.5秒：超过1.5秒的间奏才显示预唱提示
-        let showHint = il.isInterlude && il.wait > 1.5
+        // 间奏预唱提示：TV端自己判断字词间隔，超过3秒的间奏才显示🎵🎵🎵
+        // 不依赖PC端worker生成预唱符号，纯前端时间判断
+        let showHint = il.isInterlude && il.wait > 3.0
         // dualFlip=false: 单左双右；dualFlip=true: 单右双左
         let topAlign: Alignment = styleStore.dualFlip ? .trailing : .leading
         let bottomAlign: Alignment = styleStore.dualFlip ? .leading : .trailing
@@ -492,7 +491,7 @@ struct LyricsView: View {
             Spacer(minLength: 0)
             if il.isInterlude {
                 // 间奏/前奏：当前行歌词淡出，不显示
-                // 上排：间奏>1.5秒显示🎵🎵🎵预唱提示，否则留空（当前行已淡出）
+                // 上排：间奏>3秒显示🎵🎵🎵预唱提示（TV端自己判断），否则留空
                 if showHint {
                     HStack(spacing: compact ? 6 : 14) {
                         StrokeFillText(text: "🎵🎵🎵",
