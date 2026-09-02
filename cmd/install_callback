@@ -16,5 +16,24 @@ if [ -f "$COMPOSE_FILE" ] && [ ! -e /dev/dri/renderD128 ]; then
     sed -i '/# VAAPI_DEVICES_BEGIN/,/# VAAPI_DEVICES_END/d' "$COMPOSE_FILE"
 fi
 
+# ===== AI Worker 模式：读取安装向导的两个开关，归一为 external/cpu/cuda =====
+# wizard_ai_local=true 表示在飞牛本机跑 AI；wizard_ai_nvidia=true 表示本机有 N 卡。
+AI_MODE="external"
+if [ "${wizard_ai_local}" = "true" ]; then
+    if [ "${wizard_ai_nvidia}" = "true" ]; then
+        AI_MODE="cuda"
+    else
+        AI_MODE="cpu"
+    fi
+fi
+# 若用户声称有 N 卡但宿主机根本看不到 nvidia 设备，自动退回 CPU，避免起不来
+if [ "$AI_MODE" = "cuda" ] && [ ! -e /dev/nvidia0 ] && ! command -v nvidia-smi >/dev/null 2>&1; then
+    echo "[install] 未检测到 NVIDIA 设备，AI 模式由 cuda 回退为 cpu"
+    AI_MODE="cpu"
+fi
+save_ai_mode "$AI_MODE"
+configure_ai_worker "$COMPOSE_FILE" "$AI_MODE"
+echo "[install] AI worker 模式: $AI_MODE（external=外置PC显卡 / cpu=本机CPU / cuda=本机N卡）"
+
 cd "${TRIM_APPDEST}/docker" && docker compose pull
 exit 0

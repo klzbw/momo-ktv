@@ -1,4 +1,5 @@
 #!/bin/bash
+source "$(dirname "$0")/lib_settings.sh"
 
 COMPOSE_FILE="${TRIM_APPDEST}/docker/docker-compose.yml"
 
@@ -8,6 +9,11 @@ COMPOSE_FILE="${TRIM_APPDEST}/docker/docker-compose.yml"
 if [ -f "$COMPOSE_FILE" ] && [ ! -e /dev/dri/renderD128 ]; then
     sed -i '/# VAAPI_DEVICES_BEGIN/,/# VAAPI_DEVICES_END/d' "$COMPOSE_FILE"
 fi
+
+# 升级沿用安装时选择的 AI 模式（持久化在数据目录 ai_mode.conf），重新裁剪新模板
+AI_MODE="$(load_ai_mode)"
+configure_ai_worker "$COMPOSE_FILE" "$AI_MODE"
+echo "[upgrade] AI worker 模式: $AI_MODE"
 
 # 新版本代码/镜像内容可能已变化，和安装流程一样需要重新构建镜像并让容器用
 # 新的 compose 配置重建。

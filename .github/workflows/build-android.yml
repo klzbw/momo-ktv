@@ -59,6 +59,25 @@ jobs:
         run: |
           gradle assembleRelease --no-daemon --stacktrace
 
+      - name: Sign APK (self-signed for sideload)
+        run: |
+          # assembleRelease 产出的是未签名包，安卓真机/电视无法直接安装。
+          # 这里用固定口令的自签名证书做 v1+v2 签名（家庭侧载场景足够，不需要上架）。
+          keytool -genkeypair -v -keystore /tmp/momo.keystore -alias momo \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass momo123 -keypass momo123 \
+            -dname "CN=MomoKTV, OU=Home, O=MomoKTV, L=City, ST=City, C=CN"
+          BT=$(ls -d ${ANDROID_HOME}/build-tools/* | sort -V | tail -1)
+          echo "Using build-tools: $BT"
+          UNSIGNED=$(find app/build/outputs/apk/release -name "*-unsigned.apk" | head -1)
+          "$BT/zipalign" -p -f 4 "$UNSIGNED" /tmp/aligned.apk
+          OUT=app/build/outputs/apk/release/MomoKTV-AndroidTV.apk
+          "$BT/apksigner" sign --ks /tmp/momo.keystore --ks-pass pass:momo123 --key-pass pass:momo123 \
+            --v1-signing-enabled true --v2-signing-enabled true --out "$OUT" /tmp/aligned.apk
+          "$BT/apksigner" verify --verbose "$OUT"
+          # 只保留签名后的成品，避免把未签名包也传上去
+          rm -f "$UNSIGNED"
+
       - name: List build outputs
         run: |
           find app/build/outputs -name "*.apk" -ls

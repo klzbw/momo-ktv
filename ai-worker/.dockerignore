@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+worker_config.json
+*.bat
+gui.py
+env_check.py
+setup_windows.ps1
+models/
+.git/

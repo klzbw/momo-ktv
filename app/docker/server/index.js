@@ -316,6 +316,9 @@ app.use('/admin', express.static(path.join(__dirname, '../web/admin')));
 app.use('/mic',   express.static(path.join(__dirname, '../web/mic')));
 // 氛围音效(掌声/干杯/喝彩/倒彩)静态目录：网页 <audio> 与 tvOS AVAudioPlayer 都从这里取
 app.use('/sounds',express.static(path.join(__dirname, '../web/sounds')));
+// 客户端安装包内置下载（Apple TV/iPad 的 IPA、安卓电视的 APK）。飞牛一键包装完后，
+// 电视/手机/平板访问 http://NAS_IP:8083/clients 即可直接下载，不用再去 GitHub 找。
+app.use('/clients', express.static(path.join(__dirname, '../web/clients')));
 app.use('/cover', express.static('/data/covers'));
 // 用户上传的动态背景图片（网页遥控端上传、纯音频歌"我的图片"背景模式随机轮播）
 app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 'backgrounds')));
@@ -854,18 +857,21 @@ app.post('/api/separate/enqueue-missing', (req, res) => {
   res.json({ ok: true, candidates: rows.length, ...r });
 });
 
-// GET /api/separate/jobs/claim?worker=pc-51&type=separate —— worker 领取任务（无任务返回 204）
+// GET /api/separate/jobs/claim?worker=pc-51&type=separate&capability=gpu —— worker 领取任务（无任务返回 204）
 app.get('/api/separate/jobs/claim', (req, res) => {
   const worker = String(req.query.worker || 'anonymous').slice(0, 64);
   const type = String(req.query.type || 'separate');
-  const task = sepMod.claimNext(db, { worker, type });
+  const capability = String(req.query.capability || 'cpu') === 'gpu' ? 'gpu' : 'cpu';
+  const task = sepMod.claimNext(db, { worker, type, capability });
   if (!task) return res.status(204).end();
   task.sourceUrl = `http://${req.get('host')}${task.sourceUrl}`; // 补全为 worker 可直接下载的绝对地址
   res.json(task);
 });
 
-// POST /api/separate/jobs/:id/progress  {progress:0-100}
+// POST /api/separate/jobs/:id/progress  {progress:0-100, worker, capability}
 app.post('/api/separate/jobs/:id/progress', (req, res) => {
+  // 进度上报同时充当"处理长任务期间"的心跳，避免 worker 正在跑一首长歌时被误判离线
+  if (req.body && req.body.worker) sepMod.touchWorker(req.body.worker, req.body.capability);
   sepMod.reportProgress(db, parseInt(req.params.id, 10), req.body && req.body.progress);
   res.json({ ok: true });
 });

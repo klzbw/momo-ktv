@@ -1,0 +1,38 @@
+# 墨墨爱K歌 · AI Worker（NVIDIA CUDA 版）
+# 供"飞牛/主机上插了 N 卡"的场景使用，分离/识别速度快（4070 级别一首十几秒）。
+# 前提：宿主机已装 NVIDIA 驱动 + nvidia-container-toolkit，compose 里把 GPU 放行
+# （飞牛安装向导选"本地N卡模式"会自动带上 deploy.resources 配置）。
+# 镜像较大（约 6~8GB，含 CUDA/cuDNN 运行时与 GPU 版 PyTorch），属正常现象。
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+# Ubuntu 22.04 自带 python3.10（WhisperX 兼容性最好的版本）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-dev \
+        ffmpeg curl ca-certificates build-essential \
+    && ln -sf python3 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m pip install --no-cache-dir --upgrade pip
+
+WORKDIR /app
+
+# GPU 版 PyTorch（CUDA 12.4 构建），再装业务依赖
+COPY requirements.txt ./
+RUN python -m pip install --no-cache-dir torch torchaudio \
+        --index-url https://download.pytorch.org/whl/cu124 \
+    && python -m pip install --no-cache-dir \
+        -i https://pypi.tuna.tsinghua.edu.cn/simple \
+        -r requirements.txt
+
+COPY worker.py sep_once.py align_once.py lyric_matcher.py ./
+
+ENV HF_HOME=/models/hf \
+    TORCH_HOME=/models/torch \
+    HF_ENDPOINT=https://hf-mirror.com \
+    MOMO_DEVICE=cuda
+# GPU 是否可用由 entrypoint 自动探测后设置 MOMO_CAPABILITY=gpu
+VOLUME ["/models"]
+
+COPY docker-entrypoint.sh /usr/local/bin/entrypoint
+RUN chmod +x /usr/local/bin/entrypoint
+ENTRYPOINT ["entrypoint"]

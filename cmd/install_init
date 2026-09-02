@@ -7,6 +7,8 @@ source "$(dirname "$0")/lib_settings.sh"
 # mkdir 一次，避免共享目录尚未创建完成时 docker compose 首次启动挂载报错。
 mkdir -p "$(default_data_path)"
 mkdir -p "$(default_mv_path)"
+# AI 模型缓存目录（本机 AI 模式时挂给 ai-worker，约 3GB 模型只下载一次）
+mkdir -p "$(default_data_path)/ai-models"
 
 # 端口（固定 8083）和管理员密码（首次打开「曲库管理」时自行设置，保存在
 # /data 下的 SQLite 里）都不再需要安装向导收集，也就不需要在这里做任何

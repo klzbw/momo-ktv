@@ -36,13 +36,18 @@ def log(*a):
     print(time.strftime('%H:%M:%S'), *a, flush=True)
 
 class MomoWorker:
-    def __init__(self, server, worker, mode, python_exe):
+    def __init__(self, server, worker, mode, python_exe, capability=None):
         self.server = server.rstrip('/')
         self.worker = worker
         self.mode = mode
         self.py = python_exe or sys.executable
         self.here = os.path.dirname(os.path.abspath(__file__))
         self.s = requests.Session()
+        # 算力等级：'gpu'(N卡CUDA) 或 'cpu'。由 entrypoint 探测后通过 MOMO_CAPABILITY
+        # 传入；服务端据此做"有GPU优先给GPU、GPU空闲超时才让CPU兜底"的双模调度。
+        self.capability = capability or os.environ.get('MOMO_CAPABILITY', 'cpu')
+        if self.capability not in ('gpu', 'cpu'):
+            self.capability = 'cpu'
         # 两种任务的领取顺序；both 时每轮优先 separate，没有再 align
         self.kinds = ['separate', 'align'] if mode == 'both' else [mode]
 
@@ -50,7 +55,8 @@ class MomoWorker:
     def claim(self, kind):
         try:
             r = self.s.get(f'{self.server}/api/separate/jobs/claim',
-                           params={'worker': self.worker, 'type': kind}, timeout=20)
+                           params={'worker': self.worker, 'type': kind,
+                                   'capability': self.capability}, timeout=20)
             if r.status_code == 204:
                 return None
             r.raise_for_status()
@@ -61,7 +67,9 @@ class MomoWorker:
 
     def progress(self, job_id, p):
         try:
-            self.s.post(f'{self.server}/api/separate/jobs/{job_id}/progress', json={'progress': p}, timeout=15)
+            self.s.post(f'{self.server}/api/separate/jobs/{job_id}/progress',
+                        json={'progress': p, 'worker': self.worker,
+                              'capability': self.capability}, timeout=15)
         except Exception:
             pass
 
@@ -181,7 +189,7 @@ class MomoWorker:
         return ''
 
     def loop(self):
-        log(f'Worker 启动 server={self.server} name={self.worker} mode={self.mode}')
+        log(f'Worker 启动 server={self.server} name={self.worker} mode={self.mode} capability={self.capability}')
         idle_round = 0
         while True:
             got = False
@@ -219,6 +227,8 @@ def main():
     ap.add_argument('--worker', default=cfg.get('worker_name', os.environ.get('MOMO_WORKER', 'pc-gpu')))
     ap.add_argument('--mode', default=cfg.get('mode', 'both'), choices=['separate', 'align', 'both'])
     ap.add_argument('--python', default=cfg.get('python_exe', ''), help='子进程用的 python（默认与本进程一致）')
+    ap.add_argument('--capability', default=cfg.get('capability', os.environ.get('MOMO_CAPABILITY', '')),
+                    choices=['', 'gpu', 'cpu'], help='算力等级 gpu/cpu，容器 entrypoint 会自动探测')
     a = ap.parse_args()
 
     # 把配置传给子进程（通过环境变量）
@@ -234,7 +244,7 @@ def main():
     log(f'服务器: {a.server}')
     log(f'Worker: {a.worker}')
     log(f'模式: {a.mode}')
-    MomoWorker(a.server, a.worker, a.mode, a.python).loop()
+    MomoWorker(a.server, a.worker, a.mode, a.python, a.capability or None).loop()
 
 if __name__ == '__main__':
     main()

@@ -36,3 +36,56 @@ services:
     devices:
       - /dev/dri:/dev/dri
     # VAAPI_DEVICES_END
+
+  # =====================================================================
+  # AI Worker（人声分离 Demucs + 逐字歌词 WhisperX）。默认带 profiles，
+  # `docker compose up` 不会启动它；安装向导选了"在本机运行 AI"后，安装
+  # 脚本会删掉对应段的 profiles 行把它启用、并删掉另一段。三选一：
+  #   外置 PC 显卡（推荐）：两段都删除，AI 跑在独立 Windows 工作站；
+  #   本机 CPU：保留 ai-worker-cpu（慢，任何机器可跑）；
+  #   本机 N 卡：保留 ai-worker-cuda（快，需宿主机 nvidia-container-toolkit）。
+  # 任务调度由服务端 separate.js 完成：有 GPU worker 在线时优先给 GPU，
+  # 任务排队超过 45 秒没被 GPU 领走才让 CPU 兜底。
+  # =====================================================================
+  # AI_CPU_BEGIN
+  ai-worker-cpu:
+    profiles: ["ai-cpu"]
+    image: ghcr.io/klzbw/momo-ai-worker:ai-cpu
+    container_name: momo-ai-worker-cpu
+    restart: unless-stopped
+    depends_on: [momo-ktv]
+    environment:
+      - TZ=Asia/Shanghai
+      # 同 compose 内网，直接用主服务容器名 + 容器内端口 8080
+      - MOMO_SERVER=http://momo-ktv:8080
+      - MOMO_WORKER=fnos-ai-cpu
+      - MOMO_MODE=both
+      - MOMO_CAPABILITY=cpu
+    volumes:
+      # AI 模型（约 3GB，首次运行自动下载）持久化，只下一次
+      - /vol1/@appshare/momo-ktv/data/ai-models:/models
+  # AI_CPU_END
+  # AI_CUDA_BEGIN
+  ai-worker-cuda:
+    profiles: ["ai-cuda"]
+    image: ghcr.io/klzbw/momo-ai-worker:ai-cuda
+    container_name: momo-ai-worker-cuda
+    restart: unless-stopped
+    depends_on: [momo-ktv]
+    environment:
+      - TZ=Asia/Shanghai
+      - MOMO_SERVER=http://momo-ktv:8080
+      - MOMO_WORKER=fnos-ai-cuda
+      - MOMO_MODE=both
+      # 不写死 MOMO_CAPABILITY，由 entrypoint 探测到 N 卡后自动置 gpu
+    volumes:
+      - /vol1/@appshare/momo-ktv/data/ai-models:/models
+    # 放行宿主机 NVIDIA GPU；前提是飞牛宿主机已装 nvidia-container-toolkit
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  # AI_CUDA_END

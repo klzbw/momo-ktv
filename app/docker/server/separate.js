@@ -26,6 +26,38 @@ function absUnderData(rel) { return rel ? path.join(DATA_DIR, rel) : null; }
 
 const TYPES = ['separate', 'align'];
 
+// ==================== 双模调度：GPU 优先、CPU 兜底 ====================
+// 一个服务端可同时挂多个 worker：飞牛本地 N 卡容器、外置 PC 显卡工作站、飞牛本地
+// CPU 容器。worker 每 3 秒轮询一次 claim/progress，据此维护"在线表"（纯内存，重启
+// 即重建）。调度策略：只要有 GPU worker 在线，新任务先给 GPU（快）；任务排队超过
+// GPU_RESERVE_MS 还没被 GPU 领走（说明没有空闲 GPU），CPU worker 才兜底，避免任务
+// 被慢 CPU 抢占、也不会在 GPU 离线时永远卡住。
+const WORKERS = new Map();                       // name -> {capability, lastSeen(ms)}
+const ONLINE_TTL_MS = 30 * 1000;                 // 30 秒没心跳判离线（长任务靠 progress 续命）
+const GPU_RESERVE_MS = 45 * 1000;                // CPU 兜底前给 GPU 的预留窗口
+
+function touchWorker(worker, capability) {
+  const name = String(worker || 'anonymous').slice(0, 64);
+  WORKERS.set(name, { capability: capability === 'gpu' ? 'gpu' : 'cpu', lastSeen: Date.now() });
+}
+function onlineWorkers() {
+  const now = Date.now(), list = [];
+  for (const [name, w] of WORKERS) {
+    if (now - w.lastSeen <= ONLINE_TTL_MS) list.push({ name, capability: w.capability, idleSec: Math.round((now - w.lastSeen) / 1000) });
+  }
+  return list;
+}
+function hasOnlineGpu(exceptWorker) {
+  return onlineWorkers().some(w => w.capability === 'gpu' && w.name !== exceptWorker);
+}
+// SQLite CURRENT_TIMESTAMP 是 UTC 文本 'YYYY-MM-DD HH:MM:SS'，转成已等待毫秒
+function jobAgeMs(createdAt) {
+  if (!createdAt) return 0;
+  const t = Date.parse(String(createdAt).replace(' ', 'T') + 'Z');
+  return Number.isFinite(t) ? Date.now() - t : 0;
+}
+
+
 // 判断一份歌词能否作为"逐字纠错参考"：去掉时间标签后要有足够比例的中文/字母数字。
 // 乱码（GBK 被按 Latin1 误解码，形如 æµ·åº）CJK 占比极低，直接判不可用，避免反而带偏纠错。
 function isUsableRefLyrics(lrc) {
@@ -74,7 +106,16 @@ function enqueue(db, { songIds = [], type = 'separate', force = false } = {}) {
 }
 
 // worker 领取一个任务（事务 + 条件更新，多 worker 并发也不会领到同一个）
-function claimNext(db, { worker = 'anonymous', type = 'separate' } = {}) {
+function claimNext(db, { worker = 'anonymous', type = 'separate', capability = 'cpu' } = {}) {
+  touchWorker(worker, capability);
+  // CPU worker 来领任务时：若有别的 GPU worker 在线、且队头任务仍在 GPU 预留窗口内，
+  // 本轮先让 CPU 空转（返回 null -> 路由回 204），把任务留给更快的 GPU。
+  if (capability !== 'gpu') {
+    const head = db.prepare(
+      "SELECT created_at FROM separation_jobs WHERE status='pending' AND job_type=? ORDER BY id LIMIT 1"
+    ).get(type);
+    if (head && hasOnlineGpu(worker) && jobAgeMs(head.created_at) < GPU_RESERVE_MS) return null;
+  }
   const tx = db.transaction(() => {
     const job = db.prepare("SELECT * FROM separation_jobs WHERE status='pending' AND job_type=? ORDER BY id LIMIT 1").get(type);
     if (!job) return null;
@@ -158,10 +199,11 @@ function stats(db) {
     aligned: db.prepare("SELECT COUNT(*) c FROM songs WHERE align_status='done'").get().c,
     audioTotal: db.prepare("SELECT COUNT(*) c FROM songs WHERE media_type IN ('audio','cue')").get().c,
   };
-  return { separate: byStatus('separate'), align: byStatus('align'), songs };
+  return { separate: byStatus('separate'), align: byStatus('align'), songs, workers: onlineWorkers() };
 }
 
 module.exports = {
   SEP_DIR, ensureSongDir, relVocal, relAccomp, absUnderData, TYPES,
   enqueue, claimNext, reportProgress, complete, fail, resetJob, reclaimStale, stats,
+  touchWorker, onlineWorkers,
 };
