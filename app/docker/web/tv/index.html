@@ -950,8 +950,11 @@ html[data-layout="mobile"] #lyrics-layer .ll-near{font-size:32px}
 /* ============ 纯音频歌实时动态背景画布：铺满播放框，在视频层之上、歌词层之下 ============ */
 #bg-stage{position:absolute;inset:0;z-index:2;width:100%;height:100%;display:none;background:#0a0a1c}
 /* 全屏时 bg-stage/lyrics-layer 被 JS 移到 body 下，用 .fs-layer 固定铺满，z-index 在全屏 video(50) 之上 */
-#bg-stage.fs-layer{position:fixed;top:0;right:0;bottom:0;left:0;width:100%;height:100%;z-index:51}
-#lyrics-layer.fs-layer{position:fixed;top:14%;bottom:18%;left:0;right:0;z-index:52}
+/* 修复：纯音频歌曲时 bg-stage 是动态背景 canvas，全屏后 z-index:51 与点击层 #fs-tap 相同
+   且 DOM 顺序更靠后会盖住点击层；它本身是纯展示层，必须 pointer-events:none 让触摸/点击
+   穿透到 #fs-tap，否则播放纯音频(动态背景/图片背景)时怎么点都呼不出控制条。 */
+#bg-stage.fs-layer{position:fixed;top:0;right:0;bottom:0;left:0;width:100%;height:100%;z-index:51;pointer-events:none}
+#lyrics-layer.fs-layer{position:fixed;top:14%;bottom:18%;left:0;right:0;z-index:52;pointer-events:none}
 #bg-mode-btn.fs-layer,#lyrics-mode-btn.fs-layer{z-index:53}
 #bg-mode-btn{position:absolute;top:14px;left:14px;z-index:6;pointer-events:auto;cursor:pointer;
   background:rgba(10,10,30,.55);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:999px;
@@ -5120,6 +5123,54 @@ s3Layout();
 applyS3Layout();
 document.addEventListener('DOMContentLoaded',()=>{s3Layout();applyS3Layout();});
 fetch('/api/queue').then(r=>r.json()).then(d=>{queueData=d;renderAll();});
+// ============ 触屏(iOS iPad/iPhone、触控屏)：三指呼出控制条 + 长按歌词1秒拖动位置 ============
+(function(){
+  // (1) 三指手势：全屏播放时三指同时触摸，强制呼出控制条，capture+preventDefault 绕过任何层级遮挡与系统多指手势
+  document.addEventListener('touchstart',function(e){
+    if((typeof isFS!=='undefined'&&isFS)&&e.touches.length===3){
+      e.preventDefault();
+      try{ if(typeof showOverlay==='function')showOverlay(); }catch(_){}
+    }
+  },{passive:false,capture:true});
+  // (2) 单指按住屏幕 1 秒进入"歌词拖动"，上下滑动调整歌词上下位置(--lyrics-pos=bottom%，0~60)
+  const root=document.documentElement;
+  let pressTimer=null,dragActive=false,startY=0,startPos=0;
+  function curPos(){const v=parseFloat(getComputedStyle(root).getPropertyValue('--lyrics-pos'));return isNaN(v)?18:v;}
+  function setPos(v){v=Math.max(0,Math.min(60,Math.round(v)));root.style.setProperty('--lyrics-pos',String(v));return v;}
+  function ovShown(){const ov=document.getElementById('fs-ov');return !!(ov&&ov.classList.contains('show'));}
+  document.addEventListener('touchstart',function(e){
+    if(typeof isFS==='undefined'||!isFS||e.touches.length!==1)return;
+    if(ovShown())return;                 // 控制条显示时让给按钮操作，不抢手势
+    dragActive=false;startY=e.touches[0].clientY;startPos=curPos();
+    clearTimeout(pressTimer);
+    pressTimer=setTimeout(function(){
+      dragActive=true;
+      try{if(typeof showToast==='function')showToast('按住并上下拖动，调整歌词位置');}catch(_){}
+    },1000);
+  },{passive:true});
+  document.addEventListener('touchmove',function(e){
+    if(typeof isFS==='undefined'||!isFS)return;
+    if(!dragActive){
+      if(e.touches.length===1&&Math.abs(e.touches[0].clientY-startY)>10)clearTimeout(pressTimer);
+      return;
+    }
+    if(e.touches.length!==1)return;
+    e.preventDefault();
+    const h=window.innerHeight||1,dy=startY-e.touches[0].clientY; // 上滑 dy>0 => bottom% 增大 => 歌词上移
+    setPos(startPos+dy/h*60);
+  },{passive:false});
+  function endDrag(){
+    clearTimeout(pressTimer);
+    if(dragActive){
+      dragActive=false;const v=setPos(curPos());
+      try{localStorage.setItem('momoLyricsPos',String(v));}catch(_){}
+      try{if(window.sendWS)sendWS({type:'lyrics_style',posV:v});}catch(_){} // 同步其它播放端
+      try{if(typeof showToast==='function')showToast('歌词位置已保存');}catch(_){}
+    }
+  }
+  document.addEventListener('touchend',endDrag,{passive:true});
+  document.addEventListener('touchcancel',endDrag,{passive:true});
+})();
 </script>
 </body>
 </html>

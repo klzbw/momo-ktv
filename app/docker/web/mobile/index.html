@@ -31,6 +31,14 @@ header{
 .ctrl-row.main-row .ctrl-btn{min-width:0;max-width:none;flex:1 1 0;padding:9px 2px}
 .ctrl-row.main-row .ci svg{width:19px;height:19px}
 .ctrl-row.main-row .cl{font-size:10.5px;white-space:nowrap}
+/* 常驻快捷行：把"背景效果切换"和"歌词上下位置"从下方设置区上移到主控按钮旁，切任何 tab 都可见 */
+.main-quick{display:flex;align-items:center;gap:8px;margin-top:8px}
+.main-quick .mq-bg{flex:0 0 auto;border:none;border-radius:12px;padding:9px 14px;font-size:12.5px;font-weight:700;white-space:nowrap;color:#fff;background:linear-gradient(135deg,#8e3cff,#5b2ee0);cursor:pointer}
+.main-quick .mq-bg:active{filter:brightness(1.15)}
+.main-quick .mq-pos{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.06);border-radius:12px;padding:7px 12px}
+.main-quick .mq-pos .mq-lab{font-size:12.5px;color:var(--text);white-space:nowrap;font-weight:600}
+.main-quick .mq-pos input[type=range]{flex:1 1 auto;min-width:0;margin:0}
+.main-quick .mq-pos .mq-val{font-size:11px;opacity:.8;min-width:22px;text-align:right}
 /* Tab bar */
 .tabs{display:flex;margin-top:10px;gap:4px}
 .tab{
@@ -315,6 +323,16 @@ header{
     </div>
   </div>
 
+  <!-- 常驻快捷行：背景效果切换 + 歌词上下位置（原在下方"动态背景/歌词样式"区，上移到主控按钮旁） -->
+  <div class="main-quick">
+    <button class="mq-bg" type="button" onclick="sendCtrl('bg_next')">✦ 背景效果</button>
+    <div class="mq-pos">
+      <span class="mq-lab">歌词位置</span>
+      <input type="range" id="lyrics-pos" min="0" max="60" step="1" value="0" oninput="sendLyricsStyle()">
+      <span class="mq-val" id="lyrics-pos-val">0</span>
+    </div>
+  </div>
+
   <!-- 常驻搜索框：不再收在"点歌"tab 里，切到"队列"/"遥控"页面也一直显示，
        可以随时加歌不用先切回"点歌"tab -->
   <div class="search-box">
@@ -538,12 +556,11 @@ header{
     </div>
   </div>
 
-  <!-- 动态背景：切换大屏背景效果 + 上传多张图片做随机背景（纯音频歌曲时显示） -->
+  <!-- 动态背景：上传多张图片做随机背景（纯音频歌曲时显示）；"✦切换效果"已上移到顶部常驻快捷行 -->
   <div class="ctrl-section">
-    <div class="ctrl-title">🖼 动态背景（纯音频歌曲）</div>
+    <div class="ctrl-title">🖼 我的背景图片（纯音频歌曲）</div>
     <div class="ctrl-row">
-      <div class="ctrl-btn purple" onclick="sendCtrl('bg_next')"><span class="cl">切换效果 ▶</span></div>
-      <div class="ctrl-btn cyan"><label class="bg-upload-lb"><span class="cl">＋上传图片</span><input type="file" id="bg-file-input" accept="image/*" multiple hidden onchange="uploadBgImages(this)"/></label></div>
+      <div class="ctrl-btn cyan" style="flex:1"><label class="bg-upload-lb"><span class="cl">＋上传图片做随机背景</span><input type="file" id="bg-file-input" accept="image/*" multiple hidden onchange="uploadBgImages(this)"/></label></div>
     </div>
     <div id="bg-grid" class="bg-grid"></div>
   </div>
@@ -572,12 +589,8 @@ header{
         <input type="range" id="lyrics-scale" min="0.7" max="3" step="0.05" value="1" oninput="sendLyricsStyle()" style="width:100%;margin:0">
         <span id="lyrics-scale-val" style="text-align:right;font-size:12px;opacity:0.8">100%</span>
       </div>
-      <div class="ctrl-btn" style="flex:1;padding:8px 8px;display:flex;flex-direction:column;align-items:stretch;gap:4px">
-        <span class="cl" style="white-space:nowrap;font-size:13px">位置</span>
-        <input type="range" id="lyrics-pos" min="0" max="60" step="1" value="0" oninput="sendLyricsStyle()" style="width:100%;margin:0">
-        <span id="lyrics-pos-val" style="text-align:right;font-size:12px;opacity:0.8">0</span>
-      </div>
     </div>
+    <div style="font-size:11px;opacity:.6;margin-top:6px">歌词上下位置已上移到顶部主控按钮旁的「歌词位置」滑块</div>
   </div>
 
   <!-- 歌词快慢校准：字比声音快/慢时逐档 0.2s 调整，自动固化到歌词 -->
