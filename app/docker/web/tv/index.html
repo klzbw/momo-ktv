@@ -2223,6 +2223,13 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
     </div>
   </div></div>
 </div>
+<!-- DUAL 双轨连续人声滑块：仅分离完成的纯音频歌、且浏览器支持时由 VoiceManager 显示；其余歌曲隐藏，继续用旧的原/伴唱五档按钮 -->
+<div id="vocal-dual-bar" class="vocal-dual" style="display:none;position:fixed;left:50%;bottom:124px;transform:translateX(-50%);z-index:70;align-items:center;gap:12px;background:rgba(10,10,28,.72);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:9px 20px;color:#fff;font-size:15px;box-shadow:0 6px 24px rgba(0,0,0,.35);">
+  <span style="opacity:.82;white-space:nowrap">伴奏</span>
+  <input class="vocal-range" type="range" min="0" max="100" value="100" aria-label="人声音量" style="width:230px;height:26px;accent-color:#7fd0ff;cursor:pointer;">
+  <span style="opacity:.82;white-space:nowrap">原唱</span>
+  <span class="vd-pct" style="width:48px;text-align:right;opacity:.85;font-variant-numeric:tabular-nums;white-space:nowrap">100%</span>
+</div>
 <div id="toast"></div>
 <div id="fx-layer"></div>
 <script>
@@ -2316,12 +2323,21 @@ window.addEventListener('resize',repositionS3Qr);
 // 恢复 currentTime。
 // ═══════════════════════════════════════════════
 const VoiceManager = (() => {
-  const MODE = { UNKNOWN:'unknown', TRACKS:'tracks', STEREO:'stereo', MONO:'mono', NATIVE:'native' };
+  const MODE = { UNKNOWN:'unknown', TRACKS:'tracks', STEREO:'stereo', MONO:'mono', NATIVE:'native', DUAL:'dual' };
   let mode = MODE.UNKNOWN;
   let _isOriginal = true;
   let _trackCount = 1;    // 服务端 audio_tracks 字段（声道型 MV 用）
   let _loadedTrack = 0;   // 当前 hls.js 已选的音轨号，避免重复设置
   let _trackIndex = 0;    // 当前演唱档位：AI分离歌为五档 0原唱/1=75%/2=半消/3=25%/4=伴奏
+  // ── DUAL 双轨连续滑块状态 ───────────────────────────────────────────
+  // 分离完成的纯音频歌：hls.js 只负责出"动态背景画面"(其音轨静音)，另外用两个
+  // <audio> 分别直出 vocals/accompaniment，经独立 AudioContext 的两个 GainNode
+  // 混合——伴奏增益恒定、人声增益由滑块 0..1 连续控制(setTargetAtTime 斜坡防爆音)，
+  // 得到无跳档、无重载的丝滑消音。以 video(背景)currentTime 为主时钟 rAF 对齐两条
+  // 子音频的播放/暂停/寻址。任何不支持/出错都 dualStop() 回退到旧五档 HLS，零影响。
+  let dualCtx=null, dualVocalEl=null, dualAccEl=null, dualVocalSrc=null, dualAccSrc=null;
+  let dualVocalGain=null, dualAccGain=null, dualRaf=0, dualActive=false, dualSongId=null;
+  let dualLevel=1, dualAnalyser=null, dualFreq=null, dualBroken=false;
   // 原生HLS(无MSE的iPad iOS12/tvOS)：没有 hls.js、JS 无法切 EXT-X-MEDIA 音轨，
   // 改由服务端 master?voice=N 只下发选定档，前端换源并断点续播来实现原唱/伴奏切换。
   let _nativeTracks = 1, _nativeNames = null, _nativeSongId = null, _switchingNative = false;
@@ -2385,8 +2401,97 @@ const VoiceManager = (() => {
     } catch(e) { console.warn('[VoiceManager] Web Audio init:', e); }
   }
 
+  // ─────────────────── DUAL：分离双轨 + 连续人声滑块 ───────────────────
+  let _dualReqId = 0;
+  function dualSupported(){ return !!(window.AudioContext||window.webkitAudioContext); }
+  // 同步页面里所有滑块控件（主页/全屏可能各有一份）
+  function syncDualUI(){
+    document.querySelectorAll('.vocal-dual').forEach(w=>{ w.style.display = dualActive ? 'flex' : 'none'; });
+    const val=Math.round(dualLevel*100);
+    document.querySelectorAll('input.vocal-range').forEach(r=>{ if(Math.round(+r.value)!==val) r.value=val; });
+    document.querySelectorAll('.vd-pct').forEach(p=>{ p.textContent=val+'%'; });
+  }
+  function dualDestroyAudio(){
+    if(dualRaf){ cancelAnimationFrame(dualRaf); dualRaf=0; }
+    [dualVocalSrc,dualAccSrc,dualVocalGain,dualAccGain].forEach(n=>{ try{ n&&n.disconnect(); }catch(e){} });
+    [dualVocalEl,dualAccEl].forEach(el=>{ try{ el&&el.pause(); el&&el.removeAttribute('src'); el&&el.load&&el.load(); }catch(e){} });
+    if(dualCtx){ try{ dualCtx.close(); }catch(e){} }
+    dualCtx=null; dualVocalEl=dualAccEl=null; dualVocalSrc=dualAccSrc=null;
+    dualVocalGain=dualAccGain=null; dualAnalyser=null; dualFreq=null;
+  }
+  // 退出 DUAL；fallback=true 时重新走旧五档/声道判定，保证始终有声音
+  function dualStop(fallback){
+    const was=dualActive;
+    dualActive=false; dualSongId=null;
+    dualDestroyAudio();
+    try{ video.muted=false; }catch(e){}
+    if(mode===MODE.DUAL) mode=MODE.UNKNOWN;
+    if(was){ analyser=null; freqData=null; }   // 频谱探针交还，spectrum 有伪律动兜底
+    syncDualUI();
+    if(was&&fallback){ try{ mode=detect(video); apply(video); }catch(e){} }
+  }
+  // 主时钟同步循环：以背景 video 的时间轴为准，让两条子音频在播放/暂停/寻址上严格跟随
+  function dualLoop(){
+    if(!dualActive) return;
+    dualRaf=requestAnimationFrame(dualLoop);
+    const v=video; if(!v||!dualVocalEl||!dualAccEl) return;
+    const master=isFinite(v.currentTime)?v.currentTime:0;
+    const follow=(el)=>{
+      if(!el) return;
+      if(v.paused||v.ended){ if(!el.paused){ try{el.pause();}catch(e){} } return; }
+      if(el.readyState>=2){
+        if(el.paused){ const p=el.play(); if(p&&p.catch)p.catch(()=>{}); }
+        if(isFinite(el.currentTime)&&Math.abs(el.currentTime-master)>0.35){ try{el.currentTime=master;}catch(e){} }
+      }else{
+        try{ if(isFinite(el.currentTime)&&Math.abs(el.currentTime-master)>0.35) el.currentTime=master; }catch(e){}
+      }
+    };
+    follow(dualVocalEl); follow(dualAccEl);
+  }
+  function dualStart(info,v){
+    if(!info||!info.dual||!dualSupported()) return false;
+    dualStop(false);
+    try{
+      const AC=window.AudioContext||window.webkitAudioContext;
+      dualCtx=new AC();
+      const mk=(url)=>{
+        const el=new Audio(); el.preload='auto'; el.crossOrigin='anonymous'; el.src=BASE+url;
+        el.addEventListener('error',()=>{ if(!dualBroken){ dualBroken=true; console.warn('[VoiceManager] DUAL 子音频解码失败，回退五档 HLS'); dualStop(true); } },{once:true});
+        const src=dualCtx.createMediaElementSource(el);
+        const g=dualCtx.createGain(); g.gain.value=1;
+        src.connect(g); g.connect(dualCtx.destination);
+        return {el,src,g};
+      };
+      const voc=mk(info.vocalUrl), acc=mk(info.accompUrl);
+      dualVocalEl=voc.el; dualVocalSrc=voc.src; dualVocalGain=voc.g;
+      dualAccEl=acc.el; dualAccSrc=acc.src; dualAccGain=acc.g;
+      voc.g.gain.value=dualLevel;
+      // 频谱探针挂到伴奏总线，继续驱动动态背景随音乐律动
+      try{ dualAnalyser=dualCtx.createAnalyser(); dualAnalyser.fftSize=256; dualAnalyser.smoothingTimeConstant=0.78;
+        dualFreq=new Uint8Array(dualAnalyser.frequencyBinCount); acc.src.connect(dualAnalyser); }catch(e){ dualAnalyser=null; }
+      analyser=dualAnalyser; freqData=dualFreq;
+      dualActive=true; dualSongId=info.songId; dualBroken=false; mode=MODE.DUAL;
+      v.muted=true;  // DUAL 下不 initWA(video)，video 走普通通路，muted 才能真正关掉其自带音轨
+      if(dualCtx.state==='suspended') dualCtx.resume();
+      // 起播定位到主时钟当前位置
+      const t=isFinite(v.currentTime)?v.currentTime:0;
+      [voc.el,acc.el].forEach(el=>{ try{el.currentTime=t;}catch(e){} });
+      dualLoop(); syncDualUI();
+      console.log('[VoiceManager] DUAL 双轨连续滑块已启用 song='+info.songId);
+      return true;
+    }catch(e){ console.warn('[VoiceManager] DUAL 启动失败，回退:',e); dualStop(true); return false; }
+  }
+  // 连续设置人声音量 0(纯伴奏)..1(原唱)，0.04s 指数斜坡避免咔哒爆音
+  function setVocalLevel(x){
+    dualLevel=Math.max(0,Math.min(1,+x));
+    if(dualVocalGain&&dualCtx){ try{ dualVocalGain.gain.setTargetAtTime(dualLevel,dualCtx.currentTime,0.04); }catch(e){ dualVocalGain.gain.value=dualLevel; } }
+    _isOriginal=dualLevel>0.5;
+    syncDualUI();
+  }
+
   /** 检测当前 video 的类型 */
   function detect(v) {
+    if (dualActive) return MODE.DUAL; // DUAL 由异步探测启用，优先级最高，不允许被其它判定覆盖
     // 原生HLS：设备不支持 MSE（iPad iOS12/tvOS 等），根本没有 hls.js，多档只能换源切
     const mseOk = !!(window.Hls && window.Hls.isSupported && window.Hls.isSupported());
     if (!mseOk && _nativeTracks >= 2) return MODE.NATIVE;
@@ -2444,6 +2549,7 @@ const VoiceManager = (() => {
 
   /** 统一应用当前状态 */
   function apply(v) {
+    if (mode === MODE.DUAL) return; // 双轨连续滑块：人声增益由 setVocalLevel 实时控制，无需切档
     if (mode === MODE.UNKNOWN) mode = detect(v);
     if (mode === MODE.TRACKS)  { applyTracks(v); return; }
     if (mode === MODE.NATIVE)  { applyNative(v); return; }
@@ -2481,6 +2587,7 @@ const VoiceManager = (() => {
     /** 每次新歌加载（loadedmetadata 后）调用；trackCount 来自服务端歌曲元数据 */
     onLoad(v, trackCount) {
       if (_switchingNative) return; // 原生换源切档自身触发的 loadedmetadata：保持当前档位，勿重置
+      if (dualActive) return; // DUAL 双轨模式下不做旧的档位重置/重判，避免覆盖
       _trackCount = trackCount || 1;
       _loadedTrack = 0; // 新歌不带 track 参数时，默认拿到的是第0条(原唱)
       _trackIndex = 0;
@@ -2528,9 +2635,30 @@ const VoiceManager = (() => {
       }
     },
     /** 首次用户交互时调用，激活 Web Audio */
-    wake(v) { initWA(v); },
+    wake(v) { if(dualActive){ if(dualCtx&&dualCtx.state==='suspended')dualCtx.resume(); return; } initWA(v); },
+    /** DUAL：新歌加载时探测能否走双轨连续滑块（异步；不支持/失败自动回退旧五档） */
+    prepareDual(songId){
+      dualBroken=false; dualLevel=1; _dualReqId++;
+      const rid=_dualReqId;
+      if(!dualSupported()||songId==null) return;
+      fetch(`${BASE}/api/songs/${songId}/sep-info`,{credentials:'include'})
+        .then(r=>r.ok?r.json():null)
+        .then(j=>{ if(rid!==_dualReqId) return; if(j&&j.dual&&!dualBroken) dualStart({songId:songId,vocalUrl:j.vocalUrl,accompUrl:j.accompUrl,dual:true},video); })
+        .catch(()=>{});
+    },
+    /** DUAL：换歌/停止时清理双轨并恢复背景音轨出声 */
+    dualReset(){ _dualReqId++; if(dualActive) dualStop(false); try{video.muted=false;}catch(e){} },
+    /** DUAL：连续设置人声音量 0(纯伴奏)..1(原唱)，滑块拖动时实时调用 */
+    setVocal(v,x){ setVocalLevel(x); },
+    get dualActive(){ return dualActive; },
+    get vocalLevel(){ return dualLevel; },
     /** 直接选到指定档位（0原唱…最后一档纯伴奏） */
     setTrackIndex(v, i) {
+      if (mode === MODE.DUAL) { // 旧五档按钮位置线性映射到人声增益：0档=原唱(1)…末档=纯伴奏(0)
+        const total = Math.max(2, realTrackCount());
+        const lv = 1 - Math.max(0, Math.min(i, total - 1)) / (total - 1);
+        setVocalLevel(lv); return this.trackLabel;
+      }
       if (mode === MODE.STEREO) { // 声道型只有两态
         _trackIndex = i <= 0 ? 0 : 1;
       } else {
@@ -2543,6 +2671,7 @@ const VoiceManager = (() => {
     },
     /** 在当前歌曲全部档位间循环（五档/三档/双档自适应）；声道型在两态间切换 */
     cycle(v) {
+      if (mode === MODE.DUAL) { setVocalLevel(dualLevel > 0.5 ? 0 : 1); return this.trackLabel; }
       if (mode === MODE.STEREO) {
         _trackIndex = _trackIndex === 0 ? 1 : 0;
       } else {
@@ -2569,6 +2698,7 @@ const VoiceManager = (() => {
     get trackIndex() { return _trackIndex; },
     /** 当前档位中文名 */
     get trackLabel() {
+      if (mode === MODE.DUAL) return dualLevel>=1?'原唱':(dualLevel<=0?'伴奏':'人声'+Math.round(dualLevel*100)+'%');
       if (mode === MODE.NATIVE && _nativeNames && _nativeNames[_trackIndex]) return _nativeNames[_trackIndex];
       const n = (mode === MODE.STEREO) ? 2 : realTrackCount();
       return labelForIndex(_trackIndex, n);
@@ -2600,6 +2730,16 @@ const VoiceManager = (() => {
 
 // 首次用户交互激活 Web Audio（必须，浏览器安全策略）
 document.addEventListener('click', () => VoiceManager.wake(video), { once: false, passive: true });
+// DUAL 人声滑块：input 事件实时连续调节（不是松手才触发的 change），多个滑块互相同步
+document.addEventListener('pointerdown',(e)=>{ if(e.target&&e.target.classList&&e.target.classList.contains('vocal-range')){ try{VoiceManager.wake(video);}catch(x){} } },{passive:true});
+document.addEventListener('input',(e)=>{
+  if(e.target&&e.target.classList&&e.target.classList.contains('vocal-range')){
+    const x=Math.max(0,Math.min(100,+e.target.value))/100;
+    VoiceManager.setVocal(video,x);
+    document.querySelectorAll('input.vocal-range').forEach(r=>{ if(r!==e.target)r.value=e.target.value; });
+    document.querySelectorAll('.vd-pct').forEach(p=>p.textContent=Math.round(x*100)+'%');
+  }
+},{passive:true});
 // 新歌加载后重新检测，trackCount 由服务端 ffprobe 探测得出，见 renderAll() 里 curSong 的赋值
 video.addEventListener('loadedmetadata', () => VoiceManager.onLoad(video, curSong && curSong.audio_tracks));
 // ═══════════ 逐字歌词：解析普通/增强(enhanced)LRC，三行窗口、当前行逐字卡拉OK填色 ═══════════
@@ -3025,7 +3165,9 @@ function loadSong(v,songId,needsDownload){
   document.getElementById('video-loading').classList.add('show');
   startCacheProgressPoll(needsDownload?songId:null);
   destroyHls();
+  try{ VoiceManager.dualReset(); }catch(e){} // 清掉上一首的双轨、恢复背景音轨出声
   const url=`${BASE}/hls/${songId}/master.m3u8`;
+  try{ VoiceManager.prepareDual(songId); }catch(e){} // 异步探测：分离完成的纯音频歌走连续滑块
   const fallbackToRaw=()=>{
     destroyHls();
     v.src=`${BASE}/stream/${songId}`;
@@ -3272,9 +3414,9 @@ function renderAll(){
       // 下来的、之前 curSong 里还留着旧的媒体资源，这里顺手清掉，避免残留
       // 的 HLS/video 对象继续占用资源。
       document.getElementById('now-idle').style.display='flex';video.style.display='none';
-      if(curSong){curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();video.removeAttribute('src');video.load();document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();}
+      if(curSong){curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();try{VoiceManager.dualReset();}catch(e){}video.removeAttribute('src');video.load();document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();}
     }
-  }else{document.getElementById('now-idle').style.display='flex';video.style.display='none';document.getElementById('now-info').classList.remove('show');document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();hideToast();curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();video.removeAttribute('src');video.load();
+  }else{document.getElementById('now-idle').style.display='flex';video.style.display='none';document.getElementById('now-info').classList.remove('show');document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();hideToast();curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();try{VoiceManager.dualReset();}catch(e){}video.removeAttribute('src');video.load();
     if(!queueData.length)singSessionStart=null; // 队列彻底清空，视为这一场欢唱结束，下次开唱重新计时
     curSongStartTime=null;clearTimeout(fsBannerTimer); // 没歌在播，全屏"每首歌2分钟后展示一次"的计时器也一并作废
     hideSongIntro();

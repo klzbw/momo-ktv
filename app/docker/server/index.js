@@ -931,6 +931,88 @@ app.get('/api/separate/jobs', (req, res) => {
   res.json(rows);
 });
 
+// ==================== 分离双轨直出（网页端连续人声滑块 DUAL 模式）====================
+// 旧方案：hlsgen 把人声按 0/75/50/25/0 预混成 5 条 AAC 离散音轨，前端只能跳档切换、
+// 且每次切换要重新拉分片，做不到丝滑连续消音。新方案：分离出的 vocals / accompaniment
+// 两条原始分轨直接以支持 Range(206) 的静态文件下发，网页端用两个 <audio> + WebAudio
+// GainNode 连续调节人声音量，伴奏恒定，从而得到无跳档、无重载的丝滑滑块。存储层以后
+// 一步到 FLAC，这里按"优先 .flac、回退 .wav"自动适配，存量 wav 与未来 flac 都能播。
+
+// 解析某首歌某条分轨在磁盘上的真实文件（flac 优先、wav 兜底），不存在返回 null
+function resolveSepTrackFile(song, kind) {
+  if (!song) return null;
+  const rel = kind === 'vocal' ? song.vocal_path : song.accomp_path;
+  if (!rel) return null;
+  const base = String(rel).replace(/\.(wav|flac)$/i, '');
+  const candidates = [base + '.flac', base + '.wav', String(rel)];
+  for (const c of candidates) {
+    try {
+      const abs = sepMod.absUnderData(c);
+      if (abs && fs.existsSync(abs) && fs.statSync(abs).size > 1024) {
+        return { abs, ext: path.extname(abs).slice(1).toLowerCase() };
+      }
+    } catch (e) { /* 试下一个候选 */ }
+  }
+  return null;
+}
+
+// 带 HTTP Range / 206 的文件发送（语义与 /stream/:id 一致，供 <audio> 边下边播、拖动寻址）
+function sendFileWithRange(req, res, abs, contentType) {
+  let stat;
+  try { stat = fs.statSync(abs); } catch (e) { return res.status(404).end(); }
+  const total = stat.size;
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  const m = /bytes=(\d*)-(\d*)/.exec(req.headers.range || '');
+  if (m) {
+    let start = m[1] ? parseInt(m[1], 10) : 0;
+    let end = m[2] ? parseInt(m[2], 10) : total - 1;
+    if (Number.isNaN(start)) start = 0;
+    if (Number.isNaN(end) || end >= total) end = total - 1;
+    if (start > end || start >= total) {
+      res.status(416).setHeader('Content-Range', `bytes */${total}`);
+      return res.end();
+    }
+    res.status(206);
+    res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+    res.setHeader('Content-Length', end - start + 1);
+    if (req.method === 'HEAD') return res.end();
+    fs.createReadStream(abs, { start, end }).on('error', () => { try { res.destroy(); } catch (e) {} }).pipe(res);
+  } else {
+    res.setHeader('Content-Length', total);
+    if (req.method === 'HEAD') return res.end();
+    fs.createReadStream(abs).on('error', () => { try { res.destroy(); } catch (e) {} }).pipe(res);
+  }
+}
+
+// GET /api/songs/:id/sep-info —— 前端能力探测：这首歌两条分轨是否齐备、各自的直出地址
+app.get('/api/songs/:id/sep-info', (req, res) => {
+  const song = db.prepare('SELECT * FROM songs WHERE id=?').get(parseInt(req.params.id, 10));
+  if (!song) return res.status(404).json({ error: 'not found', dual: false });
+  const v = resolveSepTrackFile(song, 'vocal');
+  const a = resolveSepTrackFile(song, 'accomp');
+  const id = song.id;
+  res.json({
+    dual: !!(v && a),
+    hasVocal: !!v,
+    hasAccomp: !!a,
+    sepStatus: song.sep_status || null,
+    vocalUrl: v ? `/api/songs/${id}/sep-track?kind=vocal` : null,
+    accompUrl: a ? `/api/songs/${id}/sep-track?kind=accomp` : null,
+  });
+});
+
+// GET /api/songs/:id/sep-track?kind=vocal|accomp —— 分轨直出（Range/206，flac/wav 自适应）
+app.get('/api/songs/:id/sep-track', (req, res) => {
+  const song = db.prepare('SELECT * FROM songs WHERE id=?').get(parseInt(req.params.id, 10));
+  if (!song) return res.status(404).end();
+  const kind = req.query.kind === 'vocal' ? 'vocal' : 'accomp';
+  const f = resolveSepTrackFile(song, kind);
+  if (!f) return res.status(404).end();
+  sendFileWithRange(req, res, f.abs, f.ext === 'flac' ? 'audio/flac' : 'audio/wav');
+});
+
 // ==================== 曲库元数据可移植快照（免重复扫描） ====================
 // 导出当前整张曲库为快照（下载到本地备份）
 app.get('/api/admin/catalog/export', requireAdminAuth, (req, res) => {
