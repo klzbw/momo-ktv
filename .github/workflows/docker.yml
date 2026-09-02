@@ -49,5 +49,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # 关键修复：禁用构建期层缓存。曾出现 git 源码已修好 hlsgen 混声滤镜，但
+          # `COPY server` 命中 gha 里的旧层（坏滤镜），导致镜像里一直是旧文件、
+          # NAS 拉到的层 "Already exists" 永不更新。server/web 体积很小，全量重建
+          # 多花 2-3 分钟，换取"镜像内容永远等于当前 git 源码"，值得。
+          no-cache: true
           cache-from: type=gha
           cache-to: type=gha,mode=max

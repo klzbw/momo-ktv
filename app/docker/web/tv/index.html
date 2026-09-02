@@ -899,13 +899,13 @@ html[data-layout="mobile"] #next-up-track span{font-size:16px}
 /* ============ 逐字歌词层：盖在视频上、控制条下，纯展示不拦截点击。三行窗口(上/当前/下)，
    当前行逐字卡拉OK填色，已唱字金色、未唱字白色。 ============================ */
 #lyrics-layer{position:absolute;left:0;right:0;top:14%;bottom:calc(var(--lyrics-pos,18) * 1%);z-index:4;display:flex;
-  flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:0 8%;
+  flex-direction:column;align-items:center;justify-content:flex-end;gap:22px;padding:0 8% 1.5%;
   pointer-events:none;overflow:hidden;text-align:center}
 #lyrics-layer .ll-line{max-width:100%;line-height:1.3;margin:0}
 #lyrics-layer .ll-line.ll-left{align-self:flex-start;text-align:left;max-width:86%}
 #lyrics-layer .ll-line.ll-right{align-self:flex-end;text-align:right;max-width:86%}
   /* 双排错落上下两排：奇数句恒在上排、偶数句恒在下排，各占满宽(字号可放很大)，换行只羽化(fade)不跨排跳动 */
-  #lyrics-layer .ll-dualcol{display:flex;flex-direction:column;align-items:stretch;justify-content:center;gap:34px;width:100%;height:100%}
+  #lyrics-layer .ll-dualcol{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-end;gap:34px;width:100%;height:100%}
   #lyrics-layer .ll-dualslot{width:100%;display:flex}
   #lyrics-layer .ll-dualslot.ll-top{justify-content:flex-start;text-align:left}
   #lyrics-layer .ll-dualslot.ll-bottom{justify-content:flex-end;text-align:right}
