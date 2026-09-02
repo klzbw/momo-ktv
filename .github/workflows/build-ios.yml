@@ -1,6 +1,10 @@
 name: Build iOS IPA
 
-# 构建 iPad/iPhone 通用客户端（WKWebView 套壳网页版，部署目标 iOS 12.0）
+# 构建 iPad/iPhone 通用客户端（WKWebView 套壳网页版）。
+# 一次构建同时产出两个无签名 IPA：
+#   iOS12 —— 部署目标 12.0，给老设备（如 iPad mini 2 / iOS 12.5.7）
+#   iOS15 —— 部署目标 15.0，给较新设备（iOS/iPadOS 15+，支持 MSE，原伴唱可无缝切换）
+# 工程基线(project.yml)保持 12.0，具体部署目标由 xcodebuild 命令行参数覆盖。
 on:
   push:
     branches: [main]
@@ -12,6 +16,14 @@ on:
 jobs:
   build:
     runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - deploy: '12.0'
+            tag: 'iOS12'
+          - deploy: '15.0'
+            tag: 'iOS15'
     defaults:
       run:
         working-directory: ios-client
@@ -31,7 +43,7 @@ jobs:
           # 兼容 Xcode 15.4
           sed -i '' 's/objectVersion = 77;/objectVersion = 56;/' MomoKtviOS.xcodeproj/project.pbxproj || true
 
-      - name: Build iOS app (unsigned, iOS 12 target)
+      - name: Build iOS app (unsigned, deployment target ${{ matrix.deploy }})
         run: |
           xcodebuild \
             -project MomoKtviOS.xcodeproj \
@@ -39,25 +51,28 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
-            IPHONEOS_DEPLOYMENT_TARGET=12.0 \
+            IPHONEOS_DEPLOYMENT_TARGET=${{ matrix.deploy }} \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             build
 
-      - name: Package IPA
+      - name: Package IPA (${{ matrix.tag }})
         run: |
           APP_PATH=$(find build/Build/Products -name "*.app" -type d | head -1)
           echo "App found at: $APP_PATH"
           /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$APP_PATH/Info.plist" || true
+          # 核对最终写入的最低系统版本
+          /usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$APP_PATH/Info.plist" || true
+          rm -rf Payload
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          zip -r MomoKtviOS.ipa Payload
-          ls -la MomoKtviOS.ipa
+          zip -r MomoKtviOS-${{ matrix.tag }}.ipa Payload
+          ls -la MomoKtviOS-${{ matrix.tag }}.ipa
 
-      - name: Upload IPA
+      - name: Upload IPA (${{ matrix.tag }})
         uses: actions/upload-artifact@v4
         with:
-          name: MomoKtviOS-unsigned
-          path: ios-client/MomoKtviOS.ipa
+          name: MomoKtviOS-${{ matrix.tag }}-unsigned
+          path: ios-client/MomoKtviOS-${{ matrix.tag }}.ipa
           retention-days: 30
