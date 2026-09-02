@@ -351,10 +351,51 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
     }
     const m3u8Path = await ensureHLS(song);
     res.set({ 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' });
+    // 原生HLS兼容(iPad iOS12/tvOS 等无 MSE、用不了 hls.js 的端)：它们无法用 JS 切换
+    // EXT-X-MEDIA 音轨。带 ?voice=N 时只保留第 N 条音轨并设为默认，前端通过更换
+    // video.src 到 master?voice=N 并断点续播来实现原唱/伴奏切换。hls.js(MSE)端不带此参数。
+    const voiceIdx = Number.parseInt(req.query.voice, 10);
+    if (Number.isInteger(voiceIdx) && voiceIdx >= 0) {
+      const srcLines = fs.readFileSync(m3u8Path, 'utf8').split('\n');
+      const mediaPos = [];
+      srcLines.forEach((ln, i) => { if (ln.indexOf('#EXT-X-MEDIA:') === 0) mediaPos.push(i); });
+      if (voiceIdx < mediaPos.length) {
+        const keepPos = mediaPos[voiceIdx];
+        const out = srcLines.map((ln, i) => {
+          if (ln.indexOf('#EXT-X-MEDIA:') !== 0) return ln;
+          if (i !== keepPos) return null;
+          return ln.replace(/DEFAULT=[A-Z]+/, 'DEFAULT=YES').replace(/AUTOSELECT=[A-Z]+/, 'AUTOSELECT=YES');
+        }).filter(l => l !== null).join('\n');
+        return res.end(out);
+      }
+    }
     fs.createReadStream(m3u8Path).pipe(res);
   } catch (e) {
     log.error('HLS', `master.m3u8 生成失败: id=${song.id} "${song.filename}": ${e.message}`);
     res.status(500).end();
+  }
+});
+
+// 原生HLS端(无MSE的iPad/tvOS)查询本歌演唱档位数与档位名：直接解析已生成 master.m3u8
+// 里的 EXT-X-MEDIA，和实际下发完全一致。hls.js 端从 audioTracks 自取，无需调用。
+app.get('/api/songs/:id/voice-tracks', async (req, res) => {
+  const song = db.prepare('SELECT * FROM songs WHERE id = ?').get(req.params.id);
+  if (!song) return res.status(404).json({ error: 'not found' });
+  try {
+    if (song.audio_tracks == null && (song.is_network || song.is_strm)) {
+      song.audio_tracks = await ensureProbedOnDemand(song);
+    }
+    const m3u8Path = await ensureHLS(song);
+    const names = [];
+    fs.readFileSync(m3u8Path, 'utf8').split('\n').forEach(ln => {
+      if (ln.indexOf('#EXT-X-MEDIA:') !== 0) return;
+      const m = ln.match(/NAME="([^"]*)"/);
+      names.push(m ? m[1] : ('音轨' + (names.length + 1)));
+    });
+    res.json({ tracks: names.length, names });
+  } catch (e) {
+    log.error('HLS', `voice-tracks 查询失败: id=${song.id}: ${e.message}`);
+    res.status(500).json({ error: e.message });
   }
 });
 

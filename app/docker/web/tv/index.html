@@ -2316,12 +2316,15 @@ window.addEventListener('resize',repositionS3Qr);
 // 恢复 currentTime。
 // ═══════════════════════════════════════════════
 const VoiceManager = (() => {
-  const MODE = { UNKNOWN:'unknown', TRACKS:'tracks', STEREO:'stereo', MONO:'mono' };
+  const MODE = { UNKNOWN:'unknown', TRACKS:'tracks', STEREO:'stereo', MONO:'mono', NATIVE:'native' };
   let mode = MODE.UNKNOWN;
   let _isOriginal = true;
   let _trackCount = 1;    // 服务端 audio_tracks 字段（声道型 MV 用）
   let _loadedTrack = 0;   // 当前 hls.js 已选的音轨号，避免重复设置
   let _trackIndex = 0;    // 当前演唱档位：AI分离歌为五档 0原唱/1=75%/2=半消/3=25%/4=伴奏
+  // 原生HLS(无MSE的iPad iOS12/tvOS)：没有 hls.js、JS 无法切 EXT-X-MEDIA 音轨，
+  // 改由服务端 master?voice=N 只下发选定档，前端换源并断点续播来实现原唱/伴奏切换。
+  let _nativeTracks = 1, _nativeNames = null, _nativeSongId = null, _switchingNative = false;
   // 五档/三档/双档的档位中文名
   function labelForIndex(i, n) {
     if (i <= 0) return '原唱';
@@ -2331,6 +2334,7 @@ const VoiceManager = (() => {
   }
   // hls.js 实际音轨数（AI分离五档歌最准），拿不到时退回服务端字段
   function realTrackCount() {
+    if (mode === MODE.NATIVE) return _nativeTracks || _trackCount || 1;
     const n = hlsInstance && hlsInstance.audioTracks ? hlsInstance.audioTracks.length : 0;
     return n >= 1 ? n : _trackCount;
   }
@@ -2383,6 +2387,9 @@ const VoiceManager = (() => {
 
   /** 检测当前 video 的类型 */
   function detect(v) {
+    // 原生HLS：设备不支持 MSE（iPad iOS12/tvOS 等），根本没有 hls.js，多档只能换源切
+    const mseOk = !!(window.Hls && window.Hls.isSupported && window.Hls.isSupported());
+    if (!mseOk && _nativeTracks >= 2) return MODE.NATIVE;
     // AI 分离五档/三档歌：服务端 audio_tracks 字段可能仍是1，但 hls.js 解析 master 后
     // audioTracks 已是真实条数(>=2)，以它为准判为音轨型，最可靠。
     const hlsN = hlsInstance && hlsInstance.audioTracks ? hlsInstance.audioTracks.length : 0;
@@ -2439,15 +2446,41 @@ const VoiceManager = (() => {
   function apply(v) {
     if (mode === MODE.UNKNOWN) mode = detect(v);
     if (mode === MODE.TRACKS)  { applyTracks(v); return; }
+    if (mode === MODE.NATIVE)  { applyNative(v); return; }
     if (mode === MODE.STEREO)  { applyStereo();  return; }
     // UNKNOWN/MONO：单音轨/无法判定声道类型，保持直通，不做声道选择，
     // 但一定要保证链路是通的（initWA 里已默认直通，这里换歌时兜底重连一次）
     connectPassthrough();
   }
 
+  /** 原生HLS(无MSE)切档：换 master?voice=N 源并恢复到原播放位置。
+   *  平台限制无法像 hls.js 那样无缝切音轨，会有一次极短重载；这是 iPad iOS12/tvOS 上唯一可行方案。 */
+  function applyNative(v) {
+    if (!_nativeSongId || !v) return;
+    const want = _trackIndex;
+    if (want === _loadedTrack) return;
+    _loadedTrack = want;
+    const t = isFinite(v.currentTime) ? v.currentTime : 0;
+    const wasPaused = v.paused;
+    _switchingNative = true;
+    try {
+      v.src = `${BASE}/hls/${_nativeSongId}/master.m3u8?voice=${want}&_=${Date.now()}`;
+      if (v.load) v.load();
+      const resume = () => {
+        try { if (t > 0.1 && isFinite(v.currentTime)) v.currentTime = t; } catch (e) {}
+        if (!wasPaused) { const p = v.play(); if (p && p.catch) p.catch(()=>{}); }
+        _switchingNative = false;
+      };
+      v.addEventListener('loadedmetadata', resume, { once:true });
+      setTimeout(()=>{ _switchingNative = false; }, 4000); // 兜底解锁，防极端情况卡死档位
+      reportVoiceSwitch('native');
+    } catch (e) { _switchingNative = false; }
+  }
+
   return {
     /** 每次新歌加载（loadedmetadata 后）调用；trackCount 来自服务端歌曲元数据 */
     onLoad(v, trackCount) {
+      if (_switchingNative) return; // 原生换源切档自身触发的 loadedmetadata：保持当前档位，勿重置
       _trackCount = trackCount || 1;
       _loadedTrack = 0; // 新歌不带 track 参数时，默认拿到的是第0条(原唱)
       _trackIndex = 0;
@@ -2455,6 +2488,25 @@ const VoiceManager = (() => {
       mode = detect(v);
       apply(v);
       console.log('[VoiceManager] mode=' + mode + ' original=' + _isOriginal + ' tracks=' + _trackCount);
+    },
+    /** 原生HLS端(无MSE)新歌时调用：记录歌曲并拉取它的演唱档位数；MSE/hls.js 端内部直接跳过。 */
+    nativePrepare(songId) {
+      _nativeSongId = songId;
+      _nativeTracks = 1; _nativeNames = null;
+      _loadedTrack = 0; _trackIndex = 0; _isOriginal = true;
+      if (window.Hls && window.Hls.isSupported && window.Hls.isSupported()) return; // 有 hls.js，走音轨切换，不用换源
+      try {
+        fetch(`${BASE}/api/songs/${songId}/voice-tracks`, { credentials:'include' })
+          .then(r => r.ok ? r.json() : null)
+          .then(j => {
+            if (!j || !j.tracks || _nativeSongId !== songId) return; // 已切到别的歌则丢弃
+            _nativeTracks = j.tracks; _nativeNames = j.names || null;
+            if (_nativeTracks >= 2) {
+              mode = detect(video); apply(video);
+              console.log('[VoiceManager] 原生HLS演唱档位=' + _nativeTracks, JSON.stringify(_nativeNames));
+            }
+          }).catch(()=>{});
+      } catch(e) {}
     },
     /** STRM/网络曲目的音轨探测是异步的：点歌时、甚至 loadedmetadata 触发时都
      *  可能还没探测完，onLoad() 那次只能先按"未知/单音轨"兜底判一次模式。
@@ -2517,6 +2569,7 @@ const VoiceManager = (() => {
     get trackIndex() { return _trackIndex; },
     /** 当前档位中文名 */
     get trackLabel() {
+      if (mode === MODE.NATIVE && _nativeNames && _nativeNames[_trackIndex]) return _nativeNames[_trackIndex];
       const n = (mode === MODE.STEREO) ? 2 : realTrackCount();
       return labelForIndex(_trackIndex, n);
     },
@@ -3004,6 +3057,7 @@ function loadSong(v,songId,needsDownload){
     hls.attachMedia(v);
     hlsInstance=hls;
   }else if(v.canPlayType('application/vnd.apple.mpegurl')){
+    try{ VoiceManager.nativePrepare(songId); }catch(e){ console.warn('nativePrepare',e); }
     v.src=url;
     v.addEventListener('error',fallbackToRaw,{once:true});
     if(!isPaused)tryAutoplay(v,songId);
