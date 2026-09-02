@@ -954,9 +954,14 @@ html[data-layout="mobile"] #lyrics-layer .ll-near{font-size:32px}
    且 DOM 顺序更靠后会盖住点击层；它本身是纯展示层，必须 pointer-events:none 让触摸/点击
    穿透到 #fs-tap，否则播放纯音频(动态背景/图片背景)时怎么点都呼不出控制条。 */
 #bg-stage.fs-layer{position:fixed;top:0;right:0;bottom:0;left:0;width:100%;height:100%;z-index:51;pointer-events:none}
-#lyrics-layer.fs-layer{position:fixed;top:14%;bottom:18%;left:0;right:0;z-index:52;pointer-events:none}
+#lyrics-layer.fs-layer{position:fixed;top:14%;bottom:calc(var(--lyrics-pos,18)*1%);left:0;right:0;z-index:52;pointer-events:none}
 #bg-mode-btn.fs-layer,#lyrics-mode-btn.fs-layer{z-index:53}
-#bg-mode-btn{position:absolute;top:14px;left:14px;z-index:6;pointer-events:auto;cursor:pointer;
+/* 全屏时禁用 iOS 长按弹出菜单/文字选中/点击高亮，保证"长按拖歌词"的 touchmove 不被系统手势打断 */
+body.fs-on{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+body.fs-on #fs-tap,body.fs-on #lyrics-layer,body.fs-on #bg-stage{touch-action:none}
+/* 长按进入歌词拖动时，给歌词层一个虚线框+轻微底色，明确提示"正在拖动" */
+#lyrics-layer.lrc-drag{outline:2px dashed rgba(255,210,74,.85);outline-offset:8px;background:rgba(0,0,0,.18);border-radius:14px}
+#bg-mode-btn{position:absolute;top:60px;right:14px;left:auto;z-index:6;pointer-events:auto;cursor:pointer;
   background:rgba(10,10,30,.55);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:999px;
   padding:8px 16px;font-size:18px;font-weight:700;backdrop-filter:blur(6px);opacity:.5;transition:opacity .2s,background .2s,transform .15s}
 #bg-mode-btn:hover,#bg-mode-btn:focus{opacity:1;background:rgba(54,217,247,.7);outline:none;transform:scale(1.06)}
@@ -3591,7 +3596,7 @@ function handleNowPanelClick(){
   if(!isActivePlayer){sendWS({type:'control',action:'fullscreen'});showToast('已发送全屏指令');return;}
   enterFullscreen();
 }
-function enterFullscreen(){if(!curSong){showToast('先点一首歌吧 🎵');return;}closeAllOpenPanels();pushFocus();isFS=true;window.ktv_fs=true;
+function enterFullscreen(){if(!curSong){showToast('先点一首歌吧 🎵');return;}closeAllOpenPanels();pushFocus();isFS=true;window.ktv_fs=true;document.body.classList.add('fs-on');
   var wasPlaying=!video.paused,t=video.currentTime;
   document.body.appendChild(video);video.className='video-fs';
   // 音频歌全屏：把动态背景画布、歌词层、切换按钮一起移到 body 下并 fixed 铺满，
@@ -3634,7 +3639,7 @@ function exitKtvFullscreen(){
   // 补一个状态守卫：已经不在全屏状态时，后续重复调用直接跳过，保证
   // pushFocus()/popFocus() 严格一一对应。
   if(!isFS)return;
-  isFS=false;window.ktv_fs=false;
+  isFS=false;window.ktv_fs=false;document.body.classList.remove('fs-on');
   var wasPlaying=!video.paused,t=video.currentTime;
   video.className='video-home';video.style.width='';video.style.height='';nowPanel.insertBefore(video,nowPanel.firstChild);
   // 退出全屏：把背景画布/歌词层/按钮移回小窗容器，移除 fixed 定位（按原始 DOM 顺序）
@@ -5129,7 +5134,8 @@ fetch('/api/queue').then(r=>r.json()).then(d=>{queueData=d;renderAll();});
 // 直接拿原始 touch，任何层级遮挡都能响应，这是纯音频呼不出控件的兜底修复。
 (function(){
   const root=document.documentElement;
-  let sx=0,sy=0,st=0,moved=false,longTimer=null,dragging=false,startPos=0,multi=false;
+  let sx=0,sy=0,st=0,moved=false,longTimer=null,dragging=false,startPos=0,multi=false,lastDragToast=0;
+  const lrcLayer=()=>document.getElementById('lyrics-layer');
   function curPos(){const v=parseFloat(getComputedStyle(root).getPropertyValue('--lyrics-pos'));return isNaN(v)?18:v;}
   function setPos(v){v=Math.max(0,Math.min(60,Math.round(v)));root.style.setProperty('--lyrics-pos',String(v));return v;}
   function ovShown(){const ov=document.getElementById('fs-ov');return !!(ov&&ov.classList.contains('show'));}
@@ -5153,29 +5159,35 @@ fetch('/api/queue').then(r=>r.json()).then(d=>{queueData=d;renderAll();});
     startPos=curPos();
     longTimer=setTimeout(function(){
       if(!moved&&!ovShown()){
-        dragging=true;
-        try{if(typeof showToast==='function')showToast('上下拖动调整歌词位置');}catch(_){}
+        dragging=true;lastDragToast=0;
+        const ll=lrcLayer();if(ll)ll.classList.add('lrc-drag');
+        try{if(navigator.vibrate)navigator.vibrate(15);}catch(_){}
+        try{if(typeof showToast==='function')showToast('按住并上下拖动调整歌词位置');}catch(_){}
       }
     },800);
   },{passive:false,capture:true});
   document.addEventListener('touchmove',function(e){
     if(!fsOn()||e.touches.length!==1)return;
     const t=e.touches[0];
-    if(Math.abs(t.clientX-sx)>10||Math.abs(t.clientY-sy)>10){moved=true;if(!dragging)clearTimeout(longTimer);}
+    // 长按等待阶段允许 18px 内的轻微抖动，不轻易取消；进入拖动后不再判定
+    if(Math.abs(t.clientX-sx)>18||Math.abs(t.clientY-sy)>18){moved=true;if(!dragging)clearTimeout(longTimer);}
     if(dragging){
       e.preventDefault();
       const h=window.innerHeight||1,dy=sy-t.clientY;
-      setPos(startPos+dy/h*60);
+      const v=setPos(startPos+dy/h*60);
+      const now=Date.now();
+      if(now-lastDragToast>120){lastDragToast=now;try{if(typeof showToast==='function')showToast('歌词位置 '+v);}catch(_){}}
     }
   },{passive:false,capture:true});
   function finish(e){
     if(!fsOn())return;
     clearTimeout(longTimer);
+    const ll=lrcLayer();if(ll)ll.classList.remove('lrc-drag');
     if(dragging){
       dragging=false;const v=setPos(curPos());
       try{localStorage.setItem('momoLyricsPos',String(v));}catch(_){}
       try{if(window.sendWS)sendWS({type:'lyrics_style',posV:v});}catch(_){}
-      try{if(typeof showToast==='function')showToast('歌词位置已保存');}catch(_){}
+      try{if(typeof showToast==='function')showToast('歌词位置已保存：'+v);}catch(_){}
       if(e&&e.preventDefault)e.preventDefault();
       return;
     }
@@ -5188,7 +5200,7 @@ fetch('/api/queue').then(r=>r.json()).then(d=>{queueData=d;renderAll();});
     }
   }
   document.addEventListener('touchend',finish,{passive:false,capture:true});
-  document.addEventListener('touchcancel',function(){clearTimeout(longTimer);dragging=false;multi=false;},{capture:true});
+  document.addEventListener('touchcancel',function(){clearTimeout(longTimer);dragging=false;multi=false;const ll=lrcLayer();if(ll)ll.classList.remove('lrc-drag');},{capture:true});
 })();
 </script>
 </body>
