@@ -363,7 +363,37 @@ async function probeDurationAsync(filepath) {
 //      没机会执行，已经真正丢失的文件反而没有被清理掉。
 // 修复：用 fs.existsSync(full) 顺着链接校验目标真实存在性来过滤死链接；用 try/catch 包裹
 // 每一层目录的读取，单个坏目录只跳过不中断整体扫描。
-function listFilesRecursive(dir) {
+// 遍历目录树时每处理多少个目录项就让出一次事件循环。曲库目录树可能有数万个
+// 文件，旧实现整棵树同步递归、期间一次都不 await，会把 Node 主线程长时间占住
+// （时间主要花在等待机械盘/网络挂载的 stat IO 上，CPU 反而接近 0），从外部看
+// 就是"HTTP 端口在监听、启动日志也打了，但页面/接口完全连不上"。分批让出后，
+// 即使后台扫描正在跑，HTTP/WS 请求依旧能在批次间隙被正常处理。
+const WALK_YIELD_EVERY = 200;
+// 遍历时直接跳过的"非成品/系统"目录：NAS 常见的回收站、缩略图、临时目录，扫了
+// 没有意义还会拖慢整轮遍历。
+const SKIP_DIR_NAMES = new Set([
+  '@eadir', '#recycle', '.trash', '$recycle.bin', 'recycle.bin',
+  '.thumbnails', '.@__thumb', '@tmp', '.tmp', 'lost+found', 'system volume information',
+]);
+// 转码/下载正在写入时的中间态文件后缀。这些文件此刻还没写完，收录进来只会在
+// ffprobe 阶段报"No such file / 数据损坏"并刷屏；等它改名成正式 .flac 后的下一
+// 轮增量扫描自然会收录，不需要在半成品阶段处理。
+const INCOMPLETE_SUFFIX = ['.tmp', '.part', '.!ut', '.downloading', '.crdownload', '.temp', '.partial', '.!sync'];
+function isSkippedDirName(name) {
+  return SKIP_DIR_NAMES.has(String(name).toLowerCase());
+}
+function isIncompleteFile(name) {
+  const lower = String(name).toLowerCase();
+  for (const suffix of INCOMPLETE_SUFFIX) if (lower.endsWith(suffix)) return true;
+  return false;
+}
+
+// 异步版递归列文件：行为（收录规则、坏目录/死链接保护）与旧同步版完全一致，唯一
+// 区别是每处理 WALK_YIELD_EVERY 个目录项 await 一次事件循环，并通过共享的 tick
+// 计数器跨递归层级累计，保证目录再大也不会长时间独占主线程。counter 由顶层
+// listAllFiles() 创建后向下透传，递归自身也会把它继续传给子目录。
+async function listFilesRecursive(dir, counter) {
+  const tick = counter || { n: 0 };
   let results = [];
   if (!fs.existsSync(dir)) return results;
   let entries;
@@ -374,7 +404,10 @@ function listFilesRecursive(dir) {
     return results;
   }
   for (const entry of entries) {
-    const full = path.join(dir, entry.name);
+    if (++tick.n % WALK_YIELD_EVERY === 0) await yieldToEventLoop();
+    const name = entry.name;
+    if (isSkippedDirName(name)) continue; // NAS 回收站/缩略图/临时目录
+    const full = path.join(dir, name);
     // fs.existsSync 会跟随符号链接检查目标是否真实存在；断链/目标已删除的文件在此被排除
     if (!fs.existsSync(full)) continue;
     let isDir;
@@ -384,9 +417,10 @@ function listFilesRecursive(dir) {
       continue; // 探测失败（如挂载点抖动导致stat失败），视为不可用文件，跳过
     }
     if (isDir) {
-      results = results.concat(listFilesRecursive(full));
+      results = results.concat(await listFilesRecursive(full, tick));
     } else {
-      const ext = path.extname(entry.name).toLowerCase();
+      if (isIncompleteFile(name)) continue; // 转码/下载中间态，等成品后的下一轮扫描
+      const ext = path.extname(name).toLowerCase();
       // 视频 + 纯音频 + CUE 整轨索引 + STRM 指针全部收录，具体怎么入库由
       // scanLibrary 主循环按类型分流（CUE 展开成多首虚拟歌）。
       if (isCollectableExt(ext)) {
@@ -588,15 +622,17 @@ async function importCueTracks(root, cueFile, parsed, wholeAudio, insertStmt, ex
   return added;
 }
 
-function listAllFiles() {
+async function listAllFiles() {
   const perRoot = []; // { root, files: string[], accessible: boolean }
+  const tick = { n: 0 }; // 多个根目录共享同一个让出计数器
   for (const root of getMVRoots()) {
     if (!fs.existsSync(root.dir)) {
       console.error(`曲库目录不可访问，本轮跳过(不影响其它目录，也不会清理这个目录名下已入库的曲目): [${root.tag}] ${root.dir}`);
       perRoot.push({ root, files: [], accessible: false });
       continue;
     }
-    perRoot.push({ root, files: listFilesRecursive(root.dir), accessible: true });
+    perRoot.push({ root, files: await listFilesRecursive(root.dir, tick), accessible: true });
+    await yieldToEventLoop(); // 根与根之间也让出一次，避免某个根遍历完后立刻无缝占住主线程
   }
   return perRoot;
 }
@@ -637,7 +673,9 @@ async function scanLibrary(mode = 'full') {
     return { total: 0, added: 0, removed: 0, error: 'MV_DIR_UNAVAILABLE', mode };
   }
 
-  const perRoot = listAllFiles();
+  // 异步分批遍历曲库目录树（每 200 个目录项让出一次事件循环），即使曲库有数万
+  // 文件、且位于机械盘/网络挂载上，扫描期间 HTTP/WS 也不会被同步遍历卡死。
+  const perRoot = await listAllFiles();
   // 至少要有一个根目录这一轮真的扫成功了，才允许后面执行"清理已消失文件"这
   // 一步——如果所有根目录这一轮全都不可访问(比如网络整个断了)，直接中止，
   // 避免灾难性误删；这是原来单目录版本 Bug2 修复思路在多目录场景下的延伸。

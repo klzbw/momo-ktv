@@ -2791,6 +2791,13 @@ async function waitForNetworkMountsStable() {
 }
 
 (async () => {
+  // 应急开关：STARTUP_SCAN_DISABLED=1 时完全跳过"容器启动后的首次自动扫描"。
+  // 正常情况不需要设置（扫描已改成异步分批让出，不会再卡住 HTTP）；仅当曲库盘
+  // 异常、需要容器先以最快速度对外可用、之后再去后台手动点"扫描曲库"时使用。
+  if (process.env.STARTUP_SCAN_DISABLED === '1') {
+    log.warn('SCAN', '已通过环境变量 STARTUP_SCAN_DISABLED=1 跳过启动自动扫描，需要时请到后台手动扫描曲库');
+    return;
+  }
   try {
     await waitForNetworkMountsStable();
   } catch (e) {
@@ -2807,6 +2814,11 @@ async function waitForNetworkMountsStable() {
 // 间隔可用环境变量 AUTO_SCAN_MIN 调整，默认 5 分钟；加锁避免上一轮没跑完又起一轮。
 let autoScanBusy = false;
 const AUTO_SCAN_MS = Math.max(1, parseInt(process.env.AUTO_SCAN_MIN || '5', 10) || 5) * 60 * 1000;
+// 应急开关：AUTO_SCAN_DISABLED=1 时不注册定时增量扫描（启动那次仍由
+// STARTUP_SCAN_DISABLED 单独控制）。正常使用不要设置，否则丢进目录的新歌不会自动入库。
+if (process.env.AUTO_SCAN_DISABLED === '1') {
+  log.warn('SCAN', '已通过环境变量 AUTO_SCAN_DISABLED=1 关闭定时增量扫描，新歌需手动扫描入库');
+} else {
 setInterval(() => {
   if (autoScanBusy) return;
   autoScanBusy = true;
@@ -2815,6 +2827,7 @@ setInterval(() => {
     .catch(e => log.warn('SCAN', `自动增量扫描失败(不影响运行): ${e.message}`))
     .finally(() => { autoScanBusy = false; });
 }, AUTO_SCAN_MS).unref();
+}
 
 // 曲库缓存清理：取代原来写死在环境变量里的"每日按固定天数清理"，改由
 // cacheCleaner.js 按管理员当前保存的策略（按存储空间限额 / 按点歌时间）执行，
