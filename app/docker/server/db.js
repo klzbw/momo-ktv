@@ -243,10 +243,6 @@ try {
   addCol('vocal_path', "vocal_path TEXT");
   addCol('accomp_path', "accomp_path TEXT");
   addCol('align_status', "align_status TEXT DEFAULT 'none'");
-  // 自动清理：损坏文件标记。连续 ffprobe 探测失败超过阈值的歌曲会被标记为
-  // damage_flag=1，管理员可在「自动清理」面板预览、删除或取消标记。默认 0
-  // 表示正常，老版本数据库没有这列时走默认值。
-  addCol('damage_flag', "damage_flag INTEGER DEFAULT 0");
 } catch (e) { console.error('音轨/语种/风格字段迁移失败:', e.message); }
 
 // Bug修复(置顶后再置顶另一首，原先置顶的歌会被打回原始排序位置)：老的
