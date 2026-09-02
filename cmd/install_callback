@@ -1,23 +1,15 @@
 #!/bin/bash
+# 安装后执行：应用文件已部署，docker-compose.yaml 已落地，可在此按宿主机情况裁剪。
 source "$(dirname "$0")/lib_settings.sh"
 
-COMPOSE_FILE="${TRIM_APPDEST}/docker/docker-compose.yml"
+COMPOSE_FILE="${TRIM_APPDEST}/docker/docker-compose.yaml"
 
-# install_init 执行时应用包文件还没有部署，docker-compose.yml 当时并不存在，
-# 所以 VAAPI 探测放到这里——install_callback 在应用包文件部署完成之后执行，
-# 此时 docker-compose.yml 已经落地，sed 修改才能真正生效，且这一步在下面的
-# `docker compose build` 之前完成。端口固定 8083、管理员密码由用户首次打开
-# 「曲库管理」时自行设置，都已直接写死/交给应用自己处理，这里不需要再碰。
-
-# 探测宿主机是否有可用的 VAAPI 渲染节点。有就保留 docker-compose.yml 里的
-# devices 段落（把 /dev/dri 直通进容器，启用硬件转码）；没有就把这段删掉，
-# 否则宿主机没有该设备时 `docker compose up` 会直接报错，装都装不上。
+# 探测宿主机是否有 VAAPI 渲染节点；没有就删掉 devices 段，避免 compose up 因设备不存在而失败。
 if [ -f "$COMPOSE_FILE" ] && [ ! -e /dev/dri/renderD128 ]; then
     sed -i '/# VAAPI_DEVICES_BEGIN/,/# VAAPI_DEVICES_END/d' "$COMPOSE_FILE"
 fi
 
-# ===== AI Worker 模式：读取安装向导的两个开关，归一为 external/cpu/cuda =====
-# wizard_ai_local=true 表示在飞牛本机跑 AI；wizard_ai_nvidia=true 表示本机有 N 卡。
+# ===== AI Worker 模式：读取向导两个开关，归一为 external/cpu/cuda =====
 AI_MODE="external"
 if [ "${wizard_ai_local}" = "true" ]; then
     if [ "${wizard_ai_nvidia}" = "true" ]; then
@@ -26,7 +18,7 @@ if [ "${wizard_ai_local}" = "true" ]; then
         AI_MODE="cpu"
     fi
 fi
-# 若用户声称有 N 卡但宿主机根本看不到 nvidia 设备，自动退回 CPU，避免起不来
+# 声称有 N 卡但宿主机看不到，自动退回 CPU
 if [ "$AI_MODE" = "cuda" ] && [ ! -e /dev/nvidia0 ] && ! command -v nvidia-smi >/dev/null 2>&1; then
     echo "[install] 未检测到 NVIDIA 设备，AI 模式由 cuda 回退为 cpu"
     AI_MODE="cpu"
@@ -36,9 +28,7 @@ configure_ai_worker "$COMPOSE_FILE" "$AI_MODE"
 echo "[install] AI worker 模式: $AI_MODE（external=外置PC显卡 / cpu=本机CPU / cuda=本机N卡）"
 
 cd "${TRIM_APPDEST}/docker"
-# 主服务镜像同步拉取（体积小，安装必须等它）；本机 AI 模式的 AI 镜像较大（CPU 版约
-# 1.5GB、N卡版约 6-8GB），放后台预拉，避免飞牛安装回调因长时间 pull 超时。AI 容器是
-# restart:unless-stopped，镜像在后台拉到位后会自动拉起；日志见 /tmp/momo-ai-pull.log。
+# 主服务镜像同步拉取；本机 AI 镜像较大，后台预拉避免安装回调超时（日志 /tmp/momo-ai-pull.log）。
 docker compose pull momo-ktv
 if [ "$AI_MODE" != "external" ]; then
     nohup docker compose pull >/tmp/momo-ai-pull.log 2>&1 &

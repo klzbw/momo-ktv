@@ -1,19 +1,19 @@
 {
     ".url": {
-        "momo-ktv.TV端": {
+        "momo-ktv.TV": {
             "title": "墨墨爱K歌",
             "icon": "images/icon_{0}.png",
             "type": "url",
-            "protocol": "",
+            "protocol": "http",
             "port": "8083",
             "url": "/tv",
             "allUsers": false
         },
-        "momo-ktv.曲库管理": {
+        "momo-ktv.Admin": {
             "title": "曲库管理",
             "icon": "images/icon_{0}.png",
             "type": "url",
-            "protocol": "",
+            "protocol": "http",
             "port": "8083",
             "url": "/admin",
             "allUsers": false

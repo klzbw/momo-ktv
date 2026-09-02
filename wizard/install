@@ -13,7 +13,7 @@
         "items": [
             {
                 "type": "tips",
-                "helpText": "📋 安装前请确认：\n\n1. 你的飞牛NAS已连接网络\n2. 已安装Docker（应用商店搜索「Docker」安装）\n3. 有一些歌曲文件（MKV/MP4/MP3/FLAC等格式）\n\n💾 数据存储位置：\n• 应用数据：/vol1/@appshare/momo-ktv/data/\n• 歌曲曲库：/vol1/@appshare/momo-ktv/mv/\n\n安装过程会自动拉取Docker镜像（主程序约500MB），请耐心等待。\n\n安装完成后，把你的歌曲文件拷贝到 mv 目录下，系统会自动扫描入库。"
+                "helpText": "📋 安装前请确认：\n\n1. 你的飞牛NAS已连接网络\n2. 已安装Docker（应用商店搜索「Docker」安装）\n3. 有一些歌曲文件（MKV/MP4/MP3/FLAC等格式）\n\n💾 数据存储位置：\n• 应用数据：共享文件夹 momo-ktv/data/\n• 歌曲曲库：共享文件夹 momo-ktv/mv/\n\n安装过程会自动拉取Docker镜像（主程序约500MB），请耐心等待。\n\n安装完成后，把你的歌曲文件拷贝到 mv 目录下，系统会自动扫描入库。"
             }
         ]
     },
@@ -43,7 +43,7 @@
         "items": [
             {
                 "type": "tips",
-                "helpText": "📱 三种使用方式：\n\n【方式一：电视浏览器】\n打开电视浏览器，访问：http://你的NAS_IP:8083/tv/\n\n【方式二：手机遥控】\n手机连同一个WiFi，浏览器访问：http://你的NAS_IP:8083/mobile/\n建议添加到手机主屏幕，像APP一样使用\n\n【方式三：Apple TV/Android TV】\n安装包已内置：安装后访问 http://你的NAS_IP:8083/clients 即可在网页里直接下载 IPA/APK 装到电视盒子，体验最佳\n\n⚙️ 管理后台：\nhttp://你的NAS_IP:8083/admin\n首次打开会提示设置管理员密码\n\n🎵 添加歌曲：\n把歌曲文件拷贝到 /vol1/@appshare/momo-ktv/mv/ 目录\n系统每5分钟自动扫描新歌，也可在管理后台手动扫描"
+                "helpText": "📱 三种使用方式：\n\n【方式一：电视浏览器】\n打开电视浏览器，访问：http://你的NAS_IP:8083/tv/\n\n【方式二：手机遥控】\n手机连同一个WiFi，浏览器访问：http://你的NAS_IP:8083/mobile/\n建议添加到手机主屏幕，像APP一样使用\n\n【方式三：Apple TV/Android TV】\n安装包已内置：安装后访问 http://你的NAS_IP:8083/clients 即可在网页里直接下载 IPA/APK 装到电视盒子，体验最佳\n\n⚙️ 管理后台：\nhttp://你的NAS_IP:8083/admin\n首次打开会提示设置管理员密码\n\n🎵 添加歌曲：\n把歌曲文件拷贝到 共享文件夹 momo-ktv/mv/ 目录\n系统每5分钟自动扫描新歌，也可在管理后台手动扫描"
             }
         ]
     },

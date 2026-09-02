@@ -1,24 +1,18 @@
 #!/bin/bash
+# 升级后执行：新包文件已部署，按宿主机情况裁剪新 compose，并沿用安装时的 AI 模式。
 source "$(dirname "$0")/lib_settings.sh"
 
-COMPOSE_FILE="${TRIM_APPDEST}/docker/docker-compose.yml"
+COMPOSE_FILE="${TRIM_APPDEST}/docker/docker-compose.yaml"
 
-# 新版本的应用包文件（含新的占位版 docker-compose.yml）此时已经部署完成，
-# 这里做和 install_callback 一样的 VAAPI 探测处理。端口固定 8083、管理员
-# 密码保存在 /data 的 SQLite 里，升级不影响，不需要在这里处理。
 if [ -f "$COMPOSE_FILE" ] && [ ! -e /dev/dri/renderD128 ]; then
     sed -i '/# VAAPI_DEVICES_BEGIN/,/# VAAPI_DEVICES_END/d' "$COMPOSE_FILE"
 fi
 
-# 升级沿用安装时选择的 AI 模式（持久化在数据目录 ai_mode.conf），重新裁剪新模板
 AI_MODE="$(load_ai_mode)"
 configure_ai_worker "$COMPOSE_FILE" "$AI_MODE"
 echo "[upgrade] AI worker 模式: $AI_MODE"
 
-# 新版本代码/镜像内容可能已变化，和安装流程一样需要重新构建镜像并让容器用
-# 新的 compose 配置重建。
 if [ -d "${TRIM_APPDEST}/docker" ]; then
     cd "${TRIM_APPDEST}/docker" && docker compose pull && docker compose up -d --force-recreate
 fi
-
 exit 0

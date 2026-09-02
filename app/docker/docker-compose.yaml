@@ -1,0 +1,63 @@
+version: "3.8"
+services:
+  momo-ktv:
+    image: ghcr.io/klzbw/momo-ktv:latest
+    container_name: momo-ktv
+    restart: unless-stopped
+    ports:
+      - "8083:8080"
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=8080
+      - DATA_DIR=/data
+      - MV_DIR=/mv
+      - VAAPI_DEVICE=/dev/dri/renderD128
+      - HLS_CACHE_MAX_AGE_DAYS=3
+    volumes:
+      # 飞牛 data-share 标准挂载路径：/var/apps/<appname>/shares/<appname>/...
+      - /var/apps/momo-ktv/shares/momo-ktv/data:/data
+      - /var/apps/momo-ktv/shares/momo-ktv/mv:/mv
+    # VAAPI_DEVICES_BEGIN
+    devices:
+      - /dev/dri:/dev/dri
+    # VAAPI_DEVICES_END
+
+  # ===== AI Worker：默认带 profiles 不启动，安装时按向导三选一裁剪 =====
+  # AI_CPU_BEGIN
+  ai-worker-cpu:
+    profiles: ["ai-cpu"]
+    image: ghcr.io/klzbw/momo-ai-worker:ai-cpu
+    container_name: momo-ai-worker-cpu
+    restart: unless-stopped
+    depends_on: [momo-ktv]
+    environment:
+      - TZ=Asia/Shanghai
+      - MOMO_SERVER=http://momo-ktv:8080
+      - MOMO_WORKER=fnos-ai-cpu
+      - MOMO_MODE=both
+      - MOMO_CAPABILITY=cpu
+    volumes:
+      - /var/apps/momo-ktv/shares/momo-ktv/data/ai-models:/models
+  # AI_CPU_END
+  # AI_CUDA_BEGIN
+  ai-worker-cuda:
+    profiles: ["ai-cuda"]
+    image: ghcr.io/klzbw/momo-ai-worker:ai-cuda
+    container_name: momo-ai-worker-cuda
+    restart: unless-stopped
+    depends_on: [momo-ktv]
+    environment:
+      - TZ=Asia/Shanghai
+      - MOMO_SERVER=http://momo-ktv:8080
+      - MOMO_WORKER=fnos-ai-cuda
+      - MOMO_MODE=both
+    volumes:
+      - /var/apps/momo-ktv/shares/momo-ktv/data/ai-models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  # AI_CUDA_END
