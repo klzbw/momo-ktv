@@ -2223,12 +2223,16 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
     </div>
   </div></div>
 </div>
-<!-- DUAL 双轨连续人声滑块：仅分离完成的纯音频歌、且浏览器支持时由 VoiceManager 显示；其余歌曲隐藏，继续用旧的原/伴唱五档按钮 -->
-<div id="vocal-dual-bar" class="vocal-dual" style="display:none;position:fixed;left:50%;bottom:124px;transform:translateX(-50%);z-index:70;align-items:center;gap:12px;background:rgba(10,10,28,.72);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:9px 20px;color:#fff;font-size:15px;box-shadow:0 6px 24px rgba(0,0,0,.35);">
-  <span style="opacity:.82;white-space:nowrap">伴奏</span>
-  <input class="vocal-range" type="range" min="0" max="100" value="100" aria-label="人声音量" style="width:230px;height:26px;accent-color:#7fd0ff;cursor:pointer;">
-  <span style="opacity:.82;white-space:nowrap">原唱</span>
-  <span class="vd-pct" style="width:48px;text-align:right;opacity:.85;font-variant-numeric:tabular-nums;white-space:nowrap">100%</span>
+<!-- DUAL 双轨连续人声「垂直调音条」：仅分离完成的纯音频歌、且浏览器支持时，点击呼出控制条里的
+     「原/伴唱」按钮后，在该按钮正上方弹出；点按钮=人声开/关，在竖条上上下滑动(或遥控器上/下键)
+     连续细调，闲置约2.6s自动收起。未分离/回退五档的歌曲不弹，继续走旧的原/伴唱按钮。 -->
+<div id="vv-pop" style="display:none;position:fixed;z-index:80;flex-direction:column;align-items:center;gap:8px;padding:12px 10px 10px;border-radius:18px;background:rgba(10,10,28,.8);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.18);box-shadow:0 8px 28px rgba(0,0,0,.4);color:#fff;user-select:none;-webkit-user-select:none;touch-action:none;">
+  <div id="vv-pct" style="font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;line-height:1;">100%</div>
+  <div id="vv-track" tabindex="0" role="slider" aria-label="人声音量" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" style="position:relative;width:16px;height:168px;border-radius:999px;background:rgba(255,255,255,.18);outline:none;cursor:pointer;">
+    <div id="vv-fill" style="position:absolute;left:0;right:0;bottom:0;height:100%;border-radius:999px;background:linear-gradient(to top,#5ec2ff,#9be7ff);"></div>
+    <div id="vv-thumb" style="position:absolute;left:50%;bottom:calc(100% - 11px);transform:translate(-50%,50%);width:26px;height:26px;border-radius:50%;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.45);"></div>
+  </div>
+  <div style="font-size:12px;opacity:.82;white-space:nowrap;line-height:1;">人声</div>
 </div>
 <div id="toast"></div>
 <div id="fx-layer"></div>
@@ -2404,12 +2408,9 @@ const VoiceManager = (() => {
   // ─────────────────── DUAL：分离双轨 + 连续人声滑块 ───────────────────
   let _dualReqId = 0;
   function dualSupported(){ return !!(window.AudioContext||window.webkitAudioContext); }
-  // 同步页面里所有滑块控件（主页/全屏可能各有一份）
+  // 把当前人声增益同步到垂直调音条；弹层的显示/隐藏由点击「原/伴唱」按钮控制，这里不主动弹出
   function syncDualUI(){
-    document.querySelectorAll('.vocal-dual').forEach(w=>{ w.style.display = dualActive ? 'flex' : 'none'; });
-    const val=Math.round(dualLevel*100);
-    document.querySelectorAll('input.vocal-range').forEach(r=>{ if(Math.round(+r.value)!==val) r.value=val; });
-    document.querySelectorAll('.vd-pct').forEach(p=>{ p.textContent=val+'%'; });
+    try{ if(window.__vvRender) window.__vvRender(dualLevel); }catch(e){}
   }
   function dualDestroyAudio(){
     if(dualRaf){ cancelAnimationFrame(dualRaf); dualRaf=0; }
@@ -2730,16 +2731,86 @@ const VoiceManager = (() => {
 
 // 首次用户交互激活 Web Audio（必须，浏览器安全策略）
 document.addEventListener('click', () => VoiceManager.wake(video), { once: false, passive: true });
-// DUAL 人声滑块：input 事件实时连续调节（不是松手才触发的 change），多个滑块互相同步
-document.addEventListener('pointerdown',(e)=>{ if(e.target&&e.target.classList&&e.target.classList.contains('vocal-range')){ try{VoiceManager.wake(video);}catch(x){} } },{passive:true});
-document.addEventListener('input',(e)=>{
-  if(e.target&&e.target.classList&&e.target.classList.contains('vocal-range')){
-    const x=Math.max(0,Math.min(100,+e.target.value))/100;
-    VoiceManager.setVocal(video,x);
-    document.querySelectorAll('input.vocal-range').forEach(r=>{ if(r!==e.target)r.value=e.target.value; });
-    document.querySelectorAll('.vd-pct').forEach(p=>p.textContent=Math.round(x*100)+'%');
+// ───────── DUAL 人声「垂直调音条」：贴在原/伴唱按钮正上方，点按钮开/关，上下拖动或遥控器上/下键细调，闲置自动收起 ─────────
+(function(){
+  const HOLD_MS=2600, STEP=0.05;
+  let pop,track,fill,thumb,pctEl,hideTimer=null,dragging=false;
+  function els(){ pop=document.getElementById('vv-pop');track=document.getElementById('vv-track');fill=document.getElementById('vv-fill');thumb=document.getElementById('vv-thumb');pctEl=document.getElementById('vv-pct'); }
+  function clamp01(x){ return Math.max(0,Math.min(1,x)); }
+  // 选当前界面真正可见的那个「原/伴唱」按钮作为竖条锚点（全屏呼出层 > 风格三 > 主页控制条）
+  window.pickVoiceAnchor=function(){
+    const ov=document.getElementById('fs-ov');
+    if(ov&&ov.classList.contains('show')){ const b=document.getElementById('ob-voice'); if(b)return b; }
+    const s3=document.getElementById('s3-stage');
+    if(s3){ try{ if(getComputedStyle(s3).display!=='none'){ const b=document.getElementById('s3-voice-btn'); if(b)return b; } }catch(e){} }
+    return document.getElementById('btn-voice');
+  };
+  function render(lv){
+    if(!pop)els(); if(!pop)return;
+    lv=clamp01(lv==null?(VoiceManager.vocalLevel||0):lv);
+    const p=Math.round(lv*100);
+    if(fill)fill.style.height=p+'%';
+    if(thumb)thumb.style.bottom='calc('+p+'% - 11px)';
+    if(pctEl)pctEl.textContent=p+'%';
+    if(track)track.setAttribute('aria-valuenow',String(p));
   }
-},{passive:true});
+  window.__vvRender=render;
+  function isUp(){ return !!pop&&pop.style.display!=='none'; }
+  function armHide(){ clearTimeout(hideTimer); hideTimer=setTimeout(window.hideVocalPop,HOLD_MS); }
+  // 拖竖条时顺便给全屏控制层「续命」，避免调到一半控制条先消失
+  function keepOverlayAlive(){ try{ if(typeof isFS!=='undefined'&&isFS&&typeof showOverlay==='function')showOverlay(); }catch(e){} }
+  function position(anchor){
+    if(!anchor||!pop)return;
+    // getBoundingClientRect 是 body transform:scale 之后的物理坐标，而 #vv-pop 是 body 直接子级、
+    // 按缩放前虚拟画布定位，故除以 window.__uiScale 换算（同 repositionS3Qr 的做法），避免老电视跑位
+    const sc=window.__uiScale||1;
+    const r=anchor.getBoundingClientRect();
+    pop.style.display='flex';
+    const left=(r.left+r.width/2)/sc;        // 水平对准按钮中心
+    const bottom=(window.innerHeight-r.top+12)/sc; // 正好落在按钮上沿之上 12px
+    pop.style.left=left+'px';
+    pop.style.bottom=bottom+'px';
+    pop.style.transform='translateX(-50%)';
+  }
+  window.showVocalPop=function(anchor){
+    els(); if(!pop)return;
+    if(!(window.VoiceManager&&VoiceManager.dualActive)){ pop.style.display='none'; return; } // 旧五档/未分离不弹
+    render(VoiceManager.vocalLevel);
+    position(anchor||window.pickVoiceAnchor());
+    armHide();
+  };
+  window.hideVocalPop=function(){ els(); if(pop)pop.style.display='none'; clearTimeout(hideTimer); dragging=false; };
+  function levelFromY(clientY){ const r=track.getBoundingClientRect(); return clamp01(1-(clientY-r.top)/r.height); }
+  function applyLV(lv){ try{VoiceManager.wake(video);}catch(e){} VoiceManager.setVocal(video,clamp01(lv)); render(VoiceManager.vocalLevel); armHide(); keepOverlayAlive(); }
+  function init(){
+    els(); if(!track||track.__vvBound)return; track.__vvBound=1;
+    track.addEventListener('pointerdown',function(e){ dragging=true; try{track.setPointerCapture(e.pointerId);}catch(x){} applyLV(levelFromY(e.clientY)); e.preventDefault(); });
+    track.addEventListener('pointermove',function(e){ if(dragging||e.buttons===1){ applyLV(levelFromY(e.clientY)); } });
+    const end=function(){ dragging=false; armHide(); };
+    track.addEventListener('pointerup',end); track.addEventListener('pointercancel',end);
+    track.addEventListener('keydown',function(e){
+      let lv=VoiceManager.vocalLevel||0,h=false;
+      if(e.key==='ArrowUp'||e.key==='ArrowRight'){ lv=clamp01(lv+STEP); h=true; }
+      else if(e.key==='ArrowDown'||e.key==='ArrowLeft'){ lv=clamp01(lv-STEP); h=true; }
+      if(h){ applyLV(lv); e.preventDefault(); e.stopPropagation(); }
+    });
+    // 竖条显示时，捕获阶段优先接管遥控器上/下键做细调，避免被全局方向焦点导航把焦点移走
+    window.addEventListener('keydown',function(e){
+      if(!isUp())return;
+      if(e.key==='ArrowUp'||e.key==='ArrowDown'){
+        const lv=clamp01((VoiceManager.vocalLevel||0)+(e.key==='ArrowUp'?STEP:-STEP));
+        applyLV(lv); e.preventDefault(); e.stopPropagation();
+      } else if(e.key==='Enter'||e.key===' '){ armHide(); }
+    },true);
+    // 点到竖条与原/伴唱按钮之外的空白处，收起竖条
+    document.addEventListener('pointerdown',function(e){
+      if(!isUp()||!pop||pop.contains(e.target))return;
+      const a=window.pickVoiceAnchor(); if(a&&a.contains(e.target))return;
+      window.hideVocalPop();
+    },true);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init); else init();
+})();
 // 新歌加载后重新检测，trackCount 由服务端 ffprobe 探测得出，见 renderAll() 里 curSong 的赋值
 video.addEventListener('loadedmetadata', () => VoiceManager.onLoad(video, curSong && curSong.audio_tracks));
 // ═══════════ 逐字歌词：解析普通/增强(enhanced)LRC，三行窗口、当前行逐字卡拉OK填色 ═══════════
@@ -3166,6 +3237,7 @@ function loadSong(v,songId,needsDownload){
   startCacheProgressPoll(needsDownload?songId:null);
   destroyHls();
   try{ VoiceManager.dualReset(); }catch(e){} // 清掉上一首的双轨、恢复背景音轨出声
+  try{ window.hideVocalPop&&window.hideVocalPop(); }catch(e){} // 同步收起人声垂直调音条
   const url=`${BASE}/hls/${songId}/master.m3u8`;
   try{ VoiceManager.prepareDual(songId); }catch(e){} // 异步探测：分离完成的纯音频歌走连续滑块
   const fallbackToRaw=()=>{
@@ -3414,9 +3486,9 @@ function renderAll(){
       // 下来的、之前 curSong 里还留着旧的媒体资源，这里顺手清掉，避免残留
       // 的 HLS/video 对象继续占用资源。
       document.getElementById('now-idle').style.display='flex';video.style.display='none';
-      if(curSong){curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();try{VoiceManager.dualReset();}catch(e){}video.removeAttribute('src');video.load();document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();}
+      if(curSong){curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();try{VoiceManager.dualReset();}catch(e){}try{window.hideVocalPop&&window.hideVocalPop();}catch(x){}video.removeAttribute('src');video.load();document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();}
     }
-  }else{document.getElementById('now-idle').style.display='flex';video.style.display='none';document.getElementById('now-info').classList.remove('show');document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();hideToast();curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();try{VoiceManager.dualReset();}catch(e){}video.removeAttribute('src');video.load();
+  }else{document.getElementById('now-idle').style.display='flex';video.style.display='none';document.getElementById('now-info').classList.remove('show');document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();hideToast();curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();try{VoiceManager.dualReset();}catch(e){}try{window.hideVocalPop&&window.hideVocalPop();}catch(x){}video.removeAttribute('src');video.load();
     if(!queueData.length)singSessionStart=null; // 队列彻底清空，视为这一场欢唱结束，下次开唱重新计时
     curSongStartTime=null;clearTimeout(fsBannerTimer); // 没歌在播，全屏"每首歌2分钟后展示一次"的计时器也一并作废
     hideSongIntro();
@@ -3515,6 +3587,8 @@ function localToggleVoice(){
   const s3voice=document.getElementById('s3-voice-btn');if(s3voice)s3voice.classList.toggle('act',notOrig);
   reportPlaybackState();
   showToast(label);
+  // DUAL 连续模式：点「原/伴唱」=人声开/关，并在按钮正上方弹出垂直调音条；旧五档/未分离不弹
+  try{ if(VoiceManager.dualActive){ window.showVocalPop(window.pickVoiceAnchor()); } else { window.hideVocalPop(); } }catch(e){}
 }
 function toggleVoice(){
   if(!isActivePlayer){sendWS({type:'control',action:'voice'});return;}
@@ -3843,7 +3917,7 @@ function exitKtvFullscreen(){
     var el=document.getElementById(id); if(el){el.classList.remove('fs-layer');nowPanel.appendChild(el);}
   });
   restoreVideoPlayback(wasPlaying,t);setTimeout(function(){restoreVideoPlayback(wasPlaying,t);},120);
-  fsTap.classList.remove('on');fsOv.classList.remove('show');document.getElementById('fsq').classList.remove('open');clearTimeout(ovTimer);popFocus();forceS3CarouselRepaint();
+  fsTap.classList.remove('on');fsOv.classList.remove('show');document.getElementById('fsq').classList.remove('open');clearTimeout(ovTimer);try{window.hideVocalPop&&window.hideVocalPop();}catch(e){}popFocus();forceS3CarouselRepaint();
   // 退回主界面：常驻横幅重新接管——去掉全屏专用的隐藏态，续上持续滚动循环
   // (runHomeCycle 之前因为 isFS 变 true 已经自己停了，这里重新点火)。
   const bar=document.getElementById('next-up-bar');
@@ -3857,7 +3931,7 @@ function exitKtvFullscreen(){
 // 其它按钮永远轮不到。修复：只有"从隐藏变为显示"的那一次才需要重置焦点，已经显示时的
 // 刷新（保活计时器）不应该改变当前焦点位置。
 function showOverlay(){fsTap.classList.remove('on');const wasHidden=!fsOv.classList.contains('show');fsOv.classList.add('show');clearTimeout(ovTimer);ovTimer=setTimeout(hideOverlay,5000);if(wasHidden)focIdx=0;}
-function hideOverlay(){fsOv.classList.remove('show');if(isFS)fsTap.classList.add('on');}
+function hideOverlay(){fsOv.classList.remove('show');if(isFS)fsTap.classList.add('on');try{window.hideVocalPop&&window.hideVocalPop();}catch(e){}}
 fsOv.addEventListener('click',e=>{if(!e.target.closest('.ob,#ov-back,#prog-bar')){clearTimeout(ovTimer);ovTimer=setTimeout(hideOverlay,5000);}});
 function toggleFsQueue(){const q=document.getElementById('fsq');q.classList.toggle('open');if(q.classList.contains('open'))renderFsQueue();}
 function closeFsQueue(){document.getElementById('fsq').classList.remove('open');}
