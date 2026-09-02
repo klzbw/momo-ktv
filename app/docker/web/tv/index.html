@@ -5123,53 +5123,72 @@ s3Layout();
 applyS3Layout();
 document.addEventListener('DOMContentLoaded',()=>{s3Layout();applyS3Layout();});
 fetch('/api/queue').then(r=>r.json()).then(d=>{queueData=d;renderAll();});
-// ============ 触屏(iOS iPad/iPhone、触控屏)：三指呼出控制条 + 长按歌词1秒拖动位置 ============
+// ============ 触屏(iOS iPad/iPhone、触控屏)统一手势：点按呼出 / 三指呼出 / 长按拖歌词 ============
+// 关键：全部在 document 捕获阶段处理，不依赖 #fs-tap 的合成 click——iOS WKWebView 里动态移动的
+// div 即使有 cursor:pointer，被高层级 canvas(纯音频动态背景)盖住时 click 也可能不派发；捕获阶段
+// 直接拿原始 touch，任何层级遮挡都能响应，这是纯音频呼不出控件的兜底修复。
 (function(){
-  // (1) 三指手势：全屏播放时三指同时触摸，强制呼出控制条，capture+preventDefault 绕过任何层级遮挡与系统多指手势
-  document.addEventListener('touchstart',function(e){
-    if((typeof isFS!=='undefined'&&isFS)&&e.touches.length===3){
-      e.preventDefault();
-      try{ if(typeof showOverlay==='function')showOverlay(); }catch(_){}
-    }
-  },{passive:false,capture:true});
-  // (2) 单指按住屏幕 1 秒进入"歌词拖动"，上下滑动调整歌词上下位置(--lyrics-pos=bottom%，0~60)
   const root=document.documentElement;
-  let pressTimer=null,dragActive=false,startY=0,startPos=0;
+  let sx=0,sy=0,st=0,moved=false,longTimer=null,dragging=false,startPos=0,multi=false;
   function curPos(){const v=parseFloat(getComputedStyle(root).getPropertyValue('--lyrics-pos'));return isNaN(v)?18:v;}
   function setPos(v){v=Math.max(0,Math.min(60,Math.round(v)));root.style.setProperty('--lyrics-pos',String(v));return v;}
   function ovShown(){const ov=document.getElementById('fs-ov');return !!(ov&&ov.classList.contains('show'));}
+  function fsOn(){return (typeof isFS!=='undefined'&&!!isFS);}
+  function onInteractive(t){
+    try{return !!(t&&t.closest&&t.closest('.ob,#ov-back,#prog-bar,#fsq,button,input,a,label'));}catch(e){return false;}
+  }
   document.addEventListener('touchstart',function(e){
-    if(typeof isFS==='undefined'||!isFS||e.touches.length!==1)return;
-    if(ovShown())return;                 // 控制条显示时让给按钮操作，不抢手势
-    dragActive=false;startY=e.touches[0].clientY;startPos=curPos();
-    clearTimeout(pressTimer);
-    pressTimer=setTimeout(function(){
-      dragActive=true;
-      try{if(typeof showToast==='function')showToast('按住并上下拖动，调整歌词位置');}catch(_){}
-    },1000);
-  },{passive:true});
-  document.addEventListener('touchmove',function(e){
-    if(typeof isFS==='undefined'||!isFS)return;
-    if(!dragActive){
-      if(e.touches.length===1&&Math.abs(e.touches[0].clientY-startY)>10)clearTimeout(pressTimer);
+    if(!fsOn())return;
+    if(e.touches.length===3){
+      multi=true;clearTimeout(longTimer);dragging=false;
+      e.preventDefault();
+      try{if(typeof showOverlay==='function')showOverlay();}catch(_){}
       return;
     }
-    if(e.touches.length!==1)return;
-    e.preventDefault();
-    const h=window.innerHeight||1,dy=startY-e.touches[0].clientY; // 上滑 dy>0 => bottom% 增大 => 歌词上移
-    setPos(startPos+dy/h*60);
-  },{passive:false});
-  function endDrag(){
-    clearTimeout(pressTimer);
-    if(dragActive){
-      dragActive=false;const v=setPos(curPos());
+    if(e.touches.length!==1){clearTimeout(longTimer);dragging=false;multi=true;return;}
+    multi=false;
+    const t=e.touches[0];sx=t.clientX;sy=t.clientY;st=Date.now();moved=false;dragging=false;
+    clearTimeout(longTimer);
+    if(ovShown()||onInteractive(e.target))return;
+    startPos=curPos();
+    longTimer=setTimeout(function(){
+      if(!moved&&!ovShown()){
+        dragging=true;
+        try{if(typeof showToast==='function')showToast('上下拖动调整歌词位置');}catch(_){}
+      }
+    },800);
+  },{passive:false,capture:true});
+  document.addEventListener('touchmove',function(e){
+    if(!fsOn()||e.touches.length!==1)return;
+    const t=e.touches[0];
+    if(Math.abs(t.clientX-sx)>10||Math.abs(t.clientY-sy)>10){moved=true;if(!dragging)clearTimeout(longTimer);}
+    if(dragging){
+      e.preventDefault();
+      const h=window.innerHeight||1,dy=sy-t.clientY;
+      setPos(startPos+dy/h*60);
+    }
+  },{passive:false,capture:true});
+  function finish(e){
+    if(!fsOn())return;
+    clearTimeout(longTimer);
+    if(dragging){
+      dragging=false;const v=setPos(curPos());
       try{localStorage.setItem('momoLyricsPos',String(v));}catch(_){}
-      try{if(window.sendWS)sendWS({type:'lyrics_style',posV:v});}catch(_){} // 同步其它播放端
+      try{if(window.sendWS)sendWS({type:'lyrics_style',posV:v});}catch(_){}
       try{if(typeof showToast==='function')showToast('歌词位置已保存');}catch(_){}
+      if(e&&e.preventDefault)e.preventDefault();
+      return;
+    }
+    if(multi)return;
+    if(e&&e.changedTouches&&e.changedTouches.length===1){
+      const dt=Date.now()-st;
+      if(dt<450&&!moved&&!ovShown()&&!onInteractive(e.target)){
+        try{if(typeof showOverlay==='function')showOverlay();}catch(_){}
+      }
     }
   }
-  document.addEventListener('touchend',endDrag,{passive:true});
-  document.addEventListener('touchcancel',endDrag,{passive:true});
+  document.addEventListener('touchend',finish,{passive:false,capture:true});
+  document.addEventListener('touchcancel',function(){clearTimeout(longTimer);dragging=false;multi=false;},{capture:true});
 })();
 </script>
 </body>

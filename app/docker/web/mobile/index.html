@@ -27,14 +27,13 @@ header{
 .brand{font-size:17px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 常驻播放控制行：改成一行显示，不允许换行；曲库搜索/遥控/队列各 tab 切换时
    都保持可见，不再收在"遥控"tab 里，也不需要额外的卡片背景/标题包裹。 */
-.ctrl-row.main-row{display:flex;flex-wrap:nowrap;gap:8px;margin-top:12px}
-.ctrl-row.main-row .ctrl-btn{min-width:0;max-width:none;flex:1 1 0;padding:9px 2px}
-.ctrl-row.main-row .ci svg{width:19px;height:19px}
-.ctrl-row.main-row .cl{font-size:10.5px;white-space:nowrap}
-/* 常驻快捷行：把"背景效果切换"和"歌词上下位置"从下方设置区上移到主控按钮旁，切任何 tab 都可见 */
+.ctrl-row.main-row{display:flex;flex-wrap:nowrap;gap:6px;margin-top:12px}
+.ctrl-row.main-row .ctrl-btn{min-width:0;max-width:none;flex:1 1 0;padding:9px 1px;gap:2px}
+.ctrl-row.main-row .ci svg{width:17px;height:17px}
+.ctrl-row.main-row .ci{font-size:16px;line-height:1}
+.ctrl-row.main-row .cl{font-size:10px;white-space:nowrap}
+/* 常驻快捷行：歌词上下位置滑块(背景切换已并入主控行第5键)，切任何 tab 都可见 */
 .main-quick{display:flex;align-items:center;gap:8px;margin-top:8px}
-.main-quick .mq-bg{flex:0 0 auto;border:none;border-radius:12px;padding:9px 14px;font-size:12.5px;font-weight:700;white-space:nowrap;color:#fff;background:linear-gradient(135deg,#8e3cff,#5b2ee0);cursor:pointer}
-.main-quick .mq-bg:active{filter:brightness(1.15)}
 .main-quick .mq-pos{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.06);border-radius:12px;padding:7px 12px}
 .main-quick .mq-pos .mq-lab{font-size:12.5px;color:var(--text);white-space:nowrap;font-weight:600}
 .main-quick .mq-pos input[type=range]{flex:1 1 auto;min-width:0;margin:0}
@@ -321,12 +320,17 @@ header{
     <div class="ctrl-btn red" onclick="sendCtrl('next')">
       <span class="ci"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 4 15 12 5 20 5 4"/><rect x="17" y="4" width="2" height="16"/></svg></span><span class="cl">切歌</span>
     </div>
+    <div class="ctrl-btn purple" onclick="sendCtrl('bg_next')">
+      <span class="ci">✦</span><span class="cl">背景</span>
+    </div>
+    <div class="ctrl-btn cyan" onclick="sendCtrl('fullscreen')">
+      <span class="ci">⛶</span><span class="cl">全屏</span>
+    </div>
   </div>
 
-  <!-- 常驻快捷行：背景效果切换 + 歌词上下位置（原在下方"动态背景/歌词样式"区，上移到主控按钮旁） -->
+  <!-- 常驻快捷行：歌词上下位置（背景切换已并入上方主控行第5键） -->
   <div class="main-quick">
-    <button class="mq-bg" type="button" onclick="sendCtrl('bg_next')">✦ 背景效果</button>
-    <div class="mq-pos">
+    <div class="mq-pos" style="flex:1 1 auto">
       <span class="mq-lab">歌词位置</span>
       <input type="range" id="lyrics-pos" min="0" max="60" step="1" value="0" oninput="sendLyricsStyle()">
       <span class="mq-val" id="lyrics-pos-val">0</span>
