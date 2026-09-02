@@ -13,7 +13,6 @@ const { ensureHLS, removeHLS, outDir, waitForFile, onBuildComplete } = require('
 const sourceCache = require('./sourceCache');
 const { schedulePreload, setPreloadUpdateNotifier, setDecodeMode } = require('./queuePreload');
 const cacheCleaner = require('./cacheCleaner');
-const autoCleaner = require('./autoCleaner');
 const lyricsMod = require('./lyrics');
 const sepMod = require('./separate');
 const catalog = require('./catalog');
@@ -1848,112 +1847,6 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
   }
 });
 
-// ---------- 自动清理（separated 分离产物 + 损坏文件 + 孤儿记录 + 任务历史） ----------
-// 配合「曲库管理」页面的"自动清理"面板：
-//   - separated 人声分离产物缓存清理（按空间限额 / 按点歌时间，策略可切换）
-//   - 损坏文件检测与管理（连续探测失败超过阈值自动标记，可预览/删除/取消标记）
-//   - 孤儿记录检测（数据库有记录但文件已不存在，仅检测不自动删除）
-//   - 分离任务历史清理（自动清理超过 30 天的 failed 任务）
-app.get('/api/admin/autoclean/settings', requireAdminAuth, (req, res) => {
-  res.json({ ok: true, sep: autoCleaner.getSepSettings(), damageThreshold: autoCleaner.getDamageThreshold() });
-});
-
-app.post('/api/admin/autoclean/settings', requireAdminAuth, (req, res) => {
-  const { sepMode, sepSizeLimitGB, sepTimeDays, damageThreshold } = req.body || {};
-  if (sepMode && sepMode !== 'size' && sepMode !== 'time') return res.status(400).json({ error: 'separated 清理方式应为 size 或 time' });
-  const saved = autoCleaner.saveSepSettings({ mode: sepMode, sizeLimitGB: Number(sepSizeLimitGB), timeDays: Number(sepTimeDays) });
-  if (Number(damageThreshold) > 0) autoCleaner.setDamageThreshold(Number(damageThreshold));
-  log.info('ADMIN', `自动清理策略已更新: separated=${saved.mode === 'size' ? `空间限额 ${saved.sizeLimitGB}GB` : `点歌时间 ${saved.timeDays}天`}`);
-  res.json({ ok: true, sep: saved, damageThreshold: autoCleaner.getDamageThreshold() });
-});
-
-app.get('/api/admin/autoclean/stats', requireAdminAuth, (req, res) => {
-  const sepStats = autoCleaner.getSepStats();
-  res.json({
-    ok: true,
-    separated: {
-      count: sepStats.count,
-      totalSizeGB: +(sepStats.totalSize / 1073741824).toFixed(2),
-      orphanCount: sepStats.orphanCount,
-      mode: sepStats.mode,
-      sizeLimitGB: sepStats.sizeLimitGB,
-      timeDays: sepStats.timeDays,
-    },
-    damaged: { count: autoCleaner.getDamagedCount() },
-  });
-});
-
-app.post('/api/admin/autoclean/sep/clean', requireAdminAuth, (req, res) => {
-  try {
-    const result = autoCleaner.runSepCleanup();
-    const totalRemoved = (result.removed || 0) + (result.orphan ? result.orphan.removed : 0);
-    const totalFreed = (result.freed || 0) + (result.orphan ? result.orphan.freed : 0);
-    log.info('ADMIN', `管理员手动清理 separated 分离产物: 方式=${result.mode}，共清理 ${totalRemoved} 个(含孤儿 ${result.orphan ? result.orphan.removed : 0} 个)，释放约 ${(totalFreed / 1073741824).toFixed(2)}GB`);
-    res.json({ ok: true, ...result });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post('/api/admin/autoclean/sep/clean-all', requireAdminAuth, (req, res) => {
-  try {
-    const result = autoCleaner.cleanupSepAll();
-    log.info('ADMIN', `管理员手动清理全部分离产物: 共清理 ${result.removed} 个，释放约 ${(result.freed / 1073741824).toFixed(2)}GB`);
-    res.json({ ok: true, ...result });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.get('/api/admin/autoclean/damaged', requireAdminAuth, (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
-  const songs = autoCleaner.getDamagedSongs(limit);
-  res.json({ ok: true, total: autoCleaner.getDamagedCount(), items: songs });
-});
-
-app.post('/api/admin/autoclean/damaged/clear', requireAdminAuth, (req, res) => {
-  const { ids } = req.body || {};
-  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '未指定歌曲' });
-  const count = autoCleaner.clearDamageFlag(ids);
-  log.info('ADMIN', `自动清理: 取消 ${count} 首歌曲的损坏标记`);
-  res.json({ ok: true, count });
-});
-
-app.post('/api/admin/autoclean/damaged/delete', requireAdminAuth, (req, res) => {
-  const { ids } = req.body || {};
-  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '未指定歌曲' });
-  const result = autoCleaner.deleteDamagedSongs(ids, deleteSongCascade);
-  log.info('ADMIN', `自动清理: 删除损坏歌曲 ${result.deleted} 首，失败 ${result.failed} 首`);
-  res.json({ ok: true, ...result });
-});
-
-app.get('/api/admin/autoclean/orphans', requireAdminAuth, (req, res) => {
-  const orphans = autoCleaner.findOrphanSongs();
-  res.json({ ok: true, total: orphans.length, items: orphans.slice(0, 200) });
-});
-
-app.post('/api/admin/autoclean/orphans/delete', requireAdminAuth, (req, res) => {
-  const { ids } = req.body || {};
-  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '未指定歌曲' });
-  let deleted = 0, failed = 0;
-  for (const id of ids) {
-    try { deleteSongCascade(id); deleted++; }
-    catch (e) { log.error('ADMIN', `删除孤儿歌曲失败 id=${id}: ${e.message}`); failed++; }
-  }
-  log.info('ADMIN', `自动清理: 删除孤儿歌曲 ${deleted} 首，失败 ${failed} 首`);
-  res.json({ ok: true, deleted, failed });
-});
-
-app.post('/api/admin/autoclean/run-all', requireAdminAuth, (req, res) => {
-  try {
-    const result = autoCleaner.runAutoCleanup({ deleteSongCascadeFn: deleteSongCascade });
-    log.info('ADMIN', `管理员触发全面自动清理完成`);
-    res.json({ ok: true, ...result });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // ---------- 曲库来源(网盘/本地目录选择 + 网盘本地缓存调优) ----------
 // 需求(网盘等具体设置从 docker-compose.yml 移到曲库后台)：docker-compose.yml
 // 现在只固定挂载两个通用目录——本地 /mv、网络/网盘 /mv-net，用户只需要把
@@ -2864,19 +2757,6 @@ log.info('CACHE_CLEAN', '曲库缓存清理任务已注册（每日兜底一次 
 setTimeout(() => sourceCache.runCleanup(validSongIds), 6 * 60 * 1000).unref();
 setInterval(() => sourceCache.runCleanup(validSongIds), DAY_MS).unref();
 log.info('CACHE_CLEAN', `网盘本地缓存清理任务已注册（目录: ${sourceCache.CACHE_DIR}）`);
-
-// 自动清理任务：separated 分离产物 + 损坏文件检测 + 孤儿记录检测 + 任务历史清理
-// 启动后 7 分钟首次运行，之后每天一次。separated 清理按管理员保存的策略执行，
-// 孤儿记录只检测不自动删除（安全起见，需管理员在后台确认后手动删除）。
-setTimeout(() => {
-  try { autoCleaner.runAutoCleanup({ deleteSongCascadeFn: deleteSongCascade }); }
-  catch (e) { log.warn('AUTO_CLEAN', `首次自动清理异常: ${e.message}`); }
-}, 7 * 60 * 1000).unref();
-setInterval(() => {
-  try { autoCleaner.runAutoCleanup({ deleteSongCascadeFn: deleteSongCascade }); }
-  catch (e) { log.warn('AUTO_CLEAN', `每日自动清理异常: ${e.message}`); }
-}, DAY_MS).unref();
-log.info('AUTO_CLEAN', '自动清理任务已注册（每日一次：separated 分离产物清理 + 损坏文件检测 + 孤儿记录检测 + 旧任务清理）');
 
 onBuildComplete(() => {
   try {
