@@ -35,5 +35,12 @@ save_ai_mode "$AI_MODE"
 configure_ai_worker "$COMPOSE_FILE" "$AI_MODE"
 echo "[install] AI worker 模式: $AI_MODE（external=外置PC显卡 / cpu=本机CPU / cuda=本机N卡）"
 
-cd "${TRIM_APPDEST}/docker" && docker compose pull
+cd "${TRIM_APPDEST}/docker"
+# 主服务镜像同步拉取（体积小，安装必须等它）；本机 AI 模式的 AI 镜像较大（CPU 版约
+# 1.5GB、N卡版约 6-8GB），放后台预拉，避免飞牛安装回调因长时间 pull 超时。AI 容器是
+# restart:unless-stopped，镜像在后台拉到位后会自动拉起；日志见 /tmp/momo-ai-pull.log。
+docker compose pull momo-ktv
+if [ "$AI_MODE" != "external" ]; then
+    nohup docker compose pull >/tmp/momo-ai-pull.log 2>&1 &
+fi
 exit 0
