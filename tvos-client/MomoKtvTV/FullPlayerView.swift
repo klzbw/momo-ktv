@@ -345,10 +345,10 @@ struct FullPlayerView: View {
                             .onMoveCommand { direction in
                                 // 原唱按钮聚焦时，遥控器上下键直接调节人声音量(消音程度)
                                 if direction == .up {
-                                    playerManager.nudgeVocalLevel(+0.05)
+                                    playerManager.nudgeVocalLevel(+0.1)
                                     showVocalHUD()
                                 } else if direction == .down {
-                                    playerManager.nudgeVocalLevel(-0.05)
+                                    playerManager.nudgeVocalLevel(-0.1)
                                     showVocalHUD()
                                 }
                             }
@@ -533,29 +533,38 @@ struct FullPlayerView: View {
 
             // 人声音量 HUD：原唱按钮聚焦时上下键调节，在屏幕中央显示音量大小，2秒后自动隐藏
             if vocalHUDVisible {
-                VStack(spacing: 16) {
+                // 纵向玻璃质感 HUD：垂直进度条从底部填充，半透明毛玻璃背景
+                VStack(spacing: 18) {
                     Text(playerManager.vocalTrackLabel)
-                        .font(.system(size: 30, weight: .bold))
+                        .font(.system(size: 32, weight: .bold))
                         .foregroundColor(.white)
-                    Text("人声 \(playerManager.vocalVolumePercent)%")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.8))
+                    // 垂直进度条：底部=纯伴奏(0)，顶部=原唱(1)
                     GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(Color.white.opacity(0.2))
-                            Capsule().fill(Color(hex: 0xFFD700))
-                                .frame(width: max(0, geo.size.width * CGFloat(playerManager.vocalLevel)))
+                        ZStack(alignment: .bottom) {
+                            Capsule().fill(Color.white.opacity(0.25))
+                            Capsule().fill(
+                                LinearGradient(colors: [Color(hex: 0xFFD700), Color(hex: 0xFFA500)],
+                                               startPoint: .bottom, endPoint: .top)
+                            )
+                            .frame(height: max(0, geo.size.height * CGFloat(playerManager.vocalLevel)))
                         }
                     }
-                    .frame(width: 360, height: 10)
+                    .frame(width: 20, height: 220)
+                    Text("\(playerManager.vocalVolumePercent)%")
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundColor(.white)
                     Text("上下键调节 · 确认键切换")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.white.opacity(0.5))
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundColor(.white.opacity(0.6))
                 }
-                .padding(.horizontal, 48)
-                .padding(.vertical, 32)
-                .background(Color.black.opacity(0.75))
-                .cornerRadius(24)
+                .padding(.horizontal, 52)
+                .padding(.vertical, 40)
+                .background(.ultraThinMaterial)  // 毛玻璃质感
+                .cornerRadius(32)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 32)
+                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                )
                 .transition(.opacity)
                 .zIndex(30)
             }
