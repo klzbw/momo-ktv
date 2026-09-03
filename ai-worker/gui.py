@@ -472,7 +472,8 @@ class AIWorkstationGUI:
             'device': self.config['device'],
             'demucs_model': self.config['demucs_model'],
             'whisper_model': self.config['whisper_model'],
-            'batch_size': self.config['batch_size']
+            'batch_size': self.config['batch_size'],
+            'capability': 'gpu' if self.config.get('device') == 'cuda' else 'cpu'
         }
         with open(script_dir / 'worker_config.json', 'w', encoding='utf-8') as f:
             json.dump(worker_config, f, indent=2, ensure_ascii=False)

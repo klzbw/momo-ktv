@@ -191,13 +191,17 @@ class MomoWorker:
     def loop(self):
         log(f'Worker 启动 server={self.server} name={self.worker} mode={self.mode} capability={self.capability}')
         idle_round = 0
+        rr = 0  # round-robin: 轮流从 separate/align 开始，避免分离任务多时对齐被饿死
         while True:
             got = False
-            for kind in self.kinds:
+            n = len(self.kinds)
+            for i in range(n):
+                kind = self.kinds[(rr + i) % n]
                 task = self.claim(kind)
                 if task:
                     got = True; idle_round = 0
                     self.handle(task)
+                    rr += 1  # 下轮从另一种任务开始，保证 separate/align 交替执行
                     break
             if not got:
                 idle_round += 1
