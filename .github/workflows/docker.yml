@@ -57,6 +57,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BUILD_TIME=${{ github.run_attempted_at }}
           # 关键：禁用构建期层缓存。曾出现 git 源码已修好，但 COPY server 命中
           # gha 旧层导致镜像里一直是旧文件、NAS 拉到的层 "Already exists" 永不更新。
           # server/web 体积很小，全量重建多花 2-3 分钟，换"镜像内容恒等于当前 git 源码"。

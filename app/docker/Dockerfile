@@ -32,6 +32,10 @@ ENV DATA_DIR=/data
 ENV MV_DIR=/mv
 ENV PORT=8080
 
+# 构建时间元数据：每次构建注入，确保 GHCR latest digest 变化，驱动 watchtower 自动更新
+ARG BUILD_TIME=unknown
+LABEL org.opencontainers.image.created=$BUILD_TIME
+
 EXPOSE 8080
 VOLUME ["/data", "/mv"]
 
