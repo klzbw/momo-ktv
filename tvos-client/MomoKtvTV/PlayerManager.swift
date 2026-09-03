@@ -25,7 +25,9 @@ class PlayerManager: ObservableObject {
     private(set) var dualSongId: Int?
     private var dualAudioMix: AVMutableAudioMix?
     private var dualVocalParams: AVMutableAudioMixInputParameters?
-    private var dualAccompParams: AVMutableAudioMixInputParameters?  // 伴奏轨params，applyDualVolume重建mix时需要
+    private var dualAccompParams: AVMutableAudioMixInputParameters?
+    private var dualVocalTrack: AVMutableCompositionTrack?   // composition里的人声轨引用，创建新params用
+    private var dualAccompTrack: AVMutableCompositionTrack?  // composition里的伴奏轨引用
     /// 加载代号：setupPlayer/activateDual 时递增，过期的异步结果直接丢弃
     private var loadGeneration: Int = 0
     /// 记录当前歌曲的 HLS 地址：DUAL 升级后 asset 变为 Composition，重唱判断仍需它
@@ -377,6 +379,8 @@ class PlayerManager: ObservableObject {
                 self.dualAudioMix = mix
                 self.dualVocalParams = vParams
                 self.dualAccompParams = aParams
+                self.dualVocalTrack = cVocal
+                self.dualAccompTrack = cAcc
                 self.dualSongId = songId
                 let item = AVPlayerItem(asset: composition)
                 item.audioMix = mix
@@ -402,11 +406,11 @@ class PlayerManager: ObservableObject {
     ///        调用 setVolumeRamp 会累积多个音量渐变段，导致音量设置混乱/不生效。
     ///        用 trackID 创建新对象 + setVolume(_:at:) 设置恒定音量，干净可靠。
     private func applyDualVolume() {
-        guard let oldVParams = dualVocalParams, let oldAParams = dualAccompParams else { return }
+        guard let vTrack = dualVocalTrack, let aTrack = dualAccompTrack else { return }
         let q = max(0, min(1, vocalLevel))
-        // 用旧 params 的 trackID 创建新对象，避免累积音量段
-        let vParams = AVMutableAudioMixInputParameters(trackID: oldVParams.trackID)
-        let aParams = AVMutableAudioMixInputParameters(trackID: oldAParams.trackID)
+        // 每次创建新的 params 对象（用 composition 里的 track 引用），避免复用旧对象累积音量段
+        let vParams = AVMutableAudioMixInputParameters(track: vTrack)
+        let aParams = AVMutableAudioMixInputParameters(track: aTrack)
         vParams.setVolume(q, at: .zero)
         aParams.setVolume(1.0, at: .zero)
         let newMix = AVMutableAudioMix()
@@ -539,6 +543,9 @@ class PlayerManager: ObservableObject {
         dualSongId = nil
         dualAudioMix = nil
         dualVocalParams = nil
+        dualAccompParams = nil
+        dualVocalTrack = nil
+        dualAccompTrack = nil
         vocalLevel = 1
     }
 }
