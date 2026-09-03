@@ -186,13 +186,17 @@ class PlayerManager: ObservableObject {
         player.play()
         isPlaying = true
 
-        // 强制从曲首起播（HLS event 未写 ENDLIST 时 AVPlayer 会误当直播从末尾起播），两次 seek 兜底
-        player.seek(to: CMTime.zero)
-        currentTime = 0
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self = self, self.player === player else { return }
-            self.player?.seek(to: CMTime.zero)
-            self.currentTime = 0
+        // 仅 HLS 首次起播需要强制从曲首（HLS event 未写 ENDLIST 时 AVPlayer 会误当直播从末尾起播）。
+        // DUAL 切换(isDual=true)时必须跳过此强制 seek，否则会覆盖 activateDual 的 seek(to: resumeAt)，
+        // 导致切换后进度被拉回曲首、0.5秒后再次 seek to zero 使暂停失效/一直"重新演唱"。
+        if !isDual {
+            player.seek(to: CMTime.zero)
+            currentTime = 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self = self, self.player === player else { return }
+                self.player?.seek(to: CMTime.zero)
+                self.currentTime = 0
+            }
         }
 
         if isDual { applyDualVolume() } else { applyVoiceMode() }
@@ -376,8 +380,14 @@ class PlayerManager: ObservableObject {
                 self.dualEnabled = true
                 self.voiceGeneration += 1
                 self.installPlayerItem(item, isDual: true)
-                if resumeAt > 0.5 { self.seek(to: resumeAt) }
-                print("[PlayerManager] DUAL 双FLAC已启用 song=\(songId)")
+                // DUAL 切换后继承原播放进度：延迟 0.3s 等 item 准备好再 seek，避免 seek 被忽略
+                if resumeAt > 0.5 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                        guard let self = self, self.dualEnabled, self.dualSongId == songId else { return }
+                        self.seek(to: resumeAt)
+                    }
+                }
+                print("[PlayerManager] DUAL 双FLAC已启用 song=\(songId) resumeAt=\(resumeAt)")
             }
         }
     }
