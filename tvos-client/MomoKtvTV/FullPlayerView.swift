@@ -345,10 +345,10 @@ struct FullPlayerView: View {
                             .onMoveCommand { direction in
                                 // 原唱按钮聚焦时，遥控器上下键直接调节人声音量(消音程度)
                                 if direction == .up {
-                                    playerManager.nudgeVocalLevel(+0.25)
+                                    playerManager.nudgeVocalLevel(+0.34)
                                     showVocalHUD()
                                 } else if direction == .down {
-                                    playerManager.nudgeVocalLevel(-0.25)
+                                    playerManager.nudgeVocalLevel(-0.34)
                                     showVocalHUD()
                                 }
                             }

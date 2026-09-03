@@ -28,6 +28,7 @@ class PlayerManager: ObservableObject {
     private var dualAccompParams: AVMutableAudioMixInputParameters?
     private var dualVocalTrack: AVMutableCompositionTrack?   // composition里的人声轨引用，创建新params用
     private var dualAccompTrack: AVMutableCompositionTrack?  // composition里的伴奏轨引用
+    private var previousVocalLevel: Float = 1.0               // 上一次的人声音量，用于丝滑渐变的起始值
     /// 加载代号：setupPlayer/activateDual 时递增，过期的异步结果直接丢弃
     private var loadGeneration: Int = 0
     /// 记录当前歌曲的 HLS 地址：DUAL 升级后 asset 变为 Composition，重唱判断仍需它
@@ -411,7 +412,20 @@ class PlayerManager: ObservableObject {
         // 每次创建新的 params 对象（用 composition 里的 track 引用），避免复用旧对象累积音量段
         let vParams = AVMutableAudioMixInputParameters(track: vTrack)
         let aParams = AVMutableAudioMixInputParameters(track: aTrack)
-        vParams.setVolume(q, at: .zero)
+        // 丝滑渐变：从当前播放时间开始，0.3秒内从 previousVocalLevel 渐变到目标音量 q
+        // 避免瞬时跳变，调节体验丝滑。timeRange 用有限值(0.3秒)，不会触发 positiveInfinity 崩溃。
+        if let player = player, player.rate > 0 {
+            let currentTime = player.currentTime()
+            if currentTime.isValid && currentTime.seconds >= 0 {
+                let rampDuration = CMTime(seconds: 0.3, preferredTimescale: 600)
+                let rampRange = CMTimeRange(start: currentTime, duration: rampDuration)
+                vParams.setVolumeRamp(fromStartVolume: previousVocalLevel, toEndVolume: q, timeRange: rampRange)
+            } else {
+                vParams.setVolume(q, at: .zero)
+            }
+        } else {
+            vParams.setVolume(q, at: .zero)
+        }
         aParams.setVolume(1.0, at: .zero)
         let newMix = AVMutableAudioMix()
         newMix.inputParameters = [vParams, aParams]
@@ -424,6 +438,7 @@ class PlayerManager: ObservableObject {
     /// DUAL：连续设置人声音量 0(纯伴奏)...1(原唱)
     func setVocalLevel(_ x: Float) {
         let q = max(0, min(1, x))
+        previousVocalLevel = vocalLevel                           // 保存旧值，用于丝滑渐变的起始音量
         vocalLevel = (q * 100).rounded() / 100                   // 量化到 1%，消除浮点抖动
         guard dualEnabled else { return }
         applyDualVolume()
@@ -546,6 +561,7 @@ class PlayerManager: ObservableObject {
         dualAccompParams = nil
         dualVocalTrack = nil
         dualAccompTrack = nil
+        previousVocalLevel = 1.0
         vocalLevel = 1
     }
 }
