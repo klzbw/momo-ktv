@@ -354,6 +354,20 @@ class KTVAPIClient: ObservableObject {
         }.resume()
     }
 
+    /// 触发某首歌的 AI 人声分离入队（已分离/分离中服务端会去重）。
+    /// 入队成功后调用方应轮询 fetchSepInfo，dual=true 时下载双轨并 activateDual 无缝切换。
+    func enqueueSeparation(songId: Int, completion: @escaping (Bool) -> Void) {
+        guard let url = self.apiURL("/api/separate/enqueue") else { completion(false); return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["song_ids": [songId], "type": "separate"])
+        URLSession.shared.dataTask(with: req) { _, resp, _ in
+            let ok = (resp as? HTTPURLResponse)?.statusCode == 200
+            DispatchQueue.main.async { completion(ok) }
+        }.resume()
+    }
+
     /// 把人声/伴奏两个 FLAC 下载到本地缓存（按 歌曲+类型 命名，已存在直接复用，二次点歌秒开）。
     /// 全部成功后回主线程返回两个本地文件 URL；任一失败回 (nil,nil)，由调用方回退 HLS。
     func downloadDualTracks(songId: Int, vocalPath: String, accompPath: String,

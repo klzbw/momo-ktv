@@ -1775,6 +1775,7 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
       <div id="mv-ctrl">
         <button class="mvbtn" data-f onclick="openPanel('eq')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg><span class="mvlbl">均衡器</span></button>
         <button class="mvbtn" data-f id="btn-voice" onclick="toggleVoice()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg><span class="mvlbl">原/伴唱</span></button>
+        <button class="mvbtn sep-btn" data-f id="btn-sep" onclick="triggerSeparation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5"/></svg><span class="mvlbl">人声分离</span></button>
         <button class="mvbtn" data-f onclick="adjVolume(-0.1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="10 5 5.5 9 2 9 2 15 5.5 15 10 19 10 5" fill="currentColor" stroke="none"/><line x1="15" y1="12" x2="22" y2="12"/></svg><span class="mvlbl">音量-</span></button>
         <button class="mvbtn" data-f id="mv-pause-btn" onclick="togglePause()"><span id="picon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg></span><span class="mvlbl" id="plbl2">播放</span></button>
         <button class="mvbtn" data-f onclick="adjVolume(0.1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="10 5 5.5 9 2 9 2 15 5.5 15 10 19 10 5" fill="currentColor" stroke="none"/><line x1="15" y1="12" x2="22" y2="12"/><line x1="18.5" y1="8.5" x2="18.5" y2="15.5"/></svg><span class="mvlbl">音量+</span></button>
@@ -1817,6 +1818,7 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
       <div id="s3-left-btns">
         <button class="mvbtn s3btn" data-f id="s3-pause-btn" onclick="togglePause()"><span id="s3-picon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg></span><span class="mvlbl" id="s3-plbl2">播放</span></button>
         <button class="mvbtn s3btn" data-f id="s3-voice-btn" onclick="toggleVoice()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg><span class="mvlbl">原/伴唱</span></button>
+        <button class="mvbtn s3btn sep-btn" data-f id="s3-sep-btn" onclick="triggerSeparation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5"/></svg><span class="mvlbl">人声分离</span></button>
         <button class="mvbtn s3btn" data-f onclick="restartSong()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg><span class="mvlbl">重唱</span></button>
         <button class="mvbtn s3btn" data-f onclick="cutSong()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 14 12 5 20 5 4" fill="currentColor" stroke="none"/><line x1="18" y1="4" x2="18" y2="20"/></svg><span class="mvlbl">切歌</span></button>
         <button class="mvbtn s3btn" data-f onclick="adjVolume(-0.1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="10 5 5.5 9 2 9 2 15 5.5 15 10 19 10 5" fill="currentColor" stroke="none"/><line x1="15" y1="12" x2="22" y2="12"/></svg><span class="mvlbl">音量-</span></button>
@@ -3244,10 +3246,13 @@ function loadSong(v,songId,needsDownload){
   destroyHls();
   try{ VoiceManager.dualReset(); }catch(e){} // 清掉上一首的双轨、恢复背景音轨出声
   try{ window.hideVocalPop&&window.hideVocalPop(); }catch(e){} // 同步收起人声垂直调音条
+  // 切歌：停止上一首的人声分离轮询
+  if(_sepPollTimer){ clearInterval(_sepPollTimer); _sepPollTimer=null; _sepPollingSongId=null; }
   const url=`${BASE}/hls/${songId}/master.m3u8`;
   // 仅纯音频歌走双FLAC连续滑块；MKV/MP4 等带画面视频保持原 HLS 多档/声道方案不动
   const _dualIsVideo = BG_VIDEO_RE.test((curSong && (curSong.filename||curSong.filepath)) || '');
-  if(!_dualIsVideo){ try{ VoiceManager.prepareDual(songId); }catch(e){} }
+  if(!_dualIsVideo){ try{ VoiceManager.prepareDual(songId); }catch(e){} try{ updateSepButton(songId); }catch(e){} }
+  else { hideSepButtons(); }
   const fallbackToRaw=()=>{
     destroyHls();
     v.src=`${BASE}/stream/${songId}`;
@@ -3598,6 +3603,77 @@ function localToggleVoice(){
   // DUAL 连续模式：点「原/伴唱」=人声开/关，并在按钮正上方弹出垂直调音条；旧五档/未分离不弹
   try{ if(VoiceManager.dualActive){ window.showVocalPop(window.pickVoiceAnchor()); } else { window.hideVocalPop(); } }catch(e){}
 }
+// ===== 人声分离转化：未分离歌 -> AI分离入队 -> 轮询 -> 完成自动prepareDual无缝切换 =====
+var _sepPollTimer=null, _sepPollingSongId=null;
+function hideSepButtons(){
+  ['btn-sep','s3-sep-btn'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display='none'; });
+}
+function showSepButtons(){
+  ['btn-sep','s3-sep-btn'].forEach(function(id){ var el=document.getElementById(id); if(el) el.style.display=''; });
+}
+function setSepButtonsLabel(txt, disabled){
+  ['btn-sep','s3-sep-btn'].forEach(function(id){
+    var el=document.getElementById(id); if(!el) return;
+    var lbl=el.querySelector('.mvlbl'); if(lbl) lbl.textContent=txt;
+    el.style.opacity = disabled ? '0.5' : '';
+    el.style.pointerEvents = disabled ? 'none' : '';
+  });
+}
+function updateSepButton(songId){
+  if(!songId){ hideSepButtons(); return; }
+  // 已在分离轮询中的歌保持按钮显示（分离中状态）
+  if(_sepPollingSongId===songId){ showSepButtons(); setSepButtonsLabel('分离中', true); return; }
+  fetch(BASE+'/api/songs/'+songId+'/sep-info',{credentials:'include'})
+    .then(function(r){ return r.ok?r.json():null; })
+    .then(function(j){
+      if(!j || j.dual){ hideSepButtons(); return; } // 已分离或查询失败，不显示
+      showSepButtons();
+      setSepButtonsLabel('人声分离', false);
+    })
+    .catch(function(){ hideSepButtons(); });
+}
+function triggerSeparation(){
+  var sid = curSong && curSong.song_id;
+  if(!sid){ showToast('请先点一首歌'); return; }
+  fetch(BASE+'/api/separate/enqueue',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({song_ids:[sid], type:'separate'}),
+    credentials:'include'
+  })
+  .then(function(r){ return r.ok?r.json():null; })
+  .then(function(j){
+    if(!j || !j.ok){ showToast('入队失败，请重试'); return; }
+    showToast('已加入人声分离队列，完成后自动切换双FLAC');
+    setSepButtonsLabel('分离中', true);
+    // 仅播放端轮询并自动切换；控制端只负责入队
+    if(!isActivePlayer) return;
+    if(_sepPollTimer) clearInterval(_sepPollTimer);
+    _sepPollingSongId = sid;
+    _sepPollTimer = setInterval(function(){
+      // 切歌保护：当前播放的不是这首歌就停止轮询
+      if(!curSong || curSong.song_id !== sid){ clearInterval(_sepPollTimer); _sepPollTimer=null; _sepPollingSongId=null; return; }
+      fetch(BASE+'/api/songs/'+sid+'/sep-info',{credentials:'include'})
+        .then(function(r){ return r.ok?r.json():null; })
+        .then(function(j){
+          if(!j) return;
+          if(j.dual){
+            clearInterval(_sepPollTimer); _sepPollTimer=null; _sepPollingSongId=null;
+            hideSepButtons();
+            showToast('人声分离完成，已切换双FLAC');
+            try{ VoiceManager.prepareDual(sid); }catch(e){}
+          } else if(j.sepStatus === 'failed'){
+            clearInterval(_sepPollTimer); _sepPollTimer=null; _sepPollingSongId=null;
+            setSepButtonsLabel('人声分离', false);
+            showToast('人声分离失败');
+          }
+        })
+        .catch(function(){});
+    }, 3000);
+  })
+  .catch(function(){ showToast('入队失败，请检查网络'); });
+}
+
 function toggleVoice(){
   if(!isActivePlayer){sendWS({type:'control',action:'voice'});return;}
   localToggleVoice();

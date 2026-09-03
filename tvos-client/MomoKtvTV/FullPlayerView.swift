@@ -41,6 +41,14 @@ struct FullPlayerView: View {
 
     @State private var lastFocusedBtn: Int = 2     // 最后操作的按钮tag，默认播放键(tag=2)
 
+    /// DUAL 人声音量条浮层：呼出时隐藏底部控制栏，只显示原唱按钮+垂直音量条
+    @State private var vocalBarVisible = false
+
+    /// 人声分离转化：是否正在轮询分离状态（按钮显示"分离中"）
+    @State private var sepPolling = false
+    @State private var sepTimer: Timer?
+    @State private var currentSepStatus: String? = nil
+
     @ObservedObject private var mic = MicLink.shared
 
     @State private var qrTab: QRTab = .order
@@ -122,6 +130,12 @@ struct FullPlayerView: View {
                 .onDisappear { cleanup() }
 
                 .onChange(of: api.queue.first(where: { $0.isPlaying })?.id) { _ in
+
+                    sepTimer?.invalidate()
+                    sepTimer = nil
+                    sepPolling = false
+                    currentSepStatus = nil
+                    vocalBarVisible = false
 
                     // Song changed, re-attach layer to ensure video shows
 
@@ -209,7 +223,7 @@ struct FullPlayerView: View {
 
 
 
-            if showControls && !showQueue && !showQR {
+            if showControls && !showQueue && !showQR && !vocalBarVisible {
 
                 // 用 GeometryReader 把控制条绝对固定在屏幕底部，彻底脱离 ZStack/背景图片布局影响
 
@@ -323,8 +337,12 @@ struct FullPlayerView: View {
 
                             TVTightButton(action: {
                                 lastFocusedBtn = 3
-                                toggleVoice()
-                                if playerManager.dualEnabled { vocalBarFocusToken += 1 } // DUAL：呼出并聚焦人声音量条
+                                if playerManager.dualEnabled {
+                                    vocalBarVisible = true
+                                    vocalBarFocusToken += 1
+                                } else {
+                                    toggleVoice()
+                                }
                             }, focusedTag: $focusedBtn, focusTag: 3, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
 
                                 controlContent(icon: "mic.fill", title: playerManager.vocalTrackLabel, focused: focused)
@@ -332,6 +350,18 @@ struct FullPlayerView: View {
                             }
 
 
+
+                            if !currentItem.isVideoFile && !playerManager.dualEnabled && currentSepStatus != "done" {
+                                TVTightButton(action: {
+                                    lastFocusedBtn = 12
+                                    triggerSeparation()
+                                }, focusedTag: $focusedBtn, focusTag: 12, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                                    controlContent(icon: sepPolling ? "waveform" : "wand.and.stars",
+                                                   title: sepPolling ? "分离中" : "人声分离",
+                                                   focused: focused)
+                                }
+                                .disabled(sepPolling)
+                            }
 
                             TVTightButton(action: { lastFocusedBtn = 4; FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill"); onNext() }, focusedTag: $focusedBtn, focusTag: 4, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
 
@@ -455,9 +485,8 @@ struct FullPlayerView: View {
 
                         // 与上方麦克风按钮共享同一状态并大屏反馈。
 
-                        if playerManager.dualEnabled {
-                            dualVocalControl
-                        } else if playerManager.vocalTrackCount >= 3 {
+                        // DUAL 双FLAC歌曲的音量条改由独立浮层显示（点原唱按钮呼出），控制栏内不再常驻
+                        if playerManager.vocalTrackCount >= 3 {
 
                             HStack(spacing: 16) {
 
@@ -528,6 +557,51 @@ struct FullPlayerView: View {
             }
 
 
+
+            if vocalBarVisible && playerManager.dualEnabled {
+                VStack(spacing: 16) {
+                    Spacer()
+                    TVTightButton(action: {
+                        vocalBarVisible = false
+                        lastFocusedBtn = 3
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { focusedBtn = 3 }
+                    }, focusedTag: $focusedBtn, focusTag: 99, onFocusChange: { _ in }) { focused in
+                        VStack(spacing: 6) {
+                            Image(systemName: "mic.fill")
+                                .font(.system(size: 36, weight: .medium))
+                                .foregroundColor(focused ? Color(hex: 0x1a1a2e) : .white)
+                            Text("原唱")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(focused ? Color(hex: 0x1a1a2e) : .white)
+                        }
+                        .frame(width: 150, height: 120)
+                        .background(focused ? Color.white : Color.white.opacity(0.2))
+                        .cornerRadius(22)
+                    }
+                    Text("原唱 · 人声\(playerManager.vocalVolumePercent)%")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.white)
+                    TVVocalSlider(
+                        level: Binding(get: { playerManager.vocalLevel },
+                                       set: { playerManager.setVocalLevel($0) }),
+                        onChange: { _ in
+                            FeedbackCenter.shared.show(playerManager.vocalTrackLabel, icon: "mic.fill")
+                            resetHideTimer()
+                        },
+                        autoFocusToken: vocalBarFocusToken
+                    )
+                    .frame(height: 220)
+                    Text("纯伴奏")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.7))
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black.opacity(0.5))
+                .transition(.opacity)
+                .zIndex(15)
+                .onAppear { resetHideTimer() }
+            }
 
             // Transparent focusable area to receive select button when controls are hidden
 
@@ -639,7 +713,9 @@ struct FullPlayerView: View {
 
         .onExitCommand {
 
-            if showQR {
+            if vocalBarVisible {
+                vocalBarVisible = false
+            } else if showQR {
 
                 showQR = false
 
@@ -870,6 +946,12 @@ struct FullPlayerView: View {
         // 切歌/全屏视图重建时，若麦克风模式仍开着则保持连接不断
 
         mic.keepAlive(api.serverAddress)
+
+        if let playing = api.queue.first(where: { $0.isPlaying }), !playing.isVideoFile {
+            api.fetchSepInfo(songId: playing.song_id) { info in
+                currentSepStatus = info?.sepStatus
+            }
+        }
 
     }
 
@@ -1399,6 +1481,9 @@ struct FullPlayerView: View {
 
         hideTimer = nil
 
+        sepTimer?.invalidate()
+        sepTimer = nil
+
     }
 
 
@@ -1438,6 +1523,50 @@ struct FullPlayerView: View {
 
         api.toggleVoice()
 
+    }
+
+    // MARK: - 人声分离转化
+
+    private func triggerSeparation() {
+        guard let playing = api.queue.first(where: { $0.isPlaying }) else { return }
+        guard !playing.isVideoFile else {
+            FeedbackCenter.shared.show("视频歌曲不支持人声分离", icon: "exclamationmark.triangle")
+            return
+        }
+        let sid = playing.song_id
+        api.enqueueSeparation(songId: sid) { ok in
+            guard ok else {
+                FeedbackCenter.shared.show("入队失败，请重试", icon: "exclamationmark.triangle")
+                return
+            }
+            sepPolling = true
+            currentSepStatus = "pending"
+            FeedbackCenter.shared.show("已加入人声分离队列，完成后自动切换", icon: "wand.and.stars")
+            sepTimer?.invalidate()
+            sepTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+                api.fetchSepInfo(songId: sid) { info in
+                    guard let info = info else { return }
+                    currentSepStatus = info.sepStatus
+                    if info.isDual {
+                        sepTimer?.invalidate()
+                        sepTimer = nil
+                        sepPolling = false
+                        guard let vPath = info.vocalUrl, let aPath = info.accompUrl else { return }
+                        api.downloadDualTracks(songId: sid, vocalPath: vPath, accompPath: aPath) { vFile, aFile in
+                            guard let vFile = vFile, let aFile = aFile else { return }
+                            guard api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
+                            playerManager.activateDual(songId: sid, vocalFile: vFile, accompFile: aFile)
+                            FeedbackCenter.shared.show("人声分离完成，已切换双FLAC", icon: "mic.fill")
+                        }
+                    } else if info.sepStatus == "failed" {
+                        sepTimer?.invalidate()
+                        sepTimer = nil
+                        sepPolling = false
+                        FeedbackCenter.shared.show("人声分离失败", icon: "exclamationmark.triangle")
+                    }
+                }
+            }
+        }
     }
 
 

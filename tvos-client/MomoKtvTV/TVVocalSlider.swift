@@ -6,7 +6,7 @@ import UIKit
 /// 底部=纯伴奏(0)，顶部=原唱(1)。与五档分段条 TVSegmentSlider 互斥（后者给 HLS 多档歌）。
 struct TVVocalSlider: View {
     @Binding var level: Float              // 0...1
-    var step: Float = 0.05
+    var step: Float = 0.025
     var onChange: (Float) -> Void = { _ in }
     /// 外部点「原/伴唱」按钮时自增该值，触发音量条主动获取遥控器焦点
     var autoFocusToken: Int
@@ -65,6 +65,8 @@ private struct _VocalCatcher: UIViewRepresentable {
         var onNudge: ((Int) -> Void)?       // -1 下调 / +1 上调
         var onPanValue: ((Float) -> Void)?  // 触摸板拖动给出的 0...1
         var lastAutoFocusToken: Int = 0   // 与外部初始 token(0) 相同：首次出现不抢焦点，仅点击按钮后才主动聚焦
+        private var lastNudgeTime: TimeInterval = 0   // 上下键防抖：Siri Remote 轻扫一次会触发多次 key repeat，合并为一次
+        private var panStartLevel: CGFloat = 0         // pan 手势开始时的音量，用于增量调节
 
         private let trackLayer = CALayer()
         private let fillLayer = CAGradientLayer()
@@ -166,11 +168,16 @@ private struct _VocalCatcher: UIViewRepresentable {
         // 遥控器方向键：垂直条只接管 上/下 调音；左/右交还给焦点引擎，以便移动到相邻控制按钮
         override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
             var handled = false
+            let now = Date.timeIntervalSinceReferenceDate
             for p in presses {
                 guard let key = p.key else { continue }
                 switch key.keyCode {
-                case .keyboardUpArrow:   onNudge?(1);  handled = true
-                case .keyboardDownArrow: onNudge?(-1); handled = true
+                case .keyboardUpArrow:
+                    if now - lastNudgeTime > 0.07 { onNudge?(1); lastNudgeTime = now }
+                    handled = true
+                case .keyboardDownArrow:
+                    if now - lastNudgeTime > 0.07 { onNudge?(-1); lastNudgeTime = now }
+                    handled = true
                 default: break
                 }
             }
@@ -178,10 +185,17 @@ private struct _VocalCatcher: UIViewRepresentable {
         }
 
         @objc private func handlePan(_ g: UIPanGestureRecognizer) {
-            let loc = g.location(in: self)
-            let trackY = (bounds.height - barHeight) / 2
-            let ratio = 1 - (loc.y - trackY) / barHeight
-            onPanValue?(Float(ratio))
+            // 增量模式：记录手势开始时的音量，用触摸板滑动距离映射音量变化，
+            // 避免绝对位置映射导致手指刚碰触摸板就跳变。250pt 滑动对应 0...1 全范围。
+            switch g.state {
+            case .began:
+                panStartLevel = level
+            case .changed:
+                let ty = g.translation(in: self).y
+                let delta = -ty / 250.0
+                onPanValue?(Float(max(0, min(1, panStartLevel + delta))))
+            default: break
+            }
         }
     }
 }
