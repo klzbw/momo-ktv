@@ -1,0 +1,95 @@
+﻿# -*- coding: utf-8 -*-
+"""
+sep_once.py —— 单首歌的人声分离（被 worker.py 以子进程方式调用，跑完即退、释放显存）
+用法: python sep_once.py <输入音频> <输出人声.wav> <输出伴奏.wav>
+模型: htdemucs（Demucs v4 通用人声/伴奏分离，效果与速度均衡）
+"""
+import sys, os, glob, shutil, tempfile, traceback
+
+# Windows GBK控制台强制UTF-8输出
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
+# 国内直连 HuggingFace 常超时导致 Demucs 模型下载失败，默认走 hf-mirror 镜像（须在 import torch/demucs 前）
+os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
+os.environ.setdefault('HF_HUB_DISABLE_XET', '1')
+os.environ.setdefault('HF_HUB_DISABLE_SYMLINKS', '1')
+os.environ.setdefault('TQDM_DISABLE', '1')
+
+def main():
+    if len(sys.argv) < 4:
+        print('用法: python sep_once.py <输入> <人声out.wav> <伴奏out.wav>'); sys.exit(2)
+    src, out_vocals, out_accomp = sys.argv[1], sys.argv[2], sys.argv[3]
+    if not os.path.exists(src):
+        print('输入不存在:', src); sys.exit(2)
+
+    print('PROGRESS 5', flush=True)
+    import torch
+    import torchaudio
+    # Demucs only supports stereo; downmix multichannel (5.1/7.1) to stereo first
+    info = torchaudio.info(src)
+    if info.num_channels > 2:
+        print(f'多声道音频({info.num_channels}ch)，降混为立体声', flush=True)
+        wav, sr = torchaudio.load(src)
+        # Simple average downmix to 2 channels
+        left = wav[0::2].mean(dim=0, keepdim=True)
+        right = wav[1::2].mean(dim=0, keepdim=True)
+        stereo = torch.cat([left, right], dim=0)
+        stereo_src = os.path.join(os.path.dirname(out_vocals), '_stereo_input.wav')
+        os.makedirs(os.path.dirname(stereo_src), exist_ok=True)
+        torchaudio.save(stereo_src, stereo, sr)
+        src = stereo_src
+        print(f'立体声临时文件: {stereo_src}', flush=True)
+    # PyTorch 2.6 默认 torch.load(weights_only=True)，Demucs 模型里的自定义类会被拒，统一 patch 回 False
+    _orig_load = torch.load
+    def _safe_load(*a, **kw):
+        kw['weights_only'] = False  # 强制覆盖，不管调用方传了什么
+        return _orig_load(*a, **kw)
+    torch.load = _safe_load
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f'使用设备: {device}' + (f' ({torch.cuda.get_device_name(0)})' if device == 'cuda' else ''), flush=True)
+
+    # Demucs 延迟导入（import 较慢，且只在真正分离时加载）
+    from demucs.separate import main as demucs_main
+    work = tempfile.mkdtemp(prefix='demucs_')
+    print('PROGRESS 15', flush=True)
+    try:
+        # --two-stems=vocals：只分出"人声"和"其余(伴奏)"两条，比四分轨省一半算力
+        # -n htdemucs：模型名；-d：cuda/cpu；-o：输出目录
+        demucs_main(['--two-stems', 'vocals', '-n', 'htdemucs', '-d', device, '--segment', '7', '--overlap', '0.25', '-o', work, src])
+        print('PROGRESS 85', flush=True)
+
+        # Demucs 产物结构: <work>/htdemucs/<输入主名>/{vocals,no_vocals}.wav
+        stem_dir = glob.glob(os.path.join(work, 'htdemucs', '*'))
+        if not stem_dir:
+            raise RuntimeError('Demucs 未产出结果目录: ' + work)
+        d = stem_dir[0]
+        voc = os.path.join(d, 'vocals.wav')
+        noi = os.path.join(d, 'no_vocals.wav')  # no_vocals = 去掉人声后的伴奏
+        if not (os.path.exists(voc) and os.path.exists(noi)):
+            raise RuntimeError(f'缺少分离产物: {os.listdir(d)}')
+        os.makedirs(os.path.dirname(out_vocals), exist_ok=True)
+        shutil.move(voc, out_vocals)
+        shutil.move(noi, out_accomp)
+        print('人声 ->', out_vocals, flush=True)
+        print('伴奏 ->', out_accomp, flush=True)
+        print('PROGRESS 100', flush=True)
+        print('SEP_DONE', flush=True)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception:
+        traceback.print_exc()
+        sys.exit(1)
+
+
+
+
+

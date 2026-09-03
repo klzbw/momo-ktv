@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 日志文件
+*.log
+logs/
+
+# 临时/测试输出
+test_out/
+tmp/
+temp/
+
+# 大体积测试音频（不入库）
+test_short.wav
+test_source.flac
+
+# 本地配置（可能含服务器地址/密钥）
+worker_config.json
+
+# 备份文件
+*.bak
+*.bak2
+*.bak3
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# 空占位文件
+新建文本文档.txt
+0.51.0

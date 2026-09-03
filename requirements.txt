@@ -1,0 +1,9 @@
+# 墨墨爱K歌 AI Worker 依赖
+# 重要：torch / torchaudio 不要直接用本文件装（会装成 CPU 版，分离一首要几十分钟）。
+# 请先运行 setup_windows.ps1，它会先按 CUDA 12.4 安装 GPU 版 PyTorch，再装下面这些。
+requests>=2.31.0
+demucs>=4.0.1
+# whisperx 用于逐字歌词对齐；它会自动带上 ctranslate2、faster-whisper 等依赖
+whisperx>=3.3.1
+# pypinyin 用于"官方歌词 × 识别结果"的同音字/多音字纠错对齐（lyric_matcher.py）；很轻、纯Python
+pypinyin>=0.51.0
