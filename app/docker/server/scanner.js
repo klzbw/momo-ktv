@@ -385,7 +385,12 @@ function isSkippedDirName(name) {
 }
 function isIncompleteFile(name) {
   const lower = String(name).toLowerCase();
-  for (const suffix of INCOMPLETE_SUFFIX) if (lower.endsWith(suffix)) return true;
+  for (const suffix of INCOMPLETE_SUFFIX) {
+    if (lower.endsWith(suffix)) return true;
+    // 中间态文件：转码器先写 xxx.flac.tmp 再补最终扩展名变成 xxx.flac.tmp.flac，
+    // 此时以 .flac 结尾会绕过 endsWith 检查，需额外识别"后缀+."出现在文件名中部的情况。
+    if (lower.includes(suffix + '.')) return true;
+  }
   return false;
 }
 
@@ -1267,3 +1272,4 @@ module.exports = {
   parseFilename, splitArtists, syncSongArtists, isProblemAudioCodec, isProblemVideoCodec,
   getMVDir, getMVRoots, getLibraryRoots, saveLibraryRoots, resolveLibraryRootPath, BASE_MOUNTS,
 };
+
