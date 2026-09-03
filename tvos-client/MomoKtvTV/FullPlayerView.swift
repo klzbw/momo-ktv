@@ -345,10 +345,10 @@ struct FullPlayerView: View {
                             .onMoveCommand { direction in
                                 // 原唱按钮聚焦时，遥控器上下键直接调节人声音量(消音程度)
                                 if direction == .up {
-                                    playerManager.nudgeVocalLevel(+0.15)
+                                    playerManager.nudgeVocalLevel(+0.34)
                                     showVocalHUD()
                                 } else if direction == .down {
-                                    playerManager.nudgeVocalLevel(-0.15)
+                                    playerManager.nudgeVocalLevel(-0.34)
                                     showVocalHUD()
                                 }
                             }
@@ -533,55 +533,37 @@ struct FullPlayerView: View {
 
             // 人声音量 HUD：原唱按钮聚焦时上下键调节，在屏幕中央显示音量大小，2秒后自动隐藏
             if vocalHUDVisible {
-                // 纵向玻璃质感 HUD：垂直进度条从底部填充，半透明毛玻璃背景
-                VStack(spacing: 18) {
+                // 全透明无色底 HUD：屏幕中央，当前模式+人声百分比+淡金色垂直进度条+操作提示，2秒自动隐藏
+                VStack(spacing: 14) {
                     Text(playerManager.vocalTrackLabel)
-                        .font(.system(size: 32, weight: .bold))
+                        .font(.system(size: 30, weight: .bold))
                         .foregroundColor(.white)
-                    // 垂直进度条：底部=纯伴奏(0)，顶部=原唱(1)。外框缩到1/5(4pt)，黄色填充比透明条大一点(6pt)
+                    Text("\(playerManager.vocalVolumePercent)%")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(Color(hex: 0xFFD700))
+                    // 淡金色垂直进度条：底部=伴奏(0)，顶部=原唱(1)。透明外框4pt，淡金填充8pt(稍宽)
                     ZStack {
-                        // 透明外框(4pt)
-                        Capsule().fill(Color.white.opacity(0.25))
-                            .frame(width: 4, height: 220)
-                        // 黄色填充(6pt，比透明条大一点，居中叠加)
+                        Capsule().fill(Color.white.opacity(0.2))
+                            .frame(width: 4, height: 180)
                         GeometryReader { geo in
                             ZStack(alignment: .bottom) {
                                 Capsule().fill(
-                                    LinearGradient(colors: [Color(hex: 0xFFD700), Color(hex: 0xFFA500)],
+                                    LinearGradient(colors: [Color(hex: 0xFFE4B5), Color(hex: 0xFFD700)],
                                                    startPoint: .bottom, endPoint: .top)
                                 )
-                                .frame(width: 6, height: max(0, geo.size.height * CGFloat(playerManager.vocalLevel)))
+                                .frame(width: 8, height: max(0, geo.size.height * CGFloat(playerManager.vocalLevel)))
                             }
-                            .frame(width: 6, height: 220)
+                            .frame(width: 8, height: 180)
                         }
-                        .frame(width: 6, height: 220)
+                        .frame(width: 8, height: 180)
                     }
-                    .frame(width: 6, height: 220)
-                    Text("\(playerManager.vocalVolumePercent)%")
-                        .font(.system(size: 30, weight: .bold))
-                        .foregroundColor(.white)
-                    Text("上下键调节 · 确认键切换")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundColor(.white.opacity(0.6))
+                    .frame(width: 8, height: 180)
+                    Text("上下键滑动 · 确认键切换")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
                 }
-                .padding(.horizontal, 52)
-                .padding(.vertical, 40)
-                .background {
-                    // 全透明磨砂玻璃：毛玻璃材质 + 微透明白色叠加 + 顶部高光
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 32)
-                            .fill(.ultraThinMaterial)
-                        RoundedRectangle(cornerRadius: 32)
-                            .fill(Color.white.opacity(0.06))
-                        // 顶部高光边
-                        RoundedRectangle(cornerRadius: 32)
-                            .stroke(
-                                LinearGradient(colors: [Color.white.opacity(0.25), Color.white.opacity(0.05)],
-                                               startPoint: .top, endPoint: .bottom),
-                                lineWidth: 1
-                            )
-                    }
-                }
+                .padding(.horizontal, 36)
+                .padding(.vertical, 28)
                 .transition(.opacity)
                 .zIndex(30)
             }
