@@ -25,8 +25,6 @@ struct FullPlayerView: View {
     @State private var voiceMode: VoiceMode = .original
 
     /// 点「原/伴唱」按钮自增，驱动 DUAL 垂直人声音量条主动获取遥控器焦点
-    @State private var vocalBarFocusToken: Int = 0
-
     @State private var hideTimer: Timer?
 
     @State private var hasAutoExited = false
@@ -41,13 +39,14 @@ struct FullPlayerView: View {
 
     @State private var lastFocusedBtn: Int = 2     // 最后操作的按钮tag，默认播放键(tag=2)
 
-    /// DUAL 人声音量条浮层：呼出时隐藏底部控制栏，只显示原唱按钮+垂直音量条
-    @State private var vocalBarVisible = false
-
     /// 人声分离转化：是否正在轮询分离状态（按钮显示"分离中"）
     @State private var sepPolling = false
     @State private var sepTimer: Timer?
     @State private var currentSepStatus: String? = nil
+
+    /// 人声音量 HUD：调节时在屏幕中央显示，2秒后自动隐藏
+    @State private var vocalHUDVisible = false
+    @State private var vocalHUDTimer: Timer?
 
     @ObservedObject private var mic = MicLink.shared
 
@@ -135,7 +134,6 @@ struct FullPlayerView: View {
                     sepTimer = nil
                     sepPolling = false
                     currentSepStatus = nil
-                    vocalBarVisible = false
 
                     // Song changed, re-attach layer to ensure video shows
 
@@ -223,7 +221,7 @@ struct FullPlayerView: View {
 
 
 
-            if showControls && !showQueue && !showQR && !vocalBarVisible {
+            if showControls && !showQueue && !showQR {
 
                 // 用 GeometryReader 把控制条绝对固定在屏幕底部，彻底脱离 ZStack/背景图片布局影响
 
@@ -337,16 +335,28 @@ struct FullPlayerView: View {
 
                             TVTightButton(action: {
                                 lastFocusedBtn = 3
-                                if playerManager.dualEnabled {
-                                    vocalBarVisible = true
-                                    vocalBarFocusToken += 1
-                                } else {
-                                    toggleVoice()
-                                }
+                                toggleVoice()
+                                showVocalHUD()
                             }, focusedTag: $focusedBtn, focusTag: 3, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
 
                                 controlContent(icon: "mic.fill", title: playerManager.vocalTrackLabel, focused: focused)
 
+                            }
+                            .onMoveCommand { direction in
+                                // 原唱按钮聚焦时，遥控器上下键直接调节人声音量(消音程度)
+                                if direction == .up {
+                                    playerManager.nudgeVocalLevel(+0.05)
+                                    showVocalHUD()
+                                } else if direction == .down {
+                                    playerManager.nudgeVocalLevel(-0.05)
+                                    showVocalHUD()
+                                }
+                            }
+                            .onLongPressGesture(minimumDuration: 0.5) {
+                                // 长按复位：人声音量回到100%(原唱)
+                                playerManager.setVocalLevel(1.0)
+                                showVocalHUD()
+                                FeedbackCenter.shared.show("已复位为原唱", icon: "mic.fill")
                             }
 
 
@@ -433,7 +443,23 @@ struct FullPlayerView: View {
 
                                     lastFocusedBtn = 11
 
-                                    resetLyricsOffset()
+                                    if lyricsLoader.lyrics.lines.isEmpty {
+
+                                        // 没有歌词：自动触发服务端在线抓取生成歌词
+                                        if let playing = api.queue.first(where: { $0.isPlaying }) {
+
+                                            lyricsLoader.forceFetch(server: api.serverAddress, songId: playing.song_id)
+
+                                            FeedbackCenter.shared.show("正在生成歌词...", icon: "text.alignleft")
+
+                                        }
+
+                                    } else {
+
+                                        // 有歌词：复位歌词时间轴偏移到原有速率
+                                        resetLyricsOffset()
+
+                                    }
 
                                 }, focusedTag: $focusedBtn, focusTag: 11, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
 
@@ -479,59 +505,6 @@ struct FullPlayerView: View {
 
 
 
-                        // 人声大小档位条：仅 AI 分离出多档(>=3)的歌曲出现。左=纯伴奏，右=原唱，
-
-                        // 聚焦后用遥控器左右键逐档调节（tvOS 无原生 Slider，用 TVSegmentSlider），
-
-                        // 与上方麦克风按钮共享同一状态并大屏反馈。
-
-                        // DUAL 双FLAC歌曲的音量条改由独立浮层显示（点原唱按钮呼出），控制栏内不再常驻
-                        if playerManager.vocalTrackCount >= 3 {
-
-                            HStack(spacing: 16) {
-
-                                Text("伴奏")
-
-                                    .font(.system(size: 20, weight: .semibold))
-
-                                    .foregroundColor(.white.opacity(0.75))
-
-                                TVSegmentSlider(
-
-                                    segments: playerManager.vocalTrackCount,
-
-                                    selected: Binding(
-
-                                        get: { max(0, playerManager.vocalTrackCount - 1 - playerManager.vocalTrackIndex) },
-
-                                        set: { disp in
-
-                                            playerManager.selectVocalTrack(playerManager.vocalTrackCount - 1 - disp)
-
-                                            FeedbackCenter.shared.show(playerManager.vocalTrackLabel, icon: "mic.fill")
-
-                                        }),
-
-                                    onCommit: { _ in }
-
-                                )
-
-                                .frame(width: 300)
-
-                                Text("原唱 · 人声\(playerManager.vocalVolumePercent)%")
-
-                                    .font(.system(size: 20, weight: .bold))
-
-                                    .foregroundColor(.white)
-
-                            }
-
-                            .padding(.top, 10)
-
-                            .padding(.horizontal, 40)
-
-                        }
-
                     }
 
                     .padding(.horizontal, 24)
@@ -558,49 +531,33 @@ struct FullPlayerView: View {
 
 
 
-            if vocalBarVisible && playerManager.dualEnabled {
+            // 人声音量 HUD：原唱按钮聚焦时上下键调节，在屏幕中央显示音量大小，2秒后自动隐藏
+            if vocalHUDVisible {
                 VStack(spacing: 16) {
-                    Spacer()
-                    TVTightButton(action: {
-                        vocalBarVisible = false
-                        lastFocusedBtn = 3
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { focusedBtn = 3 }
-                    }, focusedTag: $focusedBtn, focusTag: 99, onFocusChange: { _ in }) { focused in
-                        VStack(spacing: 6) {
-                            Image(systemName: "mic.fill")
-                                .font(.system(size: 36, weight: .medium))
-                                .foregroundColor(focused ? Color(hex: 0x1a1a2e) : .white)
-                            Text("原唱")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(focused ? Color(hex: 0x1a1a2e) : .white)
-                        }
-                        .frame(width: 150, height: 120)
-                        .background(focused ? Color.white : Color.white.opacity(0.2))
-                        .cornerRadius(22)
-                    }
-                    Text("原唱 · 人声\(playerManager.vocalVolumePercent)%")
-                        .font(.system(size: 20, weight: .bold))
+                    Text(playerManager.vocalTrackLabel)
+                        .font(.system(size: 30, weight: .bold))
                         .foregroundColor(.white)
-                    TVVocalSlider(
-                        level: Binding(get: { playerManager.vocalLevel },
-                                       set: { playerManager.setVocalLevel($0) }),
-                        onChange: { _ in
-                            FeedbackCenter.shared.show(playerManager.vocalTrackLabel, icon: "mic.fill")
-                            resetHideTimer()
-                        },
-                        autoFocusToken: vocalBarFocusToken
-                    )
-                    .frame(height: 220)
-                    Text("纯伴奏")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.7))
-                    Spacer()
+                    Text("人声 \(playerManager.vocalVolumePercent)%")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.8))
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Color.white.opacity(0.2))
+                            Capsule().fill(Color(hex: 0xFFD700))
+                                .frame(width: max(0, geo.size.width * CGFloat(playerManager.vocalLevel)))
+                        }
+                    }
+                    .frame(width: 360, height: 10)
+                    Text("上下键调节 · 长按复位")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.white.opacity(0.5))
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.black.opacity(0.5))
+                .padding(.horizontal, 48)
+                .padding(.vertical, 32)
+                .background(Color.black.opacity(0.75))
+                .cornerRadius(24)
                 .transition(.opacity)
-                .zIndex(15)
-                .onAppear { resetHideTimer() }
+                .zIndex(30)
             }
 
             // Transparent focusable area to receive select button when controls are hidden
@@ -713,9 +670,7 @@ struct FullPlayerView: View {
 
         .onExitCommand {
 
-            if vocalBarVisible {
-                vocalBarVisible = false
-            } else if showQR {
+            if showQR {
 
                 showQR = false
 
@@ -1488,31 +1443,6 @@ struct FullPlayerView: View {
 
 
 
-    /// DUAL 双FLAC：垂直连续人声音量条（上=原唱、下=纯伴奏）。
-    /// 聚焦后用遥控器上/下键或在触摸板上下滑动，以 5% 步进连续调节人声增益。
-    private var dualVocalControl: some View {
-        VStack(spacing: 8) {
-            Text("原唱 · 人声\(playerManager.vocalVolumePercent)%")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(.white)
-            TVVocalSlider(
-                level: Binding(get: { playerManager.vocalLevel },
-                               set: { playerManager.setVocalLevel($0) }),
-                onChange: { _ in
-                    FeedbackCenter.shared.show(playerManager.vocalTrackLabel, icon: "mic.fill")
-                    resetHideTimer()
-                },
-                autoFocusToken: vocalBarFocusToken
-            )
-            .frame(height: 208)
-            Text("纯伴奏")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundColor(.white.opacity(0.7))
-        }
-        .padding(.top, 10)
-        .padding(.horizontal, 40)
-    }
-
     private func toggleVoice() {
 
         playerManager.toggleVoice()
@@ -1578,6 +1508,15 @@ struct FullPlayerView: View {
     }
 
 
+
+    /// 显示人声音量 HUD，2秒后自动隐藏
+    private func showVocalHUD() {
+        vocalHUDVisible = true
+        vocalHUDTimer?.invalidate()
+        vocalHUDTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { _ in
+            DispatchQueue.main.async { vocalHUDVisible = false }
+        }
+    }
 
     private func resetHideTimer() {
 

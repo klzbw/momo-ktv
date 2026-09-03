@@ -150,6 +150,24 @@ final class LyricsLoader: ObservableObject {
         load(server: server, songId: songId, force: true)
     }
 
+    /// 强制服务端在线重新抓取生成歌词（无歌词时用），完成后自动reload本地歌词。
+    /// 调用 POST /api/songs/:id/lyrics/fetch，服务端从网易/QQ/酷我在线抓取，
+    /// 完成后延迟0.8秒重新拉取本地歌词(online=0)。
+    func forceFetch(server: String, songId: Int) {
+        let host = server.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
+        guard let url = URL(string: "http://\(host)/api/songs/\(songId)/lyrics/fetch") else { return }
+        var req = URLRequest(url: url, timeoutInterval: 30)
+        req.httpMethod = "POST"
+        loading = true
+        session.dataTask(with: req) { [weak self] _, _, _ in
+            DispatchQueue.main.async { self?.loading = false }
+            // 服务端抓取完成后，延迟0.8秒重新拉取本地歌词
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                self?.reload(server: server, songId: songId)
+            }
+        }.resume()
+    }
+
     /// 加载歌词。force=true 时跳过去重守卫（reload 用），但不修改 currentSongId 避免切歌竞态。
     func load(server: String, songId: Int, force: Bool = false) {
         guard force || songId != currentSongId || !loaded else { return }
