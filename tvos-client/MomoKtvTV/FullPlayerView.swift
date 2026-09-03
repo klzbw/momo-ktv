@@ -345,10 +345,10 @@ struct FullPlayerView: View {
                             .onMoveCommand { direction in
                                 // 原唱按钮聚焦时，遥控器上下键直接调节人声音量(消音程度)
                                 if direction == .up {
-                                    playerManager.nudgeVocalLevel(+0.02)
+                                    playerManager.nudgeVocalLevel(+0.15)
                                     showVocalHUD()
                                 } else if direction == .down {
-                                    playerManager.nudgeVocalLevel(-0.02)
+                                    playerManager.nudgeVocalLevel(-0.15)
                                     showVocalHUD()
                                 }
                             }
@@ -538,18 +538,25 @@ struct FullPlayerView: View {
                     Text(playerManager.vocalTrackLabel)
                         .font(.system(size: 32, weight: .bold))
                         .foregroundColor(.white)
-                    // 垂直进度条：底部=纯伴奏(0)，顶部=原唱(1)
-                    GeometryReader { geo in
-                        ZStack(alignment: .bottom) {
-                            Capsule().fill(Color.white.opacity(0.25))
-                            Capsule().fill(
-                                LinearGradient(colors: [Color(hex: 0xFFD700), Color(hex: 0xFFA500)],
-                                               startPoint: .bottom, endPoint: .top)
-                            )
-                            .frame(height: max(0, geo.size.height * CGFloat(playerManager.vocalLevel)))
+                    // 垂直进度条：底部=纯伴奏(0)，顶部=原唱(1)。外框缩到1/5(4pt)，黄色填充比透明条大一点(6pt)
+                    ZStack {
+                        // 透明外框(4pt)
+                        Capsule().fill(Color.white.opacity(0.25))
+                            .frame(width: 4, height: 220)
+                        // 黄色填充(6pt，比透明条大一点，居中叠加)
+                        GeometryReader { geo in
+                            ZStack(alignment: .bottom) {
+                                Capsule().fill(
+                                    LinearGradient(colors: [Color(hex: 0xFFD700), Color(hex: 0xFFA500)],
+                                                   startPoint: .bottom, endPoint: .top)
+                                )
+                                .frame(width: 6, height: max(0, geo.size.height * CGFloat(playerManager.vocalLevel)))
+                            }
+                            .frame(width: 6, height: 220)
                         }
+                        .frame(width: 6, height: 220)
                     }
-                    .frame(width: 20, height: 220)
+                    .frame(width: 6, height: 220)
                     Text("\(playerManager.vocalVolumePercent)%")
                         .font(.system(size: 30, weight: .bold))
                         .foregroundColor(.white)
