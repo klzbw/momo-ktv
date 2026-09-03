@@ -345,10 +345,10 @@ struct FullPlayerView: View {
                             .onMoveCommand { direction in
                                 // 原唱按钮聚焦时，遥控器上下键直接调节人声音量(消音程度)
                                 if direction == .up {
-                                    playerManager.nudgeVocalLevel(+0.05)
+                                    playerManager.nudgeVocalLevel(+0.5)
                                     showVocalHUD()
                                 } else if direction == .down {
-                                    playerManager.nudgeVocalLevel(-0.05)
+                                    playerManager.nudgeVocalLevel(-0.5)
                                     showVocalHUD()
                                 }
                             }
@@ -541,23 +541,22 @@ struct FullPlayerView: View {
                     Text("\(playerManager.vocalVolumePercent)%")
                         .font(.system(size: 28, weight: .bold))
                         .foregroundColor(Color(hex: 0xFFD700))
-                    // 淡金色垂直进度条：底部=伴奏(0)，顶部=原唱(1)。透明外框4pt，淡金填充8pt(稍宽)
-                    ZStack {
-                        Capsule().fill(Color.white.opacity(0.2))
-                            .frame(width: 4, height: 180)
-                        GeometryReader { geo in
-                            ZStack(alignment: .bottom) {
-                                Capsule().fill(
-                                    LinearGradient(colors: [Color(hex: 0xFFE4B5), Color(hex: 0xFFD700)],
-                                                   startPoint: .bottom, endPoint: .top)
-                                )
-                                .frame(width: 8, height: max(0, geo.size.height * CGFloat(playerManager.vocalLevel)))
-                            }
-                            .frame(width: 8, height: 180)
-                        }
-                        .frame(width: 8, height: 180)
+                    // 淡金色垂直进度条：从底部(伴奏0)往上填充到顶部(原唱100)。
+                    // 用 RoundedRectangle 固定圆角(避免 Capsule 在矮宽比时变横向)，ZStack alignment .bottom。
+                    ZStack(alignment: .bottom) {
+                        // 透明外框
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.white.opacity(0.2))
+                            .frame(width: 24, height: 180)
+                        // 金色填充（从底部往上，宽度24pt=3倍）
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(
+                                LinearGradient(colors: [Color(hex: 0xFFE4B5), Color(hex: 0xFFD700)],
+                                               startPoint: .bottom, endPoint: .top)
+                            )
+                            .frame(width: 24, height: max(0, 180 * CGFloat(playerManager.vocalLevel)))
                     }
-                    .frame(width: 8, height: 180)
+                    .frame(width: 24, height: 180)
                     Text("上下键滑动 · 确认键切换")
                         .font(.system(size: 15, weight: .medium))
                         .foregroundColor(.white.opacity(0.5))
