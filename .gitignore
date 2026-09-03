@@ -44,3 +44,10 @@ Thumbs.db
 # 空占位文件
 新建文本文档.txt
 0.51.0
+
+# 临时截图/下载/修复脚本（下划线前缀）
+_*.png
+_*.jpg
+_*.html
+_*.py
+user_upload.png

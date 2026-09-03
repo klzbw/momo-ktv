@@ -362,6 +362,28 @@ def fix_tracks_from_txt(dp, album, tracks):
 def guess_lang(blob):
     return '纯音乐' if INSTR_RE.search(blob) else '国语'
 
+def is_instrumental(artist, title, album, genre, lang, near_text=''):
+    """综合判定是否为纯音乐/轻音乐/无人声。
+    返回 (is_instr: bool, reason: str)。
+    判定优先级：语种=纯音乐 > 风格=纯音乐/轻音乐/器乐 > 歌名含无人声标记 > 关键词匹配(INSTR_RE)。
+    判定为纯音乐的曲目，转码时写入 INSTRUMENTAL=1 metadata，后续 worker 跳过人声分离和歌词对齐。
+    """
+    blob = ' '.join([artist or '', title or '', album or '', genre or '', near_text or ''])
+    # 1. 语种已判定为纯音乐
+    if lang == '纯音乐':
+        return True, '语种=纯音乐'
+    # 2. 风格为纯音乐/轻音乐/器乐
+    if genre in ('纯音乐', '轻音乐', '器乐'):
+        return True, f'风格={genre}'
+    # 3. 歌名含明确的无人声标记
+    if re.search(r'(伴奏|纯音乐|演奏|无人声|纯享|消音|卡拉OK|KTV|Instrumental|演奏版|纯音乐版)', title or '', re.I):
+        return True, '歌名含无人声标记'
+    # 4. 关键词匹配（INSTR_RE 已包含乐器名、纯音乐、轻音乐、New Age等）
+    m = INSTR_RE.search(blob)
+    if m:
+        return True, f'关键词匹配: {m.group()}'
+    return False, ''
+
 # ---------- 命名规则全集（内置，后续直接运行即可） ----------
 # 规则1：异常歌手名映射（论坛名/专辑名/宣传语 → 实际歌手或群星）
 BAD_ARTIST_MAP = [
@@ -607,7 +629,7 @@ def find_cue_jobs(root):
     """扫描整轨目录：目录里有 .cue 且 cue 为单 FILE 格式（非多FILE单曲索引）。"""
     jobs = {}
     for dp, dns, fns in os.walk(root):
-        dns[:] = [d for d in dns if d.lower() not in ('all-flacs', '_flac_sample')]
+        dns[:] = [d for d in dns if d.lower() not in ('all-flacs', 'separated', '_flac_sample')]
         cues = [f for f in fns if f.lower().endswith('.cue')]
         if not cues:
             continue
@@ -710,6 +732,11 @@ def process_album(args):
         style = guess_style(t['genre'] or album.get('genre', ''), near)
         # 规则2：规范化风格（英文/论坛名 → 中文标准风格）
         style = normalize_style(style)
+        # 规则5：纯音乐/轻音乐/无人声 判定 → 写入 INSTRUMENTAL metadata，后续跳过人声分离
+        is_instr, instr_reason = is_instrumental(artist, title, album.get('title', ''), style, lang, near)
+        comment = f'Original: {whole_name}'
+        if is_instr:
+            comment += f'; Instrumental: 1 ({instr_reason})'
         fn = build_name(artist, title, lang, style)
         out = os.path.join(out_dir, fn)
         if os.path.exists(out) and os.path.getsize(out) > 0:
@@ -726,7 +753,9 @@ def process_album(args):
                 '-metadata', 'ALBUM=' + (album.get('title', '') or ''),
                 '-metadata', 'GENRE=' + style,
                 '-metadata', 'LANGUAGE=' + lang,
-                '-metadata', 'TRACKNUMBER=' + t['no']]
+                '-metadata', 'TRACKNUMBER=' + t['no'],
+                '-metadata', 'INSTRUMENTAL=' + ('1' if is_instr else '0'),
+                '-metadata', 'COMMENT=' + comment]
         if album.get('date'):
             cmd += ['-metadata', 'DATE=' + album['date']]
         cmd += [out]
@@ -752,7 +781,7 @@ def find_single_jobs(root):
     """扫描所有单曲文件（排除整轨CDImage和输出目录）。返回 {文件路径: 元信息}。"""
     jobs = {}
     for dp, dns, fns in os.walk(root):
-        dns[:] = [d for d in dns if d.lower() not in ('all-flacs', '_flac_sample')]
+        dns[:] = [d for d in dns if d.lower() not in ('all-flacs', 'separated', '_flac_sample')]
         # 跳过含整轨的目录（整轨由cue模式处理）
         has_whole = any(re.match(r'^cdimage\.(ape|wav|flac)$', f, re.I) for f in fns)
         if has_whole:
@@ -801,6 +830,11 @@ def process_single(args):
     style = guess_style('', near)
     # 规则2：规范化风格
     style = normalize_style(style)
+    # 规则5：纯音乐/轻音乐/无人声 判定 → 写入 INSTRUMENTAL metadata
+    is_instr, instr_reason = is_instrumental(artist, title, album, style, lang, near)
+    comment = f'Original: {job["name"]}'
+    if is_instr:
+        comment += f'; Instrumental: 1 ({instr_reason})'
     out_dir = os.path.join(out_root, rel)
     fn = build_name(artist, title or '未知', lang, style)
     out = os.path.join(out_dir, fn)
@@ -819,6 +853,8 @@ def process_single(args):
            '-metadata', 'GENRE=' + style,
            '-metadata', 'LANGUAGE=' + lang,
            '-metadata', 'TRACKNUMBER=' + (no or '00'),
+           '-metadata', 'INSTRUMENTAL=' + ('1' if is_instr else '0'),
+           '-metadata', 'COMMENT=' + comment,
            out]
     try:
         p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)

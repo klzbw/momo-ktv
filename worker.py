@@ -32,6 +32,61 @@ if hasattr(sys.stdout, 'reconfigure'):
 # 避免国内直连 HuggingFace 超时导致任务全失败；用户已设置 HF_ENDPOINT 时不覆盖。
 os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
 
+# ---------- ffmpeg / ffprobe 路径探测（纯音乐跳过时生成静音/复制用） ----------
+def _pick_exe(name, fallback):
+    import shutil as _sh
+    p = _sh.which(name)
+    if p and os.path.exists(p):
+        return p
+    return fallback if os.path.exists(fallback) else None
+
+FFMPEG = _pick_exe('ffmpeg', r'C:\ffmpeg\bin\ffmpeg.exe')
+FFPROBE = _pick_exe('ffprobe', r'C:\ffmpeg\bin\ffprobe.exe')
+
+# ---------- 纯音乐/轻音乐/无人声 检测规则 ----------
+# 匹配乐器名、纯音乐关键词、演奏曲等；命中则视为无人声，跳过人声分离和歌词对齐
+INSTRUMENTAL_RE = re.compile(
+    r'古筝|二胡|钢琴|吉他|琵琶|笛子?|洞箫|箫|笙|唢呐|马头琴|纯音乐|演奏|民乐|交响|协奏曲|'
+    r'提琴|小提琴|大提琴|中提琴|低音提琴|葫芦丝|巴乌|轻音乐|器乐|试音|HIFI|古琴|扬琴|'
+    r'京胡|三弦|江南丝竹|吹打|New Age|Instrumental|伴奏|无人声|纯演奏|独奏|重奏|奏鸣曲|'
+    r'交响曲|管弦乐|室内乐|电子琴|双电子琴|手风琴|口琴|架子鼓|定音鼓|木琴|钟琴|管风琴|'
+    r'竖琴|长笛|短笛|单簧管|双簧管|小号|长号|圆号|大号|贝斯|合成器|风琴|萨克斯|排箫|尺八|'
+    r'伽倻琴|三味线|太鼓|钢片琴|颤音琴|马林巴|钟|三角铁|响板|沙锤|铃鼓|康加鼓|邦戈鼓|'
+    r'纯音乐版|演奏版|纯享版|无人声版|卡拉OK版|KTV版|消音版|伴奏版|轻音乐版|NewAge|新世纪',
+    re.IGNORECASE)
+
+def is_instrumental_song(song):
+    """判断歌曲是否为纯音乐/轻音乐/无人声。
+    判定优先级：服务端 instrumental 标记 > 语种=纯音乐 > 歌名/歌手/专辑/风格关键词匹配。
+    命中则跳过人声分离（Demucs）和逐字歌词对齐（WhisperX），直接转码输出。
+    """
+    if not song:
+        return False
+    # 1. 服务端明确标记（flac_convert.py 转码时写入 INSTRUMENTAL metadata，服务端可透传）
+    instr = song.get('instrumental') or song.get('isInstrumental') or song.get('instrumentalFlag')
+    if instr in (True, 1, '1', 'true', 'True', 'yes', '是'):
+        return True
+    # 2. 语种标记为纯音乐
+    lang = (song.get('language') or song.get('lang') or '').strip()
+    if lang in ('纯音乐', '轻音乐', '器乐', '无人声', '演奏曲'):
+        return True
+    # 3. 风格标记（纯音乐/古典/民族 需结合关键词，因为古典也可能含人声）
+    genre = (song.get('genre') or '').strip()
+    if genre in ('纯音乐', '轻音乐', '器乐'):
+        return True
+    # 4. 歌名/歌手/专辑/风格 组合文本关键词匹配
+    blob = ' '.join([
+        str(song.get('title') or ''),
+        str(song.get('artist') or ''),
+        str(song.get('album') or ''),
+        str(song.get('genre') or ''),
+    ])
+    if INSTRUMENTAL_RE.search(blob):
+        # 排除：歌名里含"伴奏"但实际是带人声的歌（如"演唱会伴奏"），需更严格判断
+        # 目前关键词已足够精确，命中即视为纯音乐
+        return True
+    return False
+
 def log(*a):
     tname = threading.current_thread().name
     prefix = f'[{tname}]' if tname != 'MainThread' else ''
@@ -142,30 +197,40 @@ class MomoWorker:
             files = {}
             if kind == 'separate':
                 vocals = os.path.join(tmp, 'vocals.wav'); accomp = os.path.join(tmp, 'accompaniment.wav')
-                self.run_child('sep_once.py', [src, vocals, accomp], job_id, None)
+                # 纯音乐/轻音乐/无人声：跳过人声分离(Demucs)，直接生成伴奏(=原音频)+静音人声
+                if is_instrumental_song(song):
+                    log(f'检测到纯音乐/轻音乐，跳过人声分离: 《{song.get("title")}》- {song.get("artist")}')
+                    self._make_instrumental_separate(src, vocals, accomp)
+                else:
+                    self.run_child('sep_once.py', [src, vocals, accomp], job_id, None)
                 files = {'vocals': ('vocals.wav', open(vocals, 'rb'), 'audio/wav'),
                          'accompaniment': ('accompaniment.wav', open(accomp, 'rb'), 'audio/wav')}
             else:
                 word = os.path.join(tmp, 'word.lrc')
-                # 对齐优先用分离出的纯人声（更准）；没有就用源音频
-                vocal_src = self._separated_vocal(job['songId']) or src
-                args = [vocal_src, word]
-                # 官方参考歌词：优先用任务下发的；为空则当场向服务端要一次（本地同名lrc优先，
-                # 缺则在线网易云/QQ/酷我三源补抓并入库），尽量让每首都能"官方文字+精准时间"
-                ref = (song or {}).get('refLyrics') or ''
-                if not ref.strip():
-                    ref = self.fetch_ref_lyrics(song['id'])
+                # 纯音乐/轻音乐/无人声：跳过歌词对齐(WhisperX)，生成空 LRC
+                if is_instrumental_song(song):
+                    log(f'检测到纯音乐/轻音乐，跳过歌词对齐: 《{song.get("title")}》- {song.get("artist")}')
+                    self._make_instrumental_align(word)
+                else:
+                    # 对齐优先用分离出的纯人声（更准）；没有就用源音频
+                    vocal_src = self._separated_vocal(job['songId']) or src
+                    args = [vocal_src, word]
+                    # 官方参考歌词：优先用任务下发的；为空则当场向服务端要一次（本地同名lrc优先，
+                    # 缺则在线网易云/QQ/酷我三源补抓并入库），尽量让每首都能"官方文字+精准时间"
+                    ref = (song or {}).get('refLyrics') or ''
+                    if not ref.strip():
+                        ref = self.fetch_ref_lyrics(song['id'])
+                        if ref.strip():
+                            log(f'补到官方参考歌词 {len(ref)} 字符（本地/在线）')
+                    # 官方参考歌词（本地同名lrc/三源刮削已入库）：传给对齐子进程做逐字纠错
                     if ref.strip():
-                        log(f'补到官方参考歌词 {len(ref)} 字符（本地/在线）')
-                # 官方参考歌词（本地同名lrc/三源刮削已入库）：传给对齐子进程做逐字纠错
-                if ref.strip():
-                    ref_path = os.path.join(tmp, 'ref.lrc')
-                    with open(ref_path, 'w', encoding='utf-8') as f:
-                        f.write(ref)
-                    args.append('large-v3')   # 第3位是模型名，第4位才是参考歌词路径
-                    args.append(ref_path)
-                    log(f'附带官方参考歌词 {len(ref)} 字符用于纠错')
-                self.run_child('align_once.py', args, job_id, None)
+                        ref_path = os.path.join(tmp, 'ref.lrc')
+                        with open(ref_path, 'w', encoding='utf-8') as f:
+                            f.write(ref)
+                        args.append('large-v3')   # 第3位是模型名，第4位才是参考歌词路径
+                        args.append(ref_path)
+                        log(f'附带官方参考歌词 {len(ref)} 字符用于纠错')
+                    self.run_child('align_once.py', args, job_id, None)
                 files = {'wordLrc': ('word.lrc', open(word, 'rb'), 'text/plain')}
             try:
                 self.progress(job_id, 95)
@@ -194,6 +259,56 @@ class MomoWorker:
     # 若这首歌已分离，直接取服务端产物（对齐用纯人声更准）。没有返回 None。
     def _separated_vocal(self, song_id):
         return None  # 简化：对齐直接用源；后续可扩展下载 /data/separated 下的人声
+
+    # ---------- 纯音乐/轻音乐/无人声 快速处理（跳过人声分离和歌词对齐） ----------
+    def _get_audio_duration(self, src):
+        """用 ffprobe/ffmpeg 探测音频时长（秒），失败返回0。"""
+        if FFPROBE:
+            try:
+                r = subprocess.run([FFPROBE, '-v', 'error', '-show_entries', 'format=duration',
+                                    '-of', 'default=noprint_wrappers=1:nokey=1', src],
+                                   capture_output=True, text=True, timeout=10)
+                return float(r.stdout.strip())
+            except Exception:
+                pass
+        if FFMPEG:
+            try:
+                r = subprocess.run([FFMPEG, '-i', src], capture_output=True, text=True, timeout=10)
+                m = re.search(r'Duration: (\d+):(\d+):(\d+\.\d+)', r.stderr)
+                if m:
+                    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+            except Exception:
+                pass
+        return 0
+
+    def _make_instrumental_separate(self, src, vocals, accomp):
+        """纯音乐跳过人声分离(Demucs)：
+          - 伴奏 accompaniment.wav = 原音频直接复制（纯音乐的"伴奏"就是全部音乐）
+          - 人声 vocals.wav = 等长静音（纯音乐没有人声）
+        不调用 sep_once.py，不消耗 GPU，秒级完成。
+        """
+        import shutil as _sh
+        os.makedirs(os.path.dirname(accomp), exist_ok=True)
+        _sh.copy2(src, accomp)
+        dur = self._get_audio_duration(src)
+        if dur <= 0:
+            dur = 10  # 兜底：无法探测时长时生成10秒静音
+        if FFMPEG:
+            subprocess.run([FFMPEG, '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+                            '-t', f'{dur:.3f}', '-c:a', 'pcm_s16le', vocals],
+                           capture_output=True, timeout=120)
+        else:
+            # 无 ffmpeg 兜底：生成空文件（保证流程不崩，但人声轨不可用）
+            open(vocals, 'wb').close()
+        log(f'纯音乐快速处理完成: 伴奏=原音频复制({os.path.getsize(accomp)//1024}KB), 人声=静音{dur:.1f}秒')
+
+    def _make_instrumental_align(self, word_lrc):
+        """纯音乐跳过歌词对齐(WhisperX)：生成仅含提示的空 LRC，不消耗 GPU。"""
+        os.makedirs(os.path.dirname(word_lrc) or '.', exist_ok=True)
+        content = '[00:00.00]🎵🎵🎵 纯音乐/轻音乐，无人声，跳过歌词对齐\n'
+        with open(word_lrc, 'w', encoding='utf-8') as f:
+            f.write(content)
+        log('纯音乐快速处理完成: 歌词=空LRC')
 
     # 对齐前向服务端要"官方歌词"：本地同名 lrc 优先，缺则在线三源补抓并入库。失败返回''。
     def fetch_ref_lyrics(self, song_id):
