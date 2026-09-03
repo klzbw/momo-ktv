@@ -31,26 +31,34 @@ function ensureSepDir(key) {
   fs.mkdirSync(d, { recursive: true });
   return d;
 }
-// 检查某 filepath 的分离产物是否已存在且非空，存在则返回相对路径对，否则 null
-function lookupExisting(filepath) {
-  const key = sepKey(filepath);
-  const v = path.join(SEP_DIR, key, 'vocals.wav');
-  const a = path.join(SEP_DIR, key, 'accompaniment.wav');
-  try {
-    if (fs.existsSync(v) && fs.statSync(v).size > 1024 &&
-        fs.existsSync(a) && fs.statSync(a).size > 1024) {
-      return {
-        sep_key: key,
-        vocal_path: `separated/${key}/vocals.wav`,
-        accomp_path: `separated/${key}/accompaniment.wav`,
-      };
-    }
-  } catch (e) { /* 忽略，视为不存在 */ }
+// 检查某 filepath 的分离产物是否已存在且非空，存在则返回相对路径对，否则 null。
+// 一步到 FLAC 后优先认 .flac；存量 .wav 也照样认（不重复分离），两条轨各自挑可用的扩展名。
+function pickExistingTrack(dir, stem) {
+  for (const ext of ['flac', 'wav']) {
+    const p = path.join(dir, `${stem}.${ext}`);
+    try {
+      if (fs.existsSync(p) && fs.statSync(p).size > 1024) return ext;
+    } catch (e) { /* 试下一个扩展名 */ }
+  }
   return null;
 }
-// 产物的"相对 /data"路径，存进 songs.vocal_path/accomp_path
-const relVocal = (key) => `separated/${key}/vocals.wav`;
-const relAccomp = (key) => `separated/${key}/accompaniment.wav`;
+function lookupExisting(filepath) {
+  const key = sepKey(filepath);
+  const dir = path.join(SEP_DIR, key);
+  const ve = pickExistingTrack(dir, 'vocals');
+  const ae = pickExistingTrack(dir, 'accompaniment');
+  if (ve && ae) {
+    return {
+      sep_key: key,
+      vocal_path: `separated/${key}/vocals.${ve}`,
+      accomp_path: `separated/${key}/accompaniment.${ae}`,
+    };
+  }
+  return null;
+}
+// 产物的"相对 /data"路径，存进 songs.vocal_path/accomp_path；默认 flac（一步到位）
+const relVocal = (key, ext = 'flac') => `separated/${key}/vocals.${ext}`;
+const relAccomp = (key, ext = 'flac') => `separated/${key}/accompaniment.${ext}`;
 function absUnderData(rel) { return rel ? path.join(DATA_DIR, rel) : null; }
 
 const TYPES = ['separate', 'align'];
@@ -191,8 +199,13 @@ function complete(db, jobId, { lyricsWord = null, result = null } = {}) {
     // 用源文件路径的 SHA256 作为分离产物目录名，而非 song.id——
     // 这样重新入库后 id 变了也能直接复用已有分离产物，不触发重分离。
     const key = sepKeyForSong(db, job.song_id) || String(job.song_id);
+    // 实际落盘成 flac 还是回退的 wav，由 complete 路由写进 result.saved 的键名决定：
+    // 只有"存在 wav 且不存在 flac"时才登记 wav，其余一律登记 flac。
+    const saved = (result && result.saved) || {};
+    const vExt = (saved['vocals.wav'] && !saved['vocals.flac']) ? 'wav' : 'flac';
+    const aExt = (saved['accompaniment.wav'] && !saved['accompaniment.flac']) ? 'wav' : 'flac';
     db.prepare("UPDATE songs SET sep_status='done', vocal_path=?, accomp_path=? WHERE id=?")
-      .run(relVocal(key), relAccomp(key), job.song_id);
+      .run(relVocal(key, vExt), relAccomp(key, aExt), job.song_id);
   } else {
     db.prepare("UPDATE songs SET align_status='done', lyrics_word=COALESCE(?,lyrics_word) WHERE id=?").run(lyricsWord, job.song_id);
   }

@@ -880,7 +880,7 @@ app.post('/api/separate/jobs/:id/progress', (req, res) => {
 //   files: vocals(人声wav) / accompaniment(伴奏wav) / wordLrc(逐字歌词)；也可走字段 wordLrc
 app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
   { name: 'vocals', maxCount: 1 }, { name: 'accompaniment', maxCount: 1 }, { name: 'wordLrc', maxCount: 1 },
-]), (req, res) => {
+]), async (req, res) => {
   try {
     const jobId = parseInt(req.params.id, 10);
     const job = db.prepare('SELECT * FROM separation_jobs WHERE id=?').get(jobId);
@@ -890,9 +890,30 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
     const sepKey = sepMod.sepKeyForSong(db, job.song_id) || String(job.song_id);
     const dir = sepMod.ensureSepDir(sepKey);
     const saved = {};
-    const saveOne = (f, targetName) => { if (f && f[0]) { fs.writeFileSync(path.join(dir, targetName), f[0].buffer); saved[targetName] = f[0].buffer.length; } };
-    saveOne(files.vocals, 'vocals.wav');
-    saveOne(files.accompaniment, 'accompaniment.wav');
+    // 一步到 FLAC：worker 回传的是 Demucs 原始 wav，服务端落盘前统一用 ffmpeg 无损转成 FLAC
+    //（FLAC 无损、体积约为 wav 一半；读取端 resolveSepTrackFile 早已按 flac 优先、wav 兜底）。
+    // 若容器内 ffmpeg 转换失败，回退直接保留 wav，绝不让整首分离因为压缩而失败/丢产物。
+    const convertTrack = async (f, stem) => {
+      if (!f || !f[0] || !f[0].buffer) return;
+      const buf = f[0].buffer;
+      const tmpWav = path.join(dir, stem + '._in.wav');
+      const flacP = path.join(dir, stem + '.flac');
+      const wavP = path.join(dir, stem + '.wav');
+      fs.writeFileSync(tmpWav, buf);
+      try {
+        await execFileAsync('ffmpeg', ['-y', '-loglevel', 'error', '-i', tmpWav, '-vn', '-c:a', 'flac', '-compression_level', '5', flacP]);
+        if (!fs.existsSync(flacP) || fs.statSync(flacP).size <= 1024) throw new Error('flac output too small');
+        try { fs.unlinkSync(tmpWav); } catch (e) {}
+        try { if (fs.existsSync(wavP)) fs.unlinkSync(wavP); } catch (e) {}
+        saved[stem + '.flac'] = fs.statSync(flacP).size;
+      } catch (e) {
+        try { if (fs.existsSync(flacP)) fs.unlinkSync(flacP); } catch (e2) {}
+        try { fs.renameSync(tmpWav, wavP); } catch (e2) { fs.writeFileSync(wavP, buf); }
+        saved[stem + '.wav'] = buf.length;
+        log.warn('SEP', `[job ${jobId}] ${stem} wav→flac 转换失败，回退保留 wav: ${e.message}`);
+      }
+    };
+    await Promise.all([convertTrack(files.vocals, 'vocals'), convertTrack(files.accompaniment, 'accompaniment')]);
     let lyricsWord = null;
     if (files.wordLrc && files.wordLrc[0]) lyricsWord = files.wordLrc[0].buffer.toString('utf8');
     else if (req.body && req.body.wordLrc) lyricsWord = String(req.body.wordLrc);
