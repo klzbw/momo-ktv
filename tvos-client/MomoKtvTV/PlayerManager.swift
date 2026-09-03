@@ -365,15 +365,13 @@ class PlayerManager: ObservableObject {
             }
             let vParams = AVMutableAudioMixInputParameters(track: cVocal)
             let aParams = AVMutableAudioMixInputParameters(track: cAcc)
-            // 用 setVolumeRamp 设置全时间轴持续音量（比 setVolume(at:) 更可靠，后者在某些tvOS版本不生效）
-            // 注意：timeRange 不能用 .positiveInfinity，AVFoundation 要求有效有限范围，否则 exc_bad_access 崩溃
-            let fullRange = CMTimeRange(start: .zero, duration: CMTime(seconds: 86400, preferredTimescale: 600))
-            aParams.setVolumeRamp(fromStartVolume: 1.0, toEndVolume: 1.0, timeRange: fullRange)
+            // 用 setVolume(_:at:) 设置恒定音量（从0时刻起整条时间轴生效）
+            aParams.setVolume(1.0, at: .zero)
 
             DispatchQueue.main.async { [weak self] in
                 guard let self = self, self.loadGeneration == gen else { return }
                 let resumeAt = self.player?.currentTime().seconds ?? 0
-                vParams.setVolumeRamp(fromStartVolume: self.vocalLevel, toEndVolume: self.vocalLevel, timeRange: fullRange)
+                vParams.setVolume(self.vocalLevel, at: .zero)
                 let mix = AVMutableAudioMix()
                 mix.inputParameters = [vParams, aParams]
                 self.dualAudioMix = mix
@@ -398,18 +396,24 @@ class PlayerManager: ObservableObject {
     }
 
     /// 把当前人声增益写回合成 item（滑块/遥控器每次变动都调用）
-    /// 关键：每次必须创建新的 AVMutableAudioMix 对象——重新赋值同一对象 AVFoundation
-    /// 不会重新处理，导致音量调节/原唱伴奏切换实际无音频变化。
+    /// 关键1：每次必须创建新的 AVMutableAudioMix 对象——重新赋值同一对象 AVFoundation
+    ///        不会重新处理，导致音量调节/原唱伴奏切换实际无音频变化。
+    /// 关键2：每次必须创建新的 AVMutableAudioMixInputParameters 对象——复用旧对象并多次
+    ///        调用 setVolumeRamp 会累积多个音量渐变段，导致音量设置混乱/不生效。
+    ///        用 trackID 创建新对象 + setVolume(_:at:) 设置恒定音量，干净可靠。
     private func applyDualVolume() {
-        guard let vParams = dualVocalParams, let aParams = dualAccompParams else { return }
+        guard let oldVParams = dualVocalParams, let oldAParams = dualAccompParams else { return }
         let q = max(0, min(1, vocalLevel))
-        // timeRange 不能用 .positiveInfinity，否则 exc_bad_access 崩溃
-        let fullRange = CMTimeRange(start: .zero, duration: CMTime(seconds: 86400, preferredTimescale: 600))
-        vParams.setVolumeRamp(fromStartVolume: q, toEndVolume: q, timeRange: fullRange)
-        aParams.setVolumeRamp(fromStartVolume: 1.0, toEndVolume: 1.0, timeRange: fullRange)
+        // 用旧 params 的 trackID 创建新对象，避免累积音量段
+        let vParams = AVMutableAudioMixInputParameters(trackID: oldVParams.trackID)
+        let aParams = AVMutableAudioMixInputParameters(trackID: oldAParams.trackID)
+        vParams.setVolume(q, at: .zero)
+        aParams.setVolume(1.0, at: .zero)
         let newMix = AVMutableAudioMix()
         newMix.inputParameters = [vParams, aParams]
         dualAudioMix = newMix
+        dualVocalParams = vParams
+        dualAccompParams = aParams
         player?.currentItem?.audioMix = newMix
     }
 
