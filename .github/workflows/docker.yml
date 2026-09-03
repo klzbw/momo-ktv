@@ -1,7 +1,8 @@
 name: Build Docker Image
 
-# 推送到 main（改动 app/docker 时）自动构建并推送 GHCR 镜像；也可手动触发。
-# 推送后镜像：ghcr.io/klzbw/momo-ktv:latest 与 ghcr.io/klzbw/momo-ktv:sha-xxxxxx
+# 推送到 main（改动 app/docker 或本 workflow）自动构建并推送 GHCR；也可手动触发。
+# 产出：ghcr.io/klzbw/momo-ktv:latest 与 :sha-xxxxxx
+# 闭环：服务器侧 watchtower 轮询 GHCR，发现 latest 的 digest 变化即自动 pull 并重建容器。
 on:
   push:
     branches: [main]
@@ -9,6 +10,11 @@ on:
       - 'app/docker/**'
       - '.github/workflows/docker.yml'
   workflow_dispatch:
+
+# 同一分支连续推送时，取消还在跑的旧构建、只保留最新一次，省 CI 额度
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -41,19 +47,26 @@ jobs:
             type=sha,format=short
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v6
         with:
-          # Dockerfile 内的 COPY server/COPY web 均相对 app/docker 目录
+          # Dockerfile 内的 COPY server / COPY web 均相对 app/docker 目录
           context: app/docker
           file: app/docker/Dockerfile
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # 关键修复：禁用构建期层缓存。曾出现 git 源码已修好 hlsgen 混声滤镜，但
-          # `COPY server` 命中 gha 里的旧层（坏滤镜），导致镜像里一直是旧文件、
-          # NAS 拉到的层 "Already exists" 永不更新。server/web 体积很小，全量重建
-          # 多花 2-3 分钟，换取"镜像内容永远等于当前 git 源码"，值得。
+          # 关键：禁用构建期层缓存。曾出现 git 源码已修好，但 COPY server 命中
+          # gha 旧层导致镜像里一直是旧文件、NAS 拉到的层 "Already exists" 永不更新。
+          # server/web 体积很小，全量重建多花 2-3 分钟，换"镜像内容恒等于当前 git 源码"。
+          # 因此不再配置 cache-from/cache-to（与 no-cache 冲突、无收益）。
           no-cache: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+
+      - name: Build summary
+        run: |
+          {
+            echo "### 镜像已推送到 GHCR"
+            echo "- tags: \`${{ steps.meta.outputs.tags }}\`"
+            echo "- digest: \`${{ steps.build.outputs.digest }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

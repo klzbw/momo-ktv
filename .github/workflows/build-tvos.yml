@@ -8,6 +8,11 @@ on:
       - '.github/workflows/build-tvos.yml'
   workflow_dispatch:
 
+# 连续推送时取消旧的 tvOS 构建，只保留最新一次（macOS 计费分钟宝贵）
+concurrency:
+  group: tvos-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: macos-14

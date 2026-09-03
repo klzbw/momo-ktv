@@ -380,9 +380,9 @@ class KTVAPIClient: ObservableObject {
                 } catch { done(false) }
             }.resume()
         }
-        dl(apiURL(vocalPath), vocalLocal) { okV in
+        dl(self.apiURL(vocalPath), vocalLocal) { okV in
             guard okV else { DispatchQueue.main.async { completion(nil, nil) }; return }
-            dl(apiURL(accompPath), accompLocal) { okA in
+            dl(self.apiURL(accompPath), accompLocal) { okA in
                 DispatchQueue.main.async { completion(okA ? vocalLocal : nil, okA ? accompLocal : nil) }
             }
         }
