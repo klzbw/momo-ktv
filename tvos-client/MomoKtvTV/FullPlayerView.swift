@@ -24,6 +24,9 @@ struct FullPlayerView: View {
 
     @State private var voiceMode: VoiceMode = .original
 
+    /// 点「原/伴唱」按钮自增，驱动 DUAL 垂直人声音量条主动获取遥控器焦点
+    @State private var vocalBarFocusToken: Int = 0
+
     @State private var hideTimer: Timer?
 
     @State private var hasAutoExited = false
@@ -318,7 +321,11 @@ struct FullPlayerView: View {
 
 
 
-                            TVTightButton(action: { lastFocusedBtn = 3; toggleVoice() }, focusedTag: $focusedBtn, focusTag: 3, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                            TVTightButton(action: {
+                                lastFocusedBtn = 3
+                                toggleVoice()
+                                if playerManager.dualEnabled { vocalBarFocusToken += 1 } // DUAL：呼出并聚焦人声音量条
+                            }, focusedTag: $focusedBtn, focusTag: 3, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
 
                                 controlContent(icon: "mic.fill", title: playerManager.vocalTrackLabel, focused: focused)
 
@@ -448,7 +455,9 @@ struct FullPlayerView: View {
 
                         // 与上方麦克风按钮共享同一状态并大屏反馈。
 
-                        if playerManager.vocalTrackCount >= 3 {
+                        if playerManager.dualEnabled {
+                            dualVocalControl
+                        } else if playerManager.vocalTrackCount >= 3 {
 
                             HStack(spacing: 16) {
 
@@ -1393,6 +1402,31 @@ struct FullPlayerView: View {
     }
 
 
+
+    /// DUAL 双FLAC：垂直连续人声音量条（上=原唱、下=纯伴奏）。
+    /// 聚焦后用遥控器上/下键或在触摸板上下滑动，以 5% 步进连续调节人声增益。
+    private var dualVocalControl: some View {
+        VStack(spacing: 8) {
+            Text("原唱 · 人声\(playerManager.vocalVolumePercent)%")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(.white)
+            TVVocalSlider(
+                level: Binding(get: { playerManager.vocalLevel },
+                               set: { playerManager.setVocalLevel($0) }),
+                onChange: { _ in
+                    FeedbackCenter.shared.show(playerManager.vocalTrackLabel, icon: "mic.fill")
+                    resetHideTimer()
+                },
+                autoFocusToken: vocalBarFocusToken
+            )
+            .frame(height: 208)
+            Text("纯伴奏")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(.white.opacity(0.7))
+        }
+        .padding(.top, 10)
+        .padding(.horizontal, 40)
+    }
 
     private func toggleVoice() {
 

@@ -15,10 +15,39 @@ class PlayerManager: ObservableObject {
     @Published var vocalTrackIndex: Int = 0
     /// 当前歌曲 HLS 里实际可选的音轨条数（读到 master 的 audio options 后回填，驱动循环边界与滑块）
     @Published var vocalTrackCount: Int = 1
+
+    // MARK: DUAL 双FLAC（人声轨 + 伴奏轨本地混合，连续调人声增益实现消音）
+    /// 是否处于双FLAC混合模式（true=连续人声音量；false=HLS 五档/声道老方案）
+    @Published var dualEnabled: Bool = false
+    /// DUAL 人声音量 0(纯伴奏)...1(原唱)，连续可调
+    @Published var vocalLevel: Float = 1
+    /// DUAL 当前歌曲 id，用于排查与展示
+    private(set) var dualSongId: Int?
+    private var dualAudioMix: AVMutableAudioMix?
+    private var dualVocalParams: AVMutableAudioMixInputParameters?
+    /// 加载代号：setupPlayer/activateDual 时递增，过期的异步结果直接丢弃
+    private var loadGeneration: Int = 0
+    /// 记录当前歌曲的 HLS 地址：DUAL 升级后 asset 变为 Composition，重唱判断仍需它
+    private var currentHLSURL: URL?
+
     /// 兼容旧代码的二元语义：是否处于原唱档
-    var isOriginalVoice: Bool { vocalTrackIndex == 0 }
+    var isOriginalVoice: Bool {
+        dualEnabled ? vocalLevel > 0.5 : vocalTrackIndex == 0
+    }
+    /// 上报给服务端/手机遥控的原伴状态字符串（DUAL 与人声音量、HLS 与档位统一出口）
+    var voiceStateString: String {
+        if dualEnabled {
+            return vocalLevel > 0.5 ? "original" : (vocalLevel <= 0.001 ? "accompaniment" : "half")
+        }
+        return vocalTrackIndex == 0 ? "original" : (vocalTrackIndex == 1 ? "half" : "accompaniment")
+    }
     /// 当前档位的中文名（用于反馈提示与按钮标题）
     var vocalTrackLabel: String {
+        if dualEnabled {
+            if vocalLevel >= 0.999 { return "原唱" }
+            if vocalLevel <= 0.001 { return "伴奏" }
+            return "人声\(Int((vocalLevel * 100).rounded()))%"
+        }
         switch vocalTrackCount {
         case 5:
             switch vocalTrackIndex {
@@ -35,8 +64,9 @@ class PlayerManager: ObservableObject {
         default: return "原唱"
         }
     }
-    /// 人声音量百分比（滑块用）：五档映射 100/75/50/25/0
+    /// 人声音量百分比（滑块用）：DUAL 取连续值；五档映射 100/75/50/25/0
     var vocalVolumePercent: Int {
+        if dualEnabled { return Int((vocalLevel * 100).rounded()) }
         let pct = [100, 75, 50, 25, 0]
         return (vocalTrackIndex >= 0 && vocalTrackIndex < pct.count) ? pct[vocalTrackIndex] : 0
     }
@@ -71,11 +101,12 @@ class PlayerManager: ObservableObject {
     private init() {}
 
     func setupPlayer(for url: URL) {
-        if let existingURL = (player?.currentItem?.asset as? AVURLAsset)?.url,
-           existingURL == url {
+        // 同一首歌再次播放（重唱/随机重播）：HLS 的 asset 是 AVURLAsset，DUAL 升级后是
+        // AVMutableComposition，故同时用记录的 currentHLSURL 判断；命中直接回曲首，
+        // 避免 DUAL 歌曲重唱被 cleanup 打回 HLS 却无人重新升级。
+        let sameByAsset = (player?.currentItem?.asset as? AVURLAsset)?.url == url
+        if (sameByAsset || currentHLSURL == url), player != nil {
             attachLayerToCurrentHost()
-            // 同一首歌再次播放（重唱/随机重播）时，必须回到曲首0秒并重新播放，
-            // 否则会从上一次暂停位置继续，导致MKV等视频歌不从曲首播放
             player?.seek(to: CMTime.zero)
             player?.play()
             isPlaying = true
@@ -85,14 +116,30 @@ class PlayerManager: ObservableObject {
 
         cleanup()
 
-        // New song defaults to original voice (track 0), matching web _loadedTrack = 0
+        // HLS 先起播：复位为五档/声道老方案与人声；若该歌已 AI 分离，
+        // ContentView 随后会调 activateDual 把双FLAC无缝升级上来（失败就停留在 HLS）。
+        dualEnabled = false
+        dualSongId = nil
+        vocalLevel = 1
         vocalTrackIndex = 0
+        loadGeneration += 1
         voiceGeneration += 1
 
+        currentHLSURL = url
         let playerItem = AVPlayerItem(url: url)
         // 增加前向缓冲到 30 秒，减少网络波动导致的卡顿
-        // （默认缓冲时长由系统决定，在局域网 HLS 场景下可能偏短）
         playerItem.preferredForwardBufferDuration = 30
+        installPlayerItem(playerItem, isDual: false)
+
+        // Apply voice mode immediately (may no-op if tracks not loaded yet;
+        // the itemStatusObserver + retries will pick it up)
+        applyVoiceMode()
+    }
+
+    /// 用给定 AVPlayerItem 建立播放器、观察者并起播。
+    /// HLS 远端 item 与 DUAL 本地合成 item 共用同一套播放/进度/卡死恢复逻辑。
+    private func installPlayerItem(_ playerItem: AVPlayerItem, isDual: Bool) {
+        teardownPlayer() // 先拆除旧 item（HLS→DUAL 无缝替换时尤其必要），观察者不残留
         let player = AVPlayer(playerItem: playerItem)
         self.player = player
 
@@ -100,13 +147,9 @@ class PlayerManager: ObservableObject {
         layer.videoGravity = .resizeAspect
         self.playerLayer = layer
 
-        // Auto-attach to current host view
         attachLayerToCurrentHost()
 
-        // Time observer
-        // 20Hz 刷新当前时间：逐字歌词靠 KaraokeWord 内的 0.05s 线性补间做到视觉平滑，
-        // 不需要更高频地全量重绘整个播放页(过高频率叠加描边/阴影会拖卡整个 app)。
-        // 仅本地 UI 刷新频率，上报服务端的 progressTimer 仍保持 1 秒一次，不增加网络负担。
+        // 20Hz 刷新当前时间：逐字歌词靠 0.05s 线性补间做到视觉平滑；progress 上报仍 1s 一次
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.05, preferredTimescale: 1000),
             queue: .main
@@ -117,24 +160,21 @@ class PlayerManager: ObservableObject {
             }
         }
 
-        // Rate observer
         statusObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async {
                 self?.isPlaying = player.timeControlStatus == .playing
             }
         }
 
-        // Item status observer - apply voice mode when item is ready to play
-        // (HLS audio renditions are not available until the item is ready)
+        // Item ready：HLS 选回演唱音轨；DUAL 应用当前人声增益
         itemStatusObserver = playerItem.observe(\.status, options: [.new]) { [weak self] _, _ in
             if playerItem.status == .readyToPlay {
                 DispatchQueue.main.async {
-                    self?.applyVoiceMode()
+                    if isDual { self?.applyDualVolume() } else { self?.applyVoiceMode() }
                 }
             }
         }
 
-        // Playback end observer
         endObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: playerItem,
@@ -146,10 +186,7 @@ class PlayerManager: ObservableObject {
         player.play()
         isPlaying = true
 
-        // 修复随机播放不从开头开始：HLS event 类型在转码完成前没有 #EXT-X-ENDLIST，
-        // AVPlayer 误认为是直播流，从"最新分片"开始播放而不是从开头。
-        // 这里在 item 准备好后强制 seek 到 0，确保从歌曲开头播放。
-        // 分两次 seek：立即一次(可能被忽略)，0.5秒后 item 准备好时再一次(确保生效)
+        // 强制从曲首起播（HLS event 未写 ENDLIST 时 AVPlayer 会误当直播从末尾起播），两次 seek 兜底
         player.seek(to: CMTime.zero)
         currentTime = 0
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -158,14 +195,8 @@ class PlayerManager: ObservableObject {
             self.currentTime = 0
         }
 
-        // Apply voice mode immediately (may no-op if tracks not loaded yet;
-        // the itemStatusObserver + retries will pick it up)
-        applyVoiceMode()
+        if isDual { applyDualVolume() } else { applyVoiceMode() }
 
-        // Start progress reporting timer — fires every 1s while playing.
-        // The timer calls onProgressReport which sends currentTime to the
-        // server; mobile remote controllers interpolate between these reports
-        // to show a smoothly moving progress bar synced to the TV.
         startProgressTimer()
         startStuckCheck()
     }
@@ -191,7 +222,8 @@ class PlayerManager: ObservableObject {
                     self.stuckCounter = 0
                     // 恢复策略：先seek到前1秒再play；如果item failed则重建
                     if player.currentItem?.status == .failed {
-                        if let url = (player.currentItem?.asset as? AVURLAsset)?.url {
+                        // DUAL 的 asset 是 Composition，取 AVURLAsset 为 nil，用记录的 HLS 地址兜底回退起播
+                        if let url = (player.currentItem?.asset as? AVURLAsset)?.url ?? self.currentHLSURL {
                             self.setupPlayer(for: url)
                             self.seek(to: max(0, cur - 1))
                         }
@@ -213,7 +245,7 @@ class PlayerManager: ObservableObject {
             guard let self = self, self.player != nil else { return }
             let cur = self.player?.currentTime().seconds ?? self.currentTime
             let paused = !(self.player?.timeControlStatus == .playing)
-            let voice: String = self.vocalTrackIndex == 0 ? "original" : (self.vocalTrackIndex == 1 ? "half" : "accompaniment")
+            let voice: String = self.voiceStateString
             self.onProgressReport?(cur, paused, voice)
         }
     }
@@ -244,7 +276,7 @@ class PlayerManager: ObservableObject {
         // 如果 currentItem 已经 failed，先重建再播放
         if player.currentItem?.status == .failed {
             print("[PlayerManager] currentItem failed, attempting recovery")
-            if let url = (player.currentItem?.asset as? AVURLAsset)?.url {
+            if let url = (player.currentItem?.asset as? AVURLAsset)?.url ?? currentHLSURL {
                 let curTime = player.currentTime().seconds
                 setupPlayer(for: url)
                 seek(to: max(0, curTime - 1))
@@ -293,11 +325,88 @@ class PlayerManager: ObservableObject {
         player?.volume = volume
     }
 
+    // MARK: - DUAL 双FLAC（人声轨 + 伴奏轨本地混合，连续人声增益）
+
+    /// HLS 先起播后，若该歌已 AI 分离：把下载好的人声/伴奏 FLAC 合成为一个双音轨
+    /// AVPlayerItem 无缝替换当前播放并继承进度。tvOS 上 AVPlayer.volume 不可用，
+    /// 故用 AVMutableComposition + AVMutableAudioMix 分别控制两轨音量实现消音。
+    /// 视频歌(MKV/MP4)由调用方按扩展名排除，不会走到这里，保持原 HLS 多档方案。
+    func activateDual(songId: Int, vocalFile: URL, accompFile: URL) {
+        let gen = loadGeneration + 1
+        loadGeneration = gen
+        DispatchQueue.global(qos: .userInitiated).async {
+            let vocalAsset = AVURLAsset(url: vocalFile)
+            let accompAsset = AVURLAsset(url: accompFile)
+            guard let vTrack = vocalAsset.tracks(withMediaType: .audio).first,
+                  let aTrack = accompAsset.tracks(withMediaType: .audio).first else {
+                print("[PlayerManager] DUAL 缺少音频轨，保留 HLS song=\(songId)"); return
+            }
+            let vDur = vocalAsset.duration, aDur = accompAsset.duration
+            guard vDur.isValid, !vDur.isIndefinite, aDur.isValid, !aDur.isIndefinite else {
+                print("[PlayerManager] DUAL 时长无效，保留 HLS song=\(songId)"); return
+            }
+            let composition = AVMutableComposition()
+            guard let cVocal = composition.addMutableTrack(withMediaType: .audio,
+                                                          preferredTrackID: kCMPersistentTrackID_Invalid),
+                  let cAcc = composition.addMutableTrack(withMediaType: .audio,
+                                                         preferredTrackID: kCMPersistentTrackID_Invalid) else { return }
+            do {
+                // 两轨都从 0 严格对齐，取较短时长，避免其中一轨尾部溢出
+                let dur = CMTimeMinimum(vDur, aDur)
+                try cVocal.insertTimeRange(CMTimeRange(start: .zero, duration: dur), of: vTrack, at: .zero)
+                try cAcc.insertTimeRange(CMTimeRange(start: .zero, duration: dur), of: aTrack, at: .zero)
+            } catch {
+                print("[PlayerManager] DUAL 合成失败，保留 HLS: \(error)"); return
+            }
+            let vParams = AVMutableAudioMixInputParameters(track: cVocal)
+            let aParams = AVMutableAudioMixInputParameters(track: cAcc)
+            let mix = AVMutableAudioMix()
+            mix.inputParameters = [vParams, aParams]
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self, self.loadGeneration == gen else { return } // 已切歌，丢弃过期结果
+                let resumeAt = self.player?.currentTime().seconds ?? 0
+                aParams.setVolume(1.0, at: .zero)
+                vParams.setVolume(self.vocalLevel, at: .zero)
+                self.dualAudioMix = mix
+                self.dualVocalParams = vParams
+                self.dualSongId = songId
+                let item = AVPlayerItem(asset: composition)
+                item.audioMix = mix
+                self.dualEnabled = true
+                self.voiceGeneration += 1
+                self.installPlayerItem(item, isDual: true)
+                if resumeAt > 0.5 { self.seek(to: resumeAt) }
+                print("[PlayerManager] DUAL 双FLAC已启用 song=\(songId)")
+            }
+        }
+    }
+
+    /// 把当前人声增益写回合成 item（滑块/遥控器每次变动都调用）
+    private func applyDualVolume() {
+        guard let params = dualVocalParams, let mix = dualAudioMix else { return }
+        params.setVolume(max(0, min(1, vocalLevel)), at: .zero)  // 整条时间轴恒定增益，实时整体生效
+        player?.currentItem?.audioMix = mix                      // 重新赋值触发刷新
+    }
+
+    /// DUAL：连续设置人声音量 0(纯伴奏)...1(原唱)
+    func setVocalLevel(_ x: Float) {
+        let q = max(0, min(1, x))
+        vocalLevel = (q * 100).rounded() / 100                   // 量化到 1%，消除浮点抖动
+        guard dualEnabled else { return }
+        applyDualVolume()
+    }
+
+    /// DUAL：遥控器上下键步进微调（delta 通常 ±0.05）
+    func nudgeVocalLevel(_ delta: Float) { setVocalLevel(vocalLevel + delta) }
+
     // MARK: - Voice Toggle (原唱 / 半消 / 伴奏 多档 + 滑块)
 
     /// 遥控器一个键在当前歌曲的全部档位间循环：五档(原唱→75%→半消→25%→伴奏)
     /// 或三档/双档，边界由 HLS 实际音轨数 vocalTrackCount 决定。
     func toggleVoice() {
+        // DUAL 双FLAC：只在 原唱(1)/纯伴奏(0) 两态切换，连续细调交给垂直音量条
+        if dualEnabled { setVocalLevel(vocalLevel > 0.5 ? 0 : 1); voiceGeneration += 1; return }
         // 音轨尚未探测到时至少允许在 0/1 之间走，options 到位后 trySelect 会回填真实档数并收敛
         let bound = max(2, vocalTrackCount)
         vocalTrackIndex = (vocalTrackIndex + 1) % bound
@@ -307,6 +416,12 @@ class PlayerManager: ObservableObject {
 
     /// 直接选到指定档位（滑块吸附/快捷按钮用），index 即音轨序号，越界由选择阶段收敛
     func selectVocalTrack(_ index: Int) {
+        if dualEnabled {
+            // 档位位置线性映射到连续人声增益：0档=原唱(1)…末档=纯伴奏(0)
+            let total = max(2, vocalTrackCount)
+            setVocalLevel(1 - Float(max(0, min(4, index))) / Float(total - 1))
+            return
+        }
         let clamped = max(0, min(4, index))
         guard clamped != vocalTrackIndex else { return }
         vocalTrackIndex = clamped
@@ -316,6 +431,7 @@ class PlayerManager: ObservableObject {
 
     /// 快捷直达：原唱(第0档) / 纯伴奏(最后一档)
     func setVoiceMode(_ original: Bool) {
+        if dualEnabled { setVocalLevel(original ? 1 : 0); return }
         vocalTrackIndex = original ? 0 : max(0, vocalTrackCount - 1)
         voiceGeneration += 1
         applyVoiceMode()
@@ -362,7 +478,8 @@ class PlayerManager: ObservableObject {
         }
     }
 
-    func cleanup() {
+    /// 仅拆除当前 AVPlayer 及其观察者/定时器/图层，不重置 DUAL 等业务状态；换 item 前复用
+    private func teardownPlayer() {
         stopProgressTimer()
         stuckCheckTimer?.invalidate()
         stuckCheckTimer = nil
@@ -382,8 +499,18 @@ class PlayerManager: ObservableObject {
         playerLayer = nil
         player?.pause()
         player = nil
+    }
+
+    func cleanup() {
+        teardownPlayer()
         isPlaying = false
         currentTime = 0
         duration = 0
+        // 复位 DUAL（本地缓存的 FLAC 文件保留，二次点歌秒开）
+        dualEnabled = false
+        dualSongId = nil
+        dualAudioMix = nil
+        dualVocalParams = nil
+        vocalLevel = 1
     }
 }

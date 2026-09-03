@@ -329,6 +329,65 @@ class KTVAPIClient: ObservableObject {
         return apiURL("/hls/\(songId)/master.m3u8")
     }
     func streamURL(songId: Int, track: Int = 0) -> URL? { apiURL("/stream/\(songId)?track=\(track)") }
+
+    // MARK: - AI 分离双轨（DUAL：人声 FLAC + 伴奏 FLAC，本地混合后独立调人声音量）
+    struct SepInfo: Codable {
+        let dual: Bool?
+        let hasVocal: Bool?
+        let hasAccomp: Bool?
+        let sepStatus: String?
+        let vocalUrl: String?
+        let accompUrl: String?
+        /// 三者齐备才允许走双FLAC混合
+        var isDual: Bool { dual == true && hasVocal == true && hasAccomp == true }
+    }
+
+    /// 查询某首歌的 AI 分离状态与双轨相对路径（失败/未分离回 nil，调用方走 HLS 兜底）
+    func fetchSepInfo(songId: Int, completion: @escaping (SepInfo?) -> Void) {
+        guard let url = apiURL("/api/songs/\(songId)/sep-info") else { completion(nil); return }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            DispatchQueue.main.async {
+                if let data = data, let info = try? JSONDecoder().decode(SepInfo.self, from: data) {
+                    completion(info)
+                } else { completion(nil) }
+            }
+        }.resume()
+    }
+
+    /// 把人声/伴奏两个 FLAC 下载到本地缓存（按 歌曲+类型 命名，已存在直接复用，二次点歌秒开）。
+    /// 全部成功后回主线程返回两个本地文件 URL；任一失败回 (nil,nil)，由调用方回退 HLS。
+    func downloadDualTracks(songId: Int, vocalPath: String, accompPath: String,
+                            completion: @escaping (URL?, URL?) -> Void) {
+        let fm = FileManager.default
+        guard let cache = try? fm.url(for: .cachesDirectory, in: .userDomainMask,
+                                     appropriateFor: nil, create: true) else {
+            DispatchQueue.main.async { completion(nil, nil) }; return
+        }
+        let dir = cache.appendingPathComponent("dual", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let vocalLocal = dir.appendingPathComponent("\(songId)_vocal.flac")
+        let accompLocal = dir.appendingPathComponent("\(songId)_accomp.flac")
+
+        func dl(_ remote: URL?, _ local: URL, done: @escaping (Bool) -> Void) {
+            if fm.fileExists(atPath: local.path) { done(true); return }      // 已缓存，直接复用
+            guard let remote = remote else { done(false); return }
+            URLSession.shared.downloadTask(with: remote) { tmp, _, _ in
+                guard let tmp = tmp else { done(false); return }
+                do {
+                    if fm.fileExists(atPath: local.path) { try? fm.removeItem(at: local) }
+                    try fm.moveItem(at: tmp, to: local)
+                    done(true)
+                } catch { done(false) }
+            }.resume()
+        }
+        dl(apiURL(vocalPath), vocalLocal) { okV in
+            guard okV else { DispatchQueue.main.async { completion(nil, nil) }; return }
+            dl(apiURL(accompPath), accompLocal) { okA in
+                DispatchQueue.main.async { completion(okA ? vocalLocal : nil, okA ? accompLocal : nil) }
+            }
+        }
+    }
+
     func coverURL(_ filename: String?) -> URL? {
         guard let filename = filename, !filename.isEmpty else { return nil }
         return apiURL("/cover/\(filename)")

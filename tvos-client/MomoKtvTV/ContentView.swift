@@ -407,6 +407,7 @@ struct ContentView: View {
                         playerManager.vocalTrackCount = playing.audio_tracks ?? 1
                         playerManager.setupPlayer(for: hlsURL)
                         playerManager.setVolume(volume)
+                        prepareDualIfNeeded(playing)
                         // 首次进入小窗也加载歌词（onChange 只在切歌时触发）
                         if playing.isVideoFile { previewLyrics.lyrics = .empty }
                         else if previewLyrics.lyrics.isEmpty { previewLyrics.load(server: api.serverAddress, songId: playing.song_id) }
@@ -512,6 +513,7 @@ struct ContentView: View {
                     playerManager.vocalTrackCount = playing.audio_tracks ?? 1
                     playerManager.setupPlayer(for: url)
                     playerManager.setVolume(volume)
+                    prepareDualIfNeeded(playing)
                 }
             } else {
                 // No song playing
@@ -521,6 +523,23 @@ struct ContentView: View {
             shouldResumePlaying = true
         }
         .focusSection()
+    }
+
+    /// 纯音频且已 AI 分离的歌：HLS 先起播，随后下载人声/伴奏双 FLAC 并由 PlayerManager
+    /// 无缝升级为 DUAL 连续人声音量；MKV/MP4 等视频歌直接跳过，保持原 HLS 多档/声道方案。
+    private func prepareDualIfNeeded(_ playing: QueueItem) {
+        guard !playing.isVideoFile else { return }
+        let sid = playing.song_id
+        api.fetchSepInfo(songId: sid) { info in
+            guard let info = info, info.isDual,
+                  let vocalPath = info.vocalUrl, let accompPath = info.accompUrl else { return }
+            self.api.downloadDualTracks(songId: sid, vocalPath: vocalPath, accompPath: accompPath) { vFile, aFile in
+                guard let vFile = vFile, let aFile = aFile else { return }
+                // 快切歌保护：当前仍在播放同一首才升级（PlayerManager 内部另有 generation 校验）
+                guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
+                self.playerManager.activateDual(songId: sid, vocalFile: vFile, accompFile: aFile)
+            }
+        }
     }
 
     private func setupControlHandler() {
@@ -759,8 +778,7 @@ struct ContentView: View {
                 showToast(playerManager.vocalTrackLabel)
                 // Sync voice state to server so mobile remote original/accompaniment
                 // button highlight stays in sync with the TV.
-                let v: String = playerManager.vocalTrackIndex == 0 ? "original" : (playerManager.vocalTrackIndex == 1 ? "half" : "accompaniment")
-                api.sendPlaybackState(paused: !playerManager.isPlaying, voice: v)
+                api.sendPlaybackState(paused: !playerManager.isPlaying, voice: playerManager.voiceStateString)
             }
             MVButton(icon: "speaker.minus", title: "音量-") {
                 volume = max(0, volume - 0.1)
@@ -776,7 +794,7 @@ struct ContentView: View {
                 // Sync playback state to server so mobile remote play/pause
                 // button icon stays in sync with the TV.
                 api.sendPlaybackState(paused: !playerManager.isPlaying,
-                    voice: playerManager.vocalTrackIndex == 0 ? "original" : (playerManager.vocalTrackIndex == 1 ? "half" : "accompaniment"))
+                    voice: playerManager.voiceStateString)
             }
             MVButton(icon: "speaker.plus", title: "音量+") {
                 volume = min(1, volume + 0.1)
