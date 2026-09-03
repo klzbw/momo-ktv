@@ -2728,12 +2728,15 @@ const VoiceManager = (() => {
     },
   };
 })();
+// 显式挂到 window：VoiceManager 是 const 顶层声明，不会自动成为 window 属性，
+// 而人声调音条等独立 IIFE 通过 window.VoiceManager 判空——不挂载会导致调音条永远不弹出。
+window.VoiceManager=VoiceManager;
 
 // 首次用户交互激活 Web Audio（必须，浏览器安全策略）
 document.addEventListener('click', () => VoiceManager.wake(video), { once: false, passive: true });
 // ───────── DUAL 人声「垂直调音条」：贴在原/伴唱按钮正上方，点按钮开/关，上下拖动或遥控器上/下键细调，闲置自动收起 ─────────
 (function(){
-  const HOLD_MS=2600, STEP=0.05;
+  const HOLD_MS=4000, STEP=0.05;
   let pop,track,fill,thumb,pctEl,hideTimer=null,dragging=false;
   function els(){ pop=document.getElementById('vv-pop');track=document.getElementById('vv-track');fill=document.getElementById('vv-fill');thumb=document.getElementById('vv-thumb');pctEl=document.getElementById('vv-pct'); }
   function clamp01(x){ return Math.max(0,Math.min(1,x)); }
@@ -2781,7 +2784,7 @@ document.addEventListener('click', () => VoiceManager.wake(video), { once: false
   };
   window.hideVocalPop=function(){ els(); if(pop)pop.style.display='none'; clearTimeout(hideTimer); dragging=false; };
   function levelFromY(clientY){ const r=track.getBoundingClientRect(); return clamp01(1-(clientY-r.top)/r.height); }
-  function applyLV(lv){ try{VoiceManager.wake(video);}catch(e){} VoiceManager.setVocal(video,clamp01(lv)); render(VoiceManager.vocalLevel); armHide(); keepOverlayAlive(); }
+  function applyLV(lv){ try{VoiceManager.wake(video);}catch(e){} VoiceManager.setVocal(video,Math.round(clamp01(lv)*100)/100); render(VoiceManager.vocalLevel); armHide(); keepOverlayAlive(); }
   function init(){
     els(); if(!track||track.__vvBound)return; track.__vvBound=1;
     track.addEventListener('pointerdown',function(e){ dragging=true; try{track.setPointerCapture(e.pointerId);}catch(x){} applyLV(levelFromY(e.clientY)); e.preventDefault(); });
@@ -2797,10 +2800,13 @@ document.addEventListener('click', () => VoiceManager.wake(video), { once: false
     // 竖条显示时，捕获阶段优先接管遥控器上/下键做细调，避免被全局方向焦点导航把焦点移走
     window.addEventListener('keydown',function(e){
       if(!isUp())return;
-      if(e.key==='ArrowUp'||e.key==='ArrowDown'){
-        const lv=clamp01((VoiceManager.vocalLevel||0)+(e.key==='ArrowUp'?STEP:-STEP));
-        applyLV(lv); e.preventDefault(); e.stopPropagation();
-      } else if(e.key==='Enter'||e.key===' '){ armHide(); }
+      if(e.key==='ArrowUp'||e.key==='ArrowRight'){
+        applyLV((VoiceManager.vocalLevel||0)+STEP); e.preventDefault(); e.stopPropagation();
+      } else if(e.key==='ArrowDown'||e.key==='ArrowLeft'){
+        applyLV((VoiceManager.vocalLevel||0)-STEP); e.preventDefault(); e.stopPropagation();
+      } else if(e.key==='Enter'||e.key===' '){ // 调音条开着时按确认键：只收起，不再触发原/伴唱按钮重复切换
+        window.hideVocalPop(); e.preventDefault(); e.stopPropagation();
+      }
     },true);
     // 点到竖条与原/伴唱按钮之外的空白处，收起竖条
     document.addEventListener('pointerdown',function(e){
@@ -3239,7 +3245,9 @@ function loadSong(v,songId,needsDownload){
   try{ VoiceManager.dualReset(); }catch(e){} // 清掉上一首的双轨、恢复背景音轨出声
   try{ window.hideVocalPop&&window.hideVocalPop(); }catch(e){} // 同步收起人声垂直调音条
   const url=`${BASE}/hls/${songId}/master.m3u8`;
-  try{ VoiceManager.prepareDual(songId); }catch(e){} // 异步探测：分离完成的纯音频歌走连续滑块
+  // 仅纯音频歌走双FLAC连续滑块；MKV/MP4 等带画面视频保持原 HLS 多档/声道方案不动
+  const _dualIsVideo = BG_VIDEO_RE.test((curSong && (curSong.filename||curSong.filepath)) || '');
+  if(!_dualIsVideo){ try{ VoiceManager.prepareDual(songId); }catch(e){} }
   const fallbackToRaw=()=>{
     destroyHls();
     v.src=`${BASE}/stream/${songId}`;
