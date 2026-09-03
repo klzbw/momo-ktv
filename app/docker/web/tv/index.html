@@ -4686,11 +4686,14 @@ async function loadCharts(){const el=document.getElementById('pl-charts');el.inn
 // 翻页时重新渲染，避免一次性把几十条都塞进DOM。
 let newestSorted=[],newestPg=0;const NEWEST_PG=20;
 async function loadNewest(){
-  if(!allSongs.length)allSongs=await fetch('/api/songs').then(r=>r.json());
+  if(!newestSorted.length){
+    // 优化：不再全量拉取 /api/songs（几万首=10MB），改用服务端 /api/songs/newest
+    // 直接按 id 降序取最新 100 首，响应体积从 10MB 降到 ~30KB，打开即显。
+    newestSorted=await fetch('/api/songs/newest?limit=100').then(r=>r.json());
+  }
   // 需求：曲库可能有成百上千首，"最新入库"本质是给用户看"最近新进了什么歌"，
   // 不需要展示全曲库、翻几十页——只保留最新的前100首（每页20首=两栏×10，
   // 正好共5页）。
-  newestSorted=[...allSongs].sort((a,b)=>b.id-a.id).slice(0,100);
   newestPg=0;
   renderNewest();
 }

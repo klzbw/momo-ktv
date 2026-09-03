@@ -1138,9 +1138,16 @@ app.get('/api/songs/:id/source', (req, res) => {
     child.stderr.on('data', () => { /* 丢弃 ffmpeg 进度噪音 */ });
     res.on('close', () => child.kill('SIGKILL'));
   } else {
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="song_${song.id}${path.extname(src) || '.bin'}"`);
-    fs.createReadStream(src).on('error', () => res.destroy()).pipe(res);
+    // 普通音频文件：走 sendFileWithRange（支持 Range/206、Accept-Ranges、Cache-Control），
+    // 让 TV 端 <audio> 能边下边播、拖动进度条寻址，而不是每次从头下载整首。
+    const ext = (path.extname(src) || '').toLowerCase();
+    const mime = ext === '.flac' ? 'audio/flac'
+      : ext === '.wav' ? 'audio/wav'
+      : ext === '.mp3' ? 'audio/mpeg'
+      : ext === '.m4a' ? 'audio/mp4'
+      : ext === '.ogg' ? 'audio/ogg'
+      : 'application/octet-stream';
+    sendFileWithRange(req, res, src, mime);
   }
 });
 
