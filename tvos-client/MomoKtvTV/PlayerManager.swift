@@ -366,7 +366,8 @@ class PlayerManager: ObservableObject {
             let vParams = AVMutableAudioMixInputParameters(track: cVocal)
             let aParams = AVMutableAudioMixInputParameters(track: cAcc)
             // 用 setVolumeRamp 设置全时间轴持续音量（比 setVolume(at:) 更可靠，后者在某些tvOS版本不生效）
-            let fullRange = CMTimeRange(start: .zero, duration: .positiveInfinity)
+            // 注意：timeRange 不能用 .positiveInfinity，AVFoundation 要求有效有限范围，否则 exc_bad_access 崩溃
+            let fullRange = CMTimeRange(start: .zero, duration: CMTime(seconds: 86400, preferredTimescale: 600))
             aParams.setVolumeRamp(fromStartVolume: 1.0, toEndVolume: 1.0, timeRange: fullRange)
 
             DispatchQueue.main.async { [weak self] in
@@ -402,7 +403,8 @@ class PlayerManager: ObservableObject {
     private func applyDualVolume() {
         guard let vParams = dualVocalParams, let aParams = dualAccompParams else { return }
         let q = max(0, min(1, vocalLevel))
-        let fullRange = CMTimeRange(start: .zero, duration: .positiveInfinity)
+        // timeRange 不能用 .positiveInfinity，否则 exc_bad_access 崩溃
+        let fullRange = CMTimeRange(start: .zero, duration: CMTime(seconds: 86400, preferredTimescale: 600))
         vParams.setVolumeRamp(fromStartVolume: q, toEndVolume: q, timeRange: fullRange)
         aParams.setVolumeRamp(fromStartVolume: 1.0, toEndVolume: 1.0, timeRange: fullRange)
         let newMix = AVMutableAudioMix()
