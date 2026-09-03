@@ -352,12 +352,6 @@ struct FullPlayerView: View {
                                     showVocalHUD()
                                 }
                             }
-                            .onLongPressGesture(minimumDuration: 0.5) {
-                                // 长按复位：人声音量回到100%(原唱)
-                                playerManager.setVocalLevel(1.0)
-                                showVocalHUD()
-                                FeedbackCenter.shared.show("已复位为原唱", icon: "mic.fill")
-                            }
 
 
 
@@ -442,6 +436,12 @@ struct FullPlayerView: View {
                                 TVTightButton(action: {
 
                                     lastFocusedBtn = 11
+
+                                    // 调音大小复位：人声音量回到100%(原唱)，与点按切换不重复(点按是二态开关，复位是强制回原唱)
+                                    if playerManager.dualEnabled {
+                                        playerManager.setVocalLevel(1.0)
+                                        showVocalHUD()
+                                    }
 
                                     if lyricsLoader.lyrics.lines.isEmpty {
 
@@ -548,7 +548,7 @@ struct FullPlayerView: View {
                         }
                     }
                     .frame(width: 360, height: 10)
-                    Text("上下键调节 · 长按复位")
+                    Text("上下键调节 · 确认键切换")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(.white.opacity(0.5))
                 }
