@@ -345,10 +345,10 @@ struct FullPlayerView: View {
                             .onMoveCommand { direction in
                                 // 原唱按钮聚焦时，遥控器上下键直接调节人声音量(消音程度)
                                 if direction == .up {
-                                    playerManager.nudgeVocalLevel(+0.1)
+                                    playerManager.nudgeVocalLevel(+0.02)
                                     showVocalHUD()
                                 } else if direction == .down {
-                                    playerManager.nudgeVocalLevel(-0.1)
+                                    playerManager.nudgeVocalLevel(-0.02)
                                     showVocalHUD()
                                 }
                             }
@@ -559,12 +559,22 @@ struct FullPlayerView: View {
                 }
                 .padding(.horizontal, 52)
                 .padding(.vertical, 40)
-                .background(.ultraThinMaterial)  // 毛玻璃质感
-                .cornerRadius(32)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 32)
-                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                )
+                .background {
+                    // 全透明磨砂玻璃：毛玻璃材质 + 微透明白色叠加 + 顶部高光
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 32)
+                            .fill(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: 32)
+                            .fill(Color.white.opacity(0.06))
+                        // 顶部高光边
+                        RoundedRectangle(cornerRadius: 32)
+                            .stroke(
+                                LinearGradient(colors: [Color.white.opacity(0.25), Color.white.opacity(0.05)],
+                                               startPoint: .top, endPoint: .bottom),
+                                lineWidth: 1
+                            )
+                    }
+                }
                 .transition(.opacity)
                 .zIndex(30)
             }
