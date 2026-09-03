@@ -25,6 +25,7 @@ class PlayerManager: ObservableObject {
     private(set) var dualSongId: Int?
     private var dualAudioMix: AVMutableAudioMix?
     private var dualVocalParams: AVMutableAudioMixInputParameters?
+    private var dualAccompParams: AVMutableAudioMixInputParameters?  // 伴奏轨params，applyDualVolume重建mix时需要
     /// 加载代号：setupPlayer/activateDual 时递增，过期的异步结果直接丢弃
     private var loadGeneration: Int = 0
     /// 记录当前歌曲的 HLS 地址：DUAL 升级后 asset 变为 Composition，重唱判断仍需它
@@ -364,16 +365,19 @@ class PlayerManager: ObservableObject {
             }
             let vParams = AVMutableAudioMixInputParameters(track: cVocal)
             let aParams = AVMutableAudioMixInputParameters(track: cAcc)
-            let mix = AVMutableAudioMix()
-            mix.inputParameters = [vParams, aParams]
+            // 用 setVolumeRamp 设置全时间轴持续音量（比 setVolume(at:) 更可靠，后者在某些tvOS版本不生效）
+            let fullRange = CMTimeRange(start: .zero, duration: .positiveInfinity)
+            aParams.setVolumeRamp(fromStartVolume: 1.0, toEndVolume: 1.0, timeRange: fullRange)
 
             DispatchQueue.main.async { [weak self] in
-                guard let self = self, self.loadGeneration == gen else { return } // 已切歌，丢弃过期结果
+                guard let self = self, self.loadGeneration == gen else { return }
                 let resumeAt = self.player?.currentTime().seconds ?? 0
-                aParams.setVolume(1.0, at: .zero)
-                vParams.setVolume(self.vocalLevel, at: .zero)
+                vParams.setVolumeRamp(fromStartVolume: self.vocalLevel, toEndVolume: self.vocalLevel, timeRange: fullRange)
+                let mix = AVMutableAudioMix()
+                mix.inputParameters = [vParams, aParams]
                 self.dualAudioMix = mix
                 self.dualVocalParams = vParams
+                self.dualAccompParams = aParams
                 self.dualSongId = songId
                 let item = AVPlayerItem(asset: composition)
                 item.audioMix = mix
@@ -393,10 +397,18 @@ class PlayerManager: ObservableObject {
     }
 
     /// 把当前人声增益写回合成 item（滑块/遥控器每次变动都调用）
+    /// 关键：每次必须创建新的 AVMutableAudioMix 对象——重新赋值同一对象 AVFoundation
+    /// 不会重新处理，导致音量调节/原唱伴奏切换实际无音频变化。
     private func applyDualVolume() {
-        guard let params = dualVocalParams, let mix = dualAudioMix else { return }
-        params.setVolume(max(0, min(1, vocalLevel)), at: .zero)  // 整条时间轴恒定增益，实时整体生效
-        player?.currentItem?.audioMix = mix                      // 重新赋值触发刷新
+        guard let vParams = dualVocalParams, let aParams = dualAccompParams else { return }
+        let q = max(0, min(1, vocalLevel))
+        let fullRange = CMTimeRange(start: .zero, duration: .positiveInfinity)
+        vParams.setVolumeRamp(fromStartVolume: q, toEndVolume: q, timeRange: fullRange)
+        aParams.setVolumeRamp(fromStartVolume: 1.0, toEndVolume: 1.0, timeRange: fullRange)
+        let newMix = AVMutableAudioMix()
+        newMix.inputParameters = [vParams, aParams]
+        dualAudioMix = newMix
+        player?.currentItem?.audioMix = newMix
     }
 
     /// DUAL：连续设置人声音量 0(纯伴奏)...1(原唱)

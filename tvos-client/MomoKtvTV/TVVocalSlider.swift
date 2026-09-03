@@ -6,7 +6,7 @@ import UIKit
 /// 底部=纯伴奏(0)，顶部=原唱(1)。与五档分段条 TVSegmentSlider 互斥（后者给 HLS 多档歌）。
 struct TVVocalSlider: View {
     @Binding var level: Float              // 0...1
-    var step: Float = 0.015
+    var step: Float = 0.01
     var onChange: (Float) -> Void = { _ in }
     /// 外部点「原/伴唱」按钮时自增该值，触发音量条主动获取遥控器焦点
     var autoFocusToken: Int
@@ -173,10 +173,10 @@ private struct _VocalCatcher: UIViewRepresentable {
                 guard let key = p.key else { continue }
                 switch key.keyCode {
                 case .keyboardUpArrow:
-                    if now - lastNudgeTime > 0.12 { onNudge?(1); lastNudgeTime = now }
+                    if now - lastNudgeTime > 0.18 { onNudge?(1); lastNudgeTime = now }
                     handled = true
                 case .keyboardDownArrow:
-                    if now - lastNudgeTime > 0.12 { onNudge?(-1); lastNudgeTime = now }
+                    if now - lastNudgeTime > 0.18 { onNudge?(-1); lastNudgeTime = now }
                     handled = true
                 default: break
                 }
@@ -186,13 +186,13 @@ private struct _VocalCatcher: UIViewRepresentable {
 
         @objc private func handlePan(_ g: UIPanGestureRecognizer) {
             // 增量模式：记录手势开始时的音量，用触摸板滑动距离映射音量变化，
-            // 避免绝对位置映射导致手指刚碰触摸板就跳变。380pt 滑动对应 0...1 全范围（阻尼更大）。
+            // 避免绝对位置映射导致手指刚碰触摸板就跳变。500pt 滑动对应 0...1 全范围（高阻尼）。
             switch g.state {
             case .began:
                 panStartLevel = level
             case .changed:
                 let ty = g.translation(in: self).y
-                let delta = -ty / 380.0
+                let delta = -ty / 500.0
                 onPanValue?(Float(max(0, min(1, panStartLevel + delta))))
             default: break
             }
