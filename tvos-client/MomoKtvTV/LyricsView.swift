@@ -129,72 +129,74 @@ final class LyricsLoader: ObservableObject {
     private var lastReloadTime: TimeInterval = 0  // reload防抖：避免服务端生成过程中频繁触发
     private var requestGeneration = 0       // 请求版本号：防止旧回调覆盖新歌词（竞态条件修复）
 
-    /// 强制重新拉取同一首歌（歌词时间轴被固化写回后调用，绕过 load 的去重守卫）
-    /// 无缝替换：不清空旧歌词，直接加载新歌词，加载完成后平滑替换（播放不中断、无空白）
+    /// 独立 URLSession：歌词请求与 app 其他请求(sep-info/队列/歌曲信息等)隔离，
+    /// 即使歌词请求阻塞/超时也不会耗尽 URLSession.shared 连接池导致全 APP 加载变慢。
+    private let session: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.httpMaximumConnectionsPerHost = 2
+        cfg.timeoutIntervalForRequest = 8
+        cfg.timeoutIntervalForResource = 10
+        return URLSession(configuration: cfg)
+    }()
+
+    /// 强制重新拉取同一首歌（WebSocket 推送歌词更新后调用，绕过 load 的去重守卫）。
+    /// 关键修复：不再设置 currentSongId=nil（那会破坏切歌时的去重守卫，导致新旧歌词交替），
+    /// 改用 force 参数跳过去重但保持 currentSongId 不变。
     func reload(server: String, songId: Int) {
-        // 防抖：2秒内同一首歌只允许reload一次，避免频繁替换
+        // 防抖：5秒内同一首歌只允许reload一次（服务端生成过程中可能多次推送）
         let now = Date().timeIntervalSince1970
-        guard now - lastReloadTime > 2.0 else { return }
+        guard now - lastReloadTime > 5.0 else { return }
         lastReloadTime = now
-        // 不清空旧歌词（无缝衔接），直接加载新歌词，加载完成后替换
-        currentSongId = nil
-        loaded = false
-        load(server: server, songId: songId)
+        load(server: server, songId: songId, force: true)
     }
 
-    func load(server: String, songId: Int) {
-        guard songId != currentSongId || !loaded else { return }
+    /// 加载歌词。force=true 时跳过去重守卫（reload 用），但不修改 currentSongId 避免切歌竞态。
+    func load(server: String, songId: Int, force: Bool = false) {
+        guard force || songId != currentSongId || !loaded else { return }
         let wasAlreadyLoaded = loaded  // 记录之前是否已加载（用于判断是否是重新生成后的刷新）
         currentSongId = songId
         loaded = true
         loading = true
         task?.cancel()
-        // 递增请求版本号：旧回调发现版本号不匹配时自动丢弃，防止覆盖新歌词
         requestGeneration += 1
         let myGeneration = requestGeneration
         let host = server.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
-        guard let url = URL(string: "http://\(host)/api/songs/\(songId)/lyrics") else {
+        // 关键修复：online=0 只拉取服务端本地已有的歌词，不触发在线抓取(网易/QQ/酷我三源串行)。
+        // 在线抓取由服务端主动完成(网页端刷新触发)，完成后通过 WebSocket 推送，客户端再拉本地。
+        // 不加 online=0 时该请求会阻塞数十秒，耗尽 URLSession 连接池，导致全 APP 歌曲加载变慢。
+        guard let url = URL(string: "http://\(host)/api/songs/\(songId)/lyrics?online=0") else {
             loading = false
             return
         }
-        // 超时保护：用URLRequest设置15秒超时，防止服务器AI生成时无限等待
-        var request = URLRequest(url: url, timeoutInterval: 15)
+        var request = URLRequest(url: url, timeoutInterval: 8)
         request.httpMethod = "GET"
-        task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        task = session.dataTask(with: request) { [weak self] data, response, error in
             guard let self else { return }
-            // 竞态条件修复：如果这不是最新的请求，直接丢弃结果，不覆盖新歌词
-            guard myGeneration == self.requestGeneration else {
-                print("[LyricsLoader] 丢弃旧请求结果 (generation=\(myGeneration), current=\(self.requestGeneration))")
-                return
-            }
-            // 如果请求被取消，也不处理
-            if let error = error as? URLError, error.code == .cancelled {
-                return
-            }
-            // 超时错误：保持旧歌词继续播放，不替换为空
+            // 竞态修复1：请求版本号不匹配（已发起更新的请求），丢弃旧结果
+            guard myGeneration == self.requestGeneration else { return }
+            if let error = error as? URLError, error.code == .cancelled { return }
+            // 超时：保持旧歌词，不设置为空（避免歌词闪烁/新旧交替）
             if let error = error as? URLError, error.code == .timedOut {
-                print("[LyricsLoader] 歌词加载超时，保持旧歌词")
+                print("[LyricsLoader] 歌词加载超时(8s)，保持旧歌词 song=\(songId)")
                 DispatchQueue.main.async { self.loading = false }
                 return
             }
             DispatchQueue.main.async { self.loading = false }
             guard let data,
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                DispatchQueue.main.async { self.lyrics = .empty }
+                // 加载失败(404等)：保持旧歌词，不设置为空
                 return
             }
             let word = obj["word"] as? String
             let plain = obj["lyrics"] as? String
             var parsed = SongLyrics.parse((word?.isEmpty == false) ? word : plain)
-            // 安全限制：逐字歌词行数过多时截断，避免主线程重建数百个KaraokeWord导致卡死
             if parsed.lines.count > 180 {
                 parsed.lines = Array(parsed.lines.prefix(180))
             }
             DispatchQueue.main.async {
-                // 再次检查版本号，确保主线程设置时还是最新请求
-                guard myGeneration == self.requestGeneration else { return }
+                // 竞态修复2：双重校验——版本号 + 当前歌曲ID，防止切歌时旧请求覆盖新歌词(新旧交替)
+                guard myGeneration == self.requestGeneration, songId == self.currentSongId else { return }
                 self.lyrics = parsed
-                // 非首次加载（重新生成后的刷新），显示"歌词已刷新"提示
                 if wasAlreadyLoaded {
                     self.lyricsUpdated = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in

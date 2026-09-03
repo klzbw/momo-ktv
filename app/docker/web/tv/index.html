@@ -2875,19 +2875,25 @@ const Lyrics = (()=>{
     scrollBuilt=false; lastIdx=-9; const l=layer(); if(l){l.classList.toggle('is-scroll',m==='scroll'); l.innerHTML='';}
     render(video.currentTime||0); syncModeBtn(); }
   function toggleMode(){ setMode(mode==='dual'?'scroll':'dual'); }
+  var _lyricsAbort=null, _lyricsGen=0;
   function load(songId,force){
     if(songId===loadedId&&!force)return;
-    const wasAlreadyLoaded = loadedId !== null;  // 记录之前是否已加载（用于判断是否是重新生成后的刷新）
+    const wasAlreadyLoaded = loadedId !== null;
     loadedId=songId; lines=[]; lastIdx=-9; scrollBuilt=false; lrcOff=0; render(video.currentTime||0);
-    fetch(BASE+'/api/songs/'+songId+'/lyrics').then(r=>r.json()).then(d=>{
-      if(loadedId!==songId)return;
-      if(isVideoSong(d)){ lines=[]; lastIdx=-9; const l=layer(); if(l)l.innerHTML=''; return; } // 视频歌不显示歌词
+    // 修复：online=0只拉本地歌词不触发服务端在线抓取(阻塞数十秒)；AbortController取消旧请求；
+    // 8秒超时；请求版本号防止切歌时旧请求覆盖新歌词(新旧交替)。
+    if(_lyricsAbort) _lyricsAbort.abort();
+    _lyricsAbort=new AbortController();
+    const myGen=++_lyricsGen;
+    const timer=setTimeout(()=>{ try{_lyricsAbort.abort();}catch(e){} },8000);
+    fetch(BASE+'/api/songs/'+songId+'/lyrics?online=0',{signal:_lyricsAbort.signal}).then(r=>r.json()).then(d=>{
+      clearTimeout(timer);
+      if(myGen!==_lyricsGen)return;        // 版本号不匹配：旧请求，丢弃
+      if(loadedId!==songId)return;         // 已切歌，丢弃
+      if(isVideoSong(d)){ lines=[]; lastIdx=-9; const l=layer(); if(l)l.innerHTML=''; return; }
       lines=parse(d.word||d.lyrics); scrollBuilt=false; lastIdx=-9; render(video.currentTime||0);
-      // 非首次加载（force刷新 或 之前已加载过），显示"歌词已刷新"提示
-      if(force || wasAlreadyLoaded){
-        try{ showToast('歌词已刷新'); }catch(e){}
-      }
-    }).catch(()=>{});
+      if(force || wasAlreadyLoaded){ try{ showToast('歌词已刷新'); }catch(e){} }
+    }).catch(()=>{ clearTimeout(timer); });
   }
   function reset(){ loadedId=null; lines=[]; lastIdx=-9; scrollBuilt=false; const l=layer(); if(l)l.innerHTML=''; }
   function idxAt(t){ let idx=-1; for(let i=0;i<lines.length;i++){ if(lines[i].start<=t+0.01)idx=i; else break; } return idx; }
@@ -3315,7 +3321,7 @@ function reportPlaybackState(){sendWS({type:'state',paused:isPaused,voice:VoiceM
 // 就是一次全新的 ws 连接，不重新声明的话本机永远停在上一次连接时的
 // isActivePlayer 判定上，可能跟服务端当前真实状态早就对不上。
 function announceRole(password){sendWS({type:'role_announce',deviceId:myDeviceId,deviceName:myDeviceName,role:myRole,password});}
-function connectWS(){const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);ws.onopen=()=>{setConnStatus(true);reportPlaybackState();announceRole();};ws.onmessage=ev=>{const m=JSON.parse(ev.data);if(m.type==='queue'){queueData=m.data;renderAll();}if(m.type==='control')handleRemote(m);if(m.type==='player_changed')handlePlayerChanged(m);if(m.type==='progress')handleProgressBroadcast(m);if(m.type==='role_ack')handleRoleAck(m);if(m.type==='lock_ack')handleLockAck(m);if(m.type==='state')applyRemoteState(m);if(m.type==='atmosphere')playAtmosphere(m.kind);if(m.type==='blessing')showBlessing(m.text,m.from);if(m.type==='lyrics_style'){if(m.color){document.documentElement.style.setProperty('--lyrics-color',m.color);try{localStorage.setItem('momoLyricsColor',m.color);}catch(e){}}if(m.stroke){document.documentElement.style.setProperty('--lyrics-stroke',m.stroke);try{localStorage.setItem('momoLyricsStroke',m.stroke);}catch(e){}}if(typeof m.width==='number'){document.documentElement.style.setProperty('--lyrics-stroke-w',m.width+'px');try{localStorage.setItem('momoLyricsWidth',String(m.width));}catch(e){}}if(typeof m.fontScale==='number'){document.documentElement.style.setProperty('--lyrics-scale',String(m.fontScale));try{localStorage.setItem('momoLyricsScale',String(m.fontScale));}catch(e){}}if(typeof m.posV==='number'){document.documentElement.style.setProperty('--lyrics-pos',String(m.posV));try{localStorage.setItem('momoLyricsPos',String(m.posV));}catch(e){}}}};ws.onclose=()=>{setConnStatus(false);setTimeout(connectWS,2000);};ws.onerror=()=>setConnStatus(false);window._ws=ws;}
+function connectWS(){const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);ws.onopen=()=>{setConnStatus(true);reportPlaybackState();announceRole();};ws.onmessage=ev=>{const m=JSON.parse(ev.data);if(m.type==='queue'){queueData=m.data;renderAll();}if(m.type==='control')handleRemote(m);if(m.type==='player_changed')handlePlayerChanged(m);if(m.type==='progress')handleProgressBroadcast(m);if(m.type==='role_ack')handleRoleAck(m);if(m.type==='lock_ack')handleLockAck(m);if(m.type==='state')applyRemoteState(m);if(m.type==='atmosphere')playAtmosphere(m.kind);if(m.type==='blessing')showBlessing(m.text,m.from);if(m.type==='lyrics_updated'){if(curSong&&curSong.song_id===m.songId){try{Lyrics.load(m.songId,true);}catch(e){}}}if(m.type==='lyrics_style'){if(m.color){document.documentElement.style.setProperty('--lyrics-color',m.color);try{localStorage.setItem('momoLyricsColor',m.color);}catch(e){}}if(m.stroke){document.documentElement.style.setProperty('--lyrics-stroke',m.stroke);try{localStorage.setItem('momoLyricsStroke',m.stroke);}catch(e){}}if(typeof m.width==='number'){document.documentElement.style.setProperty('--lyrics-stroke-w',m.width+'px');try{localStorage.setItem('momoLyricsWidth',String(m.width));}catch(e){}}if(typeof m.fontScale==='number'){document.documentElement.style.setProperty('--lyrics-scale',String(m.fontScale));try{localStorage.setItem('momoLyricsScale',String(m.fontScale));}catch(e){}}if(typeof m.posV==='number'){document.documentElement.style.setProperty('--lyrics-pos',String(m.posV));try{localStorage.setItem('momoLyricsPos',String(m.posV));}catch(e){}}}};ws.onclose=()=>{setConnStatus(false);setTimeout(connectWS,2000);};ws.onerror=()=>setConnStatus(false);window._ws=ws;}
 connectWS();
 // 歌词样式初始化：从 localStorage 恢复字体色/描边色（遥控端可实时修改）
 try{const _lc=localStorage.getItem('momoLyricsColor');if(_lc)document.documentElement.style.setProperty('--lyrics-color',_lc);const _ls=localStorage.getItem('momoLyricsStroke');if(_ls)document.documentElement.style.setProperty('--lyrics-stroke',_ls);const _lw=localStorage.getItem('momoLyricsWidth');if(_lw!==null)document.documentElement.style.setProperty('--lyrics-stroke-w',_lw+'px');const _lsc=localStorage.getItem('momoLyricsScale');if(_lsc!==null)document.documentElement.style.setProperty('--lyrics-scale',_lsc);const _lp=localStorage.getItem('momoLyricsPos');if(_lp!==null)document.documentElement.style.setProperty('--lyrics-pos',_lp);}catch(e){}
