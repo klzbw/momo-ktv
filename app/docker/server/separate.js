@@ -9,19 +9,48 @@
 // worker 崩溃留下的 processing 僵尸任务由 reclaimStale() 超时回收为 pending。
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const DATA_DIR = process.env.DATA_DIR || '/data';
 const SEP_DIR = path.join(DATA_DIR, 'separated');
 
-// 每首歌的分离产物目录（持久卷 /data/separated/<songId>/）
-function ensureSongDir(songId) {
-  const d = path.join(SEP_DIR, String(songId));
+// 分离产物的稳定目录名：源文件路径的 SHA256 前16位。
+// 用 filepath 而不是 song.id，因为重新入库后自增 id 会变，但源文件路径不变——
+// 这样即使清空重入库，只要源文件没改名，分离产物就能被直接复用，不触发 Demucs 重分离。
+function sepKey(filepath) {
+  return crypto.createHash('sha256').update(String(filepath || '')).digest('hex').slice(0, 16);
+}
+// 从数据库查一首歌的 filepath，算 sepKey
+function sepKeyForSong(db, songId) {
+  const row = db.prepare('SELECT filepath FROM songs WHERE id=?').get(songId);
+  return row ? sepKey(row.filepath) : null;
+}
+// 按 sepKey 创建/获取分离产物目录
+function ensureSepDir(key) {
+  const d = path.join(SEP_DIR, String(key));
   fs.mkdirSync(d, { recursive: true });
   return d;
 }
-// 产物的"相对 /data"路径，存进 songs.vocal_path/accomp_path，HLS 阶段再拼绝对路径
-const relVocal = (id) => `separated/${id}/vocals.wav`;
-const relAccomp = (id) => `separated/${id}/accompaniment.wav`;
+// 检查某 filepath 的分离产物是否已存在且非空，存在则返回相对路径对，否则 null
+function lookupExisting(filepath) {
+  const key = sepKey(filepath);
+  const v = path.join(SEP_DIR, key, 'vocals.wav');
+  const a = path.join(SEP_DIR, key, 'accompaniment.wav');
+  try {
+    if (fs.existsSync(v) && fs.statSync(v).size > 1024 &&
+        fs.existsSync(a) && fs.statSync(a).size > 1024) {
+      return {
+        sep_key: key,
+        vocal_path: `separated/${key}/vocals.wav`,
+        accomp_path: `separated/${key}/accompaniment.wav`,
+      };
+    }
+  } catch (e) { /* 忽略，视为不存在 */ }
+  return null;
+}
+// 产物的"相对 /data"路径，存进 songs.vocal_path/accomp_path
+const relVocal = (key) => `separated/${key}/vocals.wav`;
+const relAccomp = (key) => `separated/${key}/accompaniment.wav`;
 function absUnderData(rel) { return rel ? path.join(DATA_DIR, rel) : null; }
 
 const TYPES = ['separate', 'align'];
@@ -159,8 +188,11 @@ function complete(db, jobId, { lyricsWord = null, result = null } = {}) {
   const resultJson = JSON.stringify(result || {});
   db.prepare("UPDATE separation_jobs SET status='done', progress=100, error=NULL, result_json=?, finished_at=CURRENT_TIMESTAMP WHERE id=?").run(resultJson, jobId);
   if (job.job_type === 'separate') {
+    // 用源文件路径的 SHA256 作为分离产物目录名，而非 song.id——
+    // 这样重新入库后 id 变了也能直接复用已有分离产物，不触发重分离。
+    const key = sepKeyForSong(db, job.song_id) || String(job.song_id);
     db.prepare("UPDATE songs SET sep_status='done', vocal_path=?, accomp_path=? WHERE id=?")
-      .run(relVocal(job.song_id), relAccomp(job.song_id), job.song_id);
+      .run(relVocal(key), relAccomp(key), job.song_id);
   } else {
     db.prepare("UPDATE songs SET align_status='done', lyrics_word=COALESCE(?,lyrics_word) WHERE id=?").run(lyricsWord, job.song_id);
   }
@@ -203,7 +235,7 @@ function stats(db) {
 }
 
 module.exports = {
-  SEP_DIR, ensureSongDir, relVocal, relAccomp, absUnderData, TYPES,
+  SEP_DIR, sepKey, sepKeyForSong, ensureSepDir, lookupExisting, relVocal, relAccomp, absUnderData, TYPES,
   enqueue, claimNext, reportProgress, complete, fail, resetJob, reclaimStale, stats,
   touchWorker, onlineWorkers,
 };

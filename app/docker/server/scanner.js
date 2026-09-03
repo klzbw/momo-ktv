@@ -11,6 +11,7 @@ const { readAudioTags } = require('./tagReader');
 const { findLocalLrc, normalizeLrc } = require('./lyrics');
 const { VIDEO_EXT, AUDIO_EXT, isAudioExt, isCueExt, isCollectableExt, mediaTypeOf } = require('./mediaFormats');
 const log = require('./logger');
+const sepMod = require('./separate');
 
 const execFileAsync = promisify(execFile);
 
@@ -860,6 +861,15 @@ async function scanLibrary(mode = 'full') {
                       if (norm && norm.includes('[')) db.prepare('UPDATE songs SET lyrics=?, lyrics_source=? WHERE id=?').run(norm, 'local', songId);
                     }
                   } catch (e) { /* 歌词读取失败不影响入库/探测 */ }
+                  // 音频K歌：检查是否已有按 filepath SHA256 命名的分离产物——
+                  // 有则直接标记 sep_status=done，不触发 Demucs 重分离（重新入库后 id 变了也能复用）
+                  try {
+                    const existing = sepMod.lookupExisting(f);
+                    if (existing) {
+                      db.prepare('UPDATE songs SET sep_status=?, vocal_path=?, accomp_path=? WHERE id=?')
+                        .run('done', existing.vocal_path, existing.accomp_path, songId);
+                    }
+                  } catch (e) { /* 分离产物检查失败不影响入库 */ }
                 }
               } catch (e) {
                 // 缓存/探测失败：这行记录已经入库(标题/歌手已经可以正常展示、

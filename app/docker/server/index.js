@@ -886,7 +886,9 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
     const job = db.prepare('SELECT * FROM separation_jobs WHERE id=?').get(jobId);
     if (!job) return res.status(404).json({ error: 'job not found' });
     const files = req.files || {};
-    const dir = sepMod.ensureSongDir(job.song_id);
+    // 分离产物目录用源文件路径的 SHA256(sepKey)，而非 song.id——重新入库后 id 变了也能复用
+    const sepKey = sepMod.sepKeyForSong(db, job.song_id) || String(job.song_id);
+    const dir = sepMod.ensureSepDir(sepKey);
     const saved = {};
     const saveOne = (f, targetName) => { if (f && f[0]) { fs.writeFileSync(path.join(dir, targetName), f[0].buffer); saved[targetName] = f[0].buffer.length; } };
     saveOne(files.vocals, 'vocals.wav');
