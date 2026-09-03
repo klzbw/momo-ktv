@@ -949,7 +949,7 @@ struct FullPlayerView: View {
 
         if let playing = api.queue.first(where: { $0.isPlaying }), !playing.isVideoFile {
             api.fetchSepInfo(songId: playing.song_id) { info in
-                currentSepStatus = info?.sepStatus
+                DispatchQueue.main.async { currentSepStatus = info?.sepStatus }
             }
         }
 
@@ -1535,34 +1535,42 @@ struct FullPlayerView: View {
         }
         let sid = playing.song_id
         api.enqueueSeparation(songId: sid) { ok in
-            guard ok else {
-                FeedbackCenter.shared.show("入队失败，请重试", icon: "exclamationmark.triangle")
-                return
-            }
-            sepPolling = true
-            currentSepStatus = "pending"
-            FeedbackCenter.shared.show("已加入人声分离队列，完成后自动切换", icon: "wand.and.stars")
-            sepTimer?.invalidate()
-            sepTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
-                api.fetchSepInfo(songId: sid) { info in
-                    guard let info = info else { return }
-                    currentSepStatus = info.sepStatus
-                    if info.isDual {
-                        sepTimer?.invalidate()
-                        sepTimer = nil
-                        sepPolling = false
-                        guard let vPath = info.vocalUrl, let aPath = info.accompUrl else { return }
-                        api.downloadDualTracks(songId: sid, vocalPath: vPath, accompPath: aPath) { vFile, aFile in
-                            guard let vFile = vFile, let aFile = aFile else { return }
-                            guard api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
-                            playerManager.activateDual(songId: sid, vocalFile: vFile, accompFile: aFile)
-                            FeedbackCenter.shared.show("人声分离完成，已切换双FLAC", icon: "mic.fill")
+            // 关键：API回调在后台线程，@State必须在主线程修改，否则闪退
+            DispatchQueue.main.async {
+                guard ok else {
+                    FeedbackCenter.shared.show("入队失败，请重试", icon: "exclamationmark.triangle")
+                    return
+                }
+                sepPolling = true
+                currentSepStatus = "pending"
+                FeedbackCenter.shared.show("已加入人声分离队列，完成后自动切换", icon: "wand.and.stars")
+                sepTimer?.invalidate()
+                sepTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+                    api.fetchSepInfo(songId: sid) { info in
+                        // fetchSepInfo回调也在后台线程，必须切回主线程
+                        DispatchQueue.main.async {
+                            guard let info = info else { return }
+                            currentSepStatus = info.sepStatus
+                            if info.isDual {
+                                sepTimer?.invalidate()
+                                sepTimer = nil
+                                sepPolling = false
+                                guard let vPath = info.vocalUrl, let aPath = info.accompUrl else { return }
+                                api.downloadDualTracks(songId: sid, vocalPath: vPath, accompPath: aPath) { vFile, aFile in
+                                    DispatchQueue.main.async {
+                                        guard let vFile = vFile, let aFile = aFile else { return }
+                                        guard api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
+                                        playerManager.activateDual(songId: sid, vocalFile: vFile, accompFile: aFile)
+                                        FeedbackCenter.shared.show("人声分离完成，已切换双FLAC", icon: "mic.fill")
+                                    }
+                                }
+                            } else if info.sepStatus == "failed" {
+                                sepTimer?.invalidate()
+                                sepTimer = nil
+                                sepPolling = false
+                                FeedbackCenter.shared.show("人声分离失败", icon: "exclamationmark.triangle")
+                            }
                         }
-                    } else if info.sepStatus == "failed" {
-                        sepTimer?.invalidate()
-                        sepTimer = nil
-                        sepPolling = false
-                        FeedbackCenter.shared.show("人声分离失败", icon: "exclamationmark.triangle")
                     }
                 }
             }
