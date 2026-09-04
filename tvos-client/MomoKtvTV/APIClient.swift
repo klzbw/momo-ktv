@@ -53,7 +53,7 @@ class KTVAPIClient: ObservableObject {
         fetchAll()
     }
 
-    private func apiURL(_ path: String) -> URL? {
+    func apiURL(_ path: String) -> URL? {
         URL(string: "\(baseURL)\(path)")
     }
 
@@ -373,8 +373,11 @@ class KTVAPIClient: ObservableObject {
         let sepStatus: String?
         let vocalUrl: String?
         let accompUrl: String?
+        let isNetKtv: Bool?
         /// 三者齐备才允许走双FLAC混合
         var isDual: Bool { dual == true && hasVocal == true && hasAccomp == true }
+        /// 网络KTV歌曲：直接用网络URL，不下载到本地
+        var isNetworkDual: Bool { isDual && isNetKtv == true }
     }
 
     /// 查询某首歌的 AI 分离状态与双轨相对路径（失败/未分离回 nil，调用方走 HLS 兜底）

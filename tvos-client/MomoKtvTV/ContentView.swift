@@ -525,14 +525,27 @@ struct ContentView: View {
         .focusSection()
     }
 
-    /// 纯音频且已 AI 分离的歌：HLS 先起播，随后下载人声/伴奏双 FLAC 并由 PlayerManager
-    /// 无缝升级为 DUAL 连续人声音量；MKV/MP4 等视频歌直接跳过，保持原 HLS 多档/声道方案。
+    /// 纯音频且已 AI 分离的歌：HLS 先起播，随后升级为 DUAL 连续人声音量；
+    /// 网络KTV歌曲(isNetKtv)直接用网络URL，不下载到本地；本地分离歌曲先下载再激活。
+    /// MKV/MP4 等视频歌直接跳过，保持原 HLS 多档/声道方案。
     private func prepareDualIfNeeded(_ playing: QueueItem) {
         guard !playing.isVideoFile else { return }
         let sid = playing.song_id
         api.fetchSepInfo(songId: sid) { info in
             guard let info = info, info.isDual,
                   let vocalPath = info.vocalUrl, let accompPath = info.accompUrl else { return }
+
+            // 网络KTV歌曲：直接用网络URL，不下载到本地
+            if info.isNetworkDual {
+                guard let vURL = self.api.apiURL(vocalPath),
+                      let aURL = self.api.apiURL(accompPath) else { return }
+                // 快切歌保护：当前仍在播放同一首才升级
+                guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
+                self.playerManager.activateDual(songId: sid, vocalFile: vURL, accompFile: aURL)
+                return
+            }
+
+            // 本地分离歌曲：先下载到本地再激活
             self.api.downloadDualTracks(songId: sid, vocalPath: vocalPath, accompPath: accompPath) { vFile, aFile in
                 guard let vFile = vFile, let aFile = aFile else { return }
                 // 快切歌保护：当前仍在播放同一首才升级（PlayerManager 内部另有 generation 校验）
