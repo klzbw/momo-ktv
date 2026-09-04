@@ -64,128 +64,6 @@ main{max-width:1500px;width:96vw;margin:0 auto;padding:24px}
 
 .stat .breakdown{font-size:11px;color:var(--sub);margin-top:5px;opacity:.7}
 
-/* ===== 网盘管理首页卡片 ===== */
-.cloud-card{
-  background:linear-gradient(135deg,rgba(199,54,247,.08),rgba(54,217,247,.06));
-  border:1px solid rgba(199,54,247,.2);
-  border-radius:18px;padding:22px;margin-bottom:24px;
-  position:relative;overflow:hidden
-}
-.cloud-card::before{
-  content:'';position:absolute;top:-50%;right:-20%;width:400px;height:400px;
-  background:radial-gradient(circle,rgba(199,54,247,.12),transparent 70%);
-  pointer-events:none
-}
-.cloud-card-header{
-  display:flex;align-items:center;gap:12px;margin-bottom:18px;position:relative;z-index:1
-}
-.cloud-card-title{
-  font-size:18px;font-weight:800;
-  background:linear-gradient(90deg,var(--cyan),var(--accent));
-  -webkit-background-clip:text;background-clip:text;color:transparent
-}
-.cloud-card-sub{font-size:12px;color:var(--sub);margin-left:4px}
-.cloud-card-body{display:flex;gap:20px;position:relative;z-index:1}
-.cloud-accounts-col{flex:1.2;min-width:0}
-.cloud-add-col{flex:.8;min-width:0}
-.cloud-col-title{
-  font-size:13px;font-weight:600;color:var(--sub);
-  margin-bottom:10px;display:flex;align-items:center;gap:6px
-}
-.cloud-col-title::before{
-  content:'';width:3px;height:14px;border-radius:2px;
-  background:linear-gradient(180deg,var(--cyan),var(--accent))
-}
-
-/* 账号列表项 */
-.cloud-account-item{
-  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
-  border-radius:12px;padding:14px 16px;margin-bottom:10px;
-  display:flex;align-items:center;gap:12px;transition:.2s
-}
-.cloud-account-item:hover{
-  background:rgba(199,54,247,.1);border-color:rgba(199,54,247,.3);
-  transform:translateX(4px)
-}
-.cloud-account-icon{
-  width:42px;height:42px;border-radius:11px;flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;font-size:20px;
-  background:linear-gradient(135deg,rgba(54,217,247,.2),rgba(199,54,247,.2));
-  border:1px solid rgba(255,255,255,.1)
-}
-.cloud-account-info{flex:1;min-width:0}
-.cloud-account-name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cloud-account-meta{font-size:11px;color:var(--sub);margin-top:3px;display:flex;gap:8px;align-items:center}
-.cloud-status-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
-.cloud-status-active{background:#4ade80;box-shadow:0 0 8px #4ade80}
-.cloud-status-error{background:#f87171;box-shadow:0 0 8px #f87171}
-.cloud-status-pending{background:#fbbf24;box-shadow:0 0 8px #fbbf24}
-.cloud-account-actions{display:flex;gap:6px;flex-shrink:0}
-.cloud-mini-btn{
-  padding:5px 10px;border-radius:7px;font-size:11px;border:none;cursor:pointer;
-  background:rgba(255,255,255,.08);color:var(--text);transition:.15s;white-space:nowrap
-}
-.cloud-mini-btn:hover{background:rgba(199,54,247,.3)}
-.cloud-mini-btn.test:hover{background:rgba(54,217,247,.25);color:var(--cyan)}
-.cloud-mini-btn.del:hover{background:rgba(255,79,155,.25);color:var(--pink)}
-
-/* 空状态 */
-.cloud-empty{
-  text-align:center;padding:30px 20px;color:var(--sub);font-size:13px;
-  background:rgba(255,255,255,.02);border:1px dashed rgba(255,255,255,.1);
-  border-radius:12px
-}
-.cloud-empty-icon{font-size:32px;margin-bottom:8px;opacity:.5}
-
-/* 添加账号区域 */
-.cloud-add-box{
-  background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
-  border-radius:12px;padding:14px
-}
-.cloud-tabs{display:flex;gap:4px;margin-bottom:12px;padding:3px;background:rgba(255,255,255,.05);border-radius:9px}
-.cloud-tab{
-  flex:1;padding:7px 0;text-align:center;font-size:12px;border-radius:7px;
-  cursor:pointer;color:var(--sub);border:none;background:transparent;transition:.15s
-}
-.cloud-tab.active{background:var(--accent);color:#fff;font-weight:600}
-.cloud-tab:hover:not(.active){color:var(--text)}
-
-/* 扫码登录简化区 */
-.cloud-qr-mini{text-align:center}
-.cloud-qr-img-box{
-  width:140px;height:140px;background:#fff;border-radius:10px;
-  margin:0 auto 10px;display:flex;align-items:center;justify-content:center;
-  overflow:hidden;border:2px solid rgba(199,54,247,.3)
-}
-.cloud-qr-img-box img{width:100%;height:100%;object-fit:contain}
-.cloud-qr-status{font-size:11px;color:var(--sub);margin-bottom:8px;min-height:16px}
-.cloud-qr-app-row{display:flex;gap:6px;margin-bottom:8px}
-.cloud-qr-app-row select{
-  flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
-  border-radius:7px;padding:6px 8px;color:var(--text);font-size:11px;outline:none
-}
-.cloud-qr-app-row input{
-  flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
-  border-radius:7px;padding:6px 8px;color:var(--text);font-size:11px;outline:none
-}
-
-/* Cookie登录简化区 */
-.cloud-cookie-mini textarea{
-  width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
-  border-radius:8px;padding:8px 10px;color:var(--text);font-size:11px;outline:none;
-  min-height:50px;resize:vertical;font-family:monospace;margin-bottom:8px
-}
-.cloud-cookie-mini input{
-  width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
-  border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;outline:none;margin-bottom:8px
-}
-
-/* 响应式：窄屏时单列 */
-@media(max-width:900px){
-  .cloud-card-body{flex-direction:column}
-}
-
-
 /* Search & filter */
 .toolbar{display:flex;gap:10px;margin-bottom:12px}
 
@@ -634,7 +512,7 @@ select option{color:#000}
       <div class="hdrop-item" onclick="aiStats()" title="查看逐字对齐/人声分离/歌词覆盖的实时进度">📊 AI处理进度</div>
     </div>
   </div>
-  <button class="hbtn" onclick="document.getElementById('cloud-card').scrollIntoView({behavior:'smooth',block:'start'})" title="滚动到网盘管理区域">☁️ 网盘管理</button>
+  <button class="hbtn" onclick="openCloudModal()" title="管理115网盘等云端存储账号">☁️ 网盘管理</button>
   <button class="hbtn" onclick="openUserModal()" title="创建/删除用于登录K歌主页面(/tv)的账号，跟管理后台自己的管理员密码是两回事">👤 用户管理</button>
   <button class="hbtn" onclick="doLogout()">🚪 退出登录</button>
 </header>
@@ -647,65 +525,6 @@ select option{color:#000}
     </div>
     <div class="stat"><div class="n" id="s-queue">—</div><div class="l">队列中</div></div>
     <div class="stat"><div class="n" id="s-plays">—</div><div class="l">累计播放</div></div>
-  </div>
-
-  <!-- ===== 网盘管理首页卡片 ===== -->
-  <div class="cloud-card" id="cloud-card">
-    <div class="cloud-card-header">
-      <div class="cloud-card-title">☁️ 网盘管理</div>
-      <div class="cloud-card-sub">115网盘 · 扫码登录 · 302直链播放</div>
-      <div class="spacer"></div>
-      <button class="hbtn" style="padding:6px 14px;font-size:12px" onclick="openCloudModal()">⚙️ 详细管理</button>
-    </div>
-    <div class="cloud-card-body">
-      <!-- 左栏：已添加账号 -->
-      <div class="cloud-accounts-col">
-        <div class="cloud-col-title">已连接账号</div>
-        <div id="cloud-home-accounts-list">
-          <div class="cloud-empty">
-            <div class="cloud-empty-icon">📡</div>
-            还没有连接网盘账号<br>
-            <span style="font-size:11px;opacity:.7">在右侧扫码登录或粘贴Cookie</span>
-          </div>
-        </div>
-      </div>
-      <!-- 右栏：快速添加 -->
-      <div class="cloud-add-col">
-        <div class="cloud-col-title">快速添加</div>
-        <div class="cloud-add-box">
-          <div class="cloud-tabs">
-            <button class="cloud-tab active" id="home-tab-qrcode" onclick="switchHomeCloudTab('qrcode')">📱 扫码</button>
-            <button class="cloud-tab" id="home-tab-cookie" onclick="switchHomeCloudTab('cookie')">🍪 Cookie</button>
-          </div>
-          <!-- 扫码登录 -->
-          <div id="home-cloud-qrcode-section" class="cloud-qr-mini">
-            <div class="cloud-qr-img-box" id="home-qrcode-container">
-              <div style="color:#999;font-size:11px">点击获取二维码</div>
-            </div>
-            <div class="cloud-qr-status" id="home-qrcode-status">等待获取二维码...</div>
-            <div class="cloud-qr-app-row">
-              <input id="home-cloud-qr-name" placeholder="账号名" value="我的115">
-              <select id="home-cloud-qr-app">
-                <option value="wechatmini">微信小程序</option>
-                <option value="web">网页版</option>
-                <option value="android">安卓</option>
-                <option value="ios">iOS</option>
-                <option value="tv">TV</option>
-                <option value="linux">Linux</option>
-              </select>
-            </div>
-            <button class="hbtn primary" style="width:100%;padding:8px;font-size:12px" onclick="startHomeQrLogin()">获取二维码</button>
-          </div>
-          <!-- Cookie登录 -->
-          <div id="home-cloud-cookie-section" class="cloud-cookie-mini" style="display:none">
-            <input id="home-cloud-name" placeholder="账号名称，如：我的115">
-            <textarea id="home-cloud-cookie" placeholder="UID=xxx; CID=xxx; SEID=xxx; KID=xxx"></textarea>
-            <div id="home-cloud-add-err" style="color:var(--pink);font-size:11px;min-height:14px;margin-bottom:6px"></div>
-            <button class="hbtn primary" style="width:100%;padding:8px;font-size:12px" onclick="addHomeCloudCookie()">添加账号</button>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
 
   <div class="toolbar">
@@ -1150,7 +969,6 @@ function showApp(){
   document.getElementById('login-overlay').classList.add('hidden');
   loadPresets();
   refreshSourceLabelMap().finally(loadAll);
-  loadCloudAccounts();
 }
 
 async function doLogin(){
@@ -3115,121 +2933,6 @@ closeCloudModal = function(){
   qrLoginData = null;
   _origCloseCloudModal();
 };
-
-// ========== 首页网盘卡片相关函数 ==========
-function switchHomeCloudTab(tab){
-  const qrBtn = document.getElementById('home-tab-qrcode');
-  const cookieBtn = document.getElementById('home-tab-cookie');
-  const qrSection = document.getElementById('home-cloud-qrcode-section');
-  const cookieSection = document.getElementById('home-cloud-cookie-section');
-  if(tab === 'qrcode'){
-    qrBtn.classList.add('active'); cookieBtn.classList.remove('active');
-    qrSection.style.display = ''; cookieSection.style.display = 'none';
-  }else{
-    cookieBtn.classList.add('active'); qrBtn.classList.remove('active');
-    cookieSection.style.display = ''; qrSection.style.display = 'none';
-  }
-}
-
-// 首页扫码登录（复用 modal 的扫码逻辑）
-let homeQrLoginData = null;
-let homeQrPollTimer = null;
-
-async function startHomeQrLogin(){
-  const btn = event.target;
-  const container = document.getElementById('home-qrcode-container');
-  const statusEl = document.getElementById('home-qrcode-status');
-  btn.disabled = true; btn.textContent = '获取中...';
-  try{
-    const r = await fetch('/api/cloud/qrcode/token');
-    const d = await r.json();
-    if(!d.uid || !d.qrcode_img){ throw new Error('获取二维码失败'); }
-    homeQrLoginData = d;
-    container.innerHTML = `<img src="${d.qrcode_img}" alt="扫码登录">`;
-    statusEl.textContent = '请用手机115 App扫码';
-    btn.textContent = '重新获取';
-    // 开始轮询状态
-    if(homeQrPollTimer) clearInterval(homeQrPollTimer);
-    homeQrPollTimer = setInterval(pollHomeQrStatus, 2000);
-  }catch(e){
-    statusEl.textContent = '获取失败：' + e.message;
-    btn.textContent = '获取二维码';
-  }finally{
-    btn.disabled = false;
-  }
-}
-
-async function pollHomeQrStatus(){
-  if(!homeQrLoginData) return;
-  try{
-    const r = await fetch(`/api/cloud/qrcode/status?uid=${homeQrLoginData.uid}&time=${homeQrLoginData.time}&sign=${homeQrLoginData.sign}`);
-    const d = await r.json();
-    const statusEl = document.getElementById('home-qrcode-status');
-    if(d.status === '等待扫码'){
-      statusEl.textContent = '等待扫码...';
-    }else if(d.status === '已扫码'){
-      statusEl.textContent = '已扫码，请在手机上确认';
-    }else if(d.status === '已授权' || d.status === 'success'){
-      clearInterval(homeQrPollTimer);
-      statusEl.textContent = '登录成功，正在添加账号...';
-      await finishHomeQrLogin();
-    }else if(d.status === '已取消' || d.status === '已过期'){
-      clearInterval(homeQrPollTimer);
-      statusEl.textContent = d.status;
-    }
-  }catch(e){ /* 静默重试 */ }
-}
-
-async function finishHomeQrLogin(){
-  const name = document.getElementById('home-cloud-qr-name').value.trim() || '我的115';
-  const app = document.getElementById('home-cloud-qr-app').value;
-  try{
-    const r = await fetch('/api/cloud/qrcode/login', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ uid: homeQrLoginData.uid, app, name }),
-    });
-    const d = await r.json();
-    if(d.success || d.account){
-      toast('115网盘账号添加成功 ✓');
-      loadCloudAccounts();
-      // 重置扫码区域
-      document.getElementById('home-qrcode-container').innerHTML = '<div style="color:#999;font-size:11px">点击获取二维码</div>';
-      document.getElementById('home-qrcode-status').textContent = '等待获取二维码...';
-      homeQrLoginData = null;
-    }else{
-      toast('添加失败：' + (d.error || '未知错误'));
-    }
-  }catch(e){
-    toast('登录请求失败');
-  }
-}
-
-// 首页Cookie添加
-async function addHomeCloudCookie(){
-  const name = document.getElementById('home-cloud-name').value.trim();
-  const cookie = document.getElementById('home-cloud-cookie').value.trim();
-  const errEl = document.getElementById('home-cloud-add-err');
-  errEl.textContent = '';
-  if(!name){ errEl.textContent = '请填写账号名称'; return; }
-  if(!cookie){ errEl.textContent = '请填写Cookie'; return; }
-  if(!cookie.includes('UID') || !cookie.includes('SEID')){
-    errEl.textContent = 'Cookie格式不正确，应包含 UID、CID、SEID、KID'; return;
-  }
-  try{
-    const r = await fetch('/api/cloud/accounts/cookie', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ driver: 'pan115', name, cookie }),
-    });
-    const d = await r.json();
-    if(!r.ok){ errEl.textContent = d.error || '添加失败'; return; }
-    document.getElementById('home-cloud-name').value = '';
-    document.getElementById('home-cloud-cookie').value = '';
-    toast('账号已添加 ✓');
-    loadCloudAccounts();
-  }catch(e){
-    errEl.textContent = '请求失败，请检查网络';
-  }
-}
 
 async function deleteCloudAccount(id, name){
   if(!confirm(`确认删除网盘账号「${name}」？
