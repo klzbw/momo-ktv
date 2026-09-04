@@ -179,8 +179,7 @@ final class LyricsLoader: ObservableObject {
             let parsed = SongLyrics.parse((word?.isEmpty == false) ? word : plain)
             if !parsed.lines.isEmpty {
                 DispatchQueue.main.async {
-                    self.lyricsCache[songId] = parsed
-                    print("[LyricsLoader] 预加载完成 song=\(songId) lines=\(parsed.lines.count)")
+                    self.setCache(songId, parsed)
                 }
             }
         }.resume()
@@ -270,9 +269,9 @@ final class LyricsLoader: ObservableObject {
                 // 竞态修复2：双重校验——版本号 + 当前歌曲ID，防止切歌时旧请求覆盖新歌词(新旧交替)
                 guard myGeneration == self.requestGeneration, songId == self.currentSongId else { return }
                 self.lyrics = parsed
-                // 写入缓存：非空歌词才缓存，空歌词不缓存（下次可能在线补抓成功）
+                // 写入LRU缓存：非空歌词才缓存，空歌词不缓存（下次可能在线补抓成功）
                 if !parsed.lines.isEmpty {
-                    self.lyricsCache[songId] = parsed
+                    self.setCache(songId, parsed)
                 }
                 if wasAlreadyLoaded {
                     self.lyricsUpdated = true
