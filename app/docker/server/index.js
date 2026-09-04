@@ -15,6 +15,7 @@ const { schedulePreload, setPreloadUpdateNotifier, setDecodeMode } = require('./
 const cacheCleaner = require('./cacheCleaner');
 const lyricsMod = require('./lyrics');
 const sepMod = require('./separate');
+const cloudDrive = require('./cloud-drive');
 const catalog = require('./catalog');
 const multer = require('multer');
 // 分离产物单首几十 MB，用内存存储收完即落盘到 /data/separated（一首一首传，内存可控）
@@ -49,6 +50,9 @@ const APP_VERSION = require('./package.json').version;
 const PORT = process.env.PORT || 8080;
 const app = express();
 app.use(express.json());
+
+// 网盘曲库集成模块
+app.use('/api/cloud', cloudDrive.init(db));
 
 // ---------- 「管理后台」管理员登录 ----------
 // 需求变更：管理员密码不再由用户首次打开「管理后台」(/admin) 时自己设置、
