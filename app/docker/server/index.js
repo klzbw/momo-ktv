@@ -1055,6 +1055,11 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
     } catch (e) {
       console.error('[SEP-INFO] 读取MKV STRM失败:', e.message);
     }
+    // 使用代理模式（?proxy=1）：服务端带上115专用User-Agent转发流
+    // 解决tvOS AVPlayer请求115直链时无正确UA导致403的问题
+    if (videoUrl && !videoUrl.includes('?proxy=')) {
+      videoUrl += (videoUrl.includes('?') ? '&' : '?') + 'proxy=1';
+    }
     return res.json({
       dual: false,
       hasVocal: true,

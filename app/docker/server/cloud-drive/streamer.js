@@ -107,7 +107,8 @@ class CloudDriveStreamer {
   /**
    * Express 中间件：处理串流请求（通过文件路径）
    * GET /api/cloud/stream-path/:accountId/*
-   * 返回 302 重定向到网盘直链
+   * 默认返回 302 重定向到网盘直链
+   * ?proxy=1 时使用代理模式（带115专用User-Agent转发，解决AVPlayer无UA导致403的问题）
    */
   async handleStreamByPath(req, res) {
     try {
@@ -119,9 +120,68 @@ class CloudDriveStreamer {
       }
 
       // 获取直链
-      const { url } = await this.getDownloadUrlByPath(accountId, filePath);
+      const { url, fileName } = await this.getDownloadUrlByPath(accountId, filePath);
 
-      // 302 重定向
+      // 代理模式：服务端带上115专用User-Agent转发流
+      const useProxy = req.query.proxy === '1' || req.query.proxy === 'true';
+      if (useProxy) {
+        const parsed = new URL(url);
+        const lib = parsed.protocol === 'https:' ? https : http;
+
+        const headers = {
+          'User-Agent': 'Mozilla/5.0 115Browser/23.9.3.2',
+        };
+        if (req.headers.range) {
+          headers['Range'] = req.headers.range;
+        }
+
+        const proxyReq = lib.request({
+          method: 'GET',
+          hostname: parsed.hostname,
+          port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+          path: parsed.pathname + parsed.search,
+          headers,
+          timeout: 60000,
+        }, (proxyRes) => {
+          res.status(proxyRes.statusCode || 200);
+          const passHeaders = [
+            'content-type', 'content-length', 'content-range',
+            'accept-ranges', 'cache-control', 'last-modified', 'etag',
+          ];
+          for (const h of passHeaders) {
+            if (proxyRes.headers[h]) {
+              res.setHeader(h, proxyRes.headers[h]);
+            }
+          }
+          proxyRes.pipe(res);
+        });
+
+        proxyReq.on('error', (err) => {
+          console.error('[CLOUD-PROXY] 代理转发错误:', err.message);
+          // 直链可能过期，清除缓存后重试一次
+          const cacheKey = `path:${accountId}:${filePath}`;
+          urlCache.delete(cacheKey);
+          if (!res.headersSent) {
+            res.status(502).json({ error: '网盘直链获取失败: ' + err.message });
+          }
+        });
+
+        proxyReq.on('timeout', () => {
+          proxyReq.destroy();
+          if (!res.headersSent) {
+            res.status(504).json({ error: '网盘请求超时' });
+          }
+        });
+
+        req.on('close', () => {
+          proxyReq.destroy();
+        });
+
+        proxyReq.end();
+        return;
+      }
+
+      // 302 重定向（默认）
       res.setHeader('Location', url);
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       return res.status(302).send();
