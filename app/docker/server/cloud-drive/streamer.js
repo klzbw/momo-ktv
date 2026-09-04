@@ -58,6 +58,80 @@ class CloudDriveStreamer {
   }
 
   /**
+   * 通过账号ID和文件路径获取下载直链（带缓存）
+   * 用于 STRM 文件直接包含文件路径，不需要先扫描入库
+   * @param {number} accountId - cloud_accounts.id
+   * @param {string} filePath - 网盘内文件路径，如 /momo-ktv/separated/abc123/vocals.flac
+   * @returns {Promise<{url: string, fileName: string}>}
+   */
+  async getDownloadUrlByPath(accountId, filePath) {
+    const cacheKey = `path:${accountId}:${filePath}`;
+
+    // 检查缓存
+    const cached = urlCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      return { url: cached.url, fileName: cached.fileName };
+    }
+
+    // 获取驱动
+    const driver = this.manager.getDriverById(accountId);
+
+    // 先获取文件信息（需要 pickCode）
+    const pathObj = require('path');
+    const dirPath = pathObj.dirname(filePath);
+    const fileName = pathObj.basename(filePath);
+
+    const files = await driver.listFiles(dirPath);
+    const targetFile = files.find((f) => f.name === fileName);
+    if (!targetFile) {
+      throw new Error(`网盘文件不存在: ${filePath}`);
+    }
+
+    // 获取直链（需要 pickCode）
+    if (!targetFile.pickCode) {
+      throw new Error(`文件没有 pickCode，无法获取直链: ${filePath}`);
+    }
+
+    const result = await driver.getDownloadUrl(targetFile.pickCode);
+
+    // 写入缓存
+    urlCache.set(cacheKey, {
+      url: result.url,
+      expiresAt: Math.min(result.expiresAt.getTime(), Date.now() + CACHE_TTL),
+      fileName,
+    });
+
+    return { url: result.url, fileName };
+  }
+
+  /**
+   * Express 中间件：处理串流请求（通过文件路径）
+   * GET /api/cloud/stream-path/:accountId/*
+   * 返回 302 重定向到网盘直链
+   */
+  async handleStreamByPath(req, res) {
+    try {
+      const accountId = parseInt(req.params.accountId, 10);
+      const filePath = '/' + (req.params[0] || '');
+
+      if (!accountId || !filePath || filePath === '/') {
+        return res.status(400).json({ error: 'accountId and filePath are required' });
+      }
+
+      // 获取直链
+      const { url } = await this.getDownloadUrlByPath(accountId, filePath);
+
+      // 302 重定向
+      res.setHeader('Location', url);
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return res.status(302).send();
+    } catch (e) {
+      console.error('通过路径获取直链失败:', e.message);
+      res.status(500).json({ error: e.message });
+    }
+  }
+
+  /**
    * Express 中间件：处理串流请求
    * GET /api/cloud/stream/:file_id
    */
@@ -70,6 +144,17 @@ class CloudDriveStreamer {
 
       // 获取直链
       const { url, fileName } = await this.getDownloadUrl(fileId);
+
+      // 302 直连模式（默认）：服务端返回 302 重定向，客户端直接访问网盘
+      // 代理模式（?proxy=1）：服务端流式转发
+      const useProxy = req.query.proxy === '1' || req.query.proxy === 'true';
+      if (!useProxy && !req.query.download) {
+        res.setHeader('Location', url);
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        return res.status(302).send();
+      }
+
+      // 代理模式
 
       // 解析目标 URL
       const parsed = new URL(url);

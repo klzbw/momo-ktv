@@ -259,4 +259,14 @@ router.get('/stream/:file_id', requireManager, (req, res) => {
   req.streamer.handleStream(req, res);
 });
 
+/**
+ * GET /api/cloud/stream-path/:accountId/*
+ * 通过文件路径获取网盘直链（302 重定向）
+ * 用于 STRM 文件直接包含文件路径，不需要先扫描入库
+ * 示例: /api/cloud/stream-path/1/momo-ktv/separated/abc123/vocals.flac
+ */
+router.get('/stream-path/:accountId/*', requireManager, (req, res) => {
+  req.streamer.handleStreamByPath(req, res);
+});
+
 module.exports = { init, router };
