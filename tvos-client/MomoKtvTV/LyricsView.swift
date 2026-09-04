@@ -128,6 +128,7 @@ final class LyricsLoader: ObservableObject {
     private var currentSongId: Int?
     private var lastReloadTime: TimeInterval = 0  // reload防抖：避免服务端生成过程中频繁触发
     private var requestGeneration = 0       // 请求版本号：防止旧回调覆盖新歌词（竞态条件修复）
+    private var forceFetchedSongs = Set<Int>()  // 已触发过在线抓取的歌曲，避免重复请求
 
     /// 独立 URLSession：歌词请求与 app 其他请求(sep-info/队列/歌曲信息等)隔离，
     /// 即使歌词请求阻塞/超时也不会耗尽 URLSession.shared 连接池导致全 APP 加载变慢。
@@ -136,6 +137,16 @@ final class LyricsLoader: ObservableObject {
         cfg.httpMaximumConnectionsPerHost = 2
         cfg.timeoutIntervalForRequest = 8
         cfg.timeoutIntervalForResource = 10
+        return URLSession(configuration: cfg)
+    }()
+
+    /// 独立长超时会话：forceFetch 在线抓取(网易/QQ/酷我三源串行)可能需要20-40秒，
+    /// 不能用 session 的10秒超时。与快速加载会话隔离，互不影响。
+    private let fetchSession: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.httpMaximumConnectionsPerHost = 1
+        cfg.timeoutIntervalForRequest = 60
+        cfg.timeoutIntervalForResource = 90
         return URLSession(configuration: cfg)
     }()
 
@@ -159,8 +170,12 @@ final class LyricsLoader: ObservableObject {
         var req = URLRequest(url: url, timeoutInterval: 30)
         req.httpMethod = "POST"
         loading = true
-        session.dataTask(with: req) { [weak self] _, _, _ in
+        fetchSession.dataTask(with: req) { [weak self] _, _, error in
             DispatchQueue.main.async { self?.loading = false }
+            if let error = error as? URLError, error.code == .timedOut {
+                print("[LyricsLoader] 在线抓取超时(60s) song=\(songId)，稍后可手动重试")
+                return
+            }
             // 服务端抓取完成后，延迟0.8秒重新拉取本地歌词
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 self?.reload(server: server, songId: songId)
@@ -210,6 +225,13 @@ final class LyricsLoader: ObservableObject {
             var parsed = SongLyrics.parse((word?.isEmpty == false) ? word : plain)
             if parsed.lines.count > 180 {
                 parsed.lines = Array(parsed.lines.prefix(180))
+            }
+            // 无歌词自动在线补抓：数据库无歌词时，自动触发网易/QQ/酷我三源在线抓取
+            // 仅在首次加载(非force reload)且该歌曲未抓取过时触发，避免重复请求
+            if parsed.lines.isEmpty && !force && !forceFetchedSongs.contains(songId) {
+                forceFetchedSongs.insert(songId)
+                print("[LyricsLoader] 无歌词，自动在线抓取 song=\(songId)")
+                DispatchQueue.main.async { self.forceFetch(server: server, songId: songId) }
             }
             DispatchQueue.main.async {
                 // 竞态修复2：双重校验——版本号 + 当前歌曲ID，防止切歌时旧请求覆盖新歌词(新旧交替)
