@@ -46,11 +46,13 @@ struct SearchPanel: View {
     let onAdd: (Song) -> Void
     @State private var query = ""
     @State private var currentPage = 0
-    @State private var filteredSongs: [Song] = []   // 异步过滤结果，避免主线程卡顿
+    @State private var filteredSongs: [Song] = []   // 过滤结果
     @State private var searchDebounceTimer: Timer?   // 输入防抖
     @State private var lowercasedTitles: [String] = []  // 预计算小写标题，加速过滤
     @State private var lowercasedArtists: [String] = [] // 预计算小写歌手
     @State private var isNumMode = false             // 字母/数字键盘切换
+    @State private var lastFilterQuery = ""          // 增量过滤：上次查询词
+    @State private var lastFilterIndices: [Int] = [] // 增量过滤：上次结果在全量中的索引
     private let pageSize = 40
     // 自定义键盘布局：5列，字母6行(26字母+DEL)，数字2行(10数字)+DEL
     private let letterRows: [[(String, Int)]] = [
@@ -70,7 +72,7 @@ struct SearchPanel: View {
     /// 防抖过滤：输入停止300ms后在后台线程过滤11177首歌，避免主线程卡顿1-3秒
     private func debounceFilter() {
         searchDebounceTimer?.invalidate()
-        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { _ in
+        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { _ in
             self.performFilter()
         }
     }
@@ -80,24 +82,40 @@ struct SearchPanel: View {
         let songs = api.songs
         let titles = lowercasedTitles
         let artists = lowercasedArtists
+
+        // 增量过滤：如果新query是旧query的前缀扩展(如"AB"是"A"的扩展)，
+        // 则在上次结果索引基础上继续过滤——结果集越来越小，过滤越来越快
+        // 首次输入或删除字母时回退到全量过滤
+        let sourceIndices: [Int]
+        if !q.isEmpty && !lastFilterQuery.isEmpty && q.hasPrefix(lastFilterQuery) && lastFilterIndices.count > 0 {
+            sourceIndices = lastFilterIndices  // 增量：只扫上次结果
+        } else {
+            sourceIndices = Array(0..<songs.count)  // 全量：扫全部11177首
+        }
+
         DispatchQueue.global(qos: .userInitiated).async {
-            let result: [Song]
+            let resultIndices: [Int]
             if q.isEmpty {
-                result = songs
+                resultIndices = Array(0..<songs.count)
             } else if titles.count == songs.count {
-                // 用预计算的小写数组+普通contains，比localizedCaseInsensitiveContains快3-5倍
-                result = (0..<songs.count).compactMap { i in
-                    (titles[i].contains(q) || artists[i].contains(q)) ? songs[i] : nil
+                resultIndices = sourceIndices.filter { i in
+                    titles[i].contains(q) || artists[i].contains(q)
                 }
             } else {
-                result = songs.filter {
-                    $0.displayTitle.localizedCaseInsensitiveContains(q) ||
-                    $0.displayArtist.localizedCaseInsensitiveContains(q)
+                resultIndices = sourceIndices.filter { i in
+                    songs[i].displayTitle.localizedCaseInsensitiveContains(q) ||
+                    songs[i].displayArtist.localizedCaseInsensitiveContains(q)
                 }
             }
+            let result = resultIndices.map { songs[$0] }
             DispatchQueue.main.async {
                 self.filteredSongs = result
-                self.currentPage = 0
+                self.lastFilterQuery = q
+                self.lastFilterIndices = resultIndices
+                // 不强制重置页码：当前页还有结果则保持，避免列表跳动重新渲染
+                if self.currentPage * self.pageSize >= result.count {
+                    self.currentPage = 0
+                }
             }
         }
     }
@@ -211,7 +229,7 @@ struct SearchPanel: View {
                             Spacer(minLength: 0)
                         }
                         // 清空按钮
-                        TVTightButton(action: { query = ""; debounceFilter() }) { focused in
+                        TVTightButton(action: { query = ""; lastFilterQuery = ""; lastFilterIndices = []; debounceFilter() }) { focused in
                             Text("清空")
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundColor(focused ? Color(hex: 0x1a1a2e) : WebColors.pink)
