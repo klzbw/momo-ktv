@@ -346,6 +346,8 @@ struct FullPlayerView: View {
                             }
                             .onMoveCommand { direction in
                                 // 原唱按钮聚焦时，遥控器上下键直接调节人声音量(消音程度)
+                                // 仅 DUAL 模式(已分离出人声+伴奏双声道)下有效，非DUAL模式不响应
+                                guard playerManager.dualEnabled else { return }
                                 if direction == .up {
                                     playerManager.nudgeVocalLevel(+0.34)
                                     showVocalHUD()
@@ -568,6 +570,8 @@ struct FullPlayerView: View {
                     // 向上滑=增加人声，向下滑=减少人声，滑动距离精确对应音量变化(类似手机滑块)
                     // 限制单次滑动最大变化40%，避免一次性调到极值(静音)
                     PanGestureView { state, translationY in
+                        // 仅 DUAL 模式(已分离出人声+伴奏双声道)下允许滑动调节
+                        guard playerManager.dualEnabled else { return }
                         if state == .began {
                             panStartLevel = playerManager.vocalLevel
                         }

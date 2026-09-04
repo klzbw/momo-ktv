@@ -437,10 +437,10 @@ class PlayerManager: ObservableObject {
 
     /// DUAL：连续设置人声音量 0(纯伴奏)...1(原唱)
     func setVocalLevel(_ x: Float) {
+        guard dualEnabled else { return }  // 非DUAL模式(无双声道)不允许调节，避免UI显示变化但实际声音不变
         let q = max(0, min(1, x))
         previousVocalLevel = vocalLevel                           // 保存旧值，用于丝滑渐变的起始音量
         vocalLevel = (q * 100).rounded() / 100                   // 量化到 1%，消除浮点抖动
-        guard dualEnabled else { return }
         applyDualVolume()
     }
 
