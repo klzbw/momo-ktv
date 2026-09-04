@@ -274,8 +274,8 @@ struct ArtistsPage: View {
     /// 防抖过滤：输入停止300ms后在后台线程过滤，完成后回主线程更新结果，避免输入卡顿
     private func debounceFilter() {
         searchDebounceTimer?.invalidate()
-        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
-            self?.performFilter()
+        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+            self.performFilter()
         }
     }
 
