@@ -130,6 +130,9 @@ final class LyricsLoader: ObservableObject {
     private var requestGeneration = 0       // 请求版本号：防止旧回调覆盖新歌词（竞态条件修复）
     private var forceFetchedSongs = Set<Int>()  // 已触发过在线抓取的歌曲，避免重复请求
     private var lyricsCache = [Int: SongLyrics]()  // 歌词内存缓存：已加载过的歌曲直接从缓存取，切歌零延迟
+    private var cacheAccessOrder = [Int]()  // LRU访问顺序：末尾=最近访问，开头=最久未使用
+    private let cacheMaxCount = 50           // 最大缓存50首
+    private let cacheEvictCount = 20         // 超限时一次性淘汰最久未使用的20首
 
     /// 独立 URLSession：歌词请求与 app 其他请求(sep-info/队列/歌曲信息等)隔离，
     /// 即使歌词请求阻塞/超时也不会耗尽 URLSession.shared 连接池导致全 APP 加载变慢。
@@ -150,6 +153,31 @@ final class LyricsLoader: ObservableObject {
         cfg.timeoutIntervalForResource = 90
         return URLSession(configuration: cfg)
     }()
+
+    // MARK: - LRU 缓存管理
+    private func touchCache(_ songId: Int) {
+        if let idx = cacheAccessOrder.firstIndex(of: songId) {
+            cacheAccessOrder.remove(at: idx)
+        }
+        cacheAccessOrder.append(songId)
+    }
+
+    private func setCache(_ songId: Int, _ lyrics: SongLyrics) {
+        touchCache(songId)
+        lyricsCache[songId] = lyrics
+        if cacheAccessOrder.count > cacheMaxCount {
+            let evictCount = min(cacheEvictCount, cacheAccessOrder.count - cacheMaxCount + cacheEvictCount)
+            let evicted = Array(cacheAccessOrder.prefix(evictCount))
+            cacheAccessOrder.removeFirst(evictCount)
+            for sid in evicted { lyricsCache.removeValue(forKey: sid) }
+        }
+    }
+
+    func clearCache() {
+        lyricsCache.removeAll()
+        cacheAccessOrder.removeAll()
+        forceFetchedSongs.removeAll()
+    }
 
     /// 强制重新拉取同一首歌（WebSocket 推送歌词更新后调用，绕过 load 的去重守卫）。
     /// 关键修复：不再设置 currentSongId=nil（那会破坏切歌时的去重守卫，导致新旧歌词交替），

@@ -451,13 +451,13 @@ class PlayerManager: ObservableObject {
 
     /// 遥控器一个键在当前歌曲的全部档位间循环：五档(原唱→75%→半消→25%→伴奏)
     /// 或三档/双档，边界由 HLS 实际音轨数 vocalTrackCount 决定。
-    // MARK: - toggleVoice test
     func toggleVoice() {
-        // DUAL 双FLAC：只在 原唱(1)/纯伴奏(0) 两态切换，连续细调交给垂直音量条
         if dualEnabled { setVocalLevel(vocalLevel > 0.5 ? 0 : 1); voiceGeneration += 1; return }
-        // 音轨尚未探测到时至少允许在 0/1 之间走，options 到位后 trySelect 会回填真实档数并收敛
-        let bound = max(2, vocalTrackCount)
-        vocalTrackIndex = (vocalTrackIndex + 1) % bound
+        if vocalTrackIndex == 0 {
+            vocalTrackIndex = max(0, vocalTrackCount - 1)
+        } else {
+            vocalTrackIndex = 0
+        }
         voiceGeneration += 1
         applyVoiceMode()
     }
