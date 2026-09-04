@@ -511,6 +511,7 @@ select option{color:#000}
       <div class="hdrop-item" onclick="aiStats()" title="查看逐字对齐/人声分离/歌词覆盖的实时进度">📊 AI处理进度</div>
     </div>
   </div>
+  <button class="hbtn" onclick="openCloudModal()" title="管理115网盘等云端存储账号，通过Cookie登录后可直接访问网盘文件、获取下载直链">☁️ 网盘管理</button>
   <button class="hbtn" onclick="openUserModal()" title="创建/删除用于登录K歌主页面(/tv)的账号，跟管理后台自己的管理员密码是两回事">👤 用户管理</button>
   <button class="hbtn" onclick="doLogout()">🚪 退出登录</button>
 </header>
@@ -844,6 +845,39 @@ select option{color:#000}
       <button class="hbtn" onclick="closeUserPwModal()">取消</button>
       <button class="hbtn primary" onclick="submitResetTvUserPassword()">保存</button>
     </div>
+  </div>
+</div>
+
+
+<!-- 网盘管理 modal：管理115网盘等云端存储账号 -->
+<div id="cloud-modal-overlay" onclick="if(event.target===this)closeCloudModal()">
+  <div id="cloud-modal" onclick="event.stopPropagation()" style="width:680px;max-width:94vw">
+    <h3>☁️ 网盘账号管理</h3>
+    <div style="font-size:12px;color:var(--sub);margin:-10px 0 16px;line-height:1.7">
+      目前支持 <b style="color:var(--cyan)">115网盘</b>（Cookie登录）。添加账号后可直接访问网盘文件、获取下载直链，用于网络KTV曲库。
+      <br><b style="color:var(--pink)">获取Cookie方法：</b>浏览器登录 115.com → F12开发者工具 → Network → 刷新页面 → 任意请求的 Request Headers 中复制 Cookie（包含 UID、CID、SEID、KID）。
+    </div>
+    <div style="background:rgba(255,255,255,.03);border-radius:12px;padding:14px;margin-bottom:16px;border:1px solid rgba(255,255,255,.06)">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">➕ 添加网盘账号</div>
+      <div class="form-row" style="margin-bottom:10px">
+        <label>网盘类型</label>
+        <select id="cloud-driver-select" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none">
+          <option value="pan115">115网盘</option>
+        </select>
+      </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <label>账号名称（备注，如"我的115"）</label>
+        <input id="cloud-name-input" placeholder="账号名称">
+      </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <label>Cookie（从浏览器复制，包含 UID、CID、SEID、KID）</label>
+        <textarea id="cloud-cookie-input" placeholder="UID=xxx; CID=xxx; SEID=xxx; KID=xxx" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:12px;outline:none;min-height:60px;resize:vertical;font-family:monospace"></textarea>
+      </div>
+      <div id="cloud-add-err" style="color:var(--pink);font-size:12px;min-height:14px;margin-bottom:8px"></div>
+      <button class="hbtn primary" onclick="addCloudAccount()" style="width:100%">添加并测试连接</button>
+    </div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px">📋 已添加的账号</div>
+    <div id="cloud-accounts-list" style="max-height:300px;overflow-y:auto"></div>
   </div>
 </div>
 
@@ -2567,5 +2601,113 @@ async function applyClean(onlySelected){
   }catch(e){ toast('请求失败，请检查网络'); }
 }
 </script>
+
+<script>
+// ---------- 网盘账号管理 ----------
+let cloudAccountsCache = [];
+
+function openCloudModal(){
+  document.getElementById('cloud-name-input').value = '';
+  document.getElementById('cloud-cookie-input').value = '';
+  document.getElementById('cloud-add-err').textContent = '';
+  document.getElementById('cloud-modal-overlay').classList.add('open');
+  loadCloudAccounts();
+}
+function closeCloudModal(){ document.getElementById('cloud-modal-overlay').classList.remove('open'); }
+
+async function loadCloudAccounts(){
+  const listEl = document.getElementById('cloud-accounts-list');
+  listEl.innerHTML = '<div class="user-empty-tip">加载中…</div>';
+  try{
+    const r = await fetch('/api/cloud/accounts');
+    if(r.status === 401){ closeCloudModal(); showLogin(); return; }
+    const d = await r.json();
+    cloudAccountsCache = d.accounts || [];
+    if(!cloudAccountsCache.length){
+      listEl.innerHTML = '<div class="user-empty-tip">还没有添加网盘账号，在上方填写Cookie添加</div>';
+      return;
+    }
+    listEl.innerHTML = cloudAccountsCache.map(acc => {
+      const statusColor = acc.status === 'active' ? 'var(--cyan)' : 'var(--pink)';
+      const statusText = acc.status === 'active' ? '✓ 正常' : '⚠️ ' + (acc.status || '未知');
+      const userInfo = acc.user_info ? JSON.parse(acc.user_info) : null;
+      return `
+      <div class="user-row">
+        <div style="flex:1;min-width:0">
+          <div class="uname">${esc(acc.name)} <span style="font-size:11px;color:${statusColor};margin-left:6px">${statusText}</span></div>
+          <div class="udate">类型：${esc(acc.driver)} · 创建于 ${esc((acc.created_at||'').replace('T',' ').slice(0,16))}${userInfo && userInfo.nickname ? ' · ' + esc(userInfo.nickname) : ''}</div>
+        </div>
+        <button class="ubtn" onclick="testCloudAccount(${acc.id})" title="测试连接是否正常">🔍 测试</button>
+        <button class="ubtn danger" onclick="deleteCloudAccount(${acc.id},'${escJs(acc.name)}')">🗑️ 删除</button>
+      </div>`;
+    }).join('');
+  }catch(e){
+    listEl.innerHTML = '<div class="user-empty-tip">加载失败，请重试</div>';
+  }
+}
+
+async function addCloudAccount(){
+  const driver = document.getElementById('cloud-driver-select').value;
+  const name = document.getElementById('cloud-name-input').value.trim();
+  const cookie = document.getElementById('cloud-cookie-input').value.trim();
+  const errEl = document.getElementById('cloud-add-err');
+  errEl.textContent = '';
+
+  if(!name){ errEl.textContent = '请填写账号名称'; return; }
+  if(!cookie){ errEl.textContent = '请填写Cookie'; return; }
+  if(!cookie.includes('UID') || !cookie.includes('SEID')){
+    errEl.textContent = 'Cookie格式不正确，应包含 UID、CID、SEID、KID';
+    return;
+  }
+
+  try{
+    const r = await fetch('/api/cloud/accounts/cookie', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ driver, name, cookie }),
+    });
+    if(r.status === 401){ closeCloudModal(); showLogin(); return; }
+    const d = await r.json();
+    if(!r.ok){ errEl.textContent = d.error || '添加失败'; return; }
+    document.getElementById('cloud-name-input').value = '';
+    document.getElementById('cloud-cookie-input').value = '';
+    toast('账号已添加 ✓');
+    loadCloudAccounts();
+  }catch(e){
+    errEl.textContent = '请求失败，请检查网络';
+  }
+}
+
+async function testCloudAccount(id){
+  try{
+    const r = await fetch(`/api/cloud/accounts/${id}/test`, { method: 'POST' });
+    if(r.status === 401){ closeCloudModal(); showLogin(); return; }
+    const d = await r.json();
+    if(d.success){
+      toast('连接测试成功 ✓');
+    }else{
+      toast('连接测试失败：' + (d.error || '未知错误'));
+    }
+    loadCloudAccounts();
+  }catch(e){
+    toast('测试失败：' + e.message);
+  }
+}
+
+async function deleteCloudAccount(id, name){
+  if(!confirm(`确认删除网盘账号「${name}」？
+
+删除后该网盘的曲库来源将无法访问，但已扫描入库的歌曲记录会保留。`)) return;
+  try{
+    const r = await fetch(`/api/cloud/accounts/${id}`, { method: 'DELETE' });
+    if(r.status === 401){ closeCloudModal(); showLogin(); return; }
+    toast('账号已删除 ✓');
+    loadCloudAccounts();
+  }catch(e){
+    toast('删除失败：' + e.message);
+  }
+}
+</script>
+
 </body>
 </html>

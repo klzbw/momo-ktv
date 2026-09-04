@@ -153,6 +153,32 @@ router.delete('/accounts/:id', requireManager, (req, res) => {
 });
 
 /**
+ * POST /api/cloud/accounts/:id/test
+ * 测试网盘账号连接是否正常
+ */
+router.post('/accounts/:id/test', requireManager, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const account = manager.getAccount(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+    const driver = manager.getDriver(account);
+    const result = await driver.testConnection();
+    if (result.success) {
+      manager.updateAccount(id, { status: 'active' });
+      res.json({ success: true });
+    } else {
+      manager.updateAccount(id, { status: 'error' });
+      res.json({ success: false, error: result.error || '连接失败' });
+    }
+  } catch (e) {
+    console.error('测试连接失败:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+/**
  * POST /api/cloud/accounts/:id/refresh
  * 手动刷新 token
  */
