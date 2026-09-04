@@ -779,8 +779,11 @@ async function scanLibrary(mode = 'full') {
           const isStrmFile = path.extname(f).toLowerCase() === STRM_EXT;
           const { artist: nameArtist, title: nameTitle, language, genre } = parseFilename(f);
           let artist = nameArtist, title = nameTitle;
-          // 媒体类型：纯音频 audio / 带画面 video（.strm 指向远程，按视频处理）
-          const mediaType = isStrmFile ? 'video' : (mediaTypeOf(extNow) || 'video');
+          // 媒体类型：纯音频 audio / 带画面 video
+          // Bug修复(STRM纯音频文件tvOS端无法播放)：.strm 可能指向纯音频(MP3/FLAC)也可能指向视频(MKV/MP4)，
+          // 原来硬编码为 'video' 导致纯音频 STRM 在 HLS 转码时尝试提取 0:v:0 视频流失败，video.m3u8 永远生成不出来。
+          // 现在 STRM 扫描时 media_type 暂设为 null，推迟到点歌时 ensureProbedOnDemand 下载探测后再正确设置。
+          const mediaType = isStrmFile ? null : (mediaTypeOf(extNow) || 'video');
           // 纯音频：读取内嵌 ID3/Vorbis/APE 标签，标签通常比文件名更可靠，
           // 有值则覆盖文件名解析结果，并补专辑/年份/音轨号/时长。
           let album = null, songYear = null, trackNo = null, tagDuration = null;
@@ -1222,7 +1225,20 @@ async function ensureProbedOnDemand(song, force = false) {
     const needsCache = !!(song.is_network || song.is_strm);
     const probePath = await resolveProbePath(song.id, song.filepath, needsCache);
     const { tracks: audio_tracks, audioNeedsSoft, videoNeedsSoft } = await probeAudioTracks(probePath);
-    db.prepare('UPDATE songs SET audio_tracks = ?, audio_needs_soft = ?, video_needs_soft = ? WHERE id = ?').run(audio_tracks, audioNeedsSoft, videoNeedsSoft, song.id);
+    // Bug修复(STRM纯音频文件tvOS端无法播放)：探测源文件有没有视频流，正确设置 media_type。
+    // STRM 扫描时 media_type 暂设为 null，这里下载探测后再确定是 audio 还是 video。
+    // 已有正确 media_type 的本地文件不重复探测；只有 media_type 为 null(STRM) 或 force 重探时才检测。
+    let mediaType = song.media_type;
+    if (!mediaType || force) {
+      try {
+        const vout = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', probePath], { timeout: 15000 }).toString().trim();
+        mediaType = vout.includes('video') ? 'video' : 'audio';
+      } catch (e) {
+        // 探测失败保守按 video 处理（避免已有视频文件被误判为 audio）
+        mediaType = mediaType || 'video';
+      }
+    }
+    db.prepare('UPDATE songs SET audio_tracks = ?, audio_needs_soft = ?, video_needs_soft = ?, media_type = ? WHERE id = ?').run(audio_tracks, audioNeedsSoft, videoNeedsSoft, mediaType, song.id);
     return audio_tracks;
   })();
   probingInflight.set(song.id, p);

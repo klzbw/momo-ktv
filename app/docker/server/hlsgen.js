@@ -682,7 +682,15 @@ async function buildHLS(song, dir, effectiveTrackCount, filepath, durSec, separa
     ? { ss: Number(song.start_offset) || 0, t: durSec } : null;
   const videoTask = isAudioOnly
     ? buildAudioBackgroundRendition(song, dir, durSec, songTag)
-    : buildVideoRendition(filepath, dir, songTag);
+    : (async () => {
+        try {
+          await buildVideoRendition(filepath, dir, songTag);
+        } catch (e) {
+          // 视频转码失败(通常是源文件无视频流，如纯音频STRM)，回退到纯音频动态背景轨
+          log.warn('TRANSCODE', `${songTag} 视频轨转码失败，自动回退到纯音频动态背景轨: ${lastErrLine(e)}`);
+          await buildAudioBackgroundRendition(song, dir, durSec, songTag);
+        }
+      })();
   const tasks = [videoTask];
   if (separated) {
     // AI 人声分离已完成：track0=原唱(源混音)，track1..4 按 SEP_VOCAL_LEVELS
