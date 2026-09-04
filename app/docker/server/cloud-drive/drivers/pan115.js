@@ -88,12 +88,13 @@ class Pan115Driver extends CloudDriveBase {
     return entry.data;
   }
 
-  _setCache(type, key, data) {
+  _setCache(type, key, data, customTTL) {
     const cache = this._cache[type];
     if (!cache) return;
+    const ttl = customTTL || this._cacheTTL;
     cache.set(key, {
       data,
-      expireAt: Date.now() + this._cacheTTL,
+      expireAt: Date.now() + ttl,
     });
   }
 
@@ -357,13 +358,33 @@ class Pan115Driver extends CloudDriveBase {
       throw new Error('115 下载直链解析失败: ' + decryptedData.toString().slice(0, 200));
     }
 
+    // 智能缓存：解析URL中的t参数（过期时间戳），动态设置缓存时间
+    let cacheTTL = 4 * 3600 * 1000; // 默认4小时
+    let expiresAt = new Date(Date.now() + cacheTTL);
+    try {
+      const urlObj = new URL(url);
+      const tParam = urlObj.searchParams.get('t');
+      if (tParam) {
+        const expireTimestamp = parseInt(tParam, 10) * 1000; // 秒转毫秒
+        if (!isNaN(expireTimestamp) && expireTimestamp > Date.now()) {
+          // 提前5分钟过期，确保安全边界
+          cacheTTL = expireTimestamp - Date.now() - 5 * 60 * 1000;
+          if (cacheTTL < 60 * 1000) cacheTTL = 60 * 1000; // 最少1分钟
+          if (cacheTTL > 12 * 3600 * 1000) cacheTTL = 12 * 3600 * 1000; // 最多12小时
+          expiresAt = new Date(expireTimestamp);
+        }
+      }
+    } catch (e) {
+      // URL解析失败，使用默认值
+    }
+
     const result = {
       url,
-      expiresAt: new Date(Date.now() + 4 * 3600 * 1000), // 约4小时有效
+      expiresAt,
     };
 
-    // 写入缓存
-    this._setCache('urls', pickCode, result);
+    // 写入缓存（使用智能TTL）
+    this._setCache('urls', pickCode, result, cacheTTL);
 
     return result;
   }

@@ -524,6 +524,11 @@ function getReadyPathOrNull(songId) {
 //     这样下一次同一首歌播放大概率就能命中本地缓存了。传入 onCacheError 可以
 //     在后台缓存最终失败时得到通知(可选，目前调用方都没有用到，为将来预留)。
 function resolvePlaybackPath(song, onCacheError) {
+  // 网络KTV歌曲(source_root='netktv')：走DUAL双FLAC 302直连模式，Apple TV直接从115 CDN播放，
+  // 不需要本地缓存，跳过source-cache预加载，节省NAS存储空间和115 API调用。
+  if (song && song.source_root === 'netktv') {
+    return { path: song.filepath, cached: true, skipSourceCache: true };
+  }
   // 需求(网盘STRM支持)：STRM 曲目跟网络挂载曲目一样需要走本地缓存，但
   // "没有新鲜缓存时的兜底路径"不能再是原样返回 song.filepath 了——filepath
   // 是那个 .strm 文本文件本身，直接拿去播放/转码没有意义。
