@@ -198,6 +198,8 @@ struct ArtistsPage: View {
     @State private var currentPage = 1
     @State private var inputLetters = ""
     @State private var artistPinyin: [String: String] = [:] // key: artist name, value: pinyin initials
+    @State private var filteredArtists: [Artist] = []   // 异步过滤结果，避免主线程卡顿
+    @State private var searchDebounceTimer: Timer?       // 输入防抖，避免每次按键都过滤
     @State private var isCacheReady = false
     @State private var isLoading = true
     private let pageSize = 18
@@ -260,16 +262,45 @@ struct ArtistsPage: View {
                 self.artistPinyin = cache
                 self.isCacheReady = true
                 self.isLoading = false
+                let q = self.inputLetters
+                self.filteredArtists = q.isEmpty ? artists : artists.filter { a in
+                    guard let p = cache[a.artist] else { return false }
+                    return p.hasPrefix(q)
+                }
             }
         }
     }
 
-    var filteredArtists: [Artist] {
-        if inputLetters.isEmpty { return api.artists }
-        guard isCacheReady else { return [] }
-        return api.artists.filter { artist in
-            guard let pinyin = artistPinyin[artist.artist] else { return false }
-            return pinyin.hasPrefix(inputLetters)
+    /// 防抖过滤：输入停止300ms后在后台线程过滤，完成后回主线程更新结果，避免输入卡顿
+    private func debounceFilter() {
+        searchDebounceTimer?.invalidate()
+        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            self?.performFilter()
+        }
+    }
+
+    /// 后台线程执行过滤，避免主线程同步过滤导致输入卡顿1-3秒
+    private func performFilter() {
+        let query = inputLetters
+        let artists = api.artists
+        let pinyin = artistPinyin
+        let cacheReady = isCacheReady
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result: [Artist]
+            if query.isEmpty {
+                result = artists
+            } else if cacheReady {
+                result = artists.filter { artist in
+                    guard let p = pinyin[artist.artist] else { return false }
+                    return p.hasPrefix(query)
+                }
+            } else {
+                result = []
+            }
+            DispatchQueue.main.async {
+                self.filteredArtists = result
+                self.currentPage = 1
+            }
         }
     }
 
@@ -392,7 +423,7 @@ struct ArtistsPage: View {
                                             } else {
                                                 inputLetters.append(key)
                                             }
-                                            currentPage = 1
+                                            debounceFilter()
                                         }
                                     }
                                 }
@@ -402,7 +433,8 @@ struct ArtistsPage: View {
 
                         // Clear button（固定底部，键盘行平分剩余空间）
                         TightClearButton(isEmpty: inputLetters.isEmpty) {
-                            inputLetters = ""; currentPage = 1
+                            inputLetters = ""
+                            debounceFilter()
                         }
                     }
                     .padding(.horizontal, 10)
@@ -457,6 +489,7 @@ struct ArtistsPage: View {
         .background(WebColors.bg.ignoresSafeArea())
         .onAppear {
             isLoading = true
+            filteredArtists = api.artists
             api.fetchArtists {
                 buildCache()
             }
@@ -509,11 +542,17 @@ struct AlphaKeyboard: View {
                 Spacer()
                 TVTightButton(action: { isNumMode.toggle() }) { focused in
                     Text(isNumMode ? "ABC" : "123")
-                        .font(.system(size: 14))
-                        .foregroundColor(focused ? Color(hex: 0x1a1a2e) : WebColors.ac2)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(focused ? Color.white : WebColors.cardBg)
-                        .cornerRadius(6)
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundColor(focused ? Color(hex: 0x1a1a2e) : Color.white.opacity(0.8))
+                        .frame(width: 80)
+                        .padding(.vertical, 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(focused ? Color.white : Color.white.opacity(0.08))
+                        )
+                        .padding(2)
+                        .background(focused ? Color.white.opacity(0.15) : Color.clear)
+                        .cornerRadius(8)
                 }
             }
             .padding(.horizontal, 12).padding(.vertical, 10)

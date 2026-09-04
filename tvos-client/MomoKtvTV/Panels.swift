@@ -46,13 +46,35 @@ struct SearchPanel: View {
     let onAdd: (Song) -> Void
     @State private var query = ""
     @State private var currentPage = 0
+    @State private var filteredSongs: [Song] = []   // 异步过滤结果，避免主线程卡顿
+    @State private var searchDebounceTimer: Timer?   // 输入防抖
     private let pageSize = 40
 
-    var filteredSongs: [Song] {
-        if query.isEmpty { return api.songs }
-        return api.songs.filter {
-            $0.displayTitle.localizedCaseInsensitiveContains(query) ||
-            $0.displayArtist.localizedCaseInsensitiveContains(query)
+    /// 防抖过滤：输入停止300ms后在后台线程过滤11177首歌，避免主线程卡顿1-3秒
+    private func debounceFilter() {
+        searchDebounceTimer?.invalidate()
+        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            self?.performFilter()
+        }
+    }
+
+    private func performFilter() {
+        let q = query
+        let songs = api.songs
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result: [Song]
+            if q.isEmpty {
+                result = songs
+            } else {
+                result = songs.filter {
+                    $0.displayTitle.localizedCaseInsensitiveContains(q) ||
+                    $0.displayArtist.localizedCaseInsensitiveContains(q)
+                }
+            }
+            DispatchQueue.main.async {
+                self.filteredSongs = result
+                self.currentPage = 0
+            }
         }
     }
 
@@ -78,6 +100,7 @@ struct SearchPanel: View {
                             .textFieldStyle(.plain)
                             .foregroundColor(.white)
                             .onSubmit { currentPage = 0 }
+                            .onChange(of: query) { _ in debounceFilter() }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(WebColors.nbBg)
@@ -155,6 +178,7 @@ struct SearchPanel: View {
             .focusSection()
         }
         .onAppear {
+            filteredSongs = api.songs
             api.fetchSongs(query: "")
         }
     }
