@@ -198,8 +198,7 @@ struct ArtistsPage: View {
     @State private var currentPage = 1
     @State private var inputLetters = ""
     @State private var artistPinyin: [String: String] = [:] // key: artist name, value: pinyin initials
-    @State private var filteredArtists: [Artist] = []   // 异步过滤结果，避免主线程卡顿
-    @State private var searchDebounceTimer: Timer?       // 输入防抖，避免每次按键都过滤
+    @State private var filteredArtists: [Artist] = []   // 过滤结果（同步更新，点击即响应）
     @State private var isCacheReady = false
     @State private var isLoading = true
     private let pageSize = 18
@@ -271,37 +270,21 @@ struct ArtistsPage: View {
         }
     }
 
-    /// 防抖过滤：输入停止300ms后在后台线程过滤，完成后回主线程更新结果，避免输入卡顿
-    private func debounceFilter() {
-        searchDebounceTimer?.invalidate()
-        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { _ in
-            self.performFilter()
-        }
-    }
-
-    /// 后台线程执行过滤，避免主线程同步过滤导致输入卡顿1-3秒
-    private func performFilter() {
+    /// 同步过滤：拼音首字母过滤是字典查找+hasPrefix，极快(几毫秒)，无需防抖和后台线程
+    /// 去掉150ms人为延迟，点击字母后左边列表立即更新，解决"输不动"和延迟高的问题
+    private func applyFilter() {
         let query = inputLetters
-        let artists = api.artists
-        let pinyin = artistPinyin
-        let cacheReady = isCacheReady
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result: [Artist]
-            if query.isEmpty {
-                result = artists
-            } else if cacheReady {
-                result = artists.filter { artist in
-                    guard let p = pinyin[artist.artist] else { return false }
-                    return p.hasPrefix(query)
-                }
-            } else {
-                result = []
+        if query.isEmpty {
+            filteredArtists = api.artists
+        } else if isCacheReady {
+            filteredArtists = api.artists.filter { artist in
+                guard let p = artistPinyin[artist.artist] else { return false }
+                return p.hasPrefix(query)
             }
-            DispatchQueue.main.async {
-                self.filteredArtists = result
-                self.currentPage = 1
-            }
+        } else {
+            filteredArtists = []
         }
+        currentPage = 1
     }
 
     var pagedArtists: [Artist] {
@@ -423,7 +406,7 @@ struct ArtistsPage: View {
                                             } else {
                                                 inputLetters.append(key)
                                             }
-                                            debounceFilter()
+                                            applyFilter()
                                         }
                                     }
                                 }
@@ -434,7 +417,7 @@ struct ArtistsPage: View {
                         // Clear button（固定底部，键盘行平分剩余空间）
                         TightClearButton(isEmpty: inputLetters.isEmpty) {
                             inputLetters = ""
-                            debounceFilter()
+                            applyFilter()
                         }
                     }
                     .padding(.horizontal, 10)
@@ -442,7 +425,7 @@ struct ArtistsPage: View {
                     .padding(.bottom, 10)
                     .frame(maxHeight: .infinity)
                 }
-                .frame(width: 300)
+                .frame(width: 400)
                 .background(Color(hex: 0x15151f))
                 .focusSection()
             }

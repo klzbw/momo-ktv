@@ -204,10 +204,11 @@ struct SearchPanel: View {
                                             }
                                         }
                                     }
-                                    .frame(maxHeight: .infinity)
+                                    .frame(height: 44)
                                 }
                             }
                             .padding(.horizontal, 8).padding(.vertical, 8)
+                            Spacer(minLength: 0)
                         }
                         // 清空按钮
                         TVTightButton(action: { query = ""; debounceFilter() }) { focused in
