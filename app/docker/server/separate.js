@@ -32,12 +32,26 @@ function ensureSepDir(key) {
   return d;
 }
 // 检查某 filepath 的分离产物是否已存在且非空，存在则返回相对路径对，否则 null。
+// 支持两种命名格式：
+//   新格式：歌手-歌名-人声.flac / 歌手-歌名-伴奏.flac（2026-09-04 起）
+//   旧格式：vocals.flac / accompaniment.flac（历史存量）
 // 一步到 FLAC 后优先认 .flac；存量 .wav 也照样认（不重复分离），两条轨各自挑可用的扩展名。
 function pickExistingTrack(dir, stem) {
+  const newSuffix = stem === 'vocals' ? '-人声.' : '-伴奏.';
+  try {
+    const files = fs.readdirSync(dir);
+    for (const ext of ['flac', 'wav']) {
+      const match = files.find(f => f.includes(newSuffix) && f.endsWith('.' + ext));
+      if (match) {
+        const p = path.join(dir, match);
+        if (fs.existsSync(p) && fs.statSync(p).size > 1024) return { ext, filename: match };
+      }
+    }
+  } catch (e) { /* 目录不存在，fall through 到旧格式 */ }
   for (const ext of ['flac', 'wav']) {
     const p = path.join(dir, `${stem}.${ext}`);
     try {
-      if (fs.existsSync(p) && fs.statSync(p).size > 1024) return ext;
+      if (fs.existsSync(p) && fs.statSync(p).size > 1024) return { ext, filename: `${stem}.${ext}` };
     } catch (e) { /* 试下一个扩展名 */ }
   }
   return null;
@@ -45,13 +59,13 @@ function pickExistingTrack(dir, stem) {
 function lookupExisting(filepath) {
   const key = sepKey(filepath);
   const dir = path.join(SEP_DIR, key);
-  const ve = pickExistingTrack(dir, 'vocals');
-  const ae = pickExistingTrack(dir, 'accompaniment');
-  if (ve && ae) {
+  const v = pickExistingTrack(dir, 'vocals');
+  const a = pickExistingTrack(dir, 'accompaniment');
+  if (v && a) {
     return {
       sep_key: key,
-      vocal_path: `separated/${key}/vocals.${ve}`,
-      accomp_path: `separated/${key}/accompaniment.${ae}`,
+      vocal_path: `separated/${key}/${v.filename}`,
+      accomp_path: `separated/${key}/${a.filename}`,
     };
   }
   return null;
@@ -204,8 +218,24 @@ function complete(db, jobId, { lyricsWord = null, result = null } = {}) {
     const saved = (result && result.saved) || {};
     const vExt = (saved['vocals.wav'] && !saved['vocals.flac']) ? 'wav' : 'flac';
     const aExt = (saved['accompaniment.wav'] && !saved['accompaniment.flac']) ? 'wav' : 'flac';
+    // 新命名格式：歌手-歌名-人声.flac / 歌手-歌名-伴奏.flac
+    const songRow = db.prepare('SELECT title, artist FROM songs WHERE id=?').get(job.song_id);
+    const sanitize = (s) => String(s || '未知').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
+    const baseName = sanitize(songRow ? songRow.artist : '未知') + '-' + sanitize(songRow ? songRow.title : '未知');
+    const vFilename = baseName + '-人声.' + vExt;
+    const aFilename = baseName + '-伴奏.' + aExt;
+    // 重命名已落盘的文件（complete 路由先存为 vocals.flac/accompaniment.flac，这里改成新命名）
+    const sepDir = path.join(SEP_DIR, key);
+    try {
+      const oldV = path.join(sepDir, 'vocals.' + vExt);
+      const newV = path.join(sepDir, vFilename);
+      if (fs.existsSync(oldV) && oldV !== newV) fs.renameSync(oldV, newV);
+      const oldA = path.join(sepDir, 'accompaniment.' + aExt);
+      const newA = path.join(sepDir, aFilename);
+      if (fs.existsSync(oldA) && oldA !== newA) fs.renameSync(oldA, newA);
+    } catch (e) { console.error('重命名分离产物失败:', e.message); }
     db.prepare("UPDATE songs SET sep_status='done', vocal_path=?, accomp_path=? WHERE id=?")
-      .run(relVocal(key, vExt), relAccomp(key, aExt), job.song_id);
+      .run(`separated/${key}/${vFilename}`, `separated/${key}/${aFilename}`, job.song_id);
   } else {
     db.prepare("UPDATE songs SET align_status='done', lyrics_word=COALESCE(?,lyrics_word) WHERE id=?").run(lyricsWord, job.song_id);
   }
