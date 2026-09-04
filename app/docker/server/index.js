@@ -363,6 +363,29 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
   if (!song || !fs.existsSync(song.filepath)) return res.status(404).end();
   log.info('HLS', `请求播放 master.m3u8: id=${song.id} "${song.title || song.filename}"`);
   try {
+    // 网络KTV MKV视频：不转码，直接302重定向到代理地址（服务端带115 UA转发流）
+    // 兼容旧版本tvOS客户端（它们走HLS播放流程，不知道isNetKtvMkv标记）
+    if (song.source_root === 'netktv-mkv') {
+      let videoUrl = null;
+      try {
+        if (song.filepath && fs.existsSync(song.filepath)) {
+          const strmContent = fs.readFileSync(song.filepath, 'utf8').trim();
+          const match = strmContent.match(/\/api\/cloud\/stream-path\/.+$/);
+          if (match) videoUrl = match[0];
+          else videoUrl = strmContent;
+        }
+      } catch (e) {
+        console.error('[HLS] 读取MKV STRM失败:', e.message);
+      }
+      if (videoUrl) {
+        if (!videoUrl.includes('?proxy=')) {
+          videoUrl += (videoUrl.includes('?') ? '&' : '?') + 'proxy=1';
+        }
+        log.info('HLS', `网络MKV直接代理播放: id=${song.id} -> ${videoUrl}`);
+        return res.redirect(302, videoUrl);
+      }
+    }
+
     // Bug修复(双音轨被误判成单音轨的竞态)：点歌加入队列触发的音轨探测是
     // 异步、不等待的(见 POST /api/queue)，如果这个请求跑得比探测还快，
     // song.audio_tracks 这时还是 null，下面 ensureHLS() 会把它当单音轨处理，

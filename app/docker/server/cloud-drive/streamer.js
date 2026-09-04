@@ -12,6 +12,7 @@
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
+const path = require('path');
 
 // 直链内存缓存：file_id -> { url, expiresAt, libraryId }
 const urlCache = new Map();
@@ -145,7 +146,7 @@ class CloudDriveStreamer {
         }, (proxyRes) => {
           res.status(proxyRes.statusCode || 200);
           const passHeaders = [
-            'content-type', 'content-length', 'content-range',
+            'content-length', 'content-range',
             'accept-ranges', 'cache-control', 'last-modified', 'etag',
           ];
           for (const h of passHeaders) {
@@ -153,6 +154,20 @@ class CloudDriveStreamer {
               res.setHeader(h, proxyRes.headers[h]);
             }
           }
+          // 根据文件扩展名设置正确的Content-Type（115返回的是application/octet-stream，AVPlayer需要正确的视频类型）
+          const ext = path.extname(filePath).toLowerCase();
+          const mimeMap = {
+            '.mkv': 'video/x-matroska',
+            '.mp4': 'video/mp4',
+            '.m4v': 'video/x-m4v',
+            '.mov': 'video/quicktime',
+            '.ts': 'video/mp2t',
+            '.flac': 'audio/flac',
+            '.mp3': 'audio/mpeg',
+            '.aac': 'audio/aac',
+            '.wav': 'audio/wav',
+          };
+          res.setHeader('Content-Type', mimeMap[ext] || proxyRes.headers['content-type'] || 'application/octet-stream');
           proxyRes.pipe(res);
         });
 
