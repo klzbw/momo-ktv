@@ -543,7 +543,7 @@ struct FullPlayerView: View {
                             .foregroundColor(.white)
                         Text("\(playerManager.vocalVolumePercent)%")
                             .font(.system(size: 28, weight: .bold))
-                            .foregroundColor(Color(hex: 0xFFD700))
+                            .foregroundColor(.white)
                         // 淡金色垂直进度条：从底部(伴奏0)往上填充到顶部(原唱100)。
                         ZStack(alignment: .bottom) {
                             RoundedRectangle(cornerRadius: 12)
@@ -551,7 +551,7 @@ struct FullPlayerView: View {
                                 .frame(width: 24, height: 180)
                             RoundedRectangle(cornerRadius: 12)
                                 .fill(
-                                    LinearGradient(colors: [Color(hex: 0xFFE4B5), Color(hex: 0xFFD700)],
+                                    LinearGradient(colors: [Color(hex: 0xC8C8C8), Color.white],
                                                    startPoint: .bottom, endPoint: .top)
                                 )
                                 .frame(width: 24, height: max(0, 180 * CGFloat(playerManager.vocalLevel)))
