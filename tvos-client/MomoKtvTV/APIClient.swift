@@ -15,6 +15,10 @@ class KTVAPIClient: ObservableObject {
     @Published var currentUser: String?
     @Published var autoplayEnabled = true
     @Published var autoplayLocalOnly = false
+    // MARK: - 网络KTV（115网盘直连双FLAC）
+    @Published var netKtvSongs: [NetKtvSong] = []
+    @Published var netKtvLoading = false
+    @Published var netKtvError: String?
 
     private var baseURL: String
     private var wsTask: URLSessionWebSocketTask?
@@ -541,5 +545,60 @@ class KTVAPIClient: ObservableObject {
 
     func disconnectWebSocket() { wsTask?.cancel(); wsTask = nil }
     deinit { disconnectWebSocket() }
+
+    // MARK: - 网络KTV API
+    /// 获取网络KTV歌曲列表
+    func fetchNetKtvSongs(completion: ((Bool, String?) -> Void)? = nil) {
+        guard let url = apiURL("/api/netktv/songs") else {
+            completion?(false, "URL错误")
+            return
+        }
+        DispatchQueue.main.async { self.netKtvLoading = true; self.netKtvError = nil }
+        URLSession.shared.dataTask(with: url) { [weak self] data, resp, error in
+            DispatchQueue.main.async {
+                self?.netKtvLoading = false
+                if let error = error {
+                    self?.netKtvError = error.localizedDescription
+                    completion?(false, error.localizedDescription)
+                    return
+                }
+                guard let data = data else {
+                    self?.netKtvError = "无数据"
+                    completion?(false, "无数据")
+                    return
+                }
+                do {
+                    let result = try JSONDecoder().decode([String: [NetKtvSong]].self, from: data)
+                    self?.netKtvSongs = result["songs"] ?? []
+                    completion?(true, nil)
+                } catch {
+                    self?.netKtvError = "解析失败: \(error.localizedDescription)"
+                    completion?(false, "解析失败: \(error.localizedDescription)")
+                }
+            }
+        }.resume()
+    }
+
+    /// 获取网络KTV歌曲的串流完整URL
+    func netKtvStreamURL(song: NetKtvSong, type: String) -> URL? {
+        let path = type == "vocals" ? song.vocal_url : song.accompaniment_url
+        return URL(string: "\(baseURL)\(path)")
+    }
+
+    /// 获取网络KTV歌曲信息（时长、同步状态）
+    func fetchNetKtvSongInfo(songId: String, completion: @escaping (NetKtvSongInfo?) -> Void) {
+        guard let url = apiURL("/api/netktv/info/\(songId)") else {
+            completion(nil)
+            return
+        }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data = data,
+                  let info = try? JSONDecoder().decode(NetKtvSongInfo.self, from: data) else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            DispatchQueue.main.async { completion(info) }
+        }.resume()
+    }
 }
 

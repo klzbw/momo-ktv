@@ -82,3 +82,34 @@ struct AutoplaySettings: Codable {
     var enabled: Bool
     var localOnly: Bool
 }
+
+
+// MARK: - 网络KTV（115网盘直连双FLAC）
+/// 网络KTV歌曲模型：从服务端 /api/netktv/songs 获取
+struct NetKtvSong: Codable, Identifiable, Hashable {
+    let id: String              // sha256前16位目录名
+    let artist: String
+    let title: String
+    let vocal_file: String
+    let accompaniment_file: String
+    let vocal_size: Int
+    let accompaniment_size: Int
+    let total_size: Int
+    let vocal_url: String       // 相对路径，如 /api/netktv/stream/<id>/vocals
+    let accompaniment_url: String
+
+    var displayTitle: String { title.isEmpty ? "未知歌曲" : title }
+    var displayArtist: String { artist.isEmpty ? "未知歌手" : artist }
+    var totalSizeText: String {
+        let mb = Double(total_size) / 1024.0 / 1024.0
+        return String(format: "%.1f MB", mb)
+    }
+}
+
+/// 网络KTV歌曲信息：从 /api/netktv/info/:id 获取
+struct NetKtvSongInfo: Codable {
+    let id: String
+    let vocal_duration: Double?
+    let accompaniment_duration: Double?
+    let sync: Bool?
+}

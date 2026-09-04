@@ -567,4 +567,36 @@ class PlayerManager: ObservableObject {
         previousVocalLevel = 1.0
         vocalLevel = 1
     }
+
+
+    // MARK: - 网络KTV（115网盘直连双FLAC）
+    /// 播放网络KTV歌曲：直接用双FLAC混合模式，不需要HLS
+    /// - Parameters:
+    ///   - songId: 歌曲ID（sha256前16位）
+    ///   - vocalURL: 人声FLAC完整URL
+    ///   - accompURL: 伴奏FLAC完整URL
+    func setupNetKtvPlayer(songId: String, vocalURL: URL, accompURL: URL) {
+        // 清理当前播放器
+        cleanup()
+
+        // 设置DUAL模式
+        dualEnabled = true
+        dualSongId = nil  // activateDual会设置
+        vocalLevel = 1
+        vocalTrackIndex = 0
+        vocalTrackCount = 5  // DUAL模式用5档展示
+        loadGeneration += 1
+        voiceGeneration += 1
+        currentSongId = nil  // 网络KTV歌曲没有Int ID
+
+        // 直接激活DUAL双FLAC混合
+        activateDual(songId: 0, vocalFile: vocalURL, accompFile: accompURL)
+
+        print("[PlayerManager] 网络KTV播放开始 songId=\(songId)")
+    }
+
+    /// 网络KTV歌曲是否正在播放
+    var isNetKtvPlaying: Bool {
+        dualEnabled && dualSongId != nil && currentSongId == nil
+    }
 }
