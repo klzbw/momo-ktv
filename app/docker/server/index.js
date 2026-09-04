@@ -18,6 +18,7 @@ const sepMod = require('./separate');
 const cloudDrive = require('./cloud-drive');
 const netktvTest = require('./netktv-test');
 const netktvScan = require('./netktv-scan');
+const netktvMkvScan = require('./netktv-mkv-scan');
 const catalog = require('./catalog');
 const multer = require('multer');
 // 分离产物单首几十 MB，用内存存储收完即落盘到 /data/separated（一首一首传，内存可控）
@@ -66,6 +67,9 @@ app.use('/api/netktv', netktvRouter);
 
 // 网络KTV扫描模块（扫描115分离文件，生成STRM并入库）
 app.use('/api/netktv', netktvScan.init(db, cloudDrive));
+
+// 网络KTV MKV视频扫描模块（扫描115网盘MKV视频，生成STRM并入库）
+app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 // ---------- 「管理后台」管理员登录 ----------
 // 需求变更：管理员密码不再由用户首次打开「管理后台」(/admin) 时自己设置、
