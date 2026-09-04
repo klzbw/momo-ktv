@@ -45,14 +45,12 @@ struct SearchPanel: View {
     let onClose: () -> Void
     let onAdd: (Song) -> Void
     @State private var query = ""
-    @State private var currentPage = 0
-    @State private var filteredSongs: [Song] = []   // 过滤结果
-    @State private var searchDebounceTimer: Timer?   // 输入防抖
-    @State private var lowercasedTitles: [String] = []  // 预计算小写标题，加速过滤
-    @State private var lowercasedArtists: [String] = [] // 预计算小写歌手
-    @State private var isNumMode = false             // 字母/数字键盘切换
-    @State private var lastFilterQuery = ""          // 增量过滤：上次查询词
-    @State private var lastFilterIndices: [Int] = [] // 增量过滤：上次结果在全量中的索引
+    @State private var currentPage = 1
+    @State private var searchResults: [Song] = []    // API返回的当前页结果
+    @State private var totalCount = 0                 // 搜索结果总数
+    @State private var isSearching = false            // 搜索中状态
+    @State private var searchDebounceTimer: Timer?    // 输入防抖
+    @State private var isNumMode = false              // 字母/数字键盘切换
     private let pageSize = 40
     // 自定义键盘布局：5列，字母6行(26字母+DEL)，数字2行(10数字)+DEL
     private let letterRows: [[(String, Int)]] = [
@@ -70,61 +68,27 @@ struct SearchPanel: View {
     ]
 
     /// 防抖过滤：输入停止300ms后在后台线程过滤11177首歌，避免主线程卡顿1-3秒
-    private func debounceFilter() {
+    /// 防抖搜索：输入停止150ms后调用服务端API搜索（照搬网页端逻辑）
+    private func debounceSearch() {
         searchDebounceTimer?.invalidate()
-        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { _ in
-            self.performFilter()
+        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { _ in
+            self.currentPage = 1
+            self.doSearch()
         }
     }
 
-    private func performFilter() {
-        let q = query.lowercased()
-        let songs = api.songs
-        let titles = lowercasedTitles
-        let artists = lowercasedArtists
-
-        // 增量过滤：如果新query是旧query的前缀扩展(如"AB"是"A"的扩展)，
-        // 则在上次结果索引基础上继续过滤——结果集越来越小，过滤越来越快
-        // 首次输入或删除字母时回退到全量过滤
-        let sourceIndices: [Int]
-        if !q.isEmpty && !lastFilterQuery.isEmpty && q.hasPrefix(lastFilterQuery) && lastFilterIndices.count > 0 {
-            sourceIndices = lastFilterIndices  // 增量：只扫上次结果
-        } else {
-            sourceIndices = Array(0..<songs.count)  // 全量：扫全部11177首
-        }
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let resultIndices: [Int]
-            if q.isEmpty {
-                resultIndices = Array(0..<songs.count)
-            } else if titles.count == songs.count {
-                resultIndices = sourceIndices.filter { i in
-                    titles[i].contains(q) || artists[i].contains(q)
-                }
-            } else {
-                resultIndices = sourceIndices.filter { i in
-                    songs[i].displayTitle.localizedCaseInsensitiveContains(q) ||
-                    songs[i].displayArtist.localizedCaseInsensitiveContains(q)
-                }
-            }
-            let result = resultIndices.map { songs[$0] }
-            DispatchQueue.main.async {
-                self.filteredSongs = result
-                self.lastFilterQuery = q
-                self.lastFilterIndices = resultIndices
-                // 不强制重置页码：当前页还有结果则保持，避免列表跳动重新渲染
-                if self.currentPage * self.pageSize >= result.count {
-                    self.currentPage = 0
-                }
-            }
+    /// 调用服务端分页搜索API /api/songs?q=&page=&pageSize=
+    /// 服务端过滤+分页，只返回当前页40首，比本地过滤11177首快得多
+    private func doSearch() {
+        isSearching = true
+        api.searchSongs(query: query, page: currentPage, pageSize: pageSize) { songs, total in
+            self.searchResults = songs
+            self.totalCount = total
+            self.isSearching = false
         }
     }
 
-    var pagedSongs: [Song] {
-        let start = currentPage * pageSize
-        let end = min(start + pageSize, filteredSongs.count)
-        return start < filteredSongs.count ? Array(filteredSongs[start..<end]) : []
-    }
+    var totalPages: Int { max(1, (totalCount + pageSize - 1) / pageSize) }
 
     var body: some View {
         ZStack {
@@ -176,7 +140,7 @@ struct SearchPanel: View {
                 HStack(spacing: 0) {
                     // Left: 搜索结果（2列）
                     Group {
-                        if filteredSongs.isEmpty {
+                        if searchResults.isEmpty {
                             VStack(spacing: 12) {
                                 Image(systemName: "magnifyingglass").font(.system(size: 36)).foregroundColor(WebColors.sub)
                                 Text(query.isEmpty ? "点击右侧字母开始搜索" : "未找到相关歌曲")
@@ -187,8 +151,8 @@ struct SearchPanel: View {
                             ScrollView {
                                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
                                           spacing: 8) {
-                                    ForEach(Array(pagedSongs.enumerated()), id: \.element.id) { idx, song in
-                                        searchSongRow(song, index: currentPage * pageSize + idx)
+                                    ForEach(Array(searchResults.enumerated()), id: \.element.id) { idx, song in
+                                        searchSongRow(song, index: (currentPage - 1) * pageSize + idx)
                                     }
                                 }
                                 .padding(.horizontal, 14).padding(.vertical, 10)
@@ -217,7 +181,7 @@ struct SearchPanel: View {
                                                     } else {
                                                         query.append(key)
                                                     }
-                                                    debounceFilter()
+                                                    debounceSearch()
                                                 })
                                             }
                                         }
@@ -229,7 +193,7 @@ struct SearchPanel: View {
                             Spacer(minLength: 0)
                         }
                         // 清空按钮
-                        TVTightButton(action: { query = ""; lastFilterQuery = ""; lastFilterIndices = []; debounceFilter() }) { focused in
+                        TVTightButton(action: { query = ""; currentPage = 1; debounceSearch() }) { focused in
                             Text("清空")
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundColor(focused ? Color(hex: 0x1a1a2e) : WebColors.pink)
@@ -247,27 +211,27 @@ struct SearchPanel: View {
 
                 // Pagination footer
                 HStack(spacing: 16) {
-                    TVTightButton(action: { if currentPage > 0 { currentPage -= 1 } }) { focused in
+                    TVTightButton(action: { if currentPage > 1 { currentPage -= 1; doSearch() } }) { focused in
                         Image(systemName: "chevron.left.circle")
                             .font(.system(size: 26))
-                            .foregroundColor(currentPage > 0 ? (focused ? Color(hex: 0x1a1a2e) : WebColors.ac) : WebColors.sub)
+                            .foregroundColor(currentPage > 1 ? (focused ? Color(hex: 0x1a1a2e) : WebColors.ac) : WebColors.sub)
                             .frame(width: 40, height: 40)
-                            .background(focused && currentPage > 0 ? Color.white : Color.clear)
+                            .background(focused && currentPage > 1 ? Color.white : Color.clear)
                             .cornerRadius(20)
                     }
-                    .disabled(currentPage == 0)
+                    .disabled(currentPage == 1)
 
-                    Text("第 \(currentPage + 1) / \(max(1, (filteredSongs.count + pageSize - 1) / pageSize)) 页")
+                    Text("第 \(currentPage) / \(totalPages) 页 (共\(totalCount)首)")
                         .font(.system(size: 14)).foregroundColor(WebColors.sub)
 
                     TVTightButton(action: {
-                        if (currentPage + 1) * pageSize < filteredSongs.count { currentPage += 1 }
+                        if currentPage < totalPages { currentPage += 1; doSearch() }
                     }) { focused in
                         Image(systemName: "chevron.right.circle")
                             .font(.system(size: 26))
-                            .foregroundColor((currentPage + 1) * pageSize < filteredSongs.count ? (focused ? Color(hex: 0x1a1a2e) : WebColors.ac) : WebColors.sub)
+                            .foregroundColor(currentPage < totalPages ? (focused ? Color(hex: 0x1a1a2e) : WebColors.ac) : WebColors.sub)
                             .frame(width: 40, height: 40)
-                            .background(focused && (currentPage + 1) * pageSize < filteredSongs.count ? Color.white : Color.clear)
+                            .background(focused && currentPage < totalPages ? Color.white : Color.clear)
                             .cornerRadius(20)
                     }
                 }
@@ -281,14 +245,7 @@ struct SearchPanel: View {
             .focusSection()
         }
         .onAppear {
-            filteredSongs = api.songs
-            lowercasedTitles = api.songs.map { $0.displayTitle.lowercased() }
-            lowercasedArtists = api.songs.map { $0.displayArtist.lowercased() }
-            api.fetchSongs(query: "")
-        }
-        .onChange(of: api.songs.count) { _ in
-            lowercasedTitles = api.songs.map { $0.displayTitle.lowercased() }
-            lowercasedArtists = api.songs.map { $0.displayArtist.lowercased() }
+            doSearch()
         }
     }
 

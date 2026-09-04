@@ -123,6 +123,37 @@ class KTVAPIClient: ObservableObject {
         }.resume()
     }
 
+    /// 服务端分页搜索（照搬网页端逻辑）：调用 /api/songs?q=&page=&pageSize=
+    /// 服务端返回 {items: [Song], total: Int}，客户端只渲染当前页，避免本地过滤11177首
+    func searchSongs(query: String, page: Int = 1, pageSize: Int = 40, completion: @escaping ([Song], Int) -> Void) {
+        var params: [String] = []
+        if !query.isEmpty {
+            params.append("q=\(query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")")
+        }
+        params.append("page=\(page)")
+        params.append("pageSize=\(pageSize)")
+        let path = "/api/songs?" + params.joined(separator: "&")
+        guard let url = apiURL(path) else { completion([], 0); return }
+        URLSession.shared.dataTask(with: url) { data, _, error in
+            DispatchQueue.main.async {
+                guard let data = data, error == nil else { completion([], 0); return }
+                // 优先解析 {items: [Song], total: Int} 格式（网页端同款）
+                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let itemsRaw = json["items"],
+                   let itemsData = try? JSONSerialization.data(withJSONObject: itemsRaw),
+                   let songs = try? JSONDecoder().decode([Song].self, from: itemsData) {
+                    let total = (json["total"] as? Int) ?? songs.count
+                    completion(songs, total)
+                } else if let songs = try? JSONDecoder().decode([Song].self, from: data) {
+                    // 兼容旧格式：直接返回数组
+                    completion(songs, songs.count)
+                } else {
+                    completion([], 0)
+                }
+            }
+        }.resume()
+    }
+
     func fetchSongsByLetter(_ letter: String) {
         guard let url = apiURL("/api/songs/letter/\(letter)") else { return }
         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
