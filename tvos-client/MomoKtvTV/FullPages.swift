@@ -274,7 +274,7 @@ struct ArtistsPage: View {
     /// 防抖过滤：输入停止300ms后在后台线程过滤，完成后回主线程更新结果，避免输入卡顿
     private func debounceFilter() {
         searchDebounceTimer?.invalidate()
-        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { _ in
             self.performFilter()
         }
     }
@@ -542,10 +542,10 @@ struct AlphaKeyboard: View {
                 Spacer()
                 TVTightButton(action: { isNumMode.toggle() }) { focused in
                     Text(isNumMode ? "ABC" : "123")
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.system(size: 18, weight: .bold))
                         .foregroundColor(focused ? Color(hex: 0x1a1a2e) : Color.white.opacity(0.8))
-                        .frame(width: 80)
-                        .padding(.vertical, 16)
+                        .frame(width: 56)
+                        .padding(.vertical, 10)
                         .background(
                             RoundedRectangle(cornerRadius: 6)
                                 .fill(focused ? Color.white : Color.white.opacity(0.08))

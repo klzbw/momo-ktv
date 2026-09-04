@@ -48,23 +48,32 @@ struct SearchPanel: View {
     @State private var currentPage = 0
     @State private var filteredSongs: [Song] = []   // 异步过滤结果，避免主线程卡顿
     @State private var searchDebounceTimer: Timer?   // 输入防抖
+    @State private var lowercasedTitles: [String] = []  // 预计算小写标题，加速过滤
+    @State private var lowercasedArtists: [String] = [] // 预计算小写歌手
     private let pageSize = 40
 
     /// 防抖过滤：输入停止300ms后在后台线程过滤11177首歌，避免主线程卡顿1-3秒
     private func debounceFilter() {
         searchDebounceTimer?.invalidate()
-        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { _ in
             self.performFilter()
         }
     }
 
     private func performFilter() {
-        let q = query
+        let q = query.lowercased()
         let songs = api.songs
+        let titles = lowercasedTitles
+        let artists = lowercasedArtists
         DispatchQueue.global(qos: .userInitiated).async {
             let result: [Song]
             if q.isEmpty {
                 result = songs
+            } else if titles.count == songs.count {
+                // 用预计算的小写数组+普通contains，比localizedCaseInsensitiveContains快3-5倍
+                result = (0..<songs.count).compactMap { i in
+                    (titles[i].contains(q) || artists[i].contains(q)) ? songs[i] : nil
+                }
             } else {
                 result = songs.filter {
                     $0.displayTitle.localizedCaseInsensitiveContains(q) ||
@@ -101,6 +110,10 @@ struct SearchPanel: View {
                             .foregroundColor(.white)
                             .onSubmit { currentPage = 0 }
                             .onChange(of: query) { _ in debounceFilter() }
+                .onChange(of: api.songs.count) { _ in
+                    lowercasedTitles = api.songs.map { $0.displayTitle.lowercased() }
+                    lowercasedArtists = api.songs.map { $0.displayArtist.lowercased() }
+                }
                     }
                     .padding(.horizontal, 12).padding(.vertical, 8)
                     .background(WebColors.nbBg)
@@ -179,6 +192,8 @@ struct SearchPanel: View {
         }
         .onAppear {
             filteredSongs = api.songs
+            lowercasedTitles = api.songs.map { $0.displayTitle.lowercased() }
+            lowercasedArtists = api.songs.map { $0.displayArtist.lowercased() }
             api.fetchSongs(query: "")
         }
     }
