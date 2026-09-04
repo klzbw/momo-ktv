@@ -1192,9 +1192,10 @@ app.get('/api/songs', (req, res) => {
   // 值都视为"全部"，只有 local/network 会真正加限制条件，跟其它筛选条件
   // (搜索关键字、incomplete)是"且"的关系，可以叠加使用。
   const scope = (req.query.scope || '').trim();
+  // [临时测试] 默认只返回网络KTV歌曲，测试完成后改回 ''
   const scopeClause = scope === 'local' ? 'is_network = 0'
     : scope === 'network' ? 'is_network = 1'
-    : '';
+    : 'is_network = 1';
 
   const pageRaw = parseInt(req.query.page, 10);
   const pageSizeRaw = parseInt(req.query.pageSize, 10);

@@ -330,7 +330,7 @@ class CloudDriveManager {
     return Object.entries(DRIVERS).map(([key, cls]) => ({
       type: key,
       name: key === 'pan115' ? '115网盘' : key === 'aliyun' ? '阿里云盘' : key,
-      authMethod: 'qrcode', // 扫码登录
+      authMethod: key === 'pan115' ? 'cookie' : 'qrcode', // 115 扫码接口已失效，使用 Cookie 登录
     }));
   }
 }
