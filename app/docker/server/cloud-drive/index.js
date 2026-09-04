@@ -203,6 +203,165 @@ router.post('/accounts/:id/refresh', requireManager, async (req, res) => {
   }
 });
 
+
+// ==================== 115 扫码登录（新接口） ====================
+
+const https = require('https');
+
+/**
+ * 发送 HTTPS 请求的辅助函数
+ */
+function httpsGet(url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, headers: res.headers, body: JSON.parse(data) });
+        } catch (e) {
+          resolve({ status: res.statusCode, headers: res.headers, body: data });
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(15000, () => { req.destroy(new Error('timeout')); });
+  });
+}
+
+function httpsPost(url, data, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const postData = new URLSearchParams(data).toString();
+    const req = https.request(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postData),
+        ...headers,
+      },
+    }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        try {
+          resolve({ status: res.statusCode, headers: res.headers, body: JSON.parse(body) });
+        } catch (e) {
+          resolve({ status: res.statusCode, headers: res.headers, body });
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(15000, () => { req.destroy(new Error('timeout')); });
+    req.write(postData);
+    req.end();
+  });
+}
+
+const QRCODE_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 115Browser/23.9.3.2',
+};
+
+/**
+ * GET /api/cloud/qrcode/token
+ * 获取 115 扫码登录二维码 token
+ * 返回: { uid, time, sign, qrcode_url, qrcode_img }
+ */
+router.get('/qrcode/token', requireManager, async (req, res) => {
+  try {
+    const result = await httpsGet('https://qrcodeapi.115.com/api/1.0/web/1.0/token/', QRCODE_HEADERS);
+    if (result.status !== 200 || !result.body.state) {
+      return res.status(500).json({ error: '获取二维码失败', detail: result.body });
+    }
+    const data = result.body.data;
+    res.json({
+      uid: data.uid,
+      time: data.time,
+      sign: data.sign,
+      qrcode_url: data.qrcode,
+      qrcode_img: `https://qrcodeapi.115.com/api/1.0/mac/1.0/qrcode?uid=${data.uid}`,
+    });
+  } catch (e) {
+    console.error('获取二维码 token 失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/cloud/qrcode/status?uid=xxx&time=xxx&sign=xxx
+ * 查询扫码状态
+ * status: 0=等待, 1=已扫描, 2=已登录, -1=过期, -2=取消
+ */
+router.get('/qrcode/status', requireManager, async (req, res) => {
+  try {
+    const { uid, time, sign } = req.query;
+    if (!uid || !time || !sign) {
+      return res.status(400).json({ error: 'uid, time, sign are required' });
+    }
+    const url = `https://qrcodeapi.115.com/get/status/?uid=${uid}&time=${time}&sign=${sign}`;
+    const result = await httpsGet(url, QRCODE_HEADERS);
+    if (result.status !== 200) {
+      return res.status(500).json({ error: '查询状态失败', detail: result.body });
+    }
+    const data = result.body.data || {};
+    res.json({
+      status: data.status,
+      message: data.message || '',
+    });
+  } catch (e) {
+    console.error('查询扫码状态失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/cloud/qrcode/login
+ * 扫码登录成功后，获取 cookie 并创建网盘账号
+ * Body: { uid, app: 'wechatmini'|'web'|'android'..., name: '我的115' }
+ */
+router.post('/qrcode/login', requireManager, async (req, res) => {
+  try {
+    const { uid, app = 'wechatmini', name = '我的115' } = req.body;
+    if (!uid) {
+      return res.status(400).json({ error: 'uid is required' });
+    }
+
+    // 调用 115 登录接口获取 cookie
+    const url = `https://passportapi.115.com/app/1.0/${app}/1.0/login/qrcode/`;
+    const result = await httpsPost(url, { app, account: uid }, QRCODE_HEADERS);
+
+    if (result.status !== 200 || !result.body.state) {
+      return res.status(500).json({ error: '登录失败', detail: result.body });
+    }
+
+    const cookieData = result.body.data.cookie || {};
+    // 构造 cookie 字符串
+    const cookieStr = Object.entries(cookieData)
+      .map(([k, v]) => `${k}=${v}`)
+      .join('; ');
+
+    if (!cookieStr) {
+      return res.status(500).json({ error: '未获取到 cookie', detail: result.body });
+    }
+
+    // 使用 cookie 创建账号
+    const account = manager.createAccountWithCookie('pan115', name, cookieStr);
+
+    res.json({
+      success: true,
+      account: {
+        id: account.id,
+        driver: account.driver,
+        name: account.name,
+        status: account.status,
+      },
+      cookie_keys: Object.keys(cookieData),
+    });
+  } catch (e) {
+    console.error('扫码登录创建账号失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ==================== 网盘文件浏览 ====================
 
 /**
