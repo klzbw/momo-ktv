@@ -1036,6 +1036,37 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
   if (!song) return res.status(404).json({ error: 'not found', dual: false });
   const id = song.id;
 
+  // 网络KTV MKV视频（115网盘单文件多音轨）：返回视频直链，走单文件播放+音轨切换
+  if (song.source_root === 'netktv-mkv') {
+    // 从STRM文件中读取视频URL
+    let videoUrl = null;
+    try {
+      if (song.filepath && fs.existsSync(song.filepath)) {
+        const strmContent = fs.readFileSync(song.filepath, 'utf8').trim();
+        // STRM内容是 http://127.0.0.1:8080/api/cloud/stream-path/...
+        // 转换为相对路径 /api/cloud/stream-path/...
+        const match = strmContent.match(/\/api\/cloud\/stream-path\/.+$/);
+        if (match) {
+          videoUrl = match[0];
+        } else {
+          videoUrl = strmContent;
+        }
+      }
+    } catch (e) {
+      console.error('[SEP-INFO] 读取MKV STRM失败:', e.message);
+    }
+    return res.json({
+      dual: false,
+      hasVocal: true,
+      hasAccomp: true,
+      sepStatus: 'done',
+      videoUrl: videoUrl,
+      isNetKtvMkv: true,
+      isVideo: true,
+      audioTracks: song.audio_tracks || 2,
+    });
+  }
+
   // 网络KTV歌曲（115网盘双FLAC）：直接返回netktv串流代理地址
   if (song.source_root === 'netktv' || song.is_network === 1) {
     // 从vocal_path的STRM文件名中提取netktv ID

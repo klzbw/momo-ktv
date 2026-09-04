@@ -151,8 +151,8 @@ function schedulePreload() {
     // 时长探测和解码模式无关，始终照常做。
     const isSingleTrack = (song.audio_tracks || 1) < 2;
     const forcedSoftware = isSingleTrack || !!song.audio_needs_soft || !!song.video_needs_soft;
-    // 网络KTV歌曲(source_root='netktv')：直接走DUAL双FLAC直连模式，不走HLS转码，跳过预热
-    const isNetKtv = song.source_root === 'netktv';
+    // 网络KTV歌曲(source_root='netktv'或'netktv-mkv')：直接走302直连模式，不走HLS转码，跳过预热
+    const isNetKtv = song.source_root === 'netktv' || song.source_root === 'netktv-mkv';
     if (!isNetKtv && (clientDecodeMode !== 'hardware' || forcedSoftware)) {
       preloadTranscode(song);
     }
