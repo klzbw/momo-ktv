@@ -511,8 +511,7 @@ struct ContentView: View {
                 // Setup new song in shared player
                 // 先检测歌曲类型：网络KTV歌曲直接走DUAL双FLAC模式，本地歌曲走HLS
                 let sid = playing.song_id
-                api.fetchSepInfo(songId: sid) { [weak self] info in
-                    guard let self = self else { return }
+                api.fetchSepInfo(songId: sid) { info in
                     DispatchQueue.main.async {
                         // 快切歌保护：当前仍在播放同一首才继续
                         guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
