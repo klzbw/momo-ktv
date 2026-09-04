@@ -23,7 +23,6 @@ struct PanGestureView: UIViewRepresentable {
             action: #selector(Coordinator.handlePan(_:))
         )
         pan.cancelsTouchesInView = false
-        pan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(pan)
         return view
     }
