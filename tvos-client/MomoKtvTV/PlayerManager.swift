@@ -68,11 +68,14 @@ class PlayerManager: ObservableObject {
         default: return "原唱"
         }
     }
-    /// 人声音量百分比（滑块用）：DUAL 取连续值；五档映射 100/75/50/25/0
+    /// 人声音量百分比（滑块/HUD用）：DUAL取连续值；非DUAL按实际档数线性映射，0档=100%(原唱)，末档=0%(伴奏)
     var vocalVolumePercent: Int {
         if dualEnabled { return Int((vocalLevel * 100).rounded()) }
-        let pct = [100, 75, 50, 25, 0]
-        return (vocalTrackIndex >= 0 && vocalTrackIndex < pct.count) ? pct[vocalTrackIndex] : 0
+        guard vocalTrackCount > 1 else { return 100 }
+        // 线性映射：vocalTrackIndex=0→100%, vocalTrackIndex=末档→0%
+        // 五档时结果与旧映射[100,75,50,25,0]完全一致；2档/3档等其他档数也正确
+        let pct = 100 - Int(Double(vocalTrackIndex) / Double(vocalTrackCount - 1) * 100.0)
+        return max(0, min(100, pct))
     }
     var onPlaybackEnd: (() -> Void)?
 
