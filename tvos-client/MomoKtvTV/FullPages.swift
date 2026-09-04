@@ -442,7 +442,7 @@ struct ArtistsPage: View {
                     .padding(.bottom, 10)
                     .frame(maxHeight: .infinity)
                 }
-                .frame(width: 400)
+                .frame(width: 300)
                 .background(Color(hex: 0x15151f))
                 .focusSection()
             }

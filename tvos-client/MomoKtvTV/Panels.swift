@@ -50,7 +50,22 @@ struct SearchPanel: View {
     @State private var searchDebounceTimer: Timer?   // 输入防抖
     @State private var lowercasedTitles: [String] = []  // 预计算小写标题，加速过滤
     @State private var lowercasedArtists: [String] = [] // 预计算小写歌手
+    @State private var isNumMode = false             // 字母/数字键盘切换
     private let pageSize = 40
+    // 自定义键盘布局：5列，字母6行(26字母+DEL)，数字2行(10数字)+DEL
+    private let letterRows: [[(String, Int)]] = [
+        [("A",1),("B",1),("C",1),("D",1),("E",1)],
+        [("F",1),("G",1),("H",1),("I",1),("J",1)],
+        [("K",1),("L",1),("M",1),("N",1),("O",1)],
+        [("P",1),("Q",1),("R",1),("S",1),("T",1)],
+        [("U",1),("V",1),("W",1),("X",1),("Y",1)],
+        [("Z",1),("DEL",4)]
+    ]
+    private let numberRows: [[(String, Int)]] = [
+        [("1",1),("2",1),("3",1),("4",1),("5",1)],
+        [("6",1),("7",1),("8",1),("9",1),("0",1)],
+        [("DEL",5)]
+    ]
 
     /// 防抖过滤：输入停止300ms后在后台线程过滤11177首歌，避免主线程卡顿1-3秒
     private func debounceFilter() {
@@ -98,94 +113,150 @@ struct SearchPanel: View {
             Color.black.opacity(0.6).ignoresSafeArea()
                 .focusable(false)
             VStack(spacing: 0) {
-                // Header
-                HStack {
+                // Header: 标题 + 搜索显示框 + 123/ABC切换 + 关闭
+                HStack(spacing: 10) {
                     Text("搜索").font(.system(size: 22, weight: .bold)).foregroundColor(.white)
-                    Spacer()
-                    // Search box (exact capsule style)
+                    Spacer().frame(width: 8)
+                    // 搜索显示框（不再用TextField系统键盘，改用自定义键盘）
                     HStack(spacing: 6) {
                         Image(systemName: "magnifyingglass").foregroundColor(WebColors.sub)
-                        TextField("搜索歌曲/歌手", text: $query)
-                            .textFieldStyle(.plain)
-                            .foregroundColor(.white)
-                            .onSubmit { currentPage = 0 }
-                            .onChange(of: query) { _ in debounceFilter() }
-                .onChange(of: api.songs.count) { _ in
-                    lowercasedTitles = api.songs.map { $0.displayTitle.lowercased() }
-                    lowercasedArtists = api.songs.map { $0.displayArtist.lowercased() }
-                }
+                            .font(.system(size: 16))
+                        Text(query.isEmpty ? "点击右侧字母输入歌名/歌手" : query)
+                            .font(.system(size: 18))
+                            .foregroundColor(query.isEmpty ? WebColors.sub : .white)
+                            .lineLimit(1)
                     }
-                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
                     .background(WebColors.nbBg)
                     .cornerRadius(999)
-                    .frame(width: 280)
+                    .frame(maxWidth: .infinity)
+
+                    // 123/ABC 切换（小按钮，正常适配大小）
+                    TVTightButton(action: { isNumMode.toggle() }) { focused in
+                        Text(isNumMode ? "ABC" : "123")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(focused ? Color(hex: 0x1a1a2e) : WebColors.ac2)
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(focused ? Color.white : WebColors.cardBg)
+                            .cornerRadius(8)
+                    }
 
                     TVTightButton(action: onClose, autoFocus: true) { focused in
                         Image(systemName: "xmark")
-                            .font(.system(size: 20))
+                            .font(.system(size: 18))
                             .foregroundColor(focused ? Color(hex: 0x1a1a2e) : WebColors.sub)
-                            .frame(width: 42, height: 42)
+                            .frame(width: 38, height: 38)
                             .background(focused ? Color.white : Color.clear)
                             .clipShape(Circle())
                     }
                 }
-                .padding(.horizontal, 20).padding(.vertical, 14)
+                .padding(.horizontal, 16).padding(.vertical, 12)
                 .background(WebColors.topbarBg)
                 .overlay(Rectangle().fill(WebColors.topbarBorder).frame(height: 1), alignment: .bottom)
 
-                // Results (exact #pl-search 2-col grid)
-                if filteredSongs.isEmpty {
-                    Spacer()
-                    VStack(spacing: 12) {
-                        Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundColor(WebColors.sub)
-                        Text(query.isEmpty ? "输入关键词搜索歌曲" : "未找到相关歌曲")
-                            .font(.system(size: 16)).foregroundColor(WebColors.sub)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    Spacer()
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)],
-                                  spacing: 10) {
-                            ForEach(Array(pagedSongs.enumerated()), id: \.element.id) { idx, song in
-                                searchSongRow(song, index: currentPage * pageSize + idx)
+                // Main: 左边搜索结果 + 右边自定义字母键盘
+                HStack(spacing: 0) {
+                    // Left: 搜索结果（2列）
+                    Group {
+                        if filteredSongs.isEmpty {
+                            VStack(spacing: 12) {
+                                Image(systemName: "magnifyingglass").font(.system(size: 36)).foregroundColor(WebColors.sub)
+                                Text(query.isEmpty ? "点击右侧字母开始搜索" : "未找到相关歌曲")
+                                    .font(.system(size: 15)).foregroundColor(WebColors.sub)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            ScrollView {
+                                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+                                          spacing: 8) {
+                                    ForEach(Array(pagedSongs.enumerated()), id: \.element.id) { idx, song in
+                                        searchSongRow(song, index: currentPage * pageSize + idx)
+                                    }
+                                }
+                                .padding(.horizontal, 14).padding(.vertical, 10)
                             }
                         }
-                        .padding(.horizontal, 20).padding(.vertical, 12)
                     }
-                }
+                    .frame(maxWidth: .infinity)
 
-                // Pagination footer (exact .pf-foot)
+                    // Right: 自定义字母键盘（5列，紧凑大小，避免被拉伸过大）
+                    VStack(spacing: 0) {
+                        ScrollView {
+                            VStack(spacing: 6) {
+                                ForEach(0..<(isNumMode ? numberRows.count : letterRows.count), id: \.self) { r in
+                                    let row = isNumMode ? numberRows[r] : letterRows[r]
+                                    GeometryReader { geo in
+                                        let sp: CGFloat = 6
+                                        let totalSpan = row.reduce(0) { $0 + $1.1 }
+                                        let cw = (geo.size.width - sp * CGFloat(row.count - 1)) / CGFloat(totalSpan)
+                                        HStack(spacing: sp) {
+                                            ForEach(0..<row.count, id: \.self) { c in
+                                                let (key, span) = row[c]
+                                                let kw = cw * CGFloat(span) + sp * CGFloat(span - 1)
+                                                SearchKeyButton(label: key, width: kw, height: geo.size.height, action: {
+                                                    if key == "DEL" {
+                                                        if !query.isEmpty { query.removeLast() }
+                                                    } else {
+                                                        query.append(key)
+                                                    }
+                                                    debounceFilter()
+                                                })
+                                            }
+                                        }
+                                    }
+                                    .frame(maxHeight: .infinity)
+                                }
+                            }
+                            .padding(.horizontal, 8).padding(.vertical, 8)
+                        }
+                        // 清空按钮
+                        TVTightButton(action: { query = ""; debounceFilter() }) { focused in
+                            Text("清空")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(focused ? Color(hex: 0x1a1a2e) : WebColors.pink)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(focused ? Color.white : WebColors.pink.opacity(0.12))
+                                .cornerRadius(8)
+                        }
+                        .padding(.horizontal, 8).padding(.bottom, 8)
+                    }
+                    .frame(width: 260)
+                    .background(Color(hex: 0x15151f))
+                }
+                .frame(maxHeight: .infinity)
+
+                // Pagination footer
                 HStack(spacing: 16) {
                     TVTightButton(action: { if currentPage > 0 { currentPage -= 1 } }) { focused in
                         Image(systemName: "chevron.left.circle")
-                            .font(.system(size: 30))
+                            .font(.system(size: 26))
                             .foregroundColor(currentPage > 0 ? (focused ? Color(hex: 0x1a1a2e) : WebColors.ac) : WebColors.sub)
-                            .frame(width: 44, height: 44)
+                            .frame(width: 40, height: 40)
                             .background(focused && currentPage > 0 ? Color.white : Color.clear)
-                            .cornerRadius(22)
+                            .cornerRadius(20)
                     }
                     .disabled(currentPage == 0)
 
                     Text("第 \(currentPage + 1) / \(max(1, (filteredSongs.count + pageSize - 1) / pageSize)) 页")
-                        .font(.system(size: 15)).foregroundColor(WebColors.sub)
+                        .font(.system(size: 14)).foregroundColor(WebColors.sub)
 
                     TVTightButton(action: {
                         if (currentPage + 1) * pageSize < filteredSongs.count { currentPage += 1 }
                     }) { focused in
                         Image(systemName: "chevron.right.circle")
-                            .font(.system(size: 30))
+                            .font(.system(size: 26))
                             .foregroundColor((currentPage + 1) * pageSize < filteredSongs.count ? (focused ? Color(hex: 0x1a1a2e) : WebColors.ac) : WebColors.sub)
-                            .frame(width: 44, height: 44)
+                            .frame(width: 40, height: 40)
                             .background(focused && (currentPage + 1) * pageSize < filteredSongs.count ? Color.white : Color.clear)
-                            .cornerRadius(22)
+                            .cornerRadius(20)
                     }
                 }
-                .padding(.vertical, 10).frame(maxWidth: .infinity)
+                .padding(.vertical, 8).frame(maxWidth: .infinity)
                 .background(WebColors.topbarBg)
                 .overlay(Rectangle().fill(WebColors.topbarBorder).frame(height: 1), alignment: .top)
             }
-            .frame(width: 800, height: 600)
+            .frame(width: 920, height: 620)
             .background(WebColors.panelBg)
             .cornerRadius(16)
             .focusSection()
@@ -196,7 +267,41 @@ struct SearchPanel: View {
             lowercasedArtists = api.songs.map { $0.displayArtist.lowercased() }
             api.fetchSongs(query: "")
         }
+        .onChange(of: api.songs.count) { _ in
+            lowercasedTitles = api.songs.map { $0.displayTitle.lowercased() }
+            lowercasedArtists = api.songs.map { $0.displayArtist.lowercased() }
+        }
     }
+
+// MARK: - 紧凑搜索键盘按键（适合260pt宽的键盘区域，避免被拉伸过大）
+struct SearchKeyButton: View {
+    let label: String
+    let width: CGFloat
+    let height: CGFloat
+    let action: () -> Void
+
+    var body: some View {
+        TVTightButton(action: action) { focused in
+            Group {
+                if label == "DEL" {
+                    HStack(spacing: 4) {
+                        Image(systemName: "delete.left")
+                            .font(.system(size: 15, weight: .bold))
+                        Text("删除")
+                            .font(.system(size: 15, weight: .bold))
+                    }
+                } else {
+                    Text(label)
+                        .font(.system(size: 19, weight: .bold))
+                }
+            }
+            .foregroundColor(focused ? Color(hex: 0x1a1a2e) : (label == "DEL" ? WebColors.pink : .white.opacity(0.9)))
+            .frame(width: width, height: height)
+            .background(focused ? Color.white : (label == "DEL" ? WebColors.pink.opacity(0.15) : Color.white.opacity(0.08)))
+            .cornerRadius(8)
+        }
+    }
+}
 
     @ViewBuilder
     private func searchSongRow(_ song: Song, index: Int) -> some View {
