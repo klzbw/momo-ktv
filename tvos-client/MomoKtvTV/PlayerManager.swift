@@ -253,7 +253,7 @@ class PlayerManager: ObservableObject {
     }
 
     /// 支持自定义HTTP请求头的播放（用于115网盘直连，需要特定User-Agent否则403）
-    /// 真正的302直连：服务端只返回重定向，流量不经过NAS
+    /// 真正的302直连：先用URLSession获取重定向后的最终URL，再用AVURLAsset直接播放（无重定向，UA不丢失）
     func setupPlayer(for url: URL, customHeaders: [String: String]?) {
         // 同一首歌再次播放（重唱/随机重播）：HLS 的 asset 是 AVURLAsset，DUAL 升级后是
         // AVMutableComposition，故同时用记录的 currentHLSURL 判断；命中直接回曲首，
@@ -268,10 +268,36 @@ class PlayerManager: ObservableObject {
             return
         }
 
+        guard let headers = customHeaders, !headers.isEmpty else {
+            // 无自定义请求头：普通播放
+            setupPlayerInternal(for: url, playerItem: AVPlayerItem(url: url))
+            return
+        }
+
+        // 有自定义请求头（如115网盘）：先用URLSession获取302重定向后的最终URL
+        // 然后用最终URL直接创建AVURLAsset（无重定向，UA不会丢失）
+        print("[PlayerManager] 获取302重定向最终URL: \(url.absoluteString.prefix(80))...")
+        var request = URLRequest(url: url)
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        let gen = loadGeneration
+        URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
+            guard let self = self, self.loadGeneration == gen else { return }
+            let finalURL = response?.url ?? url
+            print("[PlayerManager] 最终URL: \(finalURL.absoluteString.prefix(80))...")
+            DispatchQueue.main.async {
+                let asset = AVURLAsset(url: finalURL, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+                let playerItem = AVPlayerItem(asset: asset)
+                self.setupPlayerInternal(for: url, playerItem: playerItem)
+            }
+        }.resume()
+    }
+
+    /// 内部播放方法：设置状态并起播
+    private func setupPlayerInternal(for url: URL, playerItem: AVPlayerItem) {
         cleanup()
 
-        // HLS 先起播：复位为五档/声道老方案与人声；若该歌已 AI 分离，
-        // ContentView 随后会调 activateDual 把双FLAC无缝升级上来（失败就停留在 HLS）。
         dualEnabled = false
         dualSongId = nil
         vocalLevel = 1
@@ -281,21 +307,6 @@ class PlayerManager: ObservableObject {
 
         currentHLSURL = url
 
-        // 使用AVURLAsset + 自定义请求头（如115网盘需要特定User-Agent）
-        // 使用CustomSchemeLoader拦截请求，确保302重定向后UA不丢失
-        let playerItem: AVPlayerItem
-        if let headers = customHeaders, !headers.isEmpty {
-            let loader = CustomSchemeLoader(originalURL: url, customHeaders: headers)
-            let customURL = CustomSchemeLoader.makeCustomSchemeURL(url)
-            let asset = AVURLAsset(url: customURL)
-            asset.resourceLoader.setDelegate(loader, queue: .main)
-            // 保持loader引用，防止被释放
-            objc_setAssociatedObject(asset, &CustomSchemeLoader.associatedKey, loader, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-            playerItem = AVPlayerItem(asset: asset)
-            print("[PlayerManager] 使用CustomSchemeLoader播放(302重定向保留UA): \(url.absoluteString.prefix(80))...")
-        } else {
-            playerItem = AVPlayerItem(url: url)
-        }
         // 增加前向缓冲到 30 秒，减少网络波动导致的卡顿
         playerItem.preferredForwardBufferDuration = 30
         installPlayerItem(playerItem, isDual: false)
