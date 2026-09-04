@@ -1,6 +1,148 @@
 import AVFoundation
 import UIKit
 
+// MARK: - 自定义Scheme资源加载器
+/// 拦截AVPlayer的资源请求，手动用URLSession请求（保留自定义User-Agent），
+/// 处理302重定向时确保UA不丢失。仍然是真正的直连，流量不经过NAS。
+class CustomSchemeLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDataDelegate, URLSessionTaskDelegate {
+    static var associatedKey = 0
+    private let originalURL: URL
+    private let customHeaders: [String: String]
+    private var dataTasks: [Int: URLSessionDataTask] = [:]
+    private var loadingRequests: [Int: AVAssetResourceLoadingRequest] = [:]
+    private var taskIdCounter: Int = 0
+    private lazy var session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
+    }()
+
+    init(originalURL: URL, customHeaders: [String: String]) {
+        self.originalURL = originalURL
+        self.customHeaders = customHeaders
+        super.init()
+    }
+
+    /// 把原始URL转换成自定义scheme的URL
+    static func makeCustomSchemeURL(_ url: URL) -> URL {
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.scheme = "momo-custom"
+        return components?.url ?? url
+    }
+
+    /// 把自定义scheme的URL还原成原始URL
+    private func originalURL(from customURL: URL) -> URL {
+        var components = URLComponents(url: customURL, resolvingAgainstBaseURL: false)
+        components?.scheme = originalURL.scheme
+        return components?.url ?? originalURL
+    }
+
+    func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
+                        shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
+        guard let customURL = loadingRequest.request.url else { return false }
+        let url = originalURL(from: customURL)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        // 设置自定义请求头（包括User-Agent）
+        for (key, value) in customHeaders {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+        // 透传Range请求
+        if let range = loadingRequest.dataRequest?.requestedOffset {
+            let length = loadingRequest.dataRequest?.requestedLength ?? Int.max
+            if range > 0 || length != Int.max {
+                let end = (range + Int64(length) - 1)
+                request.setValue("bytes=\(range)-\(end == Int64.max - 1 ? "" : String(end))", forHTTPHeaderField: "Range")
+            }
+        }
+
+        let taskId = taskIdCounter
+        taskIdCounter += 1
+        loadingRequests[taskId] = loadingRequest
+
+        let task = session.dataTask(with: request)
+        task.taskDescription = String(taskId)
+        dataTasks[taskId] = task
+        task.resume()
+
+        return true
+    }
+
+    func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
+                        didCancel loadingRequest: AVAssetResourceLoadingRequest) {
+        for (taskId, req) in loadingRequests where req === loadingRequest {
+            dataTasks[taskId]?.cancel()
+            dataTasks.removeValue(forKey: taskId)
+            loadingRequests.removeValue(forKey: taskId)
+            break
+        }
+    }
+
+    // MARK: - URLSessionDataDelegate
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
+                    didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard let taskId = Int(dataTask.taskDescription ?? ""),
+              let loadingRequest = loadingRequests[taskId],
+              let httpResponse = response as? HTTPURLResponse else {
+            completionHandler(.cancel)
+            return
+        }
+
+        // 填充contentInformationRequest
+        if let infoRequest = loadingRequest.contentInformationRequest {
+            infoRequest.contentType = httpResponse.mimeType ?? "application/octet-stream"
+            infoRequest.isByteRangeAccessSupported = httpResponse.statusCode == 206
+            // 206响应时从Content-Range头提取整个文件长度
+            if httpResponse.statusCode == 206,
+               let contentRange = httpResponse.allHeaderFields["Content-Range"] as? String,
+               let slashRange = contentRange.range(of: "/") {
+                let totalLengthStr = contentRange[slashRange.upperBound...]
+                infoRequest.contentLength = Int64(totalLengthStr) ?? httpResponse.expectedContentLength
+            } else {
+                infoRequest.contentLength = httpResponse.expectedContentLength
+            }
+        }
+
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard let taskId = Int(dataTask.taskDescription ?? ""),
+              let loadingRequest = loadingRequests[taskId] else { return }
+        loadingRequest.dataRequest?.respond(with: data)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let taskId = Int(task.taskDescription ?? ""),
+              let loadingRequest = loadingRequests[taskId] else { return }
+
+        if let error = error {
+            loadingRequest.finishLoading(with: error)
+        } else {
+            loadingRequest.finishLoading()
+        }
+        dataTasks.removeValue(forKey: taskId)
+        loadingRequests.removeValue(forKey: taskId)
+    }
+
+    // MARK: - 重定向处理：关键！确保重定向后保留自定义UA
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        var newRequest = request
+        // 重定向时重新设置自定义请求头（包括User-Agent）
+        for (key, value) in customHeaders {
+            newRequest.setValue(value, forHTTPHeaderField: key)
+        }
+        print("[CustomSchemeLoader] 302重定向，保留UA: \(request.url?.absoluteString.prefix(60) ?? "")")
+        completionHandler(newRequest)
+    }
+}
+
 /// Shared player manager - holds a single AVPlayer and AVPlayerLayer.
 /// The layer moves between small preview and fullscreen views via currentHostView.
 class PlayerManager: ObservableObject {
@@ -140,11 +282,17 @@ class PlayerManager: ObservableObject {
         currentHLSURL = url
 
         // 使用AVURLAsset + 自定义请求头（如115网盘需要特定User-Agent）
+        // 使用CustomSchemeLoader拦截请求，确保302重定向后UA不丢失
         let playerItem: AVPlayerItem
         if let headers = customHeaders, !headers.isEmpty {
-            let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+            let loader = CustomSchemeLoader(originalURL: url, customHeaders: headers)
+            let customURL = CustomSchemeLoader.makeCustomSchemeURL(url)
+            let asset = AVURLAsset(url: customURL)
+            asset.resourceLoader.setDelegate(loader, queue: .main)
+            // 保持loader引用，防止被释放
+            objc_setAssociatedObject(asset, &CustomSchemeLoader.associatedKey, loader, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
             playerItem = AVPlayerItem(asset: asset)
-            print("[PlayerManager] 使用自定义请求头播放: \(url.absoluteString.prefix(80))... headers=\(headers.keys)")
+            print("[PlayerManager] 使用CustomSchemeLoader播放(302重定向保留UA): \(url.absoluteString.prefix(80))...")
         } else {
             playerItem = AVPlayerItem(url: url)
         }
