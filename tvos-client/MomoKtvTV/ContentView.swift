@@ -1029,6 +1029,10 @@ struct OrderSongsPage: View {
     @State private var keyboardMode: KeyboardMode = .abc
     @State private var songPinyin: [Int: String] = [:] // Precomputed pinyin initials
     @State private var isCacheReady = false
+    @State private var filteredSongs: [Song] = []   // 过滤结果（@State避免每次UI渲染重新过滤）
+    @State private var searchDebounceTimer: Timer?   // 输入防抖
+    @State private var lastFilterQuery = ""           // 增量过滤：上次查询
+    @State private var lastFilterIndices: [Int] = []  // 增量过滤：上次结果索引
     private let pageSize = 32
     private enum KeyboardMode { case abc, num }
     // 歌名键盘 ABC 模式：6 行，最后一行 Z 跨 2 列、DEL 跨 3 列，填满整行
@@ -1096,22 +1100,63 @@ struct OrderSongsPage: View {
             DispatchQueue.main.async {
                 self.songPinyin = cache
                 self.isCacheReady = true
+                // 缓存就绪后重新过滤（如果当前有输入）
+                if !self.inputText.isEmpty {
+                    self.lastFilterQuery = ""
+                    self.applyFilter()
+                }
             }
         }
     }
 
-    var filteredSongs: [Song] {
-        if inputText.isEmpty { return api.songs }
-        switch keyboardMode {
-        case .abc:
-            guard isCacheReady else { return [] }
-            return api.songs.filter { song in
-                guard let pinyin = songPinyin[song.id] else { return false }
-                return pinyin.hasPrefix(inputText)
+    /// 防抖过滤：输入停止100ms后后台线程过滤
+    private func debounceFilter() {
+        searchDebounceTimer?.invalidate()
+        searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { _ in
+            self.currentPage = 0
+            self.applyFilter()
+        }
+    }
+
+    /// 后台线程过滤+增量过滤（ABC模式新字母在上次结果上继续过滤）
+    private func applyFilter() {
+        let q = inputText
+        let songs = api.songs
+        let pinyin = songPinyin
+        let cacheReady = isCacheReady
+        let mode = keyboardMode
+
+        // 增量过滤：ABC模式下，新query是旧query的前缀扩展时，在上次结果索引基础上过滤
+        let sourceIndices: [Int]
+        if mode == .abc && !q.isEmpty && !lastFilterQuery.isEmpty && q.hasPrefix(lastFilterQuery) && lastFilterIndices.count > 0 {
+            sourceIndices = lastFilterIndices
+        } else {
+            sourceIndices = Array(0..<songs.count)
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let resultIndices: [Int]
+            if q.isEmpty {
+                resultIndices = Array(0..<songs.count)
+            } else if mode == .abc {
+                if cacheReady {
+                    resultIndices = sourceIndices.filter { i in
+                        guard let p = pinyin[songs[i].id] else { return false }
+                        return p.hasPrefix(q)
+                    }
+                } else {
+                    resultIndices = []
+                }
+            } else {
+                resultIndices = sourceIndices.filter { i in
+                    songs[i].displayTitle.localizedCaseInsensitiveContains(q)
+                }
             }
-        case .num:
-            return api.songs.filter { song in
-                song.displayTitle.localizedCaseInsensitiveContains(inputText)
+            let result = resultIndices.map { songs[$0] }
+            DispatchQueue.main.async {
+                self.filteredSongs = result
+                self.lastFilterQuery = q
+                self.lastFilterIndices = resultIndices
             }
         }
     }
@@ -1187,7 +1232,9 @@ struct OrderSongsPage: View {
                         TVTightButton(action: {
                             keyboardMode = (keyboardMode == .abc ? .num : .abc)
                             inputText = ""
-                            currentPage = 0
+                            lastFilterQuery = ""
+                            lastFilterIndices = []
+                            debounceFilter()
                         }) { focused in
                             Text(keyboardMode == .abc ? "123" : "ABC")
                                 .font(.system(size: 18, weight: .bold))
@@ -1216,7 +1263,7 @@ struct OrderSongsPage: View {
                                             } else {
                                                 inputText.append(key)
                                             }
-                                            currentPage = 0
+                                            debounceFilter()
                                         }
                                     }
                                 }
@@ -1226,7 +1273,7 @@ struct OrderSongsPage: View {
 
                         // Clear button（固定在键盘底部，键盘行平分剩余空间）
                         TightClearButton(isEmpty: inputText.isEmpty) {
-                            inputText = ""; currentPage = 0
+                            inputText = ""; debounceFilter()
                         }
                     }
                     .padding(.horizontal, 10)
@@ -1280,6 +1327,7 @@ struct OrderSongsPage: View {
         }
         .background(WebColors.bg.ignoresSafeArea())
         .onAppear {
+            filteredSongs = api.songs
             if api.songs.isEmpty {
                 api.fetchSongs { buildCache() }
             } else {
