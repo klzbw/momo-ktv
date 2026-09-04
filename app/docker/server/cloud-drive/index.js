@@ -25,6 +25,11 @@ function init(db) {
   scanner = new CloudDriveScanner(manager);
   streamer = new CloudDriveStreamer(manager);
 
+  // 挂载到模块导出，供 netktv-test / netktv-scan 等外部模块访问
+  module.exports.manager = manager;
+  module.exports.scanner = scanner;
+  module.exports.streamer = streamer;
+
   // 注册全局函数，供 hlsgen.js 等模块获取网盘直链（避免循环依赖）
   global.__cloudGetDownloadUrl = async (cloudFileId) => {
     return streamer.getDownloadUrl(cloudFileId);
