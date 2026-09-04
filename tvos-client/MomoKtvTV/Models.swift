@@ -85,6 +85,12 @@ struct AutoplaySettings: Codable {
 
 
 // MARK: - 网络KTV（115网盘直连双FLAC）
+/// 网络KTV歌曲列表响应模型
+struct NetKtvSongsResponse: Codable {
+    let total: Int
+    let songs: [NetKtvSong]
+}
+
 /// 网络KTV歌曲模型：从服务端 /api/netktv/songs 获取
 struct NetKtvSong: Codable, Identifiable, Hashable {
     let id: String              // sha256前16位目录名

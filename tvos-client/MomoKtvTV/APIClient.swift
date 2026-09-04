@@ -568,8 +568,8 @@ class KTVAPIClient: ObservableObject {
                     return
                 }
                 do {
-                    let result = try JSONDecoder().decode([String: [NetKtvSong]].self, from: data)
-                    self?.netKtvSongs = result["songs"] ?? []
+                    let result = try JSONDecoder().decode(NetKtvSongsResponse.self, from: data)
+                    self?.netKtvSongs = result.songs
                     completion?(true, nil)
                 } catch {
                     self?.netKtvError = "解析失败: \(error.localizedDescription)"
