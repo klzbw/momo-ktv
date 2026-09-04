@@ -454,9 +454,10 @@ class PlayerManager: ObservableObject {
     func toggleVoice() {
         // DUAL 双FLAC：只在 原唱(1)/纯伴奏(0) 两态切换，连续细调交给垂直音量条
         if dualEnabled { setVocalLevel(vocalLevel > 0.5 ? 0 : 1); voiceGeneration += 1; return }
-        // 音轨尚未探测到时至少允许在 0/1 之间走，options 到位后 trySelect 会回填真实档数并收敛
-        let bound = max(2, vocalTrackCount)
-        vocalTrackIndex = (vocalTrackIndex + 1) % bound
+        // 非DUAL模式(MKV等多音轨视频)：直接在原唱(第0轨)和纯伴奏(最后一轨)之间切换，
+        // 不循环中间档位(人声75%/半消/人声25%)。修复bug：MKV五档时点一次只到人声75%而非纯伴奏。
+        let isOriginal = vocalTrackIndex == 0
+        vocalTrackIndex = isOriginal ? max(0, vocalTrackCount - 1) : 0
         voiceGeneration += 1
         applyVoiceMode()
     }
