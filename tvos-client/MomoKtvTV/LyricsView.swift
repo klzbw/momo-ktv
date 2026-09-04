@@ -129,6 +129,7 @@ final class LyricsLoader: ObservableObject {
     private var lastReloadTime: TimeInterval = 0  // reload防抖：避免服务端生成过程中频繁触发
     private var requestGeneration = 0       // 请求版本号：防止旧回调覆盖新歌词（竞态条件修复）
     private var forceFetchedSongs = Set<Int>()  // 已触发过在线抓取的歌曲，避免重复请求
+    private var lyricsCache = [Int: SongLyrics]()  // 歌词内存缓存：已加载过的歌曲直接从缓存取，切歌零延迟
 
     /// 独立 URLSession：歌词请求与 app 其他请求(sep-info/队列/歌曲信息等)隔离，
     /// 即使歌词请求阻塞/超时也不会耗尽 URLSession.shared 连接池导致全 APP 加载变慢。
@@ -161,6 +162,30 @@ final class LyricsLoader: ObservableObject {
         load(server: server, songId: songId, force: true)
     }
 
+    /// 预加载歌词到缓存（不显示），用于切歌前提前加载下一首歌词，切歌时零延迟。
+    /// 如果缓存已有则跳过，避免重复请求。
+    func preload(server: String, songId: Int) {
+        guard lyricsCache[songId] == nil else { return }  // 已有缓存，跳过
+        guard songId != currentSongId else { return }  // 当前播放的不需要预加载
+        let host = server.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
+        guard let url = URL(string: "http://\(host)/api/songs/\(songId)/lyrics?online=0") else { return }
+        var request = URLRequest(url: url, timeoutInterval: 8)
+        request.httpMethod = "GET"
+        session.dataTask(with: request) { [weak self] data, _, _ in
+            guard let self, let data,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            let word = obj["word"] as? String
+            let plain = obj["lyrics"] as? String
+            let parsed = SongLyrics.parse((word?.isEmpty == false) ? word : plain)
+            if !parsed.lines.isEmpty {
+                DispatchQueue.main.async {
+                    self.lyricsCache[songId] = parsed
+                    print("[LyricsLoader] 预加载完成 song=\(songId) lines=\(parsed.lines.count)")
+                }
+            }
+        }.resume()
+    }
+
     /// 强制服务端在线重新抓取生成歌词（无歌词时用），完成后自动reload本地歌词。
     /// 调用 POST /api/songs/:id/lyrics/fetch，服务端从网易/QQ/酷我在线抓取，
     /// 完成后延迟0.8秒重新拉取本地歌词(online=0)。
@@ -186,6 +211,14 @@ final class LyricsLoader: ObservableObject {
     /// 加载歌词。force=true 时跳过去重守卫（reload 用），但不修改 currentSongId 避免切歌竞态。
     func load(server: String, songId: Int, force: Bool = false) {
         guard force || songId != currentSongId || !loaded else { return }
+        // 缓存命中：非强制刷新且缓存中有该歌曲歌词，直接使用，零网络延迟
+        if !force, let cached = lyricsCache[songId], !cached.lines.isEmpty {
+            currentSongId = songId
+            loaded = true
+            lyrics = cached
+            print("[LyricsLoader] 缓存命中 song=\(songId) lines=\(cached.lines.count)")
+            return
+        }
         let wasAlreadyLoaded = loaded  // 记录之前是否已加载（用于判断是否是重新生成后的刷新）
         currentSongId = songId
         loaded = true
@@ -237,6 +270,10 @@ final class LyricsLoader: ObservableObject {
                 // 竞态修复2：双重校验——版本号 + 当前歌曲ID，防止切歌时旧请求覆盖新歌词(新旧交替)
                 guard myGeneration == self.requestGeneration, songId == self.currentSongId else { return }
                 self.lyrics = parsed
+                // 写入缓存：非空歌词才缓存，空歌词不缓存（下次可能在线补抓成功）
+                if !parsed.lines.isEmpty {
+                    self.lyricsCache[songId] = parsed
+                }
                 if wasAlreadyLoaded {
                     self.lyricsUpdated = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in

@@ -153,6 +153,14 @@ struct FullPlayerView: View {
 
                         restoreOffset(for: playing.song_id)
 
+                        // 预加载下一首歌词：当前歌曲播放时后台加载队列中下一首的歌词，切歌时零延迟
+                        if let nextSong = api.queue.first(where: { $0.status == "waiting" }),
+                           !nextSong.isVideoFile {
+                            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.0) {
+                                self.lyricsLoader.preload(server: self.api.serverAddress, songId: nextSong.song_id)
+                            }
+                        }
+
                     }
 
                 }

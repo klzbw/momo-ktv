@@ -2193,7 +2193,18 @@ app.get('/api/stats', (req, res) => {
 });
 
 // ---------- 点歌队列 ----------
+// 队列内存缓存：getQueueWithSongs() 每次都执行 JOIN 查询，队列不变时直接返回缓存，
+// 避免频繁查数据库。队列变化时(点歌/切歌/置顶/删除)调用 invalidateQueueCache() 失效。
+let _queueCache = { data: null, time: 0 };
+const QUEUE_CACHE_TTL = 2000;  // 2秒TTL，兜底防止漏失效
+function invalidateQueueCache() { _queueCache.data = null; _queueCache.time = 0; }
+
 function getQueueWithSongs() {
+  const now = Date.now();
+  if (_queueCache.data && (now - _queueCache.time) < QUEUE_CACHE_TTL) {
+    return _queueCache.data;
+  }
+  const data = db.prepare(`
   return db.prepare(`
     SELECT q.id as queue_id, q.nickname, q.is_top, q.top_order, q.status, q.created_at, q.is_autoplay,
            s.id as song_id, s.title, s.artist, s.filename, s.cover, s.duration,
@@ -2218,6 +2229,9 @@ function getQueueWithSongs() {
     -- (点歌顺序)排列。
     ORDER BY (q.status='playing') DESC, (q.top_order IS NULL) ASC, q.top_order DESC, q.id ASC
   `).all();
+  _queueCache.data = data;
+  _queueCache.time = now;
+  return data;
 }
 
 // ---------- 已点队列播完后自动随机播放 ----------
@@ -2579,6 +2593,7 @@ const micPing = setInterval(() => {
 }, 30000);
 
 function broadcastQueue() {
+  invalidateQueueCache();  // 队列变化时先失效缓存，getQueueWithSongs 会重新查库
   const payload = JSON.stringify({ type: 'queue', data: getQueueWithSongs() });
   wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(payload); });
 }
