@@ -516,6 +516,17 @@ struct ContentView: View {
                         // 快切歌保护：当前仍在播放同一首才继续
                         guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
 
+                        // 网络KTV MKV视频：直接用videoUrl播放，单文件多音轨切换，不走HLS
+                        if let info = info, info.isNetworkMkv,
+                           let videoPath = info.videoUrl,
+                           let videoURL = self.api.apiURL(videoPath) {
+                            self.playerManager.vocalTrackCount = info.audioTracks ?? 2
+                            self.playerManager.setupPlayer(for: videoURL)
+                            self.playerManager.setVolume(volume)
+                            print("[ContentView] 网络KTV MKV视频播放: \(videoPath)")
+                            return
+                        }
+
                         // 网络KTV歌曲：直接走DUAL双FLAC模式，不走HLS
                         if let info = info, info.isNetworkDual,
                            let vocalPath = info.vocalUrl, let accompPath = info.accompUrl,

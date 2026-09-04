@@ -374,10 +374,16 @@ class KTVAPIClient: ObservableObject {
         let vocalUrl: String?
         let accompUrl: String?
         let isNetKtv: Bool?
+        let videoUrl: String?
+        let isNetKtvMkv: Bool?
+        let isVideo: Bool?
+        let audioTracks: Int?
         /// 三者齐备才允许走双FLAC混合
         var isDual: Bool { dual == true && hasVocal == true && hasAccomp == true }
         /// 网络KTV歌曲：直接用网络URL，不下载到本地
         var isNetworkDual: Bool { isDual && isNetKtv == true }
+        /// 网络KTV MKV视频：单文件多音轨，直接播放videoUrl
+        var isNetworkMkv: Bool { isNetKtvMkv == true && videoUrl != nil }
     }
 
     /// 查询某首歌的 AI 分离状态与双轨相对路径（失败/未分离回 nil，调用方走 HLS 兜底）
