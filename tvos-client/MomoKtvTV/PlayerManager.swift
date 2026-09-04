@@ -68,14 +68,11 @@ class PlayerManager: ObservableObject {
         default: return "原唱"
         }
     }
-    /// 人声音量百分比（滑块/HUD用）：DUAL取连续值；非DUAL按实际档数线性映射，0档=100%(原唱)，末档=0%(伴奏)
+    /// 人声音量百分比（滑块用）：DUAL 取连续值；五档映射 100/75/50/25/0
     var vocalVolumePercent: Int {
         if dualEnabled { return Int((vocalLevel * 100).rounded()) }
-        guard vocalTrackCount > 1 else { return 100 }
-        // 线性映射：vocalTrackIndex=0→100%, vocalTrackIndex=末档→0%
-        // 五档时结果与旧映射[100,75,50,25,0]完全一致；2档/3档等其他档数也正确
-        let pct = 100 - Int(Double(vocalTrackIndex) / Double(vocalTrackCount - 1) * 100.0)
-        return max(0, min(100, pct))
+        let pct = [100, 75, 50, 25, 0]
+        return (vocalTrackIndex >= 0 && vocalTrackIndex < pct.count) ? pct[vocalTrackIndex] : 0
     }
     var onPlaybackEnd: (() -> Void)?
 
@@ -455,10 +452,7 @@ class PlayerManager: ObservableObject {
     /// 遥控器一个键在当前歌曲的全部档位间循环：五档(原唱→75%→半消→25%→伴奏)
     /// 或三档/双档，边界由 HLS 实际音轨数 vocalTrackCount 决定。
     func toggleVoice() {
-        // DUAL 双FLAC：只在 原唱(1)/纯伴奏(0) 两态切换，连续细调交给垂直音量条
         if dualEnabled { setVocalLevel(vocalLevel > 0.5 ? 0 : 1); voiceGeneration += 1; return }
-        // 非DUAL模式(MKV等多音轨视频)：直接在原唱(第0轨)和纯伴奏(最后一轨)之间切换，
-        // 不循环中间档位(人声75%/半消/人声25%)。修复bug：MKV五档时点一次只到人声75%而非纯伴奏。
         if vocalTrackIndex == 0 {
             vocalTrackIndex = max(0, vocalTrackCount - 1)
         } else {
