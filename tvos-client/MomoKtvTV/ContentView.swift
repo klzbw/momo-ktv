@@ -509,11 +509,33 @@ struct ContentView: View {
                     showSongIntro = false
                 }
                 // Setup new song in shared player
-                if let url = api.hlsURL(songId: playing.song_id) {
-                    playerManager.vocalTrackCount = playing.audio_tracks ?? 1
-                    playerManager.setupPlayer(for: url)
-                    playerManager.setVolume(volume)
-                    prepareDualIfNeeded(playing)
+                // 先检测歌曲类型：网络KTV歌曲直接走DUAL双FLAC模式，本地歌曲走HLS
+                let sid = playing.song_id
+                api.fetchSepInfo(songId: sid) { [weak self] info in
+                    guard let self = self else { return }
+                    DispatchQueue.main.async {
+                        // 快切歌保护：当前仍在播放同一首才继续
+                        guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
+
+                        // 网络KTV歌曲：直接走DUAL双FLAC模式，不走HLS
+                        if let info = info, info.isNetworkDual,
+                           let vocalPath = info.vocalUrl, let accompPath = info.accompUrl,
+                           let vURL = self.api.apiURL(vocalPath),
+                           let aURL = self.api.apiURL(accompPath) {
+                            self.playerManager.vocalTrackCount = 2
+                            self.playerManager.setupNetKtvPlayer(songId: String(sid), vocalURL: vURL, accompURL: aURL)
+                            self.playerManager.setVolume(volume)
+                            return
+                        }
+
+                        // 本地歌曲：走原有的HLS播放流程
+                        if let url = self.api.hlsURL(songId: sid) {
+                            self.playerManager.vocalTrackCount = playing.audio_tracks ?? 1
+                            self.playerManager.setupPlayer(for: url)
+                            self.playerManager.setVolume(volume)
+                            self.prepareDualIfNeeded(playing)
+                        }
+                    }
                 }
             } else {
                 // No song playing
