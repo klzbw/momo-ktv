@@ -107,6 +107,12 @@ class PlayerManager: ObservableObject {
     private init() {}
 
     func setupPlayer(for url: URL) {
+        setupPlayer(for: url, customHeaders: nil)
+    }
+
+    /// 支持自定义HTTP请求头的播放（用于115网盘直连，需要特定User-Agent否则403）
+    /// 真正的302直连：服务端只返回重定向，流量不经过NAS
+    func setupPlayer(for url: URL, customHeaders: [String: String]?) {
         // 同一首歌再次播放（重唱/随机重播）：HLS 的 asset 是 AVURLAsset，DUAL 升级后是
         // AVMutableComposition，故同时用记录的 currentHLSURL 判断；命中直接回曲首，
         // 避免 DUAL 歌曲重唱被 cleanup 打回 HLS 却无人重新升级。
@@ -132,7 +138,16 @@ class PlayerManager: ObservableObject {
         voiceGeneration += 1
 
         currentHLSURL = url
-        let playerItem = AVPlayerItem(url: url)
+
+        // 使用AVURLAsset + 自定义请求头（如115网盘需要特定User-Agent）
+        let playerItem: AVPlayerItem
+        if let headers = customHeaders, !headers.isEmpty {
+            let asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+            playerItem = AVPlayerItem(asset: asset)
+            print("[PlayerManager] 使用自定义请求头播放: \(url.absoluteString.prefix(80))... headers=\(headers.keys)")
+        } else {
+            playerItem = AVPlayerItem(url: url)
+        }
         // 增加前向缓冲到 30 秒，减少网络波动导致的卡顿
         playerItem.preferredForwardBufferDuration = 30
         installPlayerItem(playerItem, isDual: false)

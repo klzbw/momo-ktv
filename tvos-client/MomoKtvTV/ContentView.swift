@@ -517,13 +517,15 @@ struct ContentView: View {
                         guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
 
                         // 网络KTV MKV视频：直接用videoUrl播放，单文件多音轨切换，不走HLS
+                        // 使用115专用User-Agent，否则115直链返回403
                         if let info = info, info.isNetworkMkv,
                            let videoPath = info.videoUrl,
                            let videoURL = self.api.apiURL(videoPath) {
                             self.playerManager.vocalTrackCount = info.audioTracks ?? 2
-                            self.playerManager.setupPlayer(for: videoURL)
+                            let headers = ["User-Agent": "Mozilla/5.0 115Browser/23.9.3.2"]
+                            self.playerManager.setupPlayer(for: videoURL, customHeaders: headers)
                             self.playerManager.setVolume(volume)
-                            print("[ContentView] 网络KTV MKV视频播放: \(videoPath)")
+                            print("[ContentView] 网络KTV MKV视频播放(302直连+自定义UA): \(videoPath)")
                             return
                         }
 
