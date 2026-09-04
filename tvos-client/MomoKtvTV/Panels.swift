@@ -96,19 +96,19 @@ struct SearchPanel: View {
                 .focusable(false)
             VStack(spacing: 0) {
                 // Header: 标题 + 搜索显示框 + 123/ABC切换 + 关闭
-                HStack(spacing: 10) {
-                    Text("搜索").font(.system(size: 22, weight: .bold)).foregroundColor(.white)
+                HStack(spacing: 15) {
+                    Text("搜索").font(.system(size: 33, weight: .bold)).foregroundColor(.white)
                     Spacer().frame(width: 8)
                     // 搜索显示框（不再用TextField系统键盘，改用自定义键盘）
                     HStack(spacing: 6) {
                         Image(systemName: "magnifyingglass").foregroundColor(WebColors.sub)
-                            .font(.system(size: 16))
+                            .font(.system(size: 24))
                         Text(query.isEmpty ? "点击右侧字母输入歌名/歌手" : query)
-                            .font(.system(size: 18))
+                            .font(.system(size: 27))
                             .foregroundColor(query.isEmpty ? WebColors.sub : .white)
                             .lineLimit(1)
                     }
-                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .padding(.horizontal, 21).padding(.vertical, 15)
                     .background(WebColors.nbBg)
                     .cornerRadius(999)
                     .frame(maxWidth: .infinity)
@@ -116,23 +116,23 @@ struct SearchPanel: View {
                     // 123/ABC 切换（小按钮，正常适配大小）
                     TVTightButton(action: { isNumMode.toggle() }) { focused in
                         Text(isNumMode ? "ABC" : "123")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 23, weight: .semibold))
                             .foregroundColor(focused ? Color(hex: 0x1a1a2e) : WebColors.ac2)
-                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .padding(.horizontal, 18).padding(.vertical, 12)
                             .background(focused ? Color.white : WebColors.cardBg)
                             .cornerRadius(8)
                     }
 
                     TVTightButton(action: onClose, autoFocus: true) { focused in
                         Image(systemName: "xmark")
-                            .font(.system(size: 18))
+                            .font(.system(size: 27))
                             .foregroundColor(focused ? Color(hex: 0x1a1a2e) : WebColors.sub)
-                            .frame(width: 38, height: 38)
+                            .frame(width: 57, height: 57)
                             .background(focused ? Color.white : Color.clear)
                             .clipShape(Circle())
                     }
                 }
-                .padding(.horizontal, 16).padding(.vertical, 12)
+                .padding(.horizontal, 24).padding(.vertical, 18)
                 .background(WebColors.topbarBg)
                 .overlay(Rectangle().fill(WebColors.topbarBorder).frame(height: 1), alignment: .bottom)
 
@@ -142,20 +142,20 @@ struct SearchPanel: View {
                     Group {
                         if searchResults.isEmpty {
                             VStack(spacing: 12) {
-                                Image(systemName: "magnifyingglass").font(.system(size: 36)).foregroundColor(WebColors.sub)
+                                Image(systemName: "magnifyingglass").font(.system(size: 54)).foregroundColor(WebColors.sub)
                                 Text(query.isEmpty ? "点击右侧字母开始搜索" : "未找到相关歌曲")
-                                    .font(.system(size: 15)).foregroundColor(WebColors.sub)
+                                    .font(.system(size: 23)).foregroundColor(WebColors.sub)
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
                             ScrollView {
-                                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
-                                          spacing: 8) {
+                                LazyVGrid(columns: [GridItem(.flexible(), spacing: 18), GridItem(.flexible(), spacing: 18)],
+                                          spacing: 12) {
                                     ForEach(Array(searchResults.enumerated()), id: \.element.id) { idx, song in
                                         searchSongRow(song, index: (currentPage - 1) * pageSize + idx)
                                     }
                                 }
-                                .padding(.horizontal, 14).padding(.vertical, 10)
+                                .padding(.horizontal, 21).padding(.vertical, 15)
                             }
                         }
                     }
@@ -186,60 +186,60 @@ struct SearchPanel: View {
                                             }
                                         }
                                     }
-                                    .frame(height: 44)
+                                    .frame(height: 66)
                                 }
                             }
-                            .padding(.horizontal, 8).padding(.vertical, 8)
+                            .padding(.horizontal, 12).padding(.vertical, 12)
                             Spacer(minLength: 0)
                         }
                         // 清空按钮
                         TVTightButton(action: { query = ""; currentPage = 1; debounceSearch() }) { focused in
                             Text("清空")
-                                .font(.system(size: 15, weight: .semibold))
+                                .font(.system(size: 23, weight: .semibold))
                                 .foregroundColor(focused ? Color(hex: 0x1a1a2e) : WebColors.pink)
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
+                                .padding(.vertical, 15)
                                 .background(focused ? Color.white : WebColors.pink.opacity(0.12))
                                 .cornerRadius(8)
                         }
-                        .padding(.horizontal, 8).padding(.bottom, 8)
+                        .padding(.horizontal, 12).padding(.bottom, 12)
                     }
-                    .frame(width: 260)
+                    .frame(width: 390)
                     .background(Color(hex: 0x15151f))
                 }
                 .frame(maxHeight: .infinity)
 
                 // Pagination footer
-                HStack(spacing: 16) {
+                HStack(spacing: 24) {
                     TVTightButton(action: { if currentPage > 1 { currentPage -= 1; doSearch() } }) { focused in
                         Image(systemName: "chevron.left.circle")
-                            .font(.system(size: 26))
+                            .font(.system(size: 39))
                             .foregroundColor(currentPage > 1 ? (focused ? Color(hex: 0x1a1a2e) : WebColors.ac) : WebColors.sub)
-                            .frame(width: 40, height: 40)
+                            .frame(width: 60, height: 60)
                             .background(focused && currentPage > 1 ? Color.white : Color.clear)
-                            .cornerRadius(20)
+                            .cornerRadius(30)
                     }
                     .disabled(currentPage == 1)
 
                     Text("第 \(currentPage) / \(totalPages) 页 (共\(totalCount)首)")
-                        .font(.system(size: 14)).foregroundColor(WebColors.sub)
+                        .font(.system(size: 21)).foregroundColor(WebColors.sub)
 
                     TVTightButton(action: {
                         if currentPage < totalPages { currentPage += 1; doSearch() }
                     }) { focused in
                         Image(systemName: "chevron.right.circle")
-                            .font(.system(size: 26))
+                            .font(.system(size: 39))
                             .foregroundColor(currentPage < totalPages ? (focused ? Color(hex: 0x1a1a2e) : WebColors.ac) : WebColors.sub)
-                            .frame(width: 40, height: 40)
+                            .frame(width: 60, height: 60)
                             .background(focused && currentPage < totalPages ? Color.white : Color.clear)
-                            .cornerRadius(20)
+                            .cornerRadius(30)
                     }
                 }
-                .padding(.vertical, 8).frame(maxWidth: .infinity)
+                .padding(.vertical, 12).frame(maxWidth: .infinity)
                 .background(WebColors.topbarBg)
                 .overlay(Rectangle().fill(WebColors.topbarBorder).frame(height: 1), alignment: .top)
             }
-            .frame(width: 920, height: 620)
+            .frame(width: 1380, height: 930)
             .background(WebColors.panelBg)
             .cornerRadius(16)
             .focusSection()
@@ -260,21 +260,21 @@ struct SearchKeyButton: View {
         TVTightButton(action: action) { focused in
             Group {
                 if label == "DEL" {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 6) {
                         Image(systemName: "delete.left")
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.system(size: 23, weight: .bold))
                         Text("删除")
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.system(size: 23, weight: .bold))
                     }
                 } else {
                     Text(label)
-                        .font(.system(size: 19, weight: .bold))
+                        .font(.system(size: 29, weight: .bold))
                 }
             }
             .foregroundColor(focused ? Color(hex: 0x1a1a2e) : (label == "DEL" ? WebColors.pink : .white.opacity(0.9)))
             .frame(width: width, height: height)
             .background(focused ? Color.white : (label == "DEL" ? WebColors.pink.opacity(0.15) : Color.white.opacity(0.08)))
-            .cornerRadius(8)
+            .cornerRadius(12)
         }
     }
 }
@@ -282,26 +282,26 @@ struct SearchKeyButton: View {
     @ViewBuilder
     private func searchSongRow(_ song: Song, index: Int) -> some View {
         TVTightButton(action: { onAdd(song); onClose() }) { focused in
-            HStack(spacing: 10) {
-                Text("\(index + 1)").font(.system(size: 14)).foregroundColor(WebColors.sub).frame(width: 28)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(song.displayTitle).font(.system(size: 16)).foregroundColor(.white).lineLimit(1)
-                    Text(song.displayArtist).font(.system(size: 13)).foregroundColor(WebColors.sub).lineLimit(1)
+            HStack(spacing: 15) {
+                Text("\(index + 1)").font(.system(size: 21)).foregroundColor(WebColors.sub).frame(width: 42)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(song.displayTitle).font(.system(size: 24)).foregroundColor(.white).lineLimit(1)
+                    Text(song.displayArtist).font(.system(size: 20)).foregroundColor(WebColors.sub).lineLimit(1)
                 }
                 Spacer()
                 if api.favorites.contains { $0.id == song.id } {
                     Image(systemName: "heart.fill")
-                        .font(.system(size: 17))
+                        .font(.system(size: 26))
                         .foregroundColor(WebColors.pink)
-                        .frame(width: 36, height: 36)
+                        .frame(width: 54, height: 54)
                 }
-                Text("点歌").font(.system(size: 15))
-                    .padding(.horizontal, 12).padding(.vertical, 5)
+                Text("点歌").font(.system(size: 23))
+                    .padding(.horizontal, 18).padding(.vertical, 8)
                     .background(LinearGradient.g6).foregroundColor(.white).cornerRadius(8)
             }
-            .padding(.horizontal, 12).padding(.vertical, 8)
+            .padding(.horizontal, 18).padding(.vertical, 12)
             .background(focused ? WebColors.ac.opacity(0.25) : WebColors.cardBg)
-            .cornerRadius(10)
+            .cornerRadius(15)
             .padding(2)
             .background(focused ? Color.white.opacity(0.12) : Color.clear)
             .cornerRadius(12)
