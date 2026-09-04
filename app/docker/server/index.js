@@ -2205,7 +2205,6 @@ function getQueueWithSongs() {
     return _queueCache.data;
   }
   const data = db.prepare(`
-  return db.prepare(`
     SELECT q.id as queue_id, q.nickname, q.is_top, q.top_order, q.status, q.created_at, q.is_autoplay,
            s.id as song_id, s.title, s.artist, s.filename, s.cover, s.duration,
            s.audio_tracks, s.audio_needs_soft, s.video_needs_soft, s.is_network, s.is_strm
