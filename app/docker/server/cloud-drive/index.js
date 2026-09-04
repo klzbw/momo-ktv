@@ -7,6 +7,8 @@
 
 const express = require('express');
 const CloudDriveManager = require('./manager');
+const CloudDriveScanner = require('./scanner');
+const CloudDriveStreamer = require('./streamer');
 
 const router = express.Router();
 let manager = null;
@@ -15,8 +17,18 @@ let manager = null;
  * 初始化模块
  * @param {object} db - better-sqlite3 数据库实例
  */
+let scanner = null;
+let streamer = null;
+
 function init(db) {
   manager = new CloudDriveManager(db);
+  scanner = new CloudDriveScanner(manager);
+  streamer = new CloudDriveStreamer(manager);
+
+  // 注册全局函数，供 hlsgen.js 等模块获取网盘直链（避免循环依赖）
+  global.__cloudGetDownloadUrl = async (cloudFileId) => {
+    return streamer.getDownloadUrl(cloudFileId);
+  };
 
   // 定时清理过期扫码会话（每5分钟）
   setInterval(() => manager.cleanupExpiredSessions(), 5 * 60 * 1000);
@@ -33,6 +45,8 @@ function requireManager(req, res, next) {
     return res.status(500).json({ error: 'CloudDrive module not initialized' });
   }
   req.manager = manager;
+  req.scanner = scanner;
+  req.streamer = streamer;
   next();
 }
 
@@ -227,7 +241,9 @@ router.post('/libraries/:id/scan', requireManager, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     // 异步执行扫描
-    scanLibrary(id).catch((e) => console.error('扫描失败:', e));
+    req.scanner.scanLibrary(id).then((result) => {
+      console.log('网盘扫描完成:', result);
+    }).catch((e) => console.error('扫描失败:', e));
     res.json({ ok: true, message: '扫描已开始' });
   } catch (e) {
     console.error('触发扫描失败:', e);
@@ -236,41 +252,11 @@ router.post('/libraries/:id/scan', requireManager, async (req, res) => {
 });
 
 /**
- * 扫描网盘曲库（内部函数，后续移到 scanner.js）
+ * GET /api/cloud/stream/:file_id
+ * 网盘串流代理（支持 Range 请求）
  */
-async function scanLibrary(libraryId) {
-  if (!manager) return;
-  const libraries = manager.listLibraries();
-  const lib = libraries.find((l) => l.id === libraryId);
-  if (!lib) throw new Error('曲库不存在');
-
-  manager.updateLibraryScanStatus(libraryId, 'scanning', 0);
-
-  try {
-    const driver = manager.getDriverById(lib.account_id);
-    // 递归扫描目录（简化版，后续完善）
-    const files = await driver.listFiles(lib.mount_path);
-    const mediaFiles = files.filter((f) => !f.isDir && /\.(mkv|mp4|flac|mp3|wav|ape|ogg|aac|strm)$/i.test(f.name));
-
-    // 写入 cloud_files 表
-    const db = manager.db;
-    const insertStmt = db.prepare(`
-      INSERT OR REPLACE INTO cloud_files (library_id, file_id, file_path, file_name, file_size)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-
-    const tx = db.transaction((list) => {
-      for (const f of list) {
-        insertStmt.run(libraryId, f.fileId, f.path, f.name, f.size);
-      }
-    });
-    tx(mediaFiles);
-
-    manager.updateLibraryScanStatus(libraryId, 'done', mediaFiles.length);
-  } catch (e) {
-    manager.updateLibraryScanStatus(libraryId, 'error', 0);
-    throw e;
-  }
-}
+router.get('/stream/:file_id', requireManager, (req, res) => {
+  req.streamer.handleStream(req, res);
+});
 
 module.exports = { init, router };

@@ -734,6 +734,18 @@ async function ensureHLS(song) {
   // 完全不受影响、还是原来的 filepath。
   let { path: filepath } = sourceCache.resolvePlaybackPath(song);
 
+  // 网盘来源(source_type=cloud)：先获取直链并下载到本地缓存，再走现有转码链路
+  if (song.source_type === 'cloud' && song.cloud_file_id && !filepath) {
+    try {
+      log.info('TRANSCODE', `${songTag} 网盘来源，开始下载到本地缓存...`);
+      filepath = await ensureCloudCached(song);
+      log.info('TRANSCODE', `${songTag} 网盘文件下载完成: ${filepath}`);
+    } catch (e) {
+      log.error('TRANSCODE', `${songTag} 网盘文件下载失败: ${e.message}`);
+      throw e;
+    }
+  }
+
   // 需求(网盘STRM支持)：STRM 曲目没有"网络路径兜底"可用(filepath 只是一个
   // 本地 .strm 文本指针文件，不是可以直接丢给 ffmpeg 的媒体文件)，
   // resolvePlaybackPath() 在这种情况下会返回 path: null，同时已经在后台
@@ -947,6 +959,94 @@ log.info('VAAPI', '服务启动，开始预热核显自检...');
 detectVAAPI().then(ok => {
   log.info('VAAPI', `预热完成，核显硬件加速当前${ok ? '可用' : '不可用'}`);
 }).catch(() => {});
+
+
+/**
+ * 网盘文件下载到本地缓存
+ * 通过全局函数 __cloudGetDownloadUrl 获取直链（由 cloud-drive 模块注册），
+ * 然后下载到 source-cache 目录，返回本地文件路径。
+ */
+async function ensureCloudCached(song) {
+  const https = require('https');
+  const http = require('http');
+  const { URL } = require('url');
+  const fs = require('fs');
+  const path = require('path');
+
+  const cacheDir = path.join(DATA_DIR || '/data', 'source-cache');
+  if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+
+  const localPath = path.join(cacheDir, `cloud_${song.id}_${path.basename(song.filename || 'file')}`);
+
+  // 已缓存且非空则直接返回
+  if (fs.existsSync(localPath) && fs.statSync(localPath).size > 1024) {
+    return localPath;
+  }
+
+  // 通过全局函数获取直链（cloud-drive 模块注册）
+  let downloadUrl;
+  if (typeof global.__cloudGetDownloadUrl === 'function') {
+    const result = await global.__cloudGetDownloadUrl(song.cloud_file_id);
+    downloadUrl = result.url;
+  } else {
+    // 回退：通过本地 HTTP API 获取
+    const port = process.env.PORT || 8080;
+    const resp = await new Promise((resolve, reject) => {
+      http.get(`http://127.0.0.1:${port}/api/cloud/stream/${song.cloud_file_id}?info=1`, (res) => {
+        let data = '';
+        res.on('data', (c) => data += c);
+        res.on('end', () => resolve({ status: res.statusCode, data }));
+      }).on('error', reject);
+    });
+    if (resp.status === 200) {
+      downloadUrl = JSON.parse(resp.data).url;
+    } else {
+      throw new Error('无法获取网盘直链（cloud-drive 模块未初始化）');
+    }
+  }
+
+  // 下载文件
+  await new Promise((resolve, reject) => {
+    const parsed = new URL(downloadUrl);
+    const lib = parsed.protocol === 'https:' ? https : http;
+    const file = fs.createWriteStream(localPath);
+
+    const req = lib.get(downloadUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      timeout: 120000,
+    }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        // 重定向
+        res.resume();
+        const redirectReq = lib.get(res.headers.location, (res2) => {
+          res2.pipe(file);
+          file.on('finish', () => file.close(resolve));
+        });
+        redirectReq.on('error', reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        fs.unlink(localPath, () => {});
+        reject(new Error(`下载失败: HTTP ${res.statusCode}`));
+        return;
+      }
+      res.pipe(file);
+      file.on('finish', () => file.close(resolve));
+    });
+
+    req.on('error', (e) => {
+      fs.unlink(localPath, () => {});
+      reject(e);
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      fs.unlink(localPath, () => {});
+      reject(new Error('下载超时'));
+    });
+  });
+
+  return localPath;
+}
 
 module.exports = {
   ensureHLS, removeHLS, outDir, HLS_DIR, waitForFile, cleanupExpiredHLS, scheduleHLSCleanup,
