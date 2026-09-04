@@ -16,6 +16,7 @@ const cacheCleaner = require('./cacheCleaner');
 const lyricsMod = require('./lyrics');
 const sepMod = require('./separate');
 const cloudDrive = require('./cloud-drive');
+const netktvTest = require('./netktv-test');
 const catalog = require('./catalog');
 const multer = require('multer');
 // 分离产物单首几十 MB，用内存存储收完即落盘到 /data/separated（一首一首传，内存可控）
@@ -53,6 +54,9 @@ app.use(express.json());
 
 // 网盘曲库集成模块
 app.use('/api/cloud', cloudDrive.init(db));
+
+// 网络KTV测试模块（直接从115挂载路径读取分离文件）
+app.use('/api/netktv', netktvTest);
 
 // ---------- 「管理后台」管理员登录 ----------
 // 需求变更：管理员密码不再由用户首次打开「管理后台」(/admin) 时自己设置、
