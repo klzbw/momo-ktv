@@ -243,6 +243,11 @@ function completeMarkerPath(id) {
 function isFresh(id, srcPath) {
   const marker = completeMarkerPath(id);
   if (!fs.existsSync(marker)) return false;
+  // 网络直连模式（http/https URL）：远程文件 mtime 无法获取，
+  // 只要 marker 存在就认为缓存有效，避免每次播放都重新转码
+  if (typeof srcPath === 'string' && /^https?:\/\//i.test(srcPath)) {
+    return true;
+  }
   try {
     const srcStat = fs.statSync(srcPath);
     const outStat = fs.statSync(marker);
@@ -734,27 +739,36 @@ async function ensureHLS(song) {
   // 完全不受影响、还是原来的 filepath。
   let { path: filepath } = sourceCache.resolvePlaybackPath(song);
 
-  // 网盘来源(source_type=cloud)：先获取直链并下载到本地缓存，再走现有转码链路
+  // 网络直连模式：STRM 和网盘来源不下载到本地，直接把 http URL 传给 ffmpeg
+  // 这样可以节省本地存储空间，提高播放启动速度
   if (song.source_type === 'cloud' && song.cloud_file_id && !filepath) {
+    // 网盘来源：通过全局函数获取直链，直接用 URL 转码
     try {
-      log.info('TRANSCODE', `${songTag} 网盘来源，开始下载到本地缓存...`);
-      filepath = await ensureCloudCached(song);
-      log.info('TRANSCODE', `${songTag} 网盘文件下载完成: ${filepath}`);
+      log.info('TRANSCODE', `${songTag} 网盘来源，获取直链中...`);
+      const result = await getCloudDirectUrl(song.cloud_file_id);
+      filepath = result.url;
+      log.info('TRANSCODE', `${songTag} 网盘直链获取成功，网络直连转码`);
     } catch (e) {
-      log.error('TRANSCODE', `${songTag} 网盘文件下载失败: ${e.message}`);
+      log.error('TRANSCODE', `${songTag} 网盘直链获取失败: ${e.message}`);
       throw e;
     }
-  }
-
-  // 需求(网盘STRM支持)：STRM 曲目没有"网络路径兜底"可用(filepath 只是一个
-  // 本地 .strm 文本指针文件，不是可以直接丢给 ffmpeg 的媒体文件)，
-  // resolvePlaybackPath() 在这种情况下会返回 path: null，同时已经在后台
-  // 触发了一次 ensureCached()。ensureHLS() 本来就是"这首歌现在要播放，等它
-  // 转码好"的场景(调用方要么是后台预热、要么是真正的 /hls 请求)，这里选择
-  // 直接 await 一次 ensureCached() 等缓存落地，而不是像硬解直传(/stream)那样
-  // 直接 404——转码本来就要等，等的时候顺便把源文件缓存这一步也一起等掉，
-  // 用户感知上只是"转码稍微多花了下载这首歌的时间"，不会多一次失败。
-  if (!filepath) {
+  } else if (song.is_strm && !filepath) {
+    // STRM 文件：读取 .strm 内容得到 URL，直接用 URL 转码（不下载）
+    try {
+      const strmUrl = sourceCache.resolveSourceInput(song.filepath);
+      if (strmUrl && /^https?:\/\//i.test(strmUrl)) {
+        filepath = strmUrl;
+        log.info('TRANSCODE', `${songTag} STRM 网络直连转码: ${strmUrl.slice(0, 80)}...`);
+      } else {
+        // 非 http 的 STRM（如网络挂载路径），走原有缓存逻辑
+        filepath = await sourceCache.ensureCached(song.id, strmUrl);
+      }
+    } catch (e) {
+      log.error('TRANSCODE', `${songTag} STRM 解析失败: ${e.message}`);
+      throw e;
+    }
+  } else if (!filepath) {
+    // 其他需要缓存的情况（网络挂载等），走原有缓存逻辑
     filepath = await sourceCache.ensureCached(song.id, sourceCache.resolveSourceInput(song.filepath));
   }
 
@@ -962,90 +976,30 @@ detectVAAPI().then(ok => {
 
 
 /**
- * 网盘文件下载到本地缓存
- * 通过全局函数 __cloudGetDownloadUrl 获取直链（由 cloud-drive 模块注册），
- * 然后下载到 source-cache 目录，返回本地文件路径。
+ * 获取网盘文件直链（不下载，网络直连模式）
+ * 通过全局函数 __cloudGetDownloadUrl 获取直链（由 cloud-drive 模块注册）。
+ * ffmpeg 支持直接读取 http URL，所以不需要下载到本地。
  */
-async function ensureCloudCached(song) {
-  const https = require('https');
-  const http = require('http');
-  const { URL } = require('url');
-  const fs = require('fs');
-  const path = require('path');
-
-  const cacheDir = path.join(DATA_DIR || '/data', 'source-cache');
-  if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-
-  const localPath = path.join(cacheDir, `cloud_${song.id}_${path.basename(song.filename || 'file')}`);
-
-  // 已缓存且非空则直接返回
-  if (fs.existsSync(localPath) && fs.statSync(localPath).size > 1024) {
-    return localPath;
-  }
-
-  // 通过全局函数获取直链（cloud-drive 模块注册）
-  let downloadUrl;
+async function getCloudDirectUrl(cloudFileId) {
   if (typeof global.__cloudGetDownloadUrl === 'function') {
-    const result = await global.__cloudGetDownloadUrl(song.cloud_file_id);
-    downloadUrl = result.url;
-  } else {
-    // 回退：通过本地 HTTP API 获取
-    const port = process.env.PORT || 8080;
-    const resp = await new Promise((resolve, reject) => {
-      http.get(`http://127.0.0.1:${port}/api/cloud/stream/${song.cloud_file_id}?info=1`, (res) => {
-        let data = '';
-        res.on('data', (c) => data += c);
-        res.on('end', () => resolve({ status: res.statusCode, data }));
-      }).on('error', reject);
-    });
-    if (resp.status === 200) {
-      downloadUrl = JSON.parse(resp.data).url;
-    } else {
-      throw new Error('无法获取网盘直链（cloud-drive 模块未初始化）');
-    }
+    return await global.__cloudGetDownloadUrl(cloudFileId);
   }
-
-  // 下载文件
-  await new Promise((resolve, reject) => {
-    const parsed = new URL(downloadUrl);
-    const lib = parsed.protocol === 'https:' ? https : http;
-    const file = fs.createWriteStream(localPath);
-
-    const req = lib.get(downloadUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      timeout: 120000,
-    }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        // 重定向
-        res.resume();
-        const redirectReq = lib.get(res.headers.location, (res2) => {
-          res2.pipe(file);
-          file.on('finish', () => file.close(resolve));
-        });
-        redirectReq.on('error', reject);
-        return;
-      }
-      if (res.statusCode !== 200) {
-        fs.unlink(localPath, () => {});
-        reject(new Error(`下载失败: HTTP ${res.statusCode}`));
-        return;
-      }
-      res.pipe(file);
-      file.on('finish', () => file.close(resolve));
-    });
-
-    req.on('error', (e) => {
-      fs.unlink(localPath, () => {});
-      reject(e);
-    });
-    req.on('timeout', () => {
-      req.destroy();
-      fs.unlink(localPath, () => {});
-      reject(new Error('下载超时'));
-    });
+  // 回退：通过本地 HTTP API 获取
+  const http = require('http');
+  const port = process.env.PORT || 8080;
+  return new Promise((resolve, reject) => {
+    http.get(`http://127.0.0.1:${port}/api/cloud/stream/${cloudFileId}?info=1`, (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          resolve(JSON.parse(data));
+        } else {
+          reject(new Error('无法获取网盘直链（cloud-drive 模块未初始化）'));
+        }
+      });
+    }).on('error', reject);
   });
-
-  return localPath;
 }
 
 module.exports = {
