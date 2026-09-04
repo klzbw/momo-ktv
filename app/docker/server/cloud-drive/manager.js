@@ -122,6 +122,43 @@ class CloudDriveManager {
     return this.getAccount(info.lastInsertRowid);
   }
 
+  /**
+   * 使用 Cookie 创建账号（适用于 115 等二维码接口失效的网盘）
+   * 用户从浏览器复制 Cookie 粘贴到系统中
+   * @param {string} driver - 驱动类型，如 'pan115'
+   * @param {string} name - 账号名称
+   * @param {string} cookie - 浏览器中的 Cookie 字符串
+   * @returns {object} 账号信息
+   */
+  createAccountWithCookie(driver, name, cookie) {
+    if (!DRIVERS[driver]) {
+      throw new Error(`不支持的网盘类型: ${driver}，支持: ${Object.keys(DRIVERS).join(', ')}`);
+    }
+    if (!cookie || !cookie.trim()) {
+      throw new Error('Cookie 不能为空');
+    }
+
+    const info = this.db.prepare(
+      'INSERT INTO cloud_accounts (driver, name, access_token, status, token_expires_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(driver, name, cookie.trim(), 'active', new Date(Date.now() + 86400 * 30 * 1000).toISOString());
+
+    const account = this.getAccount(info.lastInsertRowid);
+
+    // 测试连接
+    try {
+      const driverInstance = this.getDriver(account);
+      const userInfo = driverInstance.getUserInfo().catch(() => null);
+      if (userInfo) {
+        this.updateAccount(account.id, { user_info: JSON.stringify(userInfo) });
+      }
+    } catch (e) {
+      // 连接测试失败不影响创建，用户可以后续修复
+      console.warn('Cookie 登录连接测试失败:', e.message);
+    }
+
+    return this.getAccount(account.id);
+  }
+
   updateAccount(id, updates) {
     const allowed = ['name', 'access_token', 'refresh_token', 'token_expires_at', 'user_info', 'status'];
     const sets = [];

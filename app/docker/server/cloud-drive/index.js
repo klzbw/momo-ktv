@@ -96,6 +96,30 @@ router.post('/accounts', requireManager, async (req, res) => {
 });
 
 /**
+ * POST /api/cloud/accounts/cookie
+ * 使用 Cookie 创建账号（适用于 115 等二维码接口失效的网盘）
+ * Body: { driver: 'pan115', name: '我的115', cookie: 'UID=xxx; CID=xxx; SEID=xxx' }
+ */
+router.post('/accounts/cookie', requireManager, (req, res) => {
+  try {
+    const { driver, name, cookie } = req.body;
+    if (!driver || !cookie) {
+      return res.status(400).json({ error: 'driver and cookie are required' });
+    }
+    const account = manager.createAccountWithCookie(driver, name || '我的网盘', cookie);
+    res.json({ ok: true, account: {
+      id: account.id,
+      driver: account.driver,
+      name: account.name,
+      status: account.status,
+    }});
+  } catch (e) {
+    console.error('Cookie 登录失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
  * GET /api/cloud/accounts/:id/qrcode?qrId=xxx
  * 查询扫码状态
  */
