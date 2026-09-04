@@ -47,6 +47,8 @@ struct FullPlayerView: View {
     /// 人声音量 HUD：调节时在屏幕中央显示，2秒后自动隐藏
     @State private var vocalHUDVisible = false
     @State private var vocalHUDTimer: Timer?
+    /// 触摸板滑动开始时的音量，用于精确连续调节（类似手机滑块拖拽）
+    @State private var panStartLevel: Float = 1.0
 
     @ObservedObject private var mic = MicLink.shared
 
@@ -534,35 +536,53 @@ struct FullPlayerView: View {
             // 人声音量 HUD：原唱按钮聚焦时上下键调节，在屏幕中央显示音量大小，2秒后自动隐藏
             if vocalHUDVisible {
                 // 全透明无色底 HUD：屏幕中央，当前模式+人声百分比+淡金色垂直进度条+操作提示，2秒自动隐藏
-                VStack(spacing: 14) {
-                    Text(playerManager.vocalTrackLabel)
-                        .font(.system(size: 30, weight: .bold))
-                        .foregroundColor(.white)
-                    Text("\(playerManager.vocalVolumePercent)%")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(Color(hex: 0xFFD700))
-                    // 淡金色垂直进度条：从底部(伴奏0)往上填充到顶部(原唱100)。
-                    // 用 RoundedRectangle 固定圆角(避免 Capsule 在矮宽比时变横向)，ZStack alignment .bottom。
-                    ZStack(alignment: .bottom) {
-                        // 透明外框
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.white.opacity(0.2))
-                            .frame(width: 24, height: 180)
-                        // 金色填充（从底部往上，宽度24pt=3倍）
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(
-                                LinearGradient(colors: [Color(hex: 0xFFE4B5), Color(hex: 0xFFD700)],
-                                               startPoint: .bottom, endPoint: .top)
-                            )
-                            .frame(width: 24, height: max(0, 180 * CGFloat(playerManager.vocalLevel)))
+                ZStack {
+                    VStack(spacing: 14) {
+                        Text(playerManager.vocalTrackLabel)
+                            .font(.system(size: 30, weight: .bold))
+                            .foregroundColor(.white)
+                        Text("\(playerManager.vocalVolumePercent)%")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(Color(hex: 0xFFD700))
+                        // 淡金色垂直进度条：从底部(伴奏0)往上填充到顶部(原唱100)。
+                        ZStack(alignment: .bottom) {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.white.opacity(0.2))
+                                .frame(width: 24, height: 180)
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(
+                                    LinearGradient(colors: [Color(hex: 0xFFE4B5), Color(hex: 0xFFD700)],
+                                                   startPoint: .bottom, endPoint: .top)
+                                )
+                                .frame(width: 24, height: max(0, 180 * CGFloat(playerManager.vocalLevel)))
+                        }
+                        .frame(width: 24, height: 180)
+                        Text("触摸板滑动 · 确认键切换")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
                     }
-                    .frame(width: 24, height: 180)
-                    Text("上下键滑动 · 确认键切换")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.white.opacity(0.5))
+                    .padding(.horizontal, 36)
+                    .padding(.vertical, 28)
+
+                    // 全屏透明触摸板滑动检测层：UIPanGestureRecognizer 精确连续调节音量
+                    // 向上滑=增加人声，向下滑=减少人声，滑动距离精确对应音量变化(类似手机滑块)
+                    // 限制单次滑动最大变化40%，避免一次性调到极值(静音)
+                    PanGestureView { state, translationY in
+                        if state == .began {
+                            panStartLevel = playerManager.vocalLevel
+                        }
+                        if state == .began || state == .changed {
+                            // 系数：滑动600pt对应音量变化100%；向上滑(translationY<0)=增加人声
+                            let delta = -Float(translationY) / 600
+                            // 限制单次滑动最多变化40%，不会一次性调到极值
+                            let clampedDelta = max(-0.4, min(0.4, delta))
+                            let target = panStartLevel + clampedDelta
+                            playerManager.setVocalLevel(target)
+                            showVocalHUD()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .padding(.horizontal, 36)
-                .padding(.vertical, 28)
                 .transition(.opacity)
                 .zIndex(30)
             }
