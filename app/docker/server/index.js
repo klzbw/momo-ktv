@@ -1021,9 +1021,31 @@ function sendFileWithRange(req, res, abs, contentType) {
 app.get('/api/songs/:id/sep-info', (req, res) => {
   const song = db.prepare('SELECT * FROM songs WHERE id=?').get(parseInt(req.params.id, 10));
   if (!song) return res.status(404).json({ error: 'not found', dual: false });
+  const id = song.id;
+
+  // 网络KTV歌曲（115网盘双FLAC）：直接返回netktv串流代理地址
+  if (song.source_root === 'netktv' || song.is_network === 1) {
+    // 从vocal_path的STRM文件名中提取netktv ID
+    let netktvId = null;
+    if (song.vocal_path) {
+      const match = String(song.vocal_path).match(/([a-f0-9]{16})_vocals\.strm/i);
+      if (match) netktvId = match[1];
+    }
+    if (netktvId) {
+      return res.json({
+        dual: true,
+        hasVocal: true,
+        hasAccomp: true,
+        sepStatus: 'done',
+        vocalUrl: `/api/netktv/stream/${netktvId}/vocals`,
+        accompUrl: `/api/netktv/stream/${netktvId}/accompaniment`,
+        isNetKtv: true,
+      });
+    }
+  }
+
   const v = resolveSepTrackFile(song, 'vocal');
   const a = resolveSepTrackFile(song, 'accomp');
-  const id = song.id;
   res.json({
     dual: !!(v && a),
     hasVocal: !!v,
