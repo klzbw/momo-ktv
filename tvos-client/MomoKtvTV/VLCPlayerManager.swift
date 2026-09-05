@@ -210,6 +210,14 @@ class VLCPlayerManager: NSObject, ObservableObject {
             p.play()
             isPlaying = true
             log("togglePlayPause: 播放")
+            // 播放恢复后重新设置视频输出（暂停可能导致视频层丢失）
+            let delays: [Double] = [0.2, 0.6, 1.2, 2.0]
+            for (i, delay) in delays.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.refreshDrawables()
+                    self?.log("播放恢复后第\(i+1)次刷新drawable (\(delay)s)")
+                }
+            }
         }
         #endif
     }
