@@ -326,7 +326,7 @@ struct FullPlayerView: View {
 
 
 
-                            TVTightButton(action: { lastFocusedBtn = 1; playerManager.restart(); api.restartSong(); FeedbackCenter.shared.show("重新演唱", icon: "gobackward") }, focusedTag: $focusedBtn, focusTag: 1, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                            TVTightButton(action: { lastFocusedBtn = 1; if isUsingVLC { vlcManager.restart() } else { playerManager.restart() }; api.restartSong(); FeedbackCenter.shared.show("重新演唱", icon: "gobackward") }, focusedTag: $focusedBtn, focusTag: 1, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
 
                                 controlContent(icon: "gobackward", title: "重唱", focused: focused)
 
