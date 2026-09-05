@@ -880,11 +880,17 @@ struct ContentView: View {
                     vlcManager.togglePlayPause()
                     isPlaying = vlcManager.isPlaying
                     FeedbackCenter.shared.show(vlcManager.isPlaying ? "开始播放" : "暂停播放",
+                                           icon: vlcManager.isPlaying ? "play.fill" : "pause.fill")
+                } else {
+                    playerManager.togglePlayPause()
+                    isPlaying = playerManager.isPlaying
+                    FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
                                            icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
+                }
                 // Sync playback state to server so mobile remote play/pause
                 // button icon stays in sync with the TV.
-                api.sendPlaybackState(paused: !playerManager.isPlaying,
-                    voice: playerManager.voiceStateString)
+                api.sendPlaybackState(paused: !(isUsingVLC ? vlcManager.isPlaying : playerManager.isPlaying),
+                    voice: isUsingVLC ? vlcManager.voiceLabel : playerManager.voiceStateString)
             }
             MVButton(icon: "speaker.plus", title: "音量+") {
                 volume = min(1, volume + 0.1)
