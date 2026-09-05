@@ -184,8 +184,10 @@ class VLCPlayerManager: NSObject, ObservableObject {
         #if canImport(TVVLCKit)
         player?.stop()
         isPlaying = false
+        activeDrawable = nil
         onStateChange?(false)
         stopTimer()
+        log("stop: 停止VLC播放")
         #endif
     }
 
@@ -262,17 +264,6 @@ class VLCPlayerManager: NSObject, ObservableObject {
                 }
             }
         }
-        #endif
-    }
-
-    /// 停止播放（切歌时调用，避免两种声音同时存在）
-    func stop() {
-        #if canImport(TVVLCKit)
-        guard let p = player else { return }
-        p.stop()
-        isPlaying = false
-        activeDrawable = nil
-        log("stop: 停止VLC播放")
         #endif
     }
 
