@@ -921,11 +921,18 @@ struct ContentView: View {
                         .frame(width: 32)
                 }
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(item.displayTitle)
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(focused ? Color(hex: 0x1a1a2e) : .white)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        Text(item.displayTitle)
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(focused ? Color(hex: 0x1a1a2e) : .white)
+                            .lineLimit(1)
+                        Label(item.mediaTypeLabel, systemImage: item.mediaTypeIcon)
+                            .font(.system(size: 14, weight: .medium))
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(item.isVideoFile ? Color(hex: 0x0288d1).opacity(0.25) : Color(hex: 0x2e7d32).opacity(0.25))
+                            .foregroundColor(item.isVideoFile ? Color(hex: 0x4fc3f7) : Color(hex: 0x81c784))
+                            .cornerRadius(4)
+                    }
                     Text(item.displayArtist)
                         .font(.system(size: 20, weight: .medium))
                         .foregroundColor(focused ? Color(hex: 0x1a1a2e).opacity(0.7) : WebColors.sub)
@@ -1417,14 +1424,12 @@ struct OrderSongsPage: View {
                                     .font(.system(size: 32, weight: .semibold))
                                     .foregroundColor(.white)
                                     .lineLimit(1)
-                                if song.isNetworkSong {
-                                    Label("云", systemImage: "cloud.fill")
-                                        .font(.system(size: 16, weight: .medium))
-                                        .padding(.horizontal, 8).padding(.vertical, 3)
-                                        .background(Color(hex: 0x0288d1).opacity(0.25))
-                                        .foregroundColor(Color(hex: 0x4fc3f7))
-                                        .cornerRadius(6)
-                                }
+                                Label(song.mediaTypeLabel, systemImage: song.mediaTypeIcon)
+                                    .font(.system(size: 16, weight: .medium))
+                                    .padding(.horizontal, 8).padding(.vertical, 3)
+                                    .background(song.isVideoFile ? Color(hex: 0x0288d1).opacity(0.25) : Color(hex: 0x2e7d32).opacity(0.25))
+                                    .foregroundColor(song.isVideoFile ? Color(hex: 0x4fc3f7) : Color(hex: 0x81c784))
+                                    .cornerRadius(6)
                             }
                             Text(song.displayArtist)
                                 .font(.system(size: 24))
