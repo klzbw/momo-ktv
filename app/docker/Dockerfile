@@ -18,7 +18,15 @@ FROM node:20-bookworm-slim
 RUN apt-get update && apt-get install -y \
       python3 make g++ ffmpeg \
       libva2 libva-drm2 va-driver-all vainfo \
+      curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# 安装 alist（网盘直连服务，302直连不占NAS带宽，避免115 API风控）
+RUN curl -L -o /tmp/alist.tar.gz https://github.com/alist-org/alist/releases/download/v3.40.0/alist-linux-amd64.tar.gz \
+    && tar -xzf /tmp/alist.tar.gz -C /usr/local/bin/ \
+    && chmod +x /usr/local/bin/alist \
+    && rm -f /tmp/alist.tar.gz \
+    && mkdir -p /opt/alist/data
 
 WORKDIR /app
 
@@ -28,15 +36,21 @@ RUN npm install --omit=dev
 COPY server ./server
 COPY web ./web
 
+# 复制 alist 启动脚本
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 ENV DATA_DIR=/data
 ENV MV_DIR=/mv
 ENV PORT=8080
+ENV ALIST_PORT=5234
+ENV ALIST_DATA_DIR=/opt/alist/data
 
 # 构建时间元数据：每次构建注入，确保 GHCR latest digest 变化，驱动 watchtower 自动更新
 ARG BUILD_TIME=unknown
 LABEL org.opencontainers.image.created=$BUILD_TIME
 
-EXPOSE 8080
-VOLUME ["/data", "/mv"]
+EXPOSE 8080 5234
+VOLUME ["/data", "/mv", "/opt/alist/data"]
 
-CMD ["node", "server/index.js"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
