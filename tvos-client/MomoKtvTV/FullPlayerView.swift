@@ -338,11 +338,15 @@ struct FullPlayerView: View {
 
                                 lastFocusedBtn = 2
 
-                                playerManager.togglePlayPause()
-
-                                FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
-
-                                                          icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
+                                if isUsingVLC {
+                                    vlcManager.togglePlayPause()
+                                    FeedbackCenter.shared.show(vlcManager.isPlaying ? "开始播放" : "暂停播放",
+                                                              icon: vlcManager.isPlaying ? "play.fill" : "pause.fill")
+                                } else {
+                                    playerManager.togglePlayPause()
+                                    FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
+                                                              icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
+                                }
 
                             }, focusedTag: $focusedBtn, focusTag: 2, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
 
@@ -716,11 +720,15 @@ struct FullPlayerView: View {
 
         .onPlayPauseCommand {
 
-            playerManager.togglePlayPause()
-
-            FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
-
-                                      icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
+            if isUsingVLC {
+                vlcManager.togglePlayPause()
+                FeedbackCenter.shared.show(vlcManager.isPlaying ? "开始播放" : "暂停播放",
+                                          icon: vlcManager.isPlaying ? "play.fill" : "pause.fill")
+            } else {
+                playerManager.togglePlayPause()
+                FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
+                                          icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
+            }
 
             showControls = true
 
