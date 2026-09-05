@@ -56,10 +56,15 @@ jobs:
           # Force objectVersion to 56 for Xcode 15.4 compatibility
           sed -i '' 's/objectVersion = 77;/objectVersion = 56;/' MomoKtvTV.xcodeproj/project.pbxproj
 
+      - name: Install CocoaPods
+        run: |
+          gem install cocoapods
+          pod install --repo-update
+
       - name: Build tvOS app
         run: |
           xcodebuild \
-            -project MomoKtvTV.xcodeproj \
+            -workspace MomoKtvTV.xcworkspace \
             -scheme MomoKtvTV \
             -configuration Release \
             -destination 'generic/platform=tvOS' \
