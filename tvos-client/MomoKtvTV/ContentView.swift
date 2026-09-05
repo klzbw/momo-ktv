@@ -425,9 +425,7 @@ struct ContentView: View {
                             if playing.isVideoFile { previewLyrics.lyrics = .empty }
                             else if previewLyrics.lyrics.isEmpty { previewLyrics.load(server: api.serverAddress, songId: playing.song_id) }
                         }
-                        .onLongPressGesture(minimumDuration: 1.0) {
-                            showDebugLog.toggle()
-                        }
+
                 } else if let hlsURL = hlsURL {
                     SharedVideoView(playerManager: playerManager)
                         .id("preview-\(showingPlayer ? "fs" : "normal")")
@@ -890,6 +888,10 @@ struct ContentView: View {
                 playerManager.restart()
                 api.restartSong()
                 FeedbackCenter.shared.show("重新演唱", icon: "gobackward")
+            }
+            MVButton(icon: "ladybug", title: "调试") {
+                showDebugLog.toggle()
+                FeedbackCenter.shared.show(showDebugLog ? "调试日志已开启" : "调试日志已关闭", icon: "ladybug")
             }
         }
         .padding(.horizontal, 8)
