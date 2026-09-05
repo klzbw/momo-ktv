@@ -1,0 +1,2953 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>墨墨爱K歌 · 管理后台</title>
+<style>
+:root{--bg:#07071a;--card:#10102a;--accent:#c736f7;--cyan:#36d9f7;--pink:#ff4f9b;--text:#f4f4ff;--sub:#8888aa}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:"PingFang SC","Microsoft YaHei",sans-serif;min-height:100vh}
+header{
+  position:sticky;top:0;z-index:10;padding:16px 24px;
+  background:rgba(7,7,26,.92);backdrop-filter:blur(16px);
+  border-bottom:1px solid rgba(255,255,255,.07);
+  display:flex;align-items:center;gap:14px
+}
+.logo{font-size:20px;font-weight:900;background:linear-gradient(90deg,var(--cyan),var(--accent));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.logo span{font-size:13px;color:var(--sub);font-weight:400;margin-left:6px}
+.ver-badge{font-size:11px;color:var(--sub);font-weight:400;margin-left:8px;padding:2px 8px;
+  border:1px solid rgba(255,255,255,.12);border-radius:999px}
+.spacer{flex:1}
+.hbtn{
+  padding:8px 18px;border-radius:10px;font-size:13px;cursor:pointer;border:none;color:#fff;
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);transition:.2s
+}
+.hbtn:hover{background:rgba(199,54,247,.3);border-color:var(--accent)}
+.hbtn.primary{background:linear-gradient(135deg,var(--accent),var(--cyan));border:none;font-weight:600;color:#07071a}
+/* 需求(清理缓存菜单-直接清理全部缓存)：这个按钮是"不看限额/天数设置，
+   立刻清空全部缓存"的强操作，用跟"删除"一致的警示色区分于旁边"保存设置/
+   立即清理一次"这些相对温和的操作，避免手滑点错。 */
+.hbtn.danger{background:rgba(255,79,155,.15);border-color:rgba(255,79,155,.3);color:var(--pink)}
+.hbtn.danger:hover{background:rgba(255,79,155,.32);border-color:var(--pink)}
+.hbtn:disabled{opacity:.4;cursor:not-allowed}
+.hbtn:disabled:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12)}
+/* 需求：把原来一排5个扁平按钮收进"文件扫描/文件管理"两个下拉菜单——.hdrop
+   是触发按钮的定位锚点(position:relative)，.hdrop-menu 绝对定位挂在它下方，
+   默认 display:none，加 .open 才展开，JS 里 toggleHdrop()/closeHdrops()
+   负责切换。 */
+.hdrop{position:relative}
+.hdrop-menu{position:absolute;top:calc(100% + 6px);left:0;min-width:190px;
+  background:var(--card);border:1px solid rgba(255,255,255,.12);border-radius:12px;
+  padding:6px;display:none;flex-direction:column;gap:2px;z-index:30;
+  box-shadow:0 12px 32px rgba(0,0,0,.5)}
+.hdrop-menu.open{display:flex}
+.hdrop-item{padding:9px 12px;border-radius:8px;font-size:13px;cursor:pointer;
+  white-space:nowrap;color:var(--text)}
+.hdrop-item:hover{background:rgba(199,54,247,.25)}
+
+/* Bug修复(整体列宽度不够，歌名/歌手被挤得换行)：以前 main 固定
+   max-width:1040px，是早期只有"歌名/歌手/语种/风格/音轨/播放/操作"几列
+   时够用的宽度；后来陆续加了"批量勾选"列、又加了"来源"列，同一个 1040px
+   要塞下更多列，挤压到歌名/歌手这两个本来就不定宽、内容又最长的列，稍微
+   长一点的标题/歌手名就被迫换行，看起来很挤。这里放宽到 1500px（大屏
+   够用），窄屏(笔记本/平板)时用 96vw 兜底，不会比视口本身还宽出现横向
+   滚动条。 */
+main{max-width:1500px;width:96vw;margin:0 auto;padding:24px}
+
+/* Stats */
+.stats-row{display:flex;gap:14px;margin-bottom:24px}
+.stat{flex:1;background:var(--card);border-radius:14px;padding:18px;text-align:center;border:1px solid rgba(255,255,255,.06)}
+.stat .n{font-size:32px;font-weight:800;color:var(--accent)}
+.stat .l{font-size:12px;color:var(--sub);margin-top:4px}
+
+.stat .breakdown{font-size:11px;color:var(--sub);margin-top:5px;opacity:.7}
+
+/* Search & filter */
+.toolbar{display:flex;gap:10px;margin-bottom:12px}
+
+/* 本地/网络曲库切换：跟"信息不完整"下拉筛选是"且"的关系，可以叠加，
+   放在同一个工具栏里，用分段按钮而不是下拉框是因为选项固定只有三个，
+   点一下就能切换，比下拉框展开-选择更快。 */
+.scope-toggle{
+  display:flex;gap:2px;padding:3px;flex-shrink:0;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:12px
+}
+.scope-btn{
+  background:transparent;border:none;color:var(--sub);font-size:13px;
+  padding:0 14px;border-radius:9px;cursor:pointer;white-space:nowrap
+}
+.scope-btn.active{background:var(--accent);color:#fff}
+.scope-btn:hover:not(.active){color:var(--text)}
+.search-box{
+  flex:1;display:flex;align-items:center;gap:8px;
+  background:rgba(255,255,255,.06);border-radius:12px;padding:10px 14px;
+  border:1px solid rgba(255,255,255,.08)
+}
+.search-box input{flex:1;background:transparent;border:none;outline:none;color:var(--text);font-size:14px}
+
+#filter-select{
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:12px;
+  padding:0 14px;color:var(--text);font-size:13px;outline:none;cursor:pointer
+}
+#filter-select:focus{border-color:var(--accent)}
+
+/* 原生下拉弹出的选项列表在大多数系统里是白底渲染的，页面自定义的浅色
+   文字（var(--text)）套上去几乎看不清，这里统一把所有 <select> 展开后的
+   选项文字改成黑色，只影响弹出的选项列表，不影响选择框本身的外观。 */
+select option{color:#000}
+
+/* Batch action bar */
+.batch-bar{
+  display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:10px 16px;
+  background:var(--card);border-radius:12px;border:1px solid rgba(255,255,255,.06);
+  font-size:13px;color:var(--sub)
+}
+.batch-bar b{color:var(--cyan)}
+.batch-bar .spacer{flex:1}
+
+/* Artist chips */
+.artist-chips{display:flex;flex-wrap:wrap;gap:5px}
+.artist-chip{
+  display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;
+  background:rgba(255,255,255,.06);color:var(--sub)
+}
+.tag-badge{
+  display:inline-block;padding:2px 9px;border-radius:8px;font-size:12px;
+  background:rgba(255,79,155,.12);color:var(--pink)
+}
+
+/* Table */
+/* 表格外面套一层横向滚动容器：main 已经放宽到 1500px，正常情况下够用；
+   但浏览器窗口比这个还窄时(比如笔记本没最大化)，与其让 title-cell/
+   artist-cell 的 white-space:nowrap 把整个表格硬撑爆、挤出页面右边看不到，
+   不如让表格自己在这个容器内横向滚动，其它区域(统计卡片/搜索栏)照常跟随
+   页面宽度自适应，不受影响。 */
+.table-scroll{overflow-x:auto}
+.song-table{width:100%;min-width:920px;border-collapse:collapse}
+.song-table th{
+  text-align:left;padding:10px 14px;font-size:12px;color:var(--sub);
+  border-bottom:1px solid rgba(255,255,255,.07);white-space:nowrap
+}
+.song-table td{padding:10px 14px;font-size:14px;border-bottom:1px solid rgba(255,255,255,.04)}
+.song-table tr:hover td{background:rgba(255,255,255,.03)}
+.song-table .title-cell{font-weight:600;white-space:nowrap}
+.song-table .artist-cell{color:var(--sub);font-size:13px;white-space:nowrap}
+.song-table .count-cell{color:var(--cyan);font-size:13px;text-align:right}
+.row-acts{display:flex;gap:6px;justify-content:flex-end;flex-shrink:0}
+.act-btn{
+  padding:4px 12px;border-radius:8px;font-size:12px;border:none;cursor:pointer;
+  white-space:nowrap;flex-shrink:0
+}
+.act-edit{background:rgba(54,217,247,.15);color:var(--cyan)}
+.act-probe{background:rgba(199,54,247,.15);color:var(--accent)}
+.act-del{background:rgba(255,79,155,.15);color:var(--pink)}
+.act-btn:hover{opacity:.8}
+
+/* 语种/风格：未填写时直接显示成一个可下拉选择的空格，而不是只提示"缺××"
+   需要点开编辑弹窗才能补——选中即保存，管理员可以直接在表格里逐条补全。
+   已填写的歌曲同样用下拉框展示，方便随手改成预设里的另一个取值。 */
+.field-select{
+  width:100%;max-width:150px;background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:5px 8px;
+  color:var(--text);font-size:13px;outline:none;cursor:pointer
+}
+.field-select:focus{border-color:var(--accent)}
+.field-select.field-select-empty{color:var(--sub);border-style:dashed;background:rgba(255,79,155,.06)}
+.row-check, #select-all-page{width:16px;height:16px;cursor:pointer;accent-color:var(--accent)}
+
+/* 音轨探测状态图标：双音轨(探测到独立原唱/伴唱音轨) / 单轨双声道(单音轨，
+   靠左右声道分离原/伴唱) / 未知(探测失败，等待下次扫描自动重试或手动重探) */
+.track-badge{display:inline-block;padding:2px 9px;border-radius:8px;font-size:12px;white-space:nowrap;cursor:default}
+.track-dual{background:rgba(54,217,247,.15);color:var(--cyan)}
+.track-mono{background:rgba(255,255,255,.07);color:var(--sub)}
+.track-unknown{background:rgba(255,79,155,.15);color:var(--pink)}
+
+/* Pagination */
+.pagination{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:18px;font-size:13px;color:var(--sub)}
+.pagination b{color:var(--text)}
+
+/* Edit modal */
+#modal-overlay, #batch-modal-overlay, #user-modal-overlay, #user-pw-modal-overlay{
+  position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.65);
+  display:none;align-items:center;justify-content:center
+}
+#modal-overlay.open, #batch-modal-overlay.open, #user-modal-overlay.open, #user-pw-modal-overlay.open{display:flex}
+#modal, #batch-modal, #user-modal, #user-pw-modal{
+  background:#12122e;border-radius:18px;padding:28px;width:420px;max-width:90vw;
+  border:1px solid rgba(255,255,255,.1)
+}
+#modal h3, #batch-modal h3, #user-modal h3, #user-pw-modal h3{font-size:17px;margin-bottom:20px}
+/* 用户管理列表：每一行一个账号名 + 重置密码/删除两个小按钮 */
+.user-row{
+  display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:10px 12px
+}
+.user-row .uname{flex:1;font-size:14px;font-weight:600}
+.user-row .udate{font-size:11px;color:var(--sub)}
+.user-row .ubtn{
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:var(--text);
+  font-size:12px;padding:5px 10px;border-radius:8px;cursor:pointer
+}
+.user-row .ubtn:hover{background:rgba(199,54,247,.3);border-color:var(--accent)}
+.user-row .ubtn.danger:hover{background:rgba(255,79,155,.32);border-color:var(--pink)}
+.user-empty-tip{font-size:12px;color:var(--sub);text-align:center;padding:12px 0}
+.form-row{margin-bottom:14px}
+.form-row label{display:block;font-size:12px;color:var(--sub);margin-bottom:6px}
+.form-row input{
+  width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none
+}
+.form-row input:focus{border-color:var(--accent)}
+.modal-btns{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
+
+/* Batch modal specifics */
+.batch-count{font-size:13px;color:var(--sub);margin-bottom:18px}
+.batch-count b{color:var(--cyan)}
+.batch-field{margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,.06)}
+.batch-field:last-of-type{border-bottom:none}
+.batch-field>label{display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:10px;cursor:pointer}
+.batch-field>label input{width:16px;height:16px;accent-color:var(--accent)}
+.batch-field select{
+  width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;margin-bottom:10px
+}
+.batch-field select:disabled{opacity:.4;cursor:not-allowed}
+.preset-manage{background:rgba(255,255,255,.03);border-radius:10px;padding:10px}
+.preset-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:22px}
+.preset-chip{
+  display:flex;align-items:center;gap:5px;padding:3px 6px 3px 10px;border-radius:20px;font-size:12px;
+  background:rgba(199,54,247,.14);color:var(--text)
+}
+.preset-chip .x{cursor:pointer;color:var(--sub);font-size:13px;padding:0 3px}
+.preset-chip .x:hover{color:var(--pink)}
+.preset-add{display:flex;gap:6px}
+.preset-add input{
+  flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:8px;padding:7px 10px;color:var(--text);font-size:12px;outline:none
+}
+.preset-add .hbtn{padding:7px 14px;font-size:12px;white-space:nowrap}
+.preset-empty-tip{font-size:12px;color:#555;font-style:italic}
+
+/* Filename-parse / 一键清洗 modal：比其它弹窗更宽，容纳左右两栏对照预览 */
+#parse-modal-overlay, #clean-modal-overlay{
+  position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.65);
+  display:none;align-items:flex-start;justify-content:center;overflow:auto;padding:32px 16px
+}
+#parse-modal-overlay.open, #clean-modal-overlay.open{display:flex}
+#parse-modal, #clean-modal{
+  background:#12122e;border-radius:18px;padding:28px;width:980px;max-width:96vw;
+  border:1px solid rgba(255,255,255,.1)
+}
+#parse-modal h3, #clean-modal h3{font-size:17px;margin-bottom:14px}
+.parse-tip{font-size:12px;color:var(--sub);line-height:1.7;margin-bottom:14px;
+  background:rgba(255,255,255,.03);border-radius:10px;padding:10px 14px}
+.parse-tip b{color:var(--cyan)}
+#parse-pattern{
+  width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none
+}
+#parse-pattern:focus{border-color:var(--accent)}
+.parse-toolbar{display:flex;align-items:center;gap:14px;margin:10px 0;font-size:12px;color:var(--sub)}
+.parse-toolbar label{display:flex;align-items:center;gap:6px;cursor:pointer}
+/* Bug修复(左右预览列表高度对不齐)：以前是两个各自独立滚动的 <div>
+   (.parse-col 左/右各一个)，各自用 forEach 往里面塞行——左右两栏内容长度
+   本来就不一样（比如"已摘除"标签只出现在右边、警告文案只在某些行才有），
+   每一行左右两侧的实际高度天然可能不同，两个独立 flow 的列各自从上往下
+   排列，稍微列表长一点，中间只要有一行左右高度不一样，后面所有行就整体
+   错位，列表越长错位越明显，下面的歌几乎没法对照着看。
+   现在改成"每一行是一个整体"：一行左右两个格子放进同一个 grid 容器
+   (.parse-pair)，grid 默认 align-items:stretch，同一行的两个格子必然一样
+   高(取两边内容里较高的那个)，行与行之间用 .parse-cols 单一滚动条，天然
+   不可能出现"左边滚到第5行、右边滚到第6行"这种错位——不再需要额外写
+   "滚动联动"的 JS 去猜、去同步，从根上避免了这个问题，而不是靠同步滚动
+   位置去弥补。 */
+.parse-cols{max-height:52vh;overflow:auto;border-radius:10px;background:rgba(255,255,255,.03);
+  border:1px solid rgba(255,255,255,.05)}
+.parse-pair{display:grid;grid-template-columns:1fr 1fr;gap:0}
+.parse-pair:not(:last-child){border-bottom:1px solid rgba(255,255,255,.05)}
+.parse-pair>.parse-col{min-width:0;padding:8px 10px;border-bottom:none}
+.parse-pair>.parse-col:first-child{border-right:1px solid rgba(255,255,255,.05)}
+.parse-col{
+  min-width:0;
+  background:transparent;padding:6px 10px;
+}
+/* 表头说明文字放在滚动容器上方（不参与滚动，随时可见），跟左右两栏的宽度
+   1:1 对齐，让人一眼能对上"左边这一列对应的是哪句说明"。 */
+.parse-col-heads{display:flex;gap:0;font-size:12px;color:var(--sub);padding:0;margin-bottom:6px}
+.parse-col-heads span{flex:1;padding:0 10px}
+.parse-row{padding:8px 4px;font-size:12px;line-height:1.7}
+.parse-row .fn{color:var(--sub);font-size:11px;word-break:break-all;margin-bottom:4px}
+.parse-row.changed{background:rgba(199,54,247,.08);border-radius:6px}
+.parse-row.failed{background:rgba(255,79,155,.08);border-radius:6px;color:var(--pink)}
+.parse-row.warn{background:rgba(255,79,155,.08);border-radius:6px}
+.parse-row .parse-check{margin-right:6px;vertical-align:middle}
+.parse-row .removed-tags{margin-top:4px}
+.parse-row .removed-tag{
+  display:inline-block;font-size:11px;color:var(--sub);background:rgba(255,255,255,.06);
+  border-radius:5px;padding:1px 6px;margin:2px 4px 0 0
+}
+.parse-row .removed-tag-warn{color:var(--pink);background:rgba(255,79,155,.12)}
+.parse-empty-hint{font-size:12px;color:var(--sub);padding:6px 4px}
+
+/* 需求(手动忽略误命中)：预览结果每一行右侧挂一个小按钮，管理员一眼看出是
+   误命中就直接点掉，不用跑去改忽略词/解析模板/预设列表(改了可能误伤其它
+   歌曲)。跟"取消勾选"是两回事——取消勾选只是这一次不应用这一行的结果，
+   标记忽略是"以后每次预览都不要再让我看到这首歌"，更彻底。
+   文件名解析、一键清洗两个弹窗共用这一套样式(各自的忽略状态在数据库里是
+   两个独立字段 parse_ignored/clean_ignored，互不影响，只是视觉表现一样)。 */
+.ignore-btn{
+  float:right;font-size:11px;color:var(--sub);background:rgba(255,255,255,.06);
+  border-radius:6px;padding:2px 8px;cursor:pointer;white-space:nowrap;margin-left:6px
+}
+.ignore-btn:hover{background:rgba(255,79,155,.18);color:var(--pink)}
+.ignored-toggle{font-size:12px;color:var(--cyan);cursor:pointer;text-decoration:underline;
+  text-underline-offset:2px}
+.ignored-panel{
+  margin:10px 0;background:rgba(255,255,255,.03);border-radius:10px;padding:10px 12px;
+  border:1px solid rgba(255,255,255,.05);max-height:220px;overflow:auto
+}
+.ig-row{display:flex;align-items:center;gap:10px;padding:6px 2px;font-size:12px;
+  border-bottom:1px solid rgba(255,255,255,.05)}
+.ig-row:last-child{border-bottom:none}
+.ig-row .ig-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ig-row .ig-fn{color:var(--sub);font-size:11px}
+.ig-row .ig-undo{color:var(--cyan);cursor:pointer;white-space:nowrap;flex-shrink:0}
+
+/* 需求(曲库来源备注)：一条已添加的曲库来源(比如某个网盘挂载目录)允许单独
+   起一个好记的备注名，如"115网盘""夸克网盘"，跟目录路径本身分开——路径
+   通常又长又不直观，备注才是管理员/用户真正关心的"这首歌到底是从哪来的"。 */
+.rr-remark-row{display:flex;gap:6px;margin:6px 0}
+.rr-remark-row input{
+  flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:8px;padding:6px 9px;color:var(--text);font-size:12px;outline:none
+}
+.rr-remark-row .hbtn{padding:6px 12px;font-size:11px;white-space:nowrap}
+/* 主列表最后一列"来源"标注：跟音轨/语种这些 badge 视觉统一，颜色淡一些，
+   避免抢主要信息(歌名/歌手)的注意力，本地曲库的歌不显示这个标签。 */
+.src-badge{
+  display:inline-block;font-size:11px;color:var(--cyan);background:rgba(0,224,255,.1);
+  border-radius:6px;padding:3px 8px;white-space:nowrap
+}
+.src-badge-none{color:#555;font-style:italic}
+
+/* 清理缓存 modal：外观跟"批量设置语种/风格"共用一套(batch-field/preset-manage
+   这些类)，这里只补一个独立的 overlay/modal id，避免跟其它弹窗互相影响。 */
+#cache-modal-overlay{
+  position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.65);
+  display:none;align-items:center;justify-content:center
+}
+#cache-modal-overlay.open{display:flex}
+#cache-modal{
+  background:#12122e;border-radius:18px;padding:28px;width:440px;max-width:90vw;
+  border:1px solid rgba(255,255,255,.1)
+}
+#cache-modal h3{font-size:17px;margin-bottom:20px}
+.cache-mode-label{display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:10px;cursor:pointer}
+.cache-mode-label input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+.cache-value-row{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.cache-value-row input{
+  flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:8px;padding:8px 10px;color:var(--text);font-size:13px;outline:none
+}
+.cache-value-row input:disabled{opacity:.4;cursor:not-allowed}
+.cache-value-row span{font-size:12px;color:var(--sub);white-space:nowrap}
+.cache-hint{font-size:12px;color:var(--sub);margin-bottom:6px}
+
+/* 曲库来源 modal：跟"文件名解析"共用宽版弹窗尺寸(左右两栏够放文件夹浏览器+
+   已配置来源列表)，其余表单元素复用 .cache-value-row/.cache-hint 那一套。 */
+#src-modal-overlay{
+  position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.65);
+  display:none;align-items:flex-start;justify-content:center;overflow:auto;padding:32px 16px
+}
+#src-modal-overlay.open{display:flex}
+#src-modal{
+  background:#12122e;border-radius:18px;padding:28px;width:880px;max-width:96vw;
+  border:1px solid rgba(255,255,255,.1)
+}
+#src-modal h3{font-size:17px;margin-bottom:14px}
+.src-cols{display:flex;gap:18px;margin-bottom:20px}
+.src-col{flex:1;min-width:0}
+.src-col-title{font-size:13px;color:var(--sub);margin-bottom:8px;font-weight:600}
+.src-base-tabs{display:flex;gap:6px;margin-bottom:8px}
+.src-base-tab{
+  flex:1;text-align:center;padding:7px 6px;border-radius:8px;font-size:12px;cursor:pointer;
+  background:rgba(255,255,255,.05);color:var(--sub);border:1px solid transparent
+}
+.src-base-tab.active{background:rgba(199,54,247,.16);color:var(--text);border-color:rgba(199,54,247,.4)}
+.src-crumb{font-size:12px;color:var(--sub);margin-bottom:8px;word-break:break-all;line-height:1.6}
+.src-crumb span{cursor:pointer;color:var(--cyan)}
+.src-crumb span:hover{text-decoration:underline}
+.src-folder-list{
+  max-height:220px;overflow:auto;background:rgba(255,255,255,.03);border-radius:10px;
+  border:1px solid rgba(255,255,255,.05);margin-bottom:10px
+}
+.src-folder-row{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:8px 12px;font-size:13px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer
+}
+.src-folder-row:last-child{border-bottom:none}
+.src-folder-row:hover{background:rgba(255,255,255,.05)}
+.src-folder-row .fname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.src-folder-row .fadd{
+  font-size:11px;padding:3px 9px;border-radius:20px;background:rgba(199,54,247,.16);color:var(--text);
+  white-space:nowrap;flex-shrink:0
+}
+.src-folder-row .fadd:hover{background:rgba(199,54,247,.3)}
+.src-folder-empty{padding:14px;font-size:12px;color:#555;font-style:italic;text-align:center}
+.src-add-row{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--sub);margin-bottom:4px}
+.src-add-row input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent)}
+.src-roots-list{max-height:260px;overflow:auto}
+.src-root-row{
+  background:rgba(255,255,255,.03);border-radius:10px;padding:10px 12px;margin-bottom:8px;
+  border:1px solid rgba(255,255,255,.05)
+}
+.src-root-row .rr-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.src-root-row .rr-label{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.src-root-row .rr-dir{font-size:11px;color:var(--sub);word-break:break-all;margin-bottom:6px}
+.src-root-row .rr-btns{display:flex;gap:10px;align-items:center;font-size:12px;color:var(--sub)}
+.src-root-row .rr-btns label{display:flex;align-items:center;gap:4px;cursor:pointer}
+.src-root-row .rr-btns input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent)}
+.src-root-row .rr-del{color:var(--pink);cursor:pointer;margin-left:auto}
+.src-roots-empty{font-size:12px;color:#555;font-style:italic;padding:10px 0}
+.src-section-divider{border-top:1px solid rgba(255,255,255,.06);margin:18px 0;padding-top:16px}
+
+/* Scan log */
+#scan-log{
+  background:var(--card);border-radius:14px;padding:16px;margin-top:20px;
+  font-size:13px;color:var(--sub);display:none;border:1px solid rgba(255,255,255,.06)
+}
+#scan-log.show{display:block}
+#scan-log pre{color:var(--cyan);margin-top:8px;font-size:12px}
+
+/* Toast */
+#toast{
+  position:fixed;top:20px;left:50%;transform:translateX(-50%) translateY(-70px);
+  background:rgba(20,20,50,.95);border:1px solid rgba(199,54,247,.4);
+  padding:10px 22px;border-radius:12px;font-size:14px;z-index:99;
+  backdrop-filter:blur(12px);transition:transform .28s
+}
+#toast.show{transform:translateX(-50%) translateY(0)}
+
+.empty{text-align:center;color:#444;padding:40px 0;font-size:14px}
+
+/* Login gate */
+#login-overlay{
+  position:fixed;inset:0;z-index:200;background:var(--bg);
+  display:flex;align-items:center;justify-content:center
+}
+#login-overlay.hidden{display:none}
+.auth-box{
+  background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:18px;
+  padding:36px 32px;width:340px;max-width:88vw;text-align:center
+}
+.auth-box .lg-title{font-size:20px;font-weight:800;margin-bottom:6px}
+.auth-box .lg-sub{color:var(--sub);font-size:13px;margin-bottom:22px}
+.auth-box input{
+  width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:10px;padding:12px 14px;color:var(--text);font-size:14px;outline:none;margin-bottom:14px
+}
+.auth-box input:focus{border-color:var(--accent)}
+.auth-box button{
+  width:100%;padding:12px;border-radius:10px;border:none;font-weight:600;cursor:pointer;
+  background:linear-gradient(135deg,var(--accent),var(--cyan));color:#07071a;font-size:14px
+}
+#login-err,#setup-err{color:var(--pink);font-size:12px;margin:-6px 0 12px;min-height:14px}
+.hidden{display:none !important}
+</style>
+<link rel="stylesheet" href="/cartoon-theme.css">
+</head>
+<body>
+<div id="login-overlay">
+  <div id="login-box" class="auth-box hidden">
+    <div class="lg-title">🔒 管理后台</div>
+    <div class="lg-sub">请输入管理员密码登录<br><span style="opacity:.7;font-size:11px">密码由部署方在 docker-compose 的 ADMIN_PASSWORD 中设置</span></div>
+    <input id="login-password" type="password" placeholder="管理员密码" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    <div id="login-err"></div>
+    <button onclick="doLogin()">登录</button>
+  </div>
+</div>
+
+<header>
+  <div class="logo">墨墨爱K歌 <span>管理后台</span><span class="ver-badge" id="admin-version"></span></div>
+  <div class="spacer"></div>
+  <button class="hbtn" onclick="window.open('/','_blank')">🏠 首页</button>
+  <button class="hbtn" onclick="window.open('/tv','_blank')">📺 TV端</button>
+  <button class="hbtn" onclick="window.open('/m','_blank')">📱 手机端</button>
+  <button class="hbtn" onclick="openSrcModal()" title="选择 /mv、/mv-net 下的哪些子文件夹作为曲库来源、是否按网络路径走本地缓存，以及网盘本地缓存的调优参数">📂 曲库源设置</button>
+  <div class="hdrop" id="hdrop-scan">
+    <button class="hbtn primary" onclick="toggleHdrop('scan',event)">🔄 文件扫描 ▾</button>
+    <div class="hdrop-menu" id="hdrop-scan-menu">
+      <div class="hdrop-item" onclick="doScan('full')" title="新增+更新+删除：会把这一轮没扫到的曲目从曲库里删掉，网盘/网络挂载临时不稳定时有骤减熔断保护，但仍建议在确认目录/挂载正常后再点">🔄 全量扫描</div>
+      <div class="hdrop-item" onclick="doScan('incremental')" title="只新增/更新曲目信息，绝不删除任何已有记录，最安全的日常扫描方式，比如网盘刚挂载好还不确定是否稳定时可以先用这个">➕ 增量扫描(不删除)</div>
+      <div class="hdrop-item" onclick="doDiffPreview()" title="只读预览：不写数据库，看看现在如果点「全量扫描」会新增/删除哪些歌，确认没问题再去真正执行">🔍 差异预览(不修改)</div>
+      <div class="hdrop-item" onclick="doRescanAvatars()">🖼️ 扫描歌手头像</div>
+      <div class="hdrop-item" onclick="doRescanAudioTracks()" title="重新探测【全部】歌曲的音轨数量(含已正确的)，主要用于升级后一次性修复历史遗留问题；只针对某一首歌，用歌曲列表里那一行的「重探音轨」更快">🎚️ 扫描音轨</div>
+    </div>
+  </div>
+  <div class="hdrop" id="hdrop-catalog">
+    <button class="hbtn" onclick="toggleHdrop('catalog',event)">📦 曲库快照 ▾</button>
+    <div class="hdrop-menu" id="hdrop-catalog-menu">
+      <div class="hdrop-item" onclick="catalogExport()" title="把当前全部曲目元数据导出成一个 JSON 快照文件下载到本机；新机装应用后用它免扫描直接恢复曲库">⬇️ 导出快照(下载)</div>
+      <div class="hdrop-item" onclick="catalogWriteFiles()" title="把快照 JSON 写到每个曲库来源根目录和数据目录，快照随歌曲文件夹一起带走，拷到哪都能恢复">💾 快照写到曲库目录</div>
+      <div class="hdrop-item" onclick="document.getElementById('catalog-file-input').click()" title="选一份之前导出的快照 JSON，免扫描直接把曲目导入新机/新库">⬆️ 导入快照(免扫描)</div>
+    </div>
+  </div>
+  <input type="file" id="catalog-file-input" accept=".json,application/json" hidden onchange="catalogImport(this)">
+  <div class="hdrop" id="hdrop-manage">
+    <button class="hbtn" onclick="toggleHdrop('manage',event)">🛠️ 文件管理 ▾</button>
+    <div class="hdrop-menu" id="hdrop-manage-menu">
+      <div class="hdrop-item" onclick="openParseModal()">🧩 文件名解析</div>
+      <div class="hdrop-item" onclick="openCleanModal()">🧹 歌曲名清洗</div>
+      <div class="hdrop-item" onclick="openCacheModal()" title="清理 HLS 转码缓存，可设置按存储空间限额或按点歌时间自动清理">🗑️ 缓存清理</div>
+    </div>
+  </div>
+  <div class="hdrop" id="hdrop-ai">
+    <button class="hbtn" onclick="toggleHdrop('ai',event)">🤖 AI工作站 ▾</button>
+    <div class="hdrop-menu" id="hdrop-ai-menu">
+      <div class="hdrop-item" onclick="aiEnqueueMissing('align','逐字歌词')" title="把还没做逐字对齐的音频歌加入队列，由开机的AI工作站自动识别+官方歌词纠错，生成可逐字变色的歌词">🎤 批量生成逐字歌词</div>
+      <div class="hdrop-item" onclick="aiEnqueueMissing('separate','人声分离')" title="把还没做人声分离的音频歌加入队列，分离后人声/伴奏，可切换原唱/半消/伴奏">🎚️ 批量人声分离</div>
+      <div class="hdrop-item" onclick="aiBatchLyrics()" title="给缺少歌词的歌曲从网易云/QQ/酷我在线补抓标准歌词（逐字纠错的官方文本来源），限速串行">📝 补抓在线歌词</div>
+      <div class="hdrop-item" onclick="aiStats()" title="查看逐字对齐/人声分离/歌词覆盖的实时进度">📊 AI处理进度</div>
+    </div>
+  </div>
+  <button class="hbtn" onclick="openCloudModal()" title="管理115网盘等云端存储账号">☁️ 网盘管理</button>
+  <button class="hbtn" onclick="openUserModal()" title="创建/删除用于登录K歌主页面(/tv)的账号，跟管理后台自己的管理员密码是两回事">👤 用户管理</button>
+  <button class="hbtn" onclick="doLogout()">🚪 退出登录</button>
+</header>
+
+<main>
+  <div class="stats-row">
+    <div class="stat">
+      <div class="n" id="s-total">—</div><div class="l">总曲目</div>
+      <div class="breakdown">本地 <span id="s-total-local">—</span> · 网络 <span id="s-total-network">—</span></div>
+    </div>
+    <div class="stat"><div class="n" id="s-queue">—</div><div class="l">队列中</div></div>
+    <div class="stat"><div class="n" id="s-plays">—</div><div class="l">累计播放</div></div>
+  </div>
+
+  <div class="toolbar">
+    <div class="search-box">
+      <span>🔍</span>
+      <input id="search" placeholder="搜索歌名 / 歌手…" oninput="doSearch(this.value)">
+    </div>
+    <div class="scope-toggle" id="scope-toggle">
+      <button class="scope-btn active" data-scope="" onclick="doScopeChange('')">全部</button>
+      <button class="scope-btn" data-scope="local" onclick="doScopeChange('local')">本地曲库</button>
+      <button class="scope-btn" data-scope="network" onclick="doScopeChange('network')">网络曲库</button>
+    </div>
+    <select id="filter-select" onchange="doFilterChange(this.value)">
+      <option value="">全部歌曲</option>
+      <option value="any">信息不完整（缺歌手/语种/风格）</option>
+      <option value="artist">歌手未知</option>
+      <option value="language">缺语种</option>
+      <option value="genre">缺风格</option>
+      <option value="track">未探测成功/单音轨</option>
+    </select>
+  </div>
+
+  <div class="batch-bar">
+    <span>已选 <b id="sel-count">0</b> 首（可跨页勾选）</span>
+    <div class="spacer"></div>
+    <button class="hbtn" id="sel-clear-btn" onclick="clearSelection()" disabled>清空已选</button>
+    <button class="hbtn" id="batch-reprobe-btn" onclick="batchReprobe()" disabled title="对已选中的歌曲逐一重新探测音轨数量">🎚️ 批量重探音轨</button>
+    <button class="hbtn primary" id="batch-open-btn" onclick="openBatchModal()" disabled>🏷️ 批量设置语种/风格</button>
+  </div>
+
+  <div class="table-scroll">
+  <table class="song-table">
+    <thead>
+      <tr>
+        <th><input type="checkbox" id="select-all-page" onchange="toggleSelectAllPage(this.checked)" title="全选本页"></th>
+        <th>#</th><th>歌名</th><th>歌手</th><th style="width:126px">语种</th><th style="width:126px">风格</th><th>音轨</th><th style="text-align:right">播放</th><th style="text-align:right;width:190px">操作</th><th style="width:110px">来源</th>
+      </tr>
+    </thead>
+    <tbody id="song-tbody"></tbody>
+  </table>
+  </div>
+  <div class="empty" id="empty-tip" style="display:none">暂无歌曲，请先扫描曲库</div>
+
+  <div class="pagination" id="pagination" style="display:none">
+    <button class="hbtn" id="pg-prev" onclick="goPage(currentPage-1)">‹ 上一页</button>
+    <span>第 <b id="pg-cur">1</b> / <b id="pg-total">1</b> 页 · 共 <b id="pg-count">0</b> 首 · 每页 50 首</span>
+    <button class="hbtn" id="pg-next" onclick="goPage(currentPage+1)">下一页 ›</button>
+  </div>
+
+  <div id="scan-log">
+    <b>扫描结果</b>
+    <pre id="scan-pre"></pre>
+  </div>
+</main>
+
+<!-- Edit modal -->
+<div id="modal-overlay" onclick="closeModal()">
+  <div id="modal" onclick="event.stopPropagation()">
+    <h3>✏️ 编辑歌曲信息</h3>
+    <div class="form-row"><label>歌名</label><input id="edit-title" placeholder="歌名"></div>
+    <div class="form-row"><label>歌手（多位歌手用空格分隔，如"刀郎 张三"）</label><input id="edit-artist" placeholder="歌手"></div>
+    <div class="form-row"><label>语种</label><input id="edit-language" placeholder="如：国语 / 粤语 / 英语（可留空）"></div>
+    <div class="form-row"><label>风格</label><input id="edit-genre" placeholder="如：流行 / 摇滚 / 民谣（可留空）"></div>
+    <input type="hidden" id="edit-id">
+    <div class="modal-btns">
+      <button class="hbtn" onclick="closeModal()">取消</button>
+      <button class="hbtn primary" onclick="saveEdit()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Batch language/genre modal -->
+<div id="batch-modal-overlay" onclick="closeBatchModal()">
+  <div id="batch-modal" onclick="event.stopPropagation()">
+    <h3>🏷️ 批量设置语种 / 风格</h3>
+    <div class="batch-count">将应用到 <b id="batch-count">0</b> 首已选中的歌曲</div>
+
+    <div class="batch-field">
+      <label><input type="checkbox" id="batch-set-lang" onchange="toggleBatchField('lang',this.checked)"> 设置语种</label>
+      <select id="batch-lang-select" disabled></select>
+      <div class="preset-manage">
+        <div class="preset-chips" id="lang-preset-chips"></div>
+        <div class="preset-add">
+          <input id="lang-preset-input" placeholder="自定义语种预设，如：闽南语" onkeydown="if(event.key==='Enter')addPreset('language')">
+          <button class="hbtn" onclick="addPreset('language')">添加预设</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="batch-field">
+      <label><input type="checkbox" id="batch-set-genre" onchange="toggleBatchField('genre',this.checked)"> 设置风格</label>
+      <select id="batch-genre-select" disabled></select>
+      <div class="preset-manage">
+        <div class="preset-chips" id="genre-preset-chips"></div>
+        <div class="preset-add">
+          <input id="genre-preset-input" placeholder="自定义风格预设，如：R&B" onkeydown="if(event.key==='Enter')addPreset('genre')">
+          <button class="hbtn" onclick="addPreset('genre')">添加预设</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-btns">
+      <button class="hbtn" onclick="closeBatchModal()">取消</button>
+      <button class="hbtn primary" onclick="applyBatch()">应用到选中歌曲</button>
+    </div>
+  </div>
+</div>
+
+<!-- Filename parse modal -->
+<div id="parse-modal-overlay" onclick="if(event.target===this)closeParseModal()">
+  <div id="parse-modal" onclick="event.stopPropagation()">
+    <h3>🧩 文件名解析</h3>
+    <div class="parse-tip">
+      按你曲库文件真实的命名习惯填写解析格式：用"歌手""歌名"（或"歌曲名"）代表这两个字段；
+      语种、风格可以直接写当前预设里的取值（如"国语""流行"）当占位，不用记抽象字段名；
+      其余文字、分隔符、括号照抄一遍，系统靠它们定位每个字段的位置，最终结果里会自动
+      去掉括号这类<b>无用信息</b>。<br>
+      例如文件实际命名是「周杰伦-晴天(国语-流行).mp4」，解析格式就填：<b>歌手-歌名(国语-流行)</b>
+    </div>
+    <div class="form-row">
+      <label>解析格式</label>
+      <input id="parse-pattern" placeholder="例如：歌手-歌名(国语-流行)">
+    </div>
+    <div id="parse-err" style="color:var(--pink);font-size:12px;min-height:14px;margin:6px 0"></div>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+      <span class="ignored-toggle" onclick="toggleParseIgnoredPanel()" id="parse-ignored-toggle-btn">🚫 已忽略（<span id="parse-ignored-count">0</span>）</span>
+    </div>
+    <div id="parse-ignored-panel" class="ignored-panel" style="display:none"></div>
+    <div id="parse-scope-tip" style="font-size:12px;color:var(--sub);margin-bottom:4px"></div>
+    <div class="modal-btns" style="justify-content:flex-start;margin:4px 0 0">
+      <button class="hbtn primary" onclick="previewParse()">👁️ 预览解析效果</button>
+    </div>
+
+    <div id="parse-result" style="display:none">
+      <div class="parse-toolbar">
+        <label><input type="checkbox" id="parse-select-all" onchange="toggleParseAllRows(this.checked)"> 全选可用变更</label>
+        <span id="parse-stat"></span>
+      </div>
+      <div class="parse-col-heads">
+        <span>← 读取到的文件（当前信息）</span>
+        <span>解析后的文件（勾选后确认）→</span>
+      </div>
+      <div class="parse-cols" id="parse-cols"></div>
+    </div>
+
+    <div class="modal-btns">
+      <button class="hbtn" onclick="closeParseModal()">取消</button>
+      <button class="hbtn" onclick="applyParse(true)">确认所选（<span id="parse-sel-count">0</span>）</button>
+      <button class="hbtn primary" onclick="applyParse(false)">确认全部可用变更</button>
+    </div>
+  </div>
+</div>
+
+<!-- 一键清洗 modal -->
+<div id="clean-modal-overlay" onclick="if(event.target===this)closeCleanModal()">
+  <div id="clean-modal" onclick="event.stopPropagation()">
+    <h3>🧹 一键清洗</h3>
+    <div class="parse-tip">
+      维护一份"忽略词"列表（比如画质/平台版本标记：<b>1080p</b>、<b>抖音版</b>、<b>live</b>），
+      命中就整体从歌名里摘掉，只留下干净的歌曲名；同时只要歌名里任意位置（不限开头/结尾/某个
+      固定分隔符位置）命中当前<b>语种</b>/<b>风格</b>预设列表里的取值（如"国语""流行"），
+      也会顺带识别出来、从歌名里摘出，一起放进预览里对照确认，勾选或全部确认后才批量写回。
+    </div>
+
+    <div class="preset-manage" style="margin-bottom:14px">
+      <div class="preset-chips" id="noise-preset-chips"></div>
+      <div class="preset-add">
+        <input id="noise-preset-input" placeholder="自定义忽略词，如：1080p / 抖音版 / live" onkeydown="if(event.key==='Enter')addPreset('noise')">
+        <button class="hbtn" onclick="addPreset('noise')">添加忽略词</button>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
+      <span class="ignored-toggle" onclick="toggleCleanIgnoredPanel()" id="clean-ignored-toggle-btn">🚫 已忽略（<span id="clean-ignored-count">0</span>）</span>
+    </div>
+    <div id="clean-ignored-panel" class="ignored-panel" style="display:none"></div>
+
+    <div id="clean-scope-tip" style="font-size:12px;color:var(--sub);margin-bottom:4px"></div>
+    <div class="modal-btns" style="justify-content:flex-start;margin:4px 0 0">
+      <button class="hbtn primary" onclick="previewClean()">👁️ 预览清洗效果</button>
+    </div>
+
+    <div id="clean-result" style="display:none">
+      <div class="parse-toolbar">
+        <label><input type="checkbox" id="clean-select-all" onchange="toggleCleanAllRows(this.checked)"> 全选可用变更</label>
+        <span id="clean-stat"></span>
+      </div>
+      <div class="parse-col-heads">
+        <span>← 当前信息（清洗前）</span>
+        <span>清洗后（勾选后确认）→</span>
+      </div>
+      <div class="parse-cols" id="clean-cols"></div>
+    </div>
+
+    <div class="modal-btns">
+      <button class="hbtn" onclick="closeCleanModal()">取消</button>
+      <button class="hbtn" onclick="applyClean(true)">确认所选（<span id="clean-sel-count">0</span>）</button>
+      <button class="hbtn primary" onclick="applyClean(false)">确认全部可用变更</button>
+    </div>
+  </div>
+</div>
+
+<!-- 清理缓存 modal -->
+<div id="cache-modal-overlay" onclick="if(event.target===this)closeCacheModal()">
+  <div id="cache-modal" onclick="event.stopPropagation()">
+    <h3>🗑️ 清理缓存</h3>
+    <div class="batch-count">当前 HLS 转码缓存占用 <b id="cache-size">—</b>，共 <b id="cache-count">0</b> 个缓存目录</div>
+
+    <label class="cache-mode-label">
+      <input type="radio" name="cache-mode" value="size" onchange="onCacheModeChange('size')"> 按存储空间限额清理
+    </label>
+    <div class="cache-value-row">
+      <input id="cache-size-limit" type="number" min="1" placeholder="限额">
+      <span>MB</span>
+    </div>
+    <div class="cache-hint">缓存总量超过限额时，自动清理最早点唱过（或从未被点唱过）的缓存，直到总量降回限额以内</div>
+
+    <label class="cache-mode-label" style="margin-top:14px">
+      <input type="radio" name="cache-mode" value="time" onchange="onCacheModeChange('time')"> 按点歌时间清理
+    </label>
+    <div class="cache-value-row">
+      <input id="cache-time-days" type="number" min="1" placeholder="天数">
+      <span>天</span>
+    </div>
+    <div class="cache-hint">超过这个天数没有被点唱过的缓存会被自动清理</div>
+
+    <div class="modal-btns">
+      <button class="hbtn" onclick="closeCacheModal()">取消</button>
+      <button class="hbtn" onclick="saveCacheSettings()">保存设置</button>
+      <button class="hbtn primary" onclick="runCacheClean()">立即清理一次</button>
+      <button class="hbtn danger" onclick="runCacheCleanAll()" title="不看上面的限额/天数设置，直接清空全部 HLS 转码缓存；已转码过的歌曲下次点唱时会重新转码，不影响原始曲库文件">🧹 清理全部缓存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 曲库来源 modal -->
+<div id="src-modal-overlay" onclick="if(event.target===this)closeSrcModal()">
+  <div id="src-modal" onclick="event.stopPropagation()">
+    <h3>📂 曲库源设置</h3>
+    <div class="batch-count">docker-compose.yml 只固定挂载两个通用目录：<b>/mv</b>(本地曲库)、<b>/mv-net</b>(网络/网盘曲库)。把 host 上的文件夹（本地目录，或用 fnOS 网盘挂载/rclone/alist 等工具挂出来的网盘目录）对应放进这两个共享目录后，在下面浏览并选择要作为曲库来源的子文件夹即可——保存后立即生效，不需要重建容器。</div>
+
+    <div class="src-cols">
+      <div class="src-col">
+        <div class="src-col-title">浏览并添加</div>
+        <div class="src-base-tabs" id="src-base-tabs"></div>
+        <div class="src-crumb" id="src-crumb"></div>
+        <div class="src-folder-list" id="src-folder-list"></div>
+        <div class="src-add-row">
+          <label><input type="checkbox" id="src-add-network"> 网络路径(播放前先缓存到本地，避免慢速网盘拖垮探测/播放)</label>
+        </div>
+        <div class="cache-hint">点子文件夹名称进入下一级；点右侧「添加」把<b>当前正在浏览的这一级目录本身</b>加为一个曲库来源。</div>
+      </div>
+      <div class="src-col">
+        <div class="src-col-title">已配置的曲库来源</div>
+        <div class="src-roots-list" id="src-roots-list"></div>
+        <div id="src-orphan-box" style="display:none;margin-top:8px;background:rgba(255,79,155,.08);border-radius:10px;padding:10px 12px">
+          <div class="cache-hint" id="src-orphan-hint" style="margin-bottom:8px"></div>
+          <button class="hbtn" style="font-size:12px;padding:6px 12px" onclick="cleanupSrcOrphans()">清理孤儿曲目</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="src-section-divider">
+      <div class="src-col-title" style="margin-bottom:10px">网盘本地缓存调优</div>
+      <div class="cache-value-row">
+        <input id="src-cache-max-mb" type="number" min="1" placeholder="缓存空间上限">
+        <span>MB</span>
+      </div>
+      <div class="cache-hint">网络路径的曲目第一次被探测/播放时会先完整拷贝到本地磁盘，缓存总量超过这个上限时按最久未访问优先清理</div>
+      <div class="cache-value-row">
+        <input id="src-cache-max-age" type="number" min="1" placeholder="保留天数">
+        <span>天</span>
+      </div>
+      <div class="cache-hint">超过这么多天没被访问的本地缓存会被自动清理，源网盘文件不受影响，下次点唱会重新缓存</div>
+      <div class="cache-value-row">
+        <input id="src-cache-concurrency" type="number" min="1" placeholder="并发拷贝数">
+        <span>个</span>
+      </div>
+      <div class="cache-hint">同时最多拷贝几个文件到本地；网盘场景下并发太多反而互相抢带宽，一般保持默认(2)即可</div>
+    </div>
+
+    <div class="modal-btns">
+      <button class="hbtn" onclick="closeSrcModal()">关闭</button>
+      <button class="hbtn" onclick="saveSrcCacheSettings()">保存缓存参数</button>
+      <button class="hbtn primary" onclick="doScan();closeSrcModal();">立即扫描曲库</button>
+    </div>
+  </div>
+</div>
+
+<!-- 用户管理 modal：管理"登录K歌主页面(/tv)"用的账号，跟管理后台自己的
+     管理员密码(ADMIN_PASSWORD，见 docker-compose)是两套完全独立的身份 -->
+<div id="user-modal-overlay" onclick="if(event.target===this)closeUserModal()">
+  <div id="user-modal" onclick="event.stopPropagation()">
+    <h3>👤 用户管理 · K歌主页面登录账号</h3>
+    <div style="font-size:12px;color:var(--sub);margin:-10px 0 16px;line-height:1.6">
+      这里创建的账号用于登录「K歌主页面」(/tv 大屏页)，跟管理后台自己的管理员密码是两回事。
+      需要先创建至少一个账号，观众/使用者才能打开K歌主页面。
+    </div>
+    <div id="user-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:18px;max-height:260px;overflow-y:auto"></div>
+    <div class="src-section-divider"></div>
+    <div class="form-row"><label>新增账号</label><input id="user-new-username" placeholder="账号名"></div>
+    <div class="form-row"><input id="user-new-password" type="password" placeholder="密码（至少 4 位）" autocomplete="new-password"></div>
+    <div id="user-err" style="color:var(--pink);font-size:12px;min-height:14px;margin-bottom:4px"></div>
+    <div class="modal-btns">
+      <button class="hbtn" onclick="closeUserModal()">关闭</button>
+      <button class="hbtn primary" onclick="addTvUser()">➕ 新增账号</button>
+    </div>
+  </div>
+</div>
+
+<!-- 重置密码 modal：用户管理列表里点"重置密码"用的小弹窗 -->
+<div id="user-pw-modal-overlay" onclick="if(event.target===this)closeUserPwModal()">
+  <div id="user-pw-modal" onclick="event.stopPropagation()">
+    <h3>🔑 重置密码</h3>
+    <div class="form-row"><label>账号</label><input id="user-pw-username" disabled></div>
+    <div class="form-row"><label>新密码</label><input id="user-pw-new" type="password" placeholder="至少 4 位" autocomplete="new-password"></div>
+    <div id="user-pw-err" style="color:var(--pink);font-size:12px;min-height:14px;margin-bottom:8px"></div>
+    <div class="modal-btns">
+      <button class="hbtn" onclick="closeUserPwModal()">取消</button>
+      <button class="hbtn primary" onclick="submitResetTvUserPassword()">保存</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- 网盘管理 modal：管理115网盘等云端存储账号 -->
+<div id="cloud-modal-overlay" onclick="if(event.target===this)closeCloudModal()">
+  <div id="cloud-modal" onclick="event.stopPropagation()" style="width:680px;max-width:94vw">
+    <h3>☁️ 网盘账号管理</h3>
+    <div style="font-size:12px;color:var(--sub);margin:-10px 0 16px;line-height:1.7">
+      目前支持 <b style="color:var(--cyan)">115网盘</b>。推荐使用<b style="color:var(--cyan)">扫码登录</b>，用手机115 App扫码即可自动获取Cookie，无需手动复制。
+    </div>
+
+    <!-- 登录方式切换 -->
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button id="tab-qrcode" class="hbtn primary" onclick="switchCloudTab('qrcode')" style="flex:1">📱 扫码登录（推荐）</button>
+      <button id="tab-cookie" class="hbtn" onclick="switchCloudTab('cookie')" style="flex:1">📋 Cookie粘贴</button>
+    </div>
+
+    <!-- 扫码登录区域 -->
+    <div id="cloud-qrcode-section" style="background:rgba(255,255,255,.03);border-radius:12px;padding:14px;margin-bottom:16px;border:1px solid rgba(255,255,255,.06)">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">📱 扫码登录 115 网盘</div>
+      <div style="display:flex;gap:16px;align-items:flex-start">
+        <div style="flex-shrink:0;text-align:center">
+          <div id="qrcode-container" style="width:180px;height:180px;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden">
+            <div style="color:#999;font-size:12px">点击下方按钮获取二维码</div>
+          </div>
+          <div id="qrcode-status" style="margin-top:8px;font-size:12px;color:var(--sub)">等待扫码...</div>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div class="form-row" style="margin-bottom:10px">
+            <label>账号名称（备注）</label>
+            <input id="cloud-qr-name-input" placeholder="如：我的115" value="我的115">
+          </div>
+          <div class="form-row" style="margin-bottom:10px">
+            <label>登录设备类型</label>
+            <select id="cloud-qr-app-select" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none">
+              <option value="wechatmini">微信小程序（推荐，不顶号）</option>
+              <option value="web">网页端</option>
+              <option value="android">安卓</option>
+              <option value="ios">iOS</option>
+              <option value="tv">TV端</option>
+              <option value="linux">Linux</option>
+            </select>
+          </div>
+          <button id="cloud-qr-start-btn" class="hbtn primary" onclick="startQrLogin()" style="width:100%;margin-bottom:8px">获取二维码</button>
+          <div style="font-size:11px;color:var(--sub);line-height:1.6">
+            1. 点击「获取二维码」<br>
+            2. 用手机115 App扫码<br>
+            3. 手机上确认登录<br>
+            4. 自动创建账号 ✓
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cookie 粘贴区域 -->
+    <div id="cloud-cookie-section" style="display:none;background:rgba(255,255,255,.03);border-radius:12px;padding:14px;margin-bottom:16px;border:1px solid rgba(255,255,255,.06)">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">📋 使用 Cookie 添加账号</div>
+      <div style="font-size:11px;color:var(--sub);margin-bottom:10px;line-height:1.6">
+        <b style="color:var(--pink)">获取Cookie方法：</b>浏览器登录 115.com → F12开发者工具 → Network → 刷新页面 → 任意请求的 Request Headers 中复制 Cookie（包含 UID、CID、SEID、KID）。
+      </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <label>网盘类型</label>
+        <select id="cloud-driver-select" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none">
+          <option value="pan115">115网盘</option>
+        </select>
+      </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <label>网盘类型</label>
+        <select id="cloud-driver-select" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none">
+          <option value="pan115">115网盘</option>
+        </select>
+      </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <label>账号名称（备注，如"我的115"）</label>
+        <input id="cloud-name-input" placeholder="账号名称">
+      </div>
+      <div class="form-row" style="margin-bottom:10px">
+        <label>Cookie（从浏览器复制，包含 UID、CID、SEID、KID）</label>
+        <textarea id="cloud-cookie-input" placeholder="UID=xxx; CID=xxx; SEID=xxx; KID=xxx" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:12px;outline:none;min-height:60px;resize:vertical;font-family:monospace"></textarea>
+      </div>
+      <div id="cloud-add-err" style="color:var(--pink);font-size:12px;min-height:14px;margin-bottom:8px"></div>
+      <button class="hbtn primary" onclick="addCloudAccount()" style="width:100%">添加并测试连接</button>
+    </div>
+    </div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px">📋 已添加的账号</div>
+    <div id="cloud-accounts-list" style="max-height:300px;overflow-y:auto"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+let allSongs = [];           // 当前这一页的数据
+let presets = { languages: [], genres: [] };
+let selectedIds = new Set(); // 跨页保留的多选歌曲 id 集合
+const PAGE_SIZE = 50;        // 曲库管理每页固定显示 50 首，缓解曲库很大时的加载卡顿
+let currentPage = 1;
+let totalPages = 1;
+let totalCount = 0;
+
+// ---------- 登录状态 ----------
+// 管理员密码现在固定由 docker-compose 的 ADMIN_PASSWORD 定义(见
+// server/index.js)，不再有"首次使用需要自己设置密码"这一步，会话只有
+// "已登录"/"未登录"两种状态，比以前简单。
+async function checkSession(){
+  try{
+    const r = await fetch('/api/admin/session');
+    const d = await r.json();
+    if(d.authed){ showApp(); }
+    else{ showLogin(); }
+  }catch(e){ showLogin(); }
+}
+
+function showLogin(){
+  document.getElementById('login-overlay').classList.remove('hidden');
+  document.getElementById('login-box').classList.remove('hidden');
+}
+
+function showApp(){
+  document.getElementById('login-overlay').classList.add('hidden');
+  loadPresets();
+  refreshSourceLabelMap().finally(loadAll);
+}
+
+async function doLogin(){
+  const input = document.getElementById('login-password');
+  const errEl = document.getElementById('login-err');
+  const pw = input.value;
+  errEl.textContent = '';
+  if(!pw){ errEl.textContent = '请输入密码'; return; }
+  try{
+    const r = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pw }),
+    });
+    if(r.ok){
+      input.value = '';
+      showApp();
+    } else {
+      const d = await r.json().catch(()=>({}));
+      errEl.textContent = d.error || '密码错误';
+    }
+  }catch(e){
+    errEl.textContent = '登录请求失败，请检查网络';
+  }
+}
+
+// ---------- 用户管理(K歌主页面登录账号) ----------
+function openUserModal(){
+  document.getElementById('user-new-username').value = '';
+  document.getElementById('user-new-password').value = '';
+  document.getElementById('user-err').textContent = '';
+  document.getElementById('user-modal-overlay').classList.add('open');
+  loadTvUsers();
+}
+function closeUserModal(){ document.getElementById('user-modal-overlay').classList.remove('open'); }
+
+async function loadTvUsers(){
+  const listEl = document.getElementById('user-list');
+  listEl.innerHTML = '<div class="user-empty-tip">加载中…</div>';
+  try{
+    const r = await fetch('/api/admin/tv-users');
+    if(r.status === 401){ showLogin(); return; }
+    const d = await r.json();
+    const users = d.users || [];
+    if(!users.length){
+      listEl.innerHTML = '<div class="user-empty-tip">还没有账号，创建一个后使用者才能登录K歌主页面</div>';
+      return;
+    }
+    listEl.innerHTML = users.map(u => `
+      <div class="user-row">
+        <div>
+          <div class="uname">${esc(u.username)}</div>
+          <div class="udate">创建于 ${esc((u.created_at || '').replace('T',' ').slice(0,16))}</div>
+        </div>
+        <button class="ubtn" onclick="openUserPwModal(${u.id},'${escJs(u.username)}')">重置密码</button>
+        <button class="ubtn danger" onclick="deleteTvUser(${u.id},'${escJs(u.username)}')">删除</button>
+      </div>
+    `).join('');
+  }catch(e){
+    listEl.innerHTML = '<div class="user-empty-tip">加载失败，请重试</div>';
+  }
+}
+
+async function addTvUser(){
+  const username = document.getElementById('user-new-username').value.trim();
+  const password = document.getElementById('user-new-password').value;
+  const errEl = document.getElementById('user-err');
+  errEl.textContent = '';
+  if(!username){ errEl.textContent = '请输入账号名'; return; }
+  if(!password || password.length < 4){ errEl.textContent = '密码至少 4 位'; return; }
+  try{
+    const r = await fetch('/api/admin/tv-users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if(r.status === 401){ showLogin(); return; }
+    if(!r.ok){ const d = await r.json().catch(()=>({})); errEl.textContent = d.error || '新增失败，请重试'; return; }
+    document.getElementById('user-new-username').value = '';
+    document.getElementById('user-new-password').value = '';
+    await loadTvUsers();
+    toast('账号已新增 ✓');
+  }catch(e){
+    errEl.textContent = '请求失败，请检查网络';
+  }
+}
+
+async function deleteTvUser(id, username){
+  if(!confirm(`确认删除账号「${username}」？删除后这个账号将无法再登录K歌主页面，已经登录的浏览器也会在下次校验时被要求重新登录。`)) return;
+  try{
+    const r = await fetch(`/api/admin/tv-users/${id}`, { method: 'DELETE' });
+    if(r.status === 401){ showLogin(); return; }
+    await loadTvUsers();
+    toast('账号已删除 ✓');
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+let userPwTargetId = null;
+function openUserPwModal(id, username){
+  userPwTargetId = id;
+  document.getElementById('user-pw-username').value = username;
+  document.getElementById('user-pw-new').value = '';
+  document.getElementById('user-pw-err').textContent = '';
+  document.getElementById('user-pw-modal-overlay').classList.add('open');
+}
+function closeUserPwModal(){ document.getElementById('user-pw-modal-overlay').classList.remove('open'); }
+
+async function submitResetTvUserPassword(){
+  const newPassword = document.getElementById('user-pw-new').value;
+  const errEl = document.getElementById('user-pw-err');
+  errEl.textContent = '';
+  if(!newPassword || newPassword.length < 4){ errEl.textContent = '新密码至少 4 位'; return; }
+  try{
+    const r = await fetch(`/api/admin/tv-users/${userPwTargetId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: newPassword }),
+    });
+    if(r.status === 401){ showLogin(); return; }
+    if(!r.ok){ const d = await r.json().catch(()=>({})); errEl.textContent = d.error || '重置失败，请重试'; return; }
+    closeUserPwModal();
+    toast('密码已重置 ✓');
+  }catch(e){
+    errEl.textContent = '请求失败，请检查网络';
+  }
+}
+
+async function doLogout(){
+  try{ await fetch('/api/admin/logout', { method: 'POST' }); } catch(e){}
+  showLogin();
+}
+
+// ---------- 语种/风格预设 ----------
+async function loadPresets(){
+  try{
+    const r = await fetch('/api/admin/presets');
+    if(r.status === 401){ showLogin(); return; }
+    presets = await r.json();
+    renderPresetChips();
+    render(allSongs); // 预设变化后，表格里各行下拉框的可选项要跟着刷新
+  }catch(e){ /* 预设加载失败不影响主列表使用，静默忽略 */ }
+}
+
+function renderPresetChips(){
+  const langBox = document.getElementById('lang-preset-chips');
+  const genreBox = document.getElementById('genre-preset-chips');
+  const noiseBox = document.getElementById('noise-preset-chips');
+  const build = (list, type) => list.length
+    ? list.map(v => `<span class="preset-chip">${esc(v)}<span class="x" title="删除预设" onclick="deletePreset('${type}','${escJs(v)}')">✕</span></span>`).join('')
+    : '<span class="preset-empty-tip">暂无预设，先在下方添加一个</span>';
+  langBox.innerHTML = build(presets.languages || [], 'language');
+  genreBox.innerHTML = build(presets.genres || [], 'genre');
+  if(noiseBox) noiseBox.innerHTML = build(presets.noiseWords || [], 'noise');
+  fillBatchSelect('batch-lang-select', presets.languages || []);
+  fillBatchSelect('batch-genre-select', presets.genres || []);
+}
+
+function fillBatchSelect(selectId, list){
+  const sel = document.getElementById(selectId);
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">（清空该字段）</option>' +
+    list.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+  if(list.includes(keep)) sel.value = keep;
+}
+
+async function addPreset(type){
+  const inputId = type === 'genre' ? 'genre-preset-input' : type === 'noise' ? 'noise-preset-input' : 'lang-preset-input';
+  const input = document.getElementById(inputId);
+  const value = input.value.trim();
+  if(!value){ return; }
+  try{
+    const r = await fetch('/api/admin/presets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, value }),
+    });
+    if(r.status === 401){ showLogin(); return; }
+    if(!r.ok){ const d = await r.json().catch(()=>({})); toast(d.error || '添加预设失败'); return; }
+    input.value = '';
+    await loadPresets();
+    toast('预设已添加 ✓');
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+async function deletePreset(type, value){
+  const tip = type === 'noise'
+    ? `确认删除忽略词「${value}」？只影响以后"一键清洗"识别到的范围，不会改动已经写入的歌曲信息。`
+    : `确认删除预设「${value}」？已经用它填过的歌曲不会被清空，只是以后不再出现在下拉选项里。`;
+  if(!confirm(tip)) return;
+  try{
+    const r = await fetch(`/api/admin/presets?type=${encodeURIComponent(type)}&value=${encodeURIComponent(value)}`, { method: 'DELETE' });
+    if(r.status === 401){ showLogin(); return; }
+    await loadPresets();
+    toast('预设已删除 ✓');
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+// ---------- 列表加载 / 分页 / 搜索 / 筛选 ----------
+let currentFilter = '';
+// 曲库后台"本地曲库 / 网络曲库"切换：''=全部，'local'=只看本地，
+// 'network'=只看网络/网盘。跟 currentFilter(信息不完整筛选)、搜索关键字
+// 是"且"的关系，三者一起决定最终列表/统计范围。
+let currentScope = '';
+// 曲库来源(根目录) dir -> { label, isNetwork } 映射，用于给主列表最后一列
+// "来源"标注找到对应的备注名(如"115网盘"/"夸克网盘")，见 sourceBadgeHtml()。
+// 独立于 srcRootsCache(那份是"曲库来源"设置弹窗自己的状态)，这里只保留渲染
+// 主列表需要的最小信息，弹窗没打开过也能有数据(见 refreshSourceLabelMap)。
+let sourceRootLabelMap = {};
+function buildSourceLabelMap(roots){
+  const map = {};
+  (roots || []).forEach(r => { map[r.dir] = { label: (r.label || r.dir).trim() || r.dir, isNetwork: !!r.isNetwork }; });
+  return map;
+}
+async function refreshSourceLabelMap(){
+  try{
+    const r = await fetch('/api/admin/library-sources');
+    if(!r.ok) return;
+    const d = await r.json();
+    sourceRootLabelMap = buildSourceLabelMap(d.roots || []);
+  }catch(e){ /* 静默失败，主列表来源栏退回显示笼统的"网络"，不影响其它功能 */ }
+}
+
+async function loadAll(){
+  const stats = await fetch('/api/stats').then(r=>r.json());
+  document.getElementById('s-total').textContent = stats.songCount;
+  document.getElementById('s-total-local').textContent = stats.songCountLocal;
+  document.getElementById('s-total-network').textContent = stats.songCountNetwork;
+  document.getElementById('s-queue').textContent = stats.queueCount;
+  document.getElementById('s-plays').textContent = stats.totalPlays;
+  if(stats.appVersion) document.getElementById('admin-version').textContent = 'v'+stats.appVersion;
+  await refreshList();
+}
+
+// 搜索关键字、"筛选未填写信息"下拉框、本地/网络切换、分页页码几者组合成
+// 最终的列表请求：筛选负责圈定"哪些歌缺信息"，切换按钮负责圈定"本地还是
+// 网络"，搜索关键字负责在这个圈定范围内再按歌名/歌手模糊查找，
+// page/pageSize 负责只取当前这一页（每页 50 首），一起交给服务端一次性
+// 算好再返回。
+function currentSongsQuery(){
+  const q = document.getElementById('search').value.trim();
+  const params = new URLSearchParams();
+  if(q) params.set('q', q);
+  if(currentFilter) params.set('incomplete', currentFilter);
+  if(currentScope) params.set('scope', currentScope);
+  params.set('page', currentPage);
+  params.set('pageSize', PAGE_SIZE);
+  return `/api/songs?${params.toString()}`;
+}
+
+function doScopeChange(value){
+  currentScope = value;
+  currentPage = 1;
+  document.querySelectorAll('#scope-toggle .scope-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.scope === value);
+  });
+  refreshList();
+}
+
+async function refreshList(){
+  const res = await fetch(currentSongsQuery());
+  if(res.status === 401){ showLogin(); return; }
+  const data = await res.json();
+  allSongs = data.items || [];
+  totalCount = data.total || 0;
+  totalPages = data.totalPages || 1;
+  currentPage = data.page || 1;
+  render(allSongs);
+  renderPagination();
+}
+
+function goPage(p){
+  if(p < 1 || p > totalPages || p === currentPage) return;
+  currentPage = p;
+  refreshList();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function renderPagination(){
+  const box = document.getElementById('pagination');
+  box.style.display = totalCount ? 'flex' : 'none';
+  document.getElementById('pg-cur').textContent = currentPage;
+  document.getElementById('pg-total').textContent = totalPages;
+  document.getElementById('pg-count').textContent = totalCount;
+  document.getElementById('pg-prev').disabled = currentPage <= 1;
+  document.getElementById('pg-next').disabled = currentPage >= totalPages;
+}
+
+let searchTimer;
+function doSearch(){
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(()=>{ currentPage = 1; refreshList(); }, 200);
+}
+
+function doFilterChange(value){
+  currentFilter = value;
+  currentPage = 1;
+  refreshList();
+}
+
+// ---------- 多选 / 批量设置 ----------
+function toggleSelect(id, checked){
+  if(checked) selectedIds.add(id); else selectedIds.delete(id);
+  updateSelectionUI();
+}
+
+function toggleSelectAllPage(checked){
+  allSongs.forEach(s => { if(checked) selectedIds.add(s.id); else selectedIds.delete(s.id); });
+  render(allSongs);
+}
+
+function clearSelection(){
+  selectedIds.clear();
+  render(allSongs);
+}
+
+function updateSelectionUI(){
+  const count = selectedIds.size;
+  document.getElementById('sel-count').textContent = count;
+  document.getElementById('sel-clear-btn').disabled = count === 0;
+  document.getElementById('batch-open-btn').disabled = count === 0;
+  document.getElementById('batch-reprobe-btn').disabled = count === 0;
+  const pageIds = allSongs.map(s=>s.id);
+  const allChecked = pageIds.length > 0 && pageIds.every(id => selectedIds.has(id));
+  const selectAllBox = document.getElementById('select-all-page');
+  if(selectAllBox) selectAllBox.checked = allChecked;
+}
+
+function openBatchModal(){
+  if(!selectedIds.size){ toast('请先在表格里勾选要设置的歌曲'); return; }
+  document.getElementById('batch-count').textContent = selectedIds.size;
+  document.getElementById('batch-set-lang').checked = false;
+  document.getElementById('batch-set-genre').checked = false;
+  toggleBatchField('lang', false);
+  toggleBatchField('genre', false);
+  renderPresetChips();
+  document.getElementById('batch-modal-overlay').classList.add('open');
+}
+function closeBatchModal(){ document.getElementById('batch-modal-overlay').classList.remove('open'); }
+
+function toggleBatchField(which, enabled){
+  document.getElementById(`batch-${which==='lang'?'lang':'genre'}-select`).disabled = !enabled;
+}
+
+async function applyBatch(){
+  const setLanguage = document.getElementById('batch-set-lang').checked;
+  const setGenre = document.getElementById('batch-set-genre').checked;
+  if(!setLanguage && !setGenre){ toast('请至少勾选"设置语种"或"设置风格"其中一项'); return; }
+  const language = document.getElementById('batch-lang-select').value;
+  const genre = document.getElementById('batch-genre-select').value;
+  try{
+    const res = await fetch('/api/songs/batch', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from(selectedIds), setLanguage, language, setGenre, genre }),
+    });
+    if(res.status === 401){ closeBatchModal(); showLogin(); return; }
+    if(!res.ok){ const d = await res.json().catch(()=>({})); toast(d.error || '批量设置失败'); return; }
+    const d = await res.json();
+    closeBatchModal();
+    toast(`已批量设置 ${d.count} 首歌曲 ✓`);
+    refreshList();
+    loadAll();
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+// 把"歌手"字段（可能是"刀郎 张三"这种空格分隔的多歌手字符串）渲染成一组
+// 独立的标签，让合唱曲目里的每一位歌手都能被单独看到——这也是"曲库管理"
+// 这一侧的展示要求；真正驱动 TV 端"歌手列表"分别展示/分别统计的是服务端
+// 的 song_artists 关联表，这里只是把同一份数据在管理页面里做对应的可视化。
+function artistChipsHtml(artist){
+  const names = String(artist||'').split(/\s+/).map(s=>s.trim()).filter(Boolean);
+  if(!names.length) return '<span class="tag-badge">未知歌手</span>';
+  return `<div class="artist-chips">${names.map(n=>`<span class="artist-chip">${esc(n)}</span>`).join('')}</div>`;
+}
+
+// 语种/风格允许留空（"若歌曲只有歌手和歌曲名，则暂空其它项"）。这里不再
+// 用一个只能提示"缺 XX"的静态徽标，而是直接渲染成一个可下拉选择的空格：
+// 未填写时下拉框本身就是空着的，选中即保存；已填写的也能直接在下拉里改
+// 成预设里的另一个取值，不用非得点"编辑"弹窗。下拉选项来自可自定义的
+// 预设列表，如果当前值不在预设里（比如手动填过的旧值），也会补进选项里，
+// 不会因为不在预设里就丢失显示。
+function fieldSelectHtml(song, field){
+  const value = String(song[field] || '').trim();
+  const presetList = (field === 'language' ? presets.languages : presets.genres) || [];
+  const options = presetList.slice();
+  if(value && !options.includes(value)) options.push(value);
+  // 需求：占位文字原来是"（未填写语种，点击选择）"这种长句，表格是默认的
+  // auto 布局(没有 table-layout:fixed)，列宽会按单元格内容的"偏好宽度"来算，
+  // 这个 <select> 虽然自身有 max-width:150px 的硬顶，但浏览器计算表格列宽时
+  // 仍然会参考它内部最长的那个 <option> 文本(包括这条占位项)算出的"内容宽度"
+  // 去跟其它列抢地方，长句占位符就把"语种/风格"这两列越撑越宽，挤压到后面
+  // "音轨/播放/操作"几列的空间，操作列的几个按钮因此被压窄甚至换行。改成
+  // 统一的"点击选择"四个字，占位项不再是这一列里最长的候选文本，不会再去
+  // 抢占后面列的宽度。
+  const placeholder = '点击选择';
+  const optHtml = `<option value=""${value ? '' : ' selected'}>${placeholder}</option>` +
+    options.map(v => `<option value="${esc(v)}"${v === value ? ' selected' : ''}>${esc(v)}</option>`).join('');
+  const emptyCls = value ? '' : ' field-select-empty';
+  return `<select class="field-select${emptyCls}" onchange="updateField(${song.id},'${field}',this.value)">${optHtml}</select>`;
+}
+
+// 音轨探测状态图标：探测到 >=2 条独立音轨（双音轨，原/伴唱切换走 HLS 音轨
+// 切换，无缝且准确）/ 探测成功且确认只有 1 条（单轨双声道，原/伴唱靠左右
+// 声道分离，兼容但没有双音轨精准）/ 探测失败(NULL，会在下次扫描时自动重
+// 试，也可以手动点"重探音轨")。三态直接对应 scanner.js 里 probeAudioTracks
+// 的返回值，不需要额外的数据库字段。
+function trackIconHtml(song){
+  const t = song.audio_tracks;
+  if(t === null || t === undefined){
+    return '<span class="track-badge track-unknown" title="音轨探测失败，下次扫描会自动重试，也可以点“重探音轨”手动重新探测">❓ 未知</span>';
+  }
+  if(t >= 2){
+    return '<span class="track-badge track-dual" title="探测到独立的原唱/伴唱双音轨，切换无缝且准确">🎚️ 双音轨</span>';
+  }
+  return '<span class="track-badge track-mono" title="单音轨，原/伴唱靠左右声道分离(声道型)，兼容播放但准确率不如双音轨">🔊 单轨双声道</span>';
+}
+
+// 需求(曲库来源备注)：主列表最后一列标注这首歌来自哪个曲库来源——本地曲库
+// 直接标"本地"；网络/网盘曲目优先显示管理员在"曲库来源"里设置的备注(如
+// "115网盘")，还没设置过备注、或者这首歌是升级前的老记录、没有 source_root
+// (查不到对应来源)时，退回显示笼统的"网络"/"STRM"，不留空白让人误以为
+// 没加载出来。
+function sourceBadgeHtml(song){
+  if(!song.is_network && !song.is_strm){
+    return '<span class="src-badge src-badge-none">本地</span>';
+  }
+  const info = song.source_root ? sourceRootLabelMap[song.source_root] : null;
+  const label = info ? info.label : (song.is_strm ? 'STRM' : '网络');
+  return `<span class="src-badge" title="${esc(song.source_root || '')}">${esc(label)}</span>`;
+}
+
+function render(list){
+  const tbody = document.getElementById('song-tbody');
+  const empty = document.getElementById('empty-tip');
+  tbody.innerHTML = '';
+  const filtering = !!(currentFilter || currentScope || document.getElementById('search').value.trim());
+  empty.style.display = list.length ? 'none' : 'block';
+  empty.textContent = filtering ? '没有符合条件的歌曲' : '暂无歌曲，请先扫描曲库';
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  list.forEach((s,i)=>{
+    const tr = document.createElement('tr');
+    tr.dataset.id = s.id;
+    tr.innerHTML = `
+      <td><input type="checkbox" class="row-check" ${selectedIds.has(s.id)?'checked':''} onchange="toggleSelect(${s.id}, this.checked)"></td>
+      <td style="color:var(--sub);font-size:12px">${startIndex + i + 1}</td>
+      <td class="title-cell">${esc(s.title)}</td>
+      <td class="artist-cell">${artistChipsHtml(s.artist)}</td>
+      <td>${fieldSelectHtml(s, 'language')}</td>
+      <td>${fieldSelectHtml(s, 'genre')}</td>
+      <td>${trackIconHtml(s)}</td>
+      <td class="count-cell">${s.play_count}</td>
+      <td>
+        <div class="row-acts">
+          <button class="act-btn act-edit" onclick="openEdit(${s.id})">编辑</button>
+          <button class="act-btn act-probe" onclick="reprobeAudioTracks(${s.id},this)" title="只重新探测这一首的音轨数量，不影响曲库里其它歌曲">重探音轨</button>
+          <button class="act-btn act-del" onclick="delSong(${s.id},this)">删除</button>
+        </div>
+      </td>
+      <td>${sourceBadgeHtml(s)}</td>`;
+    tbody.appendChild(tr);
+  });
+  updateSelectionUI();
+}
+
+// 表格里语种/风格下拉框一改动就立即保存，不需要再点"编辑"弹窗里的保存按钮；
+// 用当前这一页已经拿到的数据(allSongs)拼出完整记录再 PUT，避免只传变化的
+// 那个字段导致服务端把其它字段当成"传了空值"意外清空。
+async function updateField(id, field, value){
+  const song = allSongs.find(x=>x.id===id);
+  if(!song) return;
+  const body = {
+    title: song.title || '',
+    artist: song.artist || '',
+    language: field === 'language' ? value : (song.language || ''),
+    genre: field === 'genre' ? value : (song.genre || ''),
+  };
+  try{
+    const res = await fetch(`/api/songs/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if(res.status === 401){ showLogin(); return; }
+    if(!res.ok){ toast('保存失败，请重试'); return; }
+    song[field] = value;
+    render(allSongs);
+    toast('已保存 ✓');
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+async function delSong(id, btn){
+  if(!confirm('确认从曲库移除这首歌？（文件本身不会被删除）')) return;
+  const res = await fetch(`/api/songs/${id}`, {method:'DELETE'});
+  if(res.status===401){ showLogin(); return; }
+  selectedIds.delete(id);
+  toast('已移除 ✓');
+  loadAll();
+}
+
+// ============ AI 工作站：逐字对齐 / 人声分离 队列（GPU 在 192.168.3.51）============
+// 把缺少某类处理的音频歌批量入队，由常驻 worker 自动领取处理（自动触发入口）
+async function aiEnqueueMissing(type, label){
+  if(!confirm(`将把缺少「${label}」的音频歌加入 AI 队列（最多 500 首）。\n请确认显卡电脑(192.168.3.51)上的「启动AI工作站.bat」窗口正开着。\n是否继续？`)) return;
+  try{
+    const r = await fetch(`/api/separate/enqueue-missing?type=${type}&limit=500`, {method:'POST'});
+    if(r.status===401){ showLogin(); return; }
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok){ toast(d.error||'入队失败'); return; }
+    toast(`已入队 ${d.added||0} 首（候选 ${d.candidates||0}，已处理过的自动跳过）`);
+  }catch(e){ toast('请求失败：'+e.message); }
+}
+// 在线补抓标准歌词（逐字纠错所用官方正确文本的来源）
+async function aiBatchLyrics(){
+  if(!confirm('给缺少歌词的歌曲从网易云/QQ/酷我在线补抓（限速串行，约每秒1首）？')) return;
+  try{
+    const r = await fetch('/api/lyrics/batch-missing?limit=300', {method:'POST'});
+    if(r.status===401){ showLogin(); return; }
+    if(r.status===409){ toast('已有补抓任务正在运行'); return; }
+    const d = await r.json().catch(()=>({}));
+    toast(d.message||'已开始后台补抓');
+  }catch(e){ toast('请求失败：'+e.message); }
+}
+// 查看 AI 处理进度与歌词覆盖率
+async function aiStats(){
+  try{
+    const [s,l] = await Promise.all([
+      fetch('/api/separate/stats').then(r=>r.json()),
+      fetch('/api/lyrics/stats').then(r=>r.json()),
+    ]);
+    const f=(o)=>`排队${o.pending||0} · 处理中${o.processing||0} · 完成${o.done||0} · 失败${o.failed||0}`;
+    alert(`【逐字对齐】${f(s.align)}\n【人声分离】${f(s.separate)}\n音频歌共 ${s.songs.audioTotal}｜已对齐 ${s.songs.aligned}｜已分离 ${s.songs.separated}\n\n歌词覆盖 ${l.hasLyrics}/${l.total}（${l.coverage}%）\n\n提示：显卡电脑需开着「启动AI工作站.bat」才会真正处理。`);
+  }catch(e){ toast('请求失败：'+e.message); }
+}
+
+// 只重新探测这一首歌的音轨数量：跟页面顶部"重新检测音轨"的区别是那个会把
+// 全库所有歌曲(含探测本来就正确的)都清空重新探测一遍，曲库大的话很费时间；
+// 这里明确知道是哪首歌有问题(比如切换原/伴唱没反应、或者播放很慢)时，只重
+// 探这一首，不影响其它已经正确的曲目，几秒钟就能出结果。
+async function reprobeAudioTracks(id, btn){
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = '探测中…';
+  try{
+    const res = await fetch(`/api/songs/${id}/reprobe-audio-tracks`, {method:'POST'});
+    if(res.status===401){ showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ toast(d.error||'探测失败'); return; }
+    const song = allSongs.find(x=>x.id===id);
+    if(song) song.audio_tracks = d.audio_tracks;
+    toast(d.audio_tracks == null ? '探测失败，已标记待下次扫描自动重试' : `探测完成：共 ${d.audio_tracks} 条音轨`);
+  }catch(e){
+    toast('探测失败：'+e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = original;
+  }
+}
+
+// 多选批量重测音轨：跟单条的"重探音轨"用的是同一个探测接口，区别是一次性
+// 对表格里所有已勾选的歌曲各自重新探测一遍(可跨页勾选)，探测完直接更新
+// 本地这一页已经渲染出来的数据并重绘，不用整页刷新。
+async function batchReprobe(){
+  if(!selectedIds.size){ toast('请先在表格里勾选要重新探测的歌曲'); return; }
+  const ids = Array.from(selectedIds);
+  const btn = document.getElementById('batch-reprobe-btn');
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = `探测中…(0/${ids.length})`;
+  try{
+    const res = await fetch('/api/songs/batch-reprobe-audio-tracks', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    });
+    if(res.status === 401){ showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ toast(d.error || '批量重探失败'); return; }
+    (d.results || []).forEach(r => {
+      const song = allSongs.find(x => x.id === r.id);
+      if(song) song.audio_tracks = r.audio_tracks;
+    });
+    render(allSongs);
+    toast(`批量重探完成，共 ${d.results.length} 首`);
+  }catch(e){
+    toast('批量重探失败：' + e.message);
+  }finally{
+    btn.textContent = original;
+    updateSelectionUI();
+  }
+}
+
+function openEdit(id){
+  const s = allSongs.find(x=>x.id===id);
+  if(!s) return;
+  document.getElementById('edit-id').value = s.id;
+  document.getElementById('edit-title').value = s.title || '';
+  document.getElementById('edit-artist').value = s.artist || '';
+  document.getElementById('edit-language').value = s.language || '';
+  document.getElementById('edit-genre').value = s.genre || '';
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function closeModal(){ document.getElementById('modal-overlay').classList.remove('open'); }
+async function saveEdit(){
+  const id = document.getElementById('edit-id').value;
+  const title = document.getElementById('edit-title').value.trim();
+  const artist = document.getElementById('edit-artist').value.trim();
+  const language = document.getElementById('edit-language').value.trim();
+  const genre = document.getElementById('edit-genre').value.trim();
+  if(!title){ alert('歌名不能为空'); return; }
+  const res = await fetch(`/api/songs/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, artist, language, genre }),
+  });
+  if(res.status===401){ closeModal(); showLogin(); return; }
+  closeModal();
+  toast('已保存 ✓');
+  refreshList();
+}
+
+// 需求：扫描歌手头像——头像文件其实是自动生效的(见服务端注释，30秒缓存)，
+// 这个按钮主要是给管理员一个"立刻确认识别到几个头像"的手动触发入口，跟旁边
+// 扫描曲库/扫描音轨用同一套 scan-log/scan-pre 展示反馈，操作习惯保持一致。
+async function doRescanAvatars(){
+  const log = document.getElementById('scan-log');
+  const pre = document.getElementById('scan-pre');
+  log.classList.add('show');
+  pre.textContent = '正在扫描歌手头像目录…';
+  try{
+    const res = await fetch('/api/admin/rescan-avatars',{method:'POST'});
+    const d = await res.json();
+    if(!res.ok){ pre.textContent = `失败：${d.error||'未知错误'}`; toast(d.error||'扫描头像失败'); return; }
+    pre.textContent = `完成！识别到 ${d.count} 个歌手头像文件`;
+    toast(`头像扫描完成，共识别 ${d.count} 个`);
+    loadAll();
+  }catch(e){
+    pre.textContent = `失败：${e.message}`;
+    toast('扫描头像失败：'+e.message);
+  }
+}
+
+// 需求：把原来一排5个扁平按钮(扫描曲库/重新检测音轨/文件名解析/一键清洗/
+// 清理缓存)收进"文件扫描""文件管理"两个下拉菜单里，头部不再一次性铺开
+// 一长排按钮。用最简单的"点触发按钮切换菜单显示、点菜单外任意位置关闭所有
+// 菜单"实现，不引入额外的下拉组件库。
+function toggleHdrop(name, ev){
+  ev && ev.stopPropagation();
+  const menu = document.getElementById(`hdrop-${name}-menu`);
+  const wasOpen = menu.classList.contains('open');
+  closeHdrops();
+  if(!wasOpen) menu.classList.add('open');
+}
+function closeHdrops(){
+  document.querySelectorAll('.hdrop-menu.open').forEach(m=>m.classList.remove('open'));
+}
+document.addEventListener('click', () => closeHdrops());
+
+// 需求(扫描方式拆分)：mode 三选一，见 scanner.js scanLibrary() 顶部注释。
+// 不传 mode 时按 'full' 处理，兼容其它地方(比如"曲库来源"面板里"立即扫描
+// 曲库"按钮)原有的调用方式不用跟着改。
+async function doScan(mode){
+  mode = mode || 'full';
+  if(mode === 'full' && !confirm('全量扫描会把这一轮没扫到的曲目从曲库里删除。\n\n如果刚挂载好网盘/网络曲库、还不确定是否已经完全生效，建议先用「差异预览」看一眼会删掉哪些，或者先用「增量扫描」(不会删除任何记录)。\n\n确定现在执行全量扫描吗？')) return;
+  const log = document.getElementById('scan-log');
+  const pre = document.getElementById('scan-pre');
+  log.classList.add('show');
+  pre.textContent = mode === 'incremental' ? '增量扫描中(不会删除任何曲目)…' : '全量扫描中…';
+  const res = await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode})});
+  const d = await res.json();
+  if(d.error === 'MV_DIR_UNAVAILABLE'){ pre.textContent = '曲库目录暂时无法访问，请检查挂载后重试'; toast('⚠️ 曲库目录暂时无法访问'); return; }
+  let msg = `完成(${mode==='incremental'?'增量扫描':'全量扫描'})！文件总数：${d.total}  新增：${d.added}  移除：${d.removed}`;
+  // 需求修复("取消挂载的曲库文件夹，后台总曲目也没有减少，列表都重复了")：
+  // retagged/mergedDup 是"曲库来源"配置变化后自动重新关联/合并的曲目数，
+  // 只在真的发生过才额外提示一下，让管理员知道扫描过程中做了什么，避免
+  // 曲目数量变化看起来"莫名其妙"。
+  if(d.retagged || d.mergedDup){
+    msg += `\n本次因曲库来源配置变化，重新关联了 ${d.retagged||0} 首曲目的所属目录，合并清理了 ${d.mergedDup||0} 条重复记录`;
+  }
+  // 需求(扫描方式拆分+骤减熔断)：safetyBlocked 不为空说明有目录本轮"看起来
+  // 消失了一大半"，被自动跳过了删除——明确提示管理员，避免误以为"删除数
+  // 为0"就是"扫描没问题"。
+  if(d.safetyBlocked && d.safetyBlocked.length){
+    msg += `\n\n⚠️ 以下目录本轮曲目数量骤减，为安全起见已自动跳过删除(未删除任何记录)，请确认挂载/网络正常后再重新全量扫描：`;
+    for(const b of d.safetyBlocked){
+      msg += `\n  ${b.rootDir}：库里共 ${b.totalInRoot} 首，本轮看起来消失了 ${b.wouldRemove} 首`;
+    }
+  }
+  pre.textContent = msg;
+  toast(`${mode==='incremental'?'增量':'全量'}扫描完成，共 ${d.total} 首，新增 ${d.added} 首`+(d.removed?`，移除 ${d.removed} 首`:''));
+  loadAll();
+}
+
+// ===== 曲库快照：导出下载 / 写到曲库目录 / 免扫描导入（新机迁移曲库元数据，不用重新扫描几万首）=====
+async function catalogExport(){
+  toast('正在生成曲库快照…');
+  const res = await fetch('/api/admin/catalog/export');
+  if(!res.ok){ toast('导出失败 '+res.status); return; }
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'momo-catalog-'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  toast('快照已下载，新机可用它免扫描导入');
+}
+async function catalogWriteFiles(){
+  if(!confirm('把当前曲库快照写到每个曲库来源根目录和数据目录？\n快照会随歌曲文件夹一起带走，新机/重装后可免扫描导入。')) return;
+  toast('正在写快照文件…');
+  const res = await fetch('/api/admin/catalog/write-files',{method:'POST'});
+  const d = await res.json().catch(()=>({}));
+  if(!res.ok){ toast('写入失败：'+(d.error||res.status)); return; }
+  toast(`已写出 ${d.count||0} 首快照到 ${(d.written||[]).length} 个位置`);
+  alert('快照已写入：\n'+(d.written||[]).join('\n'));
+}
+async function catalogImport(input){
+  const f = input.files && input.files[0]; input.value='';
+  if(!f) return;
+  if(!confirm('用这份快照免扫描导入曲目？\n只新增/更新，不删除现有曲目，也不跑 ffprobe。')) return;
+  toast('正在导入快照(免扫描)…');
+  const fd = new FormData(); fd.append('catalog', f);
+  const res = await fetch('/api/admin/catalog/import',{method:'POST',body:fd});
+  const d = await res.json().catch(()=>({}));
+  if(!res.ok){ toast('导入失败：'+(d.error||res.status)); return; }
+  toast(`导入完成：新增 ${d.added||0}，更新 ${d.updated||0}，跳过 ${d.skipped||0}`);
+  alert(`快照导入完成（共 ${d.total||0}）\n新增：${d.added||0}\n更新：${d.updated||0}\n跳过：${d.skipped||0}`);
+  loadAll();
+}
+
+// 需求(扫描方式拆分)：只读预览，不写数据库，帮管理员在真正点「全量扫描」
+// 之前先看一眼"这次会新增哪些、删除哪些"，尤其是怀疑网盘/网络挂载可能还
+// 没完全生效的时候，可以先用这个确认一下再决定要不要真的执行删除。
+async function doDiffPreview(){
+  const log = document.getElementById('scan-log');
+  const pre = document.getElementById('scan-pre');
+  log.classList.add('show');
+  pre.textContent = '正在生成差异预览(只读，不会修改曲库)…';
+  const res = await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'diff'})});
+  const d = await res.json();
+  if(d.error === 'MV_DIR_UNAVAILABLE'){ pre.textContent = '曲库目录暂时无法访问，请检查挂载后重试'; toast('⚠️ 曲库目录暂时无法访问'); return; }
+  let msg = `差异预览(只读，未修改曲库)：如果现在执行全量扫描，将新增 ${d.added} 首、删除 ${d.removed} 首`;
+  if(d.suspicious && d.suspicious.length){
+    msg += `\n\n⚠️ 以下目录看起来骤减，如果不是真的批量删了源文件，很可能是挂载还没完全生效，不建议现在执行全量扫描：`;
+    for(const s of d.suspicious){
+      msg += `\n  ${s.rootDir}：库里共 ${s.totalInRoot} 首，会被删除 ${s.wouldRemove} 首`;
+    }
+  }
+  if(d.toRemove && d.toRemove.length){
+    const sample = d.toRemove.slice(0, 20).map(r => `  · ${r.artist||''} - ${r.title||r.filename}`).join('\n');
+    msg += `\n\n将被删除的曲目(最多显示20条，共${d.toRemove.length}条)：\n${sample}`;
+  }
+  pre.textContent = msg;
+  toast(`预览完成：将新增 ${d.added} 首，删除 ${d.removed} 首`);
+}
+
+// 修复"探测失败被永久当成单音轨结果缓存"的老曲目：有些歌曲在某次扫描时
+// 因为机器负载高/网络曲库共享抖动等原因探测超时，被误判成"只有1条音轨"
+// 并写死进数据库，从此原/伴唱切换一直用不了(或退化成不那么准的兜底方案)、
+// 播放也因为拿不到编码信息只能整曲重新转码、变慢。这个操作会清空全部
+// 歌曲的音轨探测结果、重新逐首探测一遍，曲库越大耗时越久，所以点击前会
+// 有一次确认。
+async function doRescanAudioTracks(){
+  if(!confirm('注意：这会清空并重新探测【全部歌曲】的音轨数量，包括探测本来就正确的歌曲也会被重新探测一遍，曲库越大耗时越久。\n\n网络/网盘曲库只会重新探测"已经缓存到本地"的部分，不会因为这次操作被强制下载缓存，没有本地缓存的网络曲目会保持待探测状态，等下次真正被点歌播放时再自然缓存+探测。\n\n如果只是某一首歌切换原/伴唱不正常，更推荐在歌曲列表里对那一首点"重探音轨"，几秒钟就能修好，不用动整个曲库。\n\n确定要重新探测全部歌曲吗？')) return;
+  const log = document.getElementById('scan-log');
+  const pre = document.getElementById('scan-pre');
+  log.classList.add('show');
+  pre.textContent = '正在重新检测全部歌曲的音轨数量，请稍候…';
+  try{
+    const res = await fetch('/api/scan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({resetAudioTracks:true})});
+    const d = await res.json();
+    if(!res.ok){ pre.textContent = `失败：${d.error||'未知错误'}`; toast(d.error||'重新检测失败'); return; }
+    pre.textContent = `完成！已重新检测 ${d.total} 首歌曲的音轨数量`;
+    toast('音轨重新检测完成');
+    loadAll();
+  }catch(e){
+    pre.textContent = `失败：${e.message}`;
+    toast('重新检测失败：'+e.message);
+  }
+}
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 1800);
+}
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/'/g,'&#39;'); }
+function escJs(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+// ---------- 清理缓存 ----------
+// 二级设置面板：管理员可以在"按存储空间限额"和"按点歌时间"两种策略间切换，
+// 只有当前选中的那一项对应的输入框可编辑，避免同时填了两个数字却不知道
+// 服务端到底按哪个生效。保存后的策略会持续生效（每日兜底清理一次 + 按存储
+// 空间限额时随每次转码完成即时检查），这里的"立即清理一次"按钮则是立刻手动
+// 触发一次，方便管理员马上看到效果，不用等下一次自动触发。
+function fmtBytes(n){
+  const mb = (n || 0) / 1048576;
+  if(mb >= 1024) return (mb / 1024).toFixed(2) + ' GB';
+  return mb.toFixed(1) + ' MB';
+}
+
+function onCacheModeChange(mode){
+  document.getElementById('cache-size-limit').disabled = mode !== 'size';
+  document.getElementById('cache-time-days').disabled = mode !== 'time';
+}
+
+async function loadCacheSettings(){
+  try{
+    const r = await fetch('/api/admin/cache/stats');
+    if(r.status === 401){ closeCacheModal(); showLogin(); return; }
+    const d = await r.json();
+    if(!r.ok){ toast(d.error || '加载缓存信息失败'); return; }
+    document.getElementById('cache-size').textContent = fmtBytes(d.totalSize);
+    document.getElementById('cache-count').textContent = d.count;
+    document.querySelectorAll('input[name="cache-mode"]').forEach(el => { el.checked = (el.value === d.mode); });
+    document.getElementById('cache-size-limit').value = d.sizeLimitMB;
+    document.getElementById('cache-time-days').value = d.timeDays;
+    onCacheModeChange(d.mode);
+  }catch(e){ toast('加载缓存信息失败，请检查网络'); }
+}
+
+function openCacheModal(){
+  document.getElementById('cache-modal-overlay').classList.add('open');
+  loadCacheSettings();
+}
+function closeCacheModal(){ document.getElementById('cache-modal-overlay').classList.remove('open'); }
+
+async function saveCacheSettings(){
+  const modeEl = document.querySelector('input[name="cache-mode"]:checked');
+  const mode = modeEl ? modeEl.value : 'time';
+  const sizeLimitMB = Number(document.getElementById('cache-size-limit').value);
+  const timeDays = Number(document.getElementById('cache-time-days').value);
+  if(mode === 'size' && !(sizeLimitMB > 0)){ toast('请填写有效的存储空间限额(MB)'); return; }
+  if(mode === 'time' && !(timeDays > 0)){ toast('请填写有效的保留天数'); return; }
+  try{
+    const res = await fetch('/api/admin/cache/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, sizeLimitMB, timeDays }),
+    });
+    if(res.status === 401){ closeCacheModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ toast(d.error || '保存失败'); return; }
+    toast('清理策略已保存 ✓');
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+async function runCacheClean(){
+  try{
+    toast('正在清理，请稍候…');
+    const res = await fetch('/api/admin/cache/clean', { method: 'POST' });
+    if(res.status === 401){ closeCacheModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ toast(d.error || '清理失败'); return; }
+    const totalRemoved = (d.removed || 0) + (d.orphan ? d.orphan.removed : 0);
+    const totalFreed = (d.freed || 0) + (d.orphan ? d.orphan.freed : 0);
+    toast(`清理完成：共清理 ${totalRemoved} 个缓存目录，释放约 ${fmtBytes(totalFreed)}`);
+    loadCacheSettings();
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+// 需求(清理缓存菜单-直接清理全部缓存)：跟"立即清理一次"(遵循上面设置的
+// 限额/天数策略)不是一回事——这个按钮不看那些设置，直接清空全部 HLS
+// 转码缓存，属于强操作，点之前用 confirm() 拦一下，避免手滑误触。
+async function runCacheCleanAll(){
+  if(!confirm('确定要清空全部 HLS 转码缓存吗？\n\n这会清理所有已转码的播放缓存(不管上面设置的限额/天数)，已经转码过的歌曲下次点唱时会重新转码，不影响原始曲库文件本身。'))return;
+  try{
+    toast('正在清理全部缓存，请稍候…');
+    const res = await fetch('/api/admin/cache/clean-all', { method: 'POST' });
+    if(res.status === 401){ closeCacheModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ toast(d.error || '清理失败'); return; }
+    toast(`清理完成：共清理 ${d.removed} 个缓存目录，释放约 ${fmtBytes(d.freed)}${d.skippedBuilding ? `（${d.skippedBuilding} 个正在转码中已跳过）` : ''}`);
+    loadCacheSettings();
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+// ---------- 曲库来源(网盘/本地目录选择 + 网盘本地缓存调优) ----------
+// 需求(网盘等具体设置从 docker-compose.yml 移到曲库后台)：docker-compose.yml
+// 现在只固定挂载 /mv、/mv-net 两个通用目录，具体"选哪些子文件夹作为曲库来源、
+// 是否网络路径"改成在这个面板里维护，保存后立即生效，不需要重建容器。
+// srcBase：当前浏览器停留在哪个固定挂载点(mv/mv-net)；srcPath：当前浏览到
+// 的完整容器路径，从 baseMounts 里取到的 dir 初始化，用户点子文件夹名称
+// 逐级深入，点面包屑跳回上级，都不需要重新弹一次 modal。
+let srcBaseMounts = [], srcBase = 'mv', srcPath = '/mv';
+
+function srcHint(msg){ toast(msg); }
+
+async function loadLibrarySources(){
+  try{
+    const r = await fetch('/api/admin/library-sources');
+    if(r.status === 401){ closeSrcModal(); showLogin(); return; }
+    const d = await r.json();
+    if(!r.ok){ srcHint(d.error || '加载曲库来源失败'); return; }
+    srcBaseMounts = d.baseMounts || [];
+    srcRootsCache = d.roots || [];
+    sourceRootLabelMap = buildSourceLabelMap(srcRootsCache);
+    refreshList(); // 主列表最后一列"来源"标注依赖这份映射，来源改名/增删后同步刷新
+    renderSrcBaseTabs();
+    if(!srcBaseMounts.some(b => b.key === srcBase)) srcBase = (srcBaseMounts[0] || {}).key || 'mv';
+    srcPath = (srcBaseMounts.find(b => b.key === srcBase) || {}).dir || '/mv';
+    document.getElementById('src-cache-max-mb').value = d.cacheSettings.maxMB;
+    document.getElementById('src-cache-max-age').value = d.cacheSettings.maxAgeDays;
+    document.getElementById('src-cache-concurrency').value = d.cacheSettings.concurrency;
+    renderSrcRootsList();
+    renderSrcOrphanBox(d.orphanCount || 0);
+    await loadSrcFolder(srcPath);
+  }catch(e){ srcHint('加载曲库来源失败，请检查网络'); }
+}
+
+// Bug修复("扫描显示5188首，后台曲库显示5192首")：孤儿曲目——它们所属的
+// 根目录已经完全不在当前"曲库来源"配置里了(不是暂时访问不了，是配置里
+// 压根没有这一条，通常是这次修复之前删过某个来源、那时候删除还不会连带
+// 清理曲目留下的)。这里单独提示出来，让管理员知道"总数对不上"是怎么回事，
+// 一键清理即可，不需要去猜是哪个目录、手动一条条找。
+function renderSrcOrphanBox(count){
+  const box = document.getElementById('src-orphan-box');
+  if(!count){ box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  document.getElementById('src-orphan-hint').innerHTML =
+    `⚠️ 发现 <b>${count}</b> 首孤儿曲目：所属的曲库来源目录已经不在当前配置里了(通常是以前删除来源时留下的)，曲库统计里的总数会比实际扫描到的文件数多，点右边按钮一键清理。`;
+}
+
+async function cleanupSrcOrphans(){
+  if(!confirm('确定清理这些孤儿曲目吗？\n\n会连带清空它们的播放历史/收藏记录，这个操作不可撤销。')) return;
+  try{
+    const res = await fetch('/api/admin/library-sources/cleanup-orphans', { method: 'POST' });
+    if(res.status === 401){ closeSrcModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ srcHint(d.error || '清理失败'); return; }
+    toast(`已清理 ${d.purgedCount} 首孤儿曲目 ✓`);
+    renderSrcOrphanBox(0);
+    loadAll();
+  }catch(e){ srcHint('请求失败，请检查网络'); }
+}
+
+function renderSrcBaseTabs(){
+  const el = document.getElementById('src-base-tabs');
+  el.innerHTML = '';
+  srcBaseMounts.forEach(b => {
+    const d = document.createElement('div');
+    d.className = 'src-base-tab' + (b.key === srcBase ? ' active' : '');
+    d.textContent = b.label;
+    d.onclick = () => { srcBase = b.key; loadSrcFolder(b.dir); };
+    el.appendChild(d);
+  });
+}
+
+async function loadSrcFolder(p){
+  try{
+    const r = await fetch('/api/admin/browse-folder?path=' + encodeURIComponent(p));
+    if(r.status === 401){ closeSrcModal(); showLogin(); return; }
+    const d = await r.json();
+    if(!r.ok){ srcHint(d.error || '读取目录失败'); return; }
+    srcPath = d.path;
+    renderSrcBaseTabs();
+    renderSrcCrumb();
+    renderSrcFolderList(d.folders);
+  }catch(e){ srcHint('读取目录失败，请检查网络'); }
+}
+
+// 面包屑：从当前所属的 base 挂载点根开始，逐级列出到当前目录的每一段，
+// 点击任意一段跳回那一级，不用一路点"上一级"多次返回。
+function renderSrcCrumb(){
+  const base = srcBaseMounts.find(b => b.key === srcBase) || { dir: '/mv', label: '/mv' };
+  const rest = srcPath === base.dir ? '' : srcPath.slice(base.dir.length + 1);
+  const parts = rest ? rest.split('/') : [];
+  const el = document.getElementById('src-crumb');
+  el.innerHTML = '';
+  const rootSpan = document.createElement('span');
+  rootSpan.textContent = base.label;
+  rootSpan.onclick = () => loadSrcFolder(base.dir);
+  el.appendChild(rootSpan);
+  let acc = base.dir;
+  parts.forEach(seg => {
+    acc += '/' + seg;
+    const sep = document.createTextNode(' / ');
+    el.appendChild(sep);
+    const s = document.createElement('span');
+    s.textContent = seg;
+    const target = acc;
+    s.onclick = () => loadSrcFolder(target);
+    el.appendChild(s);
+  });
+  // 当前目录本身也要能直接"添加"，不用先进子目录再退出来，这里单独放一个
+  // 明显的操作条，跟"进入子文件夹浏览"分开，避免误触。
+  const addBtn = document.createElement('span');
+  addBtn.style.cssText = 'float:right;cursor:pointer;color:var(--pink)';
+  addBtn.textContent = '+ 添加当前目录为曲库来源';
+  addBtn.onclick = () => addSrcRoot(srcPath);
+  el.appendChild(document.createElement('br'));
+  el.appendChild(addBtn);
+}
+
+function renderSrcFolderList(folders){
+  const el = document.getElementById('src-folder-list');
+  el.innerHTML = '';
+  if(!folders || !folders.length){
+    el.innerHTML = '<div class="src-folder-empty">这一级没有子文件夹了</div>';
+    return;
+  }
+  folders.forEach(name => {
+    const row = document.createElement('div');
+    row.className = 'src-folder-row';
+    const nameEl = document.createElement('div');
+    nameEl.className = 'fname';
+    nameEl.textContent = '📁 ' + name;
+    nameEl.onclick = () => loadSrcFolder(srcPath.replace(/\/$/, '') + '/' + name);
+    const addEl = document.createElement('div');
+    addEl.className = 'fadd';
+    addEl.textContent = '添加';
+    addEl.onclick = (e) => { e.stopPropagation(); addSrcRoot(srcPath.replace(/\/$/, '') + '/' + name); };
+    row.appendChild(nameEl);
+    row.appendChild(addEl);
+    row.onclick = () => loadSrcFolder(srcPath.replace(/\/$/, '') + '/' + name);
+    el.appendChild(row);
+  });
+}
+
+async function addSrcRoot(dir){
+  const isNetwork = document.getElementById('src-add-network').checked;
+  try{
+    const res = await fetch('/api/admin/library-sources/roots', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dir, label: dir, isNetwork }),
+    });
+    if(res.status === 401){ closeSrcModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ srcHint(d.error || '添加失败'); return; }
+    toast('已添加 ✓ 记得点「立即扫描曲库」让新目录生效');
+    loadLibrarySources();
+  }catch(e){ srcHint('请求失败，请检查网络'); }
+}
+
+let srcRootsCache = [];
+function renderSrcRootsList(){
+  const el = document.getElementById('src-roots-list');
+  el.innerHTML = '';
+  if(!srcRootsCache.length){
+    el.innerHTML = '<div class="src-roots-empty">还没有配置任何曲库来源，从左边浏览并添加</div>';
+    return;
+  }
+  srcRootsCache.forEach((r, idx) => {
+    const row = document.createElement('div');
+    row.className = 'src-root-row';
+    // 需求修复("清理孤儿曲目"找不到，但总数依然对不上)：如果这条来源当前
+    // 访问不了(比如网盘取消挂载了，但配置本身还留着)，这里直接标出来、
+    // 顺带告诉管理员它名下现在还挂着多少首曲目——这种情况不算"孤儿"(配置
+        // 还在，只是访问不了)，不会被"清理孤儿曲目"处理，需要单独在这里清。
+    const statusLine = r.accessible === false
+      ? `<div class="cache-hint" style="color:var(--pink);margin:2px 0 6px">⚠️ 当前访问不了这个目录，名下还有 <b>${r.songCount||0}</b> 首曲目${r.songCount ? '（确认不再使用可以点"仅清理曲目"或直接"移除"）' : ''}</div>`
+      : (r.songCount ? `<div class="cache-hint" style="margin:2px 0 6px">名下 ${r.songCount} 首曲目</div>` : '');
+    row.innerHTML = `
+      <div class="rr-top">
+        <div class="rr-label">${r.label || r.dir}</div>
+      </div>
+      <div class="rr-dir">${r.dir}</div>
+      ${statusLine}
+      <div class="rr-remark-row">
+        <input id="rr-remark-${idx}" placeholder="备注，如：115网盘 / 夸克网盘（会显示在主列表最后一列）" value="${(r.label || '').replace(/"/g,'&quot;')}">
+        <button class="hbtn" onclick="saveSrcRootLabel(${idx})">保存备注</button>
+      </div>
+      <div class="rr-btns">
+        <label><input type="checkbox" ${r.enabled !== false ? 'checked' : ''} onchange="toggleSrcRoot(${idx},'enabled',this.checked)"> 启用</label>
+        <label><input type="checkbox" ${r.isNetwork ? 'checked' : ''} onchange="toggleSrcRoot(${idx},'isNetwork',this.checked)"> 网络路径</label>
+        ${r.songCount ? `<span class="rr-del" style="color:var(--sub)" onclick="purgeSrcRootSongs(${idx})">仅清理曲目</span>` : ''}
+        <span class="rr-del" onclick="deleteSrcRoot(${idx})">🗑️ 移除</span>
+      </div>`;
+    el.appendChild(row);
+  });
+}
+
+// "仅清理曲目"：只清空这条来源名下的曲目，保留来源配置本身——适合"网盘
+// 暂时取消挂载但以后还想用同一条配置"这种场景，跟"移除"(连配置一起删掉)
+// 是两个不同粒度的操作。
+async function purgeSrcRootSongs(idx){
+  const r = srcRootsCache[idx];
+  if(!r) return;
+  if(!confirm(`确定清空「${r.label || r.dir}」名下的 ${r.songCount||0} 首曲目吗？\n\n只清曲目和它们的播放历史/收藏，这条曲库来源的配置本身会保留，以后目录恢复访问/重新挂载好了还能继续用。这个操作不可撤销。`)) return;
+  try{
+    const res = await fetch(`/api/admin/library-sources/roots/${idx}/purge-songs`, { method: 'POST' });
+    if(res.status === 401){ closeSrcModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ srcHint(d.error || '清理失败'); return; }
+    toast(`已清理 ${d.purgedCount} 首曲目 ✓`);
+    loadLibrarySources();
+    loadAll();
+  }catch(e){ srcHint('请求失败，请检查网络'); }
+}
+
+// 需求(曲库来源备注)：保存这条来源的备注名(如"115网盘")。跟 toggleSrcRoot
+// 共用同一个 PATCH 接口(后端本来就支持改 label，只是以前只有新增时能填，
+// 现在补上"添加之后随时可以改"的入口)。备注会显示在主列表最后一列，方便
+// 一眼看出这首歌是从哪个来源来的。
+async function saveSrcRootLabel(idx){
+  const input = document.getElementById(`rr-remark-${idx}`);
+  const label = (input.value || '').trim();
+  if(!label){ srcHint('备注不能为空'); return; }
+  try{
+    const res = await fetch(`/api/admin/library-sources/roots/${idx}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label }),
+    });
+    if(res.status === 401){ closeSrcModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ srcHint(d.error || '保存失败'); return; }
+    toast('备注已保存 ✓');
+    loadLibrarySources();
+  }catch(e){ srcHint('请求失败，请检查网络'); }
+}
+
+async function toggleSrcRoot(idx, field, value){
+  try{
+    const body = {}; body[field] = value;
+    const res = await fetch(`/api/admin/library-sources/roots/${idx}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if(res.status === 401){ closeSrcModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ srcHint(d.error || '保存失败'); renderSrcRootsList(); return; }
+    toast('已保存 ✓');
+    loadLibrarySources();
+  }catch(e){ srcHint('请求失败，请检查网络'); }
+}
+
+async function deleteSrcRoot(idx){
+  const r = srcRootsCache[idx];
+  if(!r) return;
+  if(!confirm(`确定移除曲库来源「${r.label || r.dir}」吗？\n\n这个目录名下已经入库的曲目、播放历史、收藏记录都会被一并清空(不影响其它曲库来源下的曲目)，这个操作不可撤销。\n\n如果只是暂时移出配置、以后可能还会用回这个目录，请点"取消"，改用左边把它禁用(取消勾选"启用")即可，禁用不会删除任何数据。`)) return;
+  try{
+    const res = await fetch(`/api/admin/library-sources/roots/${idx}`, {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ purge: true }),
+    });
+    if(res.status === 401){ closeSrcModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ srcHint(d.error || '移除失败'); return; }
+    toast(`已移除 ✓ 同时清理了 ${d.purgedCount || 0} 首曲目`);
+    loadLibrarySources();
+    loadAll();
+  }catch(e){ srcHint('请求失败，请检查网络'); }
+}
+
+async function saveSrcCacheSettings(){
+  const maxMB = Number(document.getElementById('src-cache-max-mb').value);
+  const maxAgeDays = Number(document.getElementById('src-cache-max-age').value);
+  const concurrency = Number(document.getElementById('src-cache-concurrency').value);
+  if(!(maxMB > 0)){ srcHint('请填写有效的缓存空间上限(MB)'); return; }
+  if(!(maxAgeDays > 0)){ srcHint('请填写有效的缓存保留天数'); return; }
+  if(!(concurrency > 0)){ srcHint('请填写有效的并发拷贝数'); return; }
+  try{
+    const res = await fetch('/api/admin/library-sources/cache-settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ maxMB, maxAgeDays, concurrency }),
+    });
+    if(res.status === 401){ closeSrcModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ srcHint(d.error || '保存失败'); return; }
+    toast('网盘本地缓存调优参数已保存 ✓');
+  }catch(e){ srcHint('请求失败，请检查网络'); }
+}
+
+function openSrcModal(){
+  document.getElementById('src-modal-overlay').classList.add('open');
+  loadLibrarySources();
+}
+function closeSrcModal(){ document.getElementById('src-modal-overlay').classList.remove('open'); }
+
+// ---------- 文件名解析（自定义模板重新解析曲库） ----------
+let parseItems = [];           // 本次预览结果（只包含"命中且有变化"的行，
+                                // 解析失败/无需更改的行后端不会下发，数量
+                                // 单独在 parseStats 里汇总）
+let parseStats = null;         // 后端返回的统计数字：total/matchedCount/
+                                // failedCount/noChangeCount/truncated/limit
+let parseSelected = new Set(); // 勾选要应用的歌曲 id 集合
+let parseIgnoredCache = [];    // "已忽略"面板当前展示的数据
+let parseIgnoredPanelOpen = false;
+
+function openParseModal(){
+  document.getElementById('parse-err').textContent = '';
+  document.getElementById('parse-scope-tip').textContent = '';
+  document.getElementById('parse-result').style.display = 'none';
+  document.getElementById('parse-select-all').checked = false;
+  parseItems = [];
+  parseStats = null;
+  parseSelected = new Set();
+  lastParseBody = null;
+  parseIgnoredPanelOpen = false;
+  document.getElementById('parse-ignored-panel').style.display = 'none';
+  loadParseIgnoredCount();
+  document.getElementById('parse-modal-overlay').classList.add('open');
+}
+function closeParseModal(){ document.getElementById('parse-modal-overlay').classList.remove('open'); }
+
+// 需求(手动忽略误命中)："已忽略"数量每次打开弹窗都刷新一次，跟一键清洗那
+// 边的 loadCleanIgnoredCount 完全对称，只是换成 filename-parse 接口/字段。
+async function loadParseIgnoredCount(){
+  try{
+    const res = await fetch('/api/admin/filename-parse/ignored');
+    if(res.status === 401){ closeParseModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok) return;
+    parseIgnoredCache = d.items || [];
+    document.getElementById('parse-ignored-count').textContent = d.total || 0;
+    if(parseIgnoredPanelOpen) renderParseIgnoredPanel(d);
+  }catch(e){ /* 静默失败，不影响主流程 */ }
+}
+
+function toggleParseIgnoredPanel(){
+  parseIgnoredPanelOpen = !parseIgnoredPanelOpen;
+  const panel = document.getElementById('parse-ignored-panel');
+  panel.style.display = parseIgnoredPanelOpen ? 'block' : 'none';
+  if(parseIgnoredPanelOpen) loadParseIgnoredCount();
+}
+
+function renderParseIgnoredPanel(d){
+  const panel = document.getElementById('parse-ignored-panel');
+  if(!d.items || !d.items.length){
+    panel.innerHTML = '<div class="parse-empty-hint">还没有手动忽略过任何歌曲</div>';
+    return;
+  }
+  panel.innerHTML = `<div style="font-size:12px;color:var(--sub);margin-bottom:6px">` +
+    `共 ${d.total} 首${d.truncated ? `（仅展示最近 ${d.limit} 首）` : ''}，取消忽略后下次预览会重新纳入解析范围` +
+    `</div>` +
+    d.items.map(it => `
+      <div class="ig-row">
+        <div style="flex:1;min-width:0">
+          <div class="ig-title">${esc(it.title)}</div>
+          <div class="ig-fn">${esc(it.filename)}</div>
+        </div>
+        <span class="ig-undo" onclick="unignoreParseSong(${it.id})">↩️ 取消忽略</span>
+      </div>`).join('');
+}
+
+async function markParseIgnore(id){
+  try{
+    const res = await fetch('/api/admin/filename-parse/ignore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [id] }),
+    });
+    if(res.status === 401){ closeParseModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ toast(d.error || '标记失败'); return; }
+    // 直接从当前预览结果里摘掉这一行，不用重新整体预览一次。
+    parseItems = parseItems.filter(it => it.id !== id);
+    parseSelected.delete(id);
+    renderParseResult();
+    loadParseIgnoredCount();
+    toast('已标记忽略，以后解析预览不再命中这首歌 ✓');
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+async function unignoreParseSong(id){
+  try{
+    const res = await fetch('/api/admin/filename-parse/unignore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [id] }),
+    });
+    if(res.status === 401){ closeParseModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ toast(d.error || '取消失败'); return; }
+    toast('已取消忽略 ✓');
+    loadParseIgnoredCount();
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+let lastParseBody = null; // 记住上一次预览用的圈定范围，处理完一批后自动
+                           // 继续预览剩余命中歌曲时复用，不用重新从页面
+                           // 控件读取（用户处理过程中可能已经切换页面/
+                           // 搜索词，范围不该跟着变）。
+async function previewParse(){
+  const pattern = document.getElementById('parse-pattern').value.trim();
+  const errEl = document.getElementById('parse-err');
+  errEl.textContent = '';
+  if(!pattern){ errEl.textContent = '请先填写解析格式'; return; }
+
+  // 圈定预览范围：表格里已经勾选了歌曲就只对这些歌曲预览（和"批量设置
+  // 语种/风格"一样，已选优先）；否则按当前搜索关键字/信息筛选条件圈定，
+  // 保证预览范围和管理员表格里正在看到的范围一致。
+  const body = { pattern };
+  if(selectedIds.size){
+    body.ids = Array.from(selectedIds);
+  } else {
+    const q = document.getElementById('search').value.trim();
+    if(q) body.q = q;
+    if(currentFilter) body.incomplete = currentFilter;
+    if(currentScope) body.scope = currentScope;
+  }
+  lastParseBody = body;
+  await runParsePreview(body);
+}
+
+// 需求(命中数超过单次预览上限时，确认后应继续处理剩余部分，而不是退回
+// 主列表)：把实际发请求/渲染结果的逻辑从 previewParse() 拆出来，
+// applyParse() 处理完当前这一批、发现后端标记了 truncated(还有没预览到的
+// 剩余命中歌曲)时，直接复用同一份圈定范围再调一次，不需要用户重新点
+// "预览解析效果"、也不会经过 previewParse() 里"未填写解析格式"之类的
+// 表单校验（这些在第一次预览时已经校验过了）。
+async function runParsePreview(body){
+  const errEl = document.getElementById('parse-err');
+  try{
+    const res = await fetch('/api/admin/filename-parse/preview', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if(res.status === 401){ closeParseModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ errEl.textContent = d.error || '解析失败，请检查解析格式'; return; }
+    // 后端现在会先把圈定范围内的歌曲全部解析一遍，再只把"命中且有变化"的
+    // 行下发给前端——items 里的每一行都已经是需要确认的，不用再靠总数
+    // 反推失败/无变化的数量，直接用后端算好的统计值。
+    parseItems = d.items || [];
+    parseStats = d;
+    parseSelected = new Set(parseItems.map(it => it.id));
+    document.getElementById('parse-scope-tip').textContent =
+      `本次圈定范围共 ${d.total} 首` +
+      `${d.ignoredCount ? `（另有 ${d.ignoredCount} 首已被手动忽略，未参与本次）` : ''}`;
+    renderParseResult();
+    document.getElementById('parse-result').style.display = 'block';
+  }catch(e){ errEl.textContent = '请求失败，请检查网络'; }
+}
+
+function parseFieldsHtml(f){
+  const show = v => v ? esc(v) : '<i style="color:#555">（空）</i>';
+  return `<div>歌手：${show(f.artist)}</div><div>歌名：${show(f.title)}</div>`+
+         `<div>语种：${show(f.language)}　风格：${show(f.genre)}</div>`;
+}
+
+function renderParseResult(){
+  const cols = document.getElementById('parse-cols');
+  cols.innerHTML = '';
+
+  if(!parseStats || !parseStats.total){
+    cols.innerHTML = '<div class="parse-empty-hint">没有匹配到任何歌曲</div>';
+    document.getElementById('parse-stat').textContent = '';
+    updateParseSelCount();
+    return;
+  }
+
+  // items 已经是"命中匹配、且确实有变化"的行——解析失败、或者解析结果跟
+  // 现有信息完全一致(无需更改)的行后端不会下发，避免管理员在一长串"无
+  // 变化"里翻找真正需要确认的那几条。失败/无需更改的数量仍然汇总展示在
+  // 统计行里，方便管理员知道整体命中情况；命中数量超过单次展示上限时，
+  // 也会明确提示还有多少条没显示出来，而不是悄悄漏掉。
+  document.getElementById('parse-stat').textContent =
+    `命中且有变化 ${parseStats.matchedCount} 首` +
+    `${parseStats.truncated ? `（本次仅展示前 ${parseStats.limit} 首，可用搜索/筛选缩小范围分批处理剩余 ${parseStats.matchedCount - parseStats.limit} 首）` : ''}` +
+    `${parseStats.failedCount ? `（解析失败 ${parseStats.failedCount} 首已省略）` : ''}` +
+    `${parseStats.noChangeCount ? `（无需更改 ${parseStats.noChangeCount} 首已省略）` : ''}`;
+
+  if(!parseItems.length){
+    cols.innerHTML = '<div class="parse-empty-hint">没有命中匹配的歌曲（全部解析失败或与现有信息一致）</div>';
+    updateParseSelCount();
+    return;
+  }
+
+  // 需求(左右列表高度对不齐)：每一行的左右两个格子放进同一个 .parse-pair
+  // (grid)，天然保证同一行左右两侧高度一致，不再需要两个独立滚动的列
+  // 各自 append，也不需要额外的滚动联动逻辑。
+  parseItems.forEach(it => {
+    const pair = document.createElement('div');
+    pair.className = 'parse-pair';
+    pair.innerHTML = `
+      <div class="parse-col"><div class="parse-row">
+        <span class="ignore-btn" onclick="markParseIgnore(${it.id})" title="确认是命中错误，以后解析预览不再显示这首歌">🚫 标记忽略</span>
+        <div class="fn">${esc(it.filename)}</div>${parseFieldsHtml(it.current)}
+      </div></div>
+      <div class="parse-col"><div class="parse-row changed">
+        <label style="display:flex;gap:8px;cursor:pointer;align-items:flex-start">
+          <input type="checkbox" class="parse-check" ${parseSelected.has(it.id) ? 'checked' : ''} onchange="toggleParseRow(${it.id},this.checked)">
+          <div>${parseFieldsHtml(it.parsed)}</div>
+        </label>
+      </div></div>`;
+    cols.appendChild(pair);
+  });
+  updateParseSelCount();
+}
+
+function toggleParseRow(id, checked){
+  if(checked) parseSelected.add(id); else parseSelected.delete(id);
+  updateParseSelCount();
+}
+function toggleParseAllRows(checked){
+  parseSelected = new Set(checked ? parseItems.map(it => it.id) : []);
+  renderParseResult();
+  document.getElementById('parse-select-all').checked = checked;
+}
+function updateParseSelCount(){
+  document.getElementById('parse-sel-count').textContent = parseSelected.size;
+}
+
+async function applyParse(onlySelected){
+  const targets = parseItems.filter(it => (onlySelected ? parseSelected.has(it.id) : true));
+  if(!targets.length){ toast('没有可应用的变更'); return; }
+  const updates = targets.map(it => ({ id: it.id, ...it.parsed }));
+  try{
+    const res = await fetch('/api/admin/filename-parse/apply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates }),
+    });
+    if(res.status === 401){ closeParseModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ toast(d.error || '应用失败'); return; }
+
+    // 需求(命中数超过单次预览上限时，确认后继续处理剩余，不要退回主列表)：
+    // 应用成功后先把本地这批数据里已经处理过的行摘掉。如果这批还有没处理的
+    // 行(比如"确认所选"只选了一部分)，就留在当前弹窗继续显示，不关闭、
+    // 也不刷新主列表；只有这批全部处理完了，才需要判断——命中总数如果比这
+    // 一批展示的还多(truncated)，说明后端还有没预览到的剩余部分，直接复用
+    // 同一份圈定范围再拉一批继续处理，一直循环到不再 truncated 为止，全程
+    // 不用用户重新点"预览"，也不会中途把管理员弹回主列表看着列表刷新。
+    const appliedIds = new Set(targets.map(it => it.id));
+    parseItems = parseItems.filter(it => !appliedIds.has(it.id));
+    appliedIds.forEach(id => parseSelected.delete(id));
+
+    if(parseItems.length){
+      toast(`已应用 ${d.count} 首，本批剩余 ${parseItems.length} 首待确认 ✓`);
+      renderParseResult();
+      return;
+    }
+
+    if(parseStats && parseStats.truncated && lastParseBody){
+      toast(`已应用 ${d.count} 首，继续预览剩余命中歌曲…`);
+      await runParsePreview(lastParseBody);
+      return;
+    }
+
+    toast(`已应用 ${d.count} 首歌曲的解析结果，全部命中已处理完毕 ✓`);
+    closeParseModal();
+    refreshList();
+    loadAll();
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+checkSession();
+</script>
+
+<script>
+// ---------- 一键清洗（自定义忽略词 + 语种/风格关键字识别） ----------
+// 跟"文件名解析"是并列的两套预览确认工具，交互模型完全照搬（预览 -> 左右
+// 对照 -> 勾选/全部确认），只是识别对象和识别方式不同，所以单独放一段。
+let cleanItems = [];
+let cleanSelected = new Set();
+let cleanIgnoredCache = [];       // “已忽略”面板当前展示的数据
+let cleanIgnoredPanelOpen = false;
+let cleanTruncated = false;       // 上一次预览后端是否还有没扫到的剩余命中
+
+function openCleanModal(){
+  document.getElementById('clean-scope-tip').textContent = '';
+  document.getElementById('clean-result').style.display = 'none';
+  document.getElementById('clean-select-all').checked = false;
+  cleanItems = [];
+  cleanSelected = new Set();
+  cleanTruncated = false;
+  lastCleanBody = null;
+  cleanIgnoredPanelOpen = false;
+  document.getElementById('clean-ignored-panel').style.display = 'none';
+  renderPresetChips(); // 忽略词 chips 依赖 presets.noiseWords，确保打开时是最新的
+  loadCleanIgnoredCount();
+  document.getElementById('clean-modal-overlay').classList.add('open');
+}
+function closeCleanModal(){ document.getElementById('clean-modal-overlay').classList.remove('open'); }
+
+// 需求(手动忽略误命中)："已忽略"数量每次打开弹窗都刷新一次，标题上就能看到
+// 大致有多少首被标记过，不用点开面板才知道。
+async function loadCleanIgnoredCount(){
+  try{
+    const res = await fetch('/api/admin/clean/ignored');
+    if(res.status === 401){ closeCleanModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok) return;
+    cleanIgnoredCache = d.items || [];
+    document.getElementById('clean-ignored-count').textContent = d.total || 0;
+    if(cleanIgnoredPanelOpen) renderCleanIgnoredPanel(d);
+  }catch(e){ /* 静默失败，不影响主流程 */ }
+}
+
+function toggleCleanIgnoredPanel(){
+  cleanIgnoredPanelOpen = !cleanIgnoredPanelOpen;
+  const panel = document.getElementById('clean-ignored-panel');
+  panel.style.display = cleanIgnoredPanelOpen ? 'block' : 'none';
+  if(cleanIgnoredPanelOpen) loadCleanIgnoredCount();
+}
+
+function renderCleanIgnoredPanel(d){
+  const panel = document.getElementById('clean-ignored-panel');
+  if(!d.items || !d.items.length){
+    panel.innerHTML = '<div class="parse-empty-hint">还没有手动忽略过任何歌曲</div>';
+    return;
+  }
+  panel.innerHTML = `<div style="font-size:12px;color:var(--sub);margin-bottom:6px">` +
+    `共 ${d.total} 首${d.truncated ? `（仅展示最近 ${d.limit} 首）` : ''}，取消忽略后下次预览会重新纳入识别范围` +
+    `</div>` +
+    d.items.map(it => `
+      <div class="ig-row">
+        <div style="flex:1;min-width:0">
+          <div class="ig-title">${esc(it.title)}</div>
+          <div class="ig-fn">${esc(it.filename)}</div>
+        </div>
+        <span class="ig-undo" onclick="unignoreCleanSong(${it.id})">↩️ 取消忽略</span>
+      </div>`).join('');
+}
+
+async function markCleanIgnore(id){
+  try{
+    const res = await fetch('/api/admin/clean/ignore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [id] }),
+    });
+    if(res.status === 401){ closeCleanModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ toast(d.error || '标记失败'); return; }
+    // 直接从当前预览结果里摘掉这一行，不用重新整体预览一次——管理员刚才
+    // 圈定的范围、已经勾选的其它行都还保留原样，只是这一首不再出现。
+    cleanItems = cleanItems.filter(it => it.id !== id);
+    cleanSelected.delete(id);
+    renderCleanResult();
+    loadCleanIgnoredCount();
+    toast('已标记忽略，以后清洗预览不再命中这首歌 ✓');
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+async function unignoreCleanSong(id){
+  try{
+    const res = await fetch('/api/admin/clean/unignore', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [id] }),
+    });
+    if(res.status === 401){ closeCleanModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ toast(d.error || '取消失败'); return; }
+    toast('已取消忽略 ✓');
+    loadCleanIgnoredCount();
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+let lastCleanBody = null; // 同 lastParseBody，处理完一批后自动继续时复用
+async function previewClean(){
+  // 圈定预览范围：跟"文件名解析"一样，表格里已经勾选了歌曲就只对这些歌
+  // 曲预览（已选优先），否则按当前搜索关键字/信息筛选条件圈定。
+  const body = {};
+  if(selectedIds.size){
+    body.ids = Array.from(selectedIds);
+  } else {
+    const q = document.getElementById('search').value.trim();
+    if(q) body.q = q;
+    if(currentFilter) body.incomplete = currentFilter;
+    if(currentScope) body.scope = currentScope;
+  }
+  lastCleanBody = body;
+  await runCleanPreview(body);
+}
+
+// 需求(命中数超过单次预览上限时，确认后继续处理剩余，不要退回主列表)：
+// 跟 runParsePreview 完全对称，从 previewClean() 里拆出来，供 applyClean()
+// 处理完当前这批、发现还有剩余(truncated)时直接复用同一份圈定范围继续拉。
+async function runCleanPreview(body){
+  try{
+    const res = await fetch('/api/admin/clean/preview', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if(res.status === 401){ closeCleanModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ toast(d.error || '预览失败'); return; }
+    cleanItems = d.items || [];
+    cleanTruncated = !!d.truncated;
+    // 默认勾选"确实有变化、清洗后歌名不是空、且没有低置信度摘除"的行；
+    // 空歌名、以及"伤感的恋人"这种裸词贴着汉字的低置信度摘除，都需要管理员
+    // 自己看一眼再决定（大概率是忽略词/预设配置得太宽泛，误伤了整个歌名）。
+    cleanSelected = new Set(cleanItems.filter(it => it.changed && !it.emptyTitle && !it.lowConfidence).map(it => it.id));
+    document.getElementById('clean-scope-tip').textContent =
+      `本次共匹配 ${d.total} 首${d.truncated ? `，仅预览前 ${d.limit} 首（可先用搜索/筛选/勾选缩小范围）` : ''}` +
+      `${d.ignoredCount ? `（另有 ${d.ignoredCount} 首已被手动忽略，未参与本次）` : ''}`;
+    renderCleanResult();
+    document.getElementById('clean-result').style.display = 'block';
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+
+function cleanCurrentHtml(it){
+  const show = v => v ? esc(v) : '<i style="color:#555">（空）</i>';
+  return `<div>歌名：${show(it.current.title)}</div><div>语种：${show(it.current.language)}　风格：${show(it.current.genre)}</div>`;
+}
+function cleanResultHtml(it){
+  const show = v => v ? esc(v) : '<i style="color:#555">（空）</i>';
+  // removed 每项是 { text, value, bracketed, lowConfidence }：括号包裹/裸词
+  // 但两边不贴汉字的是高置信度，正常样式；裸词贴着汉字的低置信度摘除额外
+  // 加一个 warn 样式和⚠️，提示管理员"这一处摘除没有明确的标签边界，可能
+  // 摘错了"。
+  const removedHtml = (it.removed && it.removed.length)
+    ? `<div class="removed-tags">${it.removed.map(r =>
+        `<span class="removed-tag${r.lowConfidence ? ' removed-tag-warn' : ''}">${r.lowConfidence ? '⚠️ ' : ''}已摘除：${esc(r.text)}</span>`
+      ).join('')}</div>`
+    : '';
+  return `<div>歌名：${show(it.cleaned.title)}</div><div>语种：${show(it.cleaned.language)}　风格：${show(it.cleaned.genre)}</div>${removedHtml}`;
+}
+
+function renderCleanResult(){
+  const cols = document.getElementById('clean-cols');
+  cols.innerHTML = '';
+
+  if(!cleanItems.length){
+    cols.innerHTML = '<div class="parse-empty-hint">没有匹配到任何歌曲</div>';
+    document.getElementById('clean-stat').textContent = '';
+    updateCleanSelCount();
+    return;
+  }
+
+  const noChangeCount = cleanItems.filter(it => !it.changed).length;
+  const emptyCount = cleanItems.filter(it => it.emptyTitle).length;
+  const lowConfCount = cleanItems.filter(it => it.changed && !it.emptyTitle && it.lowConfidence).length;
+  // 跟"文件名解析"一样，预览列表只展示命中匹配(确实有变化)的行，未命中任何
+  // 忽略词/语种/风格、无需更改的行直接省略不显示，只在统计里汇总数量。
+  const matched = cleanItems.filter(it => it.changed);
+  document.getElementById('clean-stat').textContent =
+    `预览 ${cleanItems.length} 首 · 命中匹配 ${matched.length} 首` +
+    `${noChangeCount ? `（无需更改 ${noChangeCount} 首已省略）` : ''}` +
+    `${emptyCount ? ` · 清洗后歌名为空 ${emptyCount} 首（需人工确认）` : ''}` +
+    `${lowConfCount ? ` · 疑似误摘除 ${lowConfCount} 首（需人工确认）` : ''}`;
+
+  if(!matched.length){
+    cols.innerHTML = '<div class="parse-empty-hint">没有命中匹配的歌曲（均未命中忽略词/语种/风格）</div>';
+    updateCleanSelCount();
+    return;
+  }
+
+  // 需求(左右列表高度对不齐)：同一首歌的左右两个格子放进同一个 .parse-pair
+  // (grid)，天然保证高度一致，见上面 renderParseResult 的详细说明。
+  matched.forEach(it => {
+    const warn = it.emptyTitle || it.lowConfidence;
+    const warnMsg = it.emptyTitle
+      ? '⚠️ 清洗后歌名为空，确认前请检查忽略词是否配置得过宽'
+      : (it.lowConfidence ? '⚠️ 摘除的词紧贴着歌名里的其它汉字，可能是歌名本身的一部分而不是标签，请对照原文确认' : '');
+    const pair = document.createElement('div');
+    pair.className = 'parse-pair';
+    pair.innerHTML = `
+      <div class="parse-col"><div class="parse-row">
+        <span class="ignore-btn" onclick="markCleanIgnore(${it.id})" title="确认是命中错误，以后清洗预览不再显示这首歌">🚫 标记忽略</span>
+        <div class="fn">${esc(it.filename)}</div>${cleanCurrentHtml(it)}
+      </div></div>
+      <div class="parse-col"><div class="parse-row changed${warn ? ' warn' : ''}">
+        <label style="display:flex;gap:8px;cursor:pointer;align-items:flex-start">
+          <input type="checkbox" class="parse-check" ${cleanSelected.has(it.id) ? 'checked' : ''} onchange="toggleCleanRow(${it.id},this.checked)">
+          <div>${cleanResultHtml(it)}${warnMsg ? `<div style="color:var(--pink);font-size:11px">${warnMsg}</div>` : ''}</div>
+        </label>
+      </div></div>`;
+    cols.appendChild(pair);
+  });
+  updateCleanSelCount();
+}
+
+function toggleCleanRow(id, checked){
+  if(checked) cleanSelected.add(id); else cleanSelected.delete(id);
+  updateCleanSelCount();
+}
+function toggleCleanAllRows(checked){
+  cleanSelected = new Set(checked ? cleanItems.filter(it => it.changed && !it.emptyTitle && !it.lowConfidence).map(it => it.id) : []);
+  renderCleanResult();
+  document.getElementById('clean-select-all').checked = checked;
+}
+function updateCleanSelCount(){
+  document.getElementById('clean-sel-count').textContent = cleanSelected.size;
+}
+
+async function applyClean(onlySelected){
+  const targets = cleanItems.filter(it => it.changed && (onlySelected ? cleanSelected.has(it.id) : true));
+  if(!targets.length){ toast('没有可应用的变更'); return; }
+  const updates = targets.map(it => ({ id: it.id, ...it.cleaned }));
+  try{
+    const res = await fetch('/api/admin/clean/apply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates }),
+    });
+    if(res.status === 401){ closeCleanModal(); showLogin(); return; }
+    const d = await res.json();
+    if(!res.ok){ toast(d.error || '应用失败'); return; }
+
+    // 需求(命中数超过单次预览上限时，确认后继续处理剩余，不要退回主列表)：
+    // 跟 applyParse 完全对称，见那边的详细注释。
+    const appliedIds = new Set(targets.map(it => it.id));
+    cleanItems = cleanItems.filter(it => !appliedIds.has(it.id));
+    appliedIds.forEach(id => cleanSelected.delete(id));
+
+    const remainingChanged = cleanItems.filter(it => it.changed).length;
+    if(remainingChanged){
+      toast(`已应用 ${d.count} 首，本批剩余 ${remainingChanged} 首待确认 ✓`);
+      renderCleanResult();
+      return;
+    }
+
+    if(cleanTruncated && lastCleanBody){
+      toast(`已应用 ${d.count} 首，继续预览剩余命中歌曲…`);
+      await runCleanPreview(lastCleanBody);
+      return;
+    }
+
+    toast(`已应用 ${d.count} 首歌曲的清洗结果，全部命中已处理完毕 ✓`);
+    closeCleanModal();
+    refreshList();
+    loadAll();
+  }catch(e){ toast('请求失败，请检查网络'); }
+}
+</script>
+
+<script>
+// ---------- 网盘账号管理 ----------
+let cloudAccountsCache = [];
+
+function openCloudModal(){
+  document.getElementById('cloud-name-input').value = '';
+  document.getElementById('cloud-cookie-input').value = '';
+  document.getElementById('cloud-add-err').textContent = '';
+  document.getElementById('cloud-modal-overlay').classList.add('open');
+  loadCloudAccounts();
+}
+function closeCloudModal(){ document.getElementById('cloud-modal-overlay').classList.remove('open'); }
+
+async function loadCloudAccounts(){
+  const listEl = document.getElementById('cloud-accounts-list');
+  const homeListEl = document.getElementById('cloud-home-accounts-list');
+  if(listEl) listEl.innerHTML = '<div class="user-empty-tip">加载中…</div>';
+  try{
+    const r = await fetch('/api/cloud/accounts');
+    if(r.status === 401){ closeCloudModal(); showLogin(); return; }
+    const d = await r.json();
+    cloudAccountsCache = d.accounts || [];
+
+    // 渲染 modal 中的列表
+    if(listEl){
+      if(!cloudAccountsCache.length){
+        listEl.innerHTML = '<div class="user-empty-tip">还没有添加网盘账号，在上方填写Cookie添加</div>';
+      }else{
+        listEl.innerHTML = cloudAccountsCache.map(acc => {
+          const statusColor = acc.status === 'active' ? 'var(--cyan)' : 'var(--pink)';
+          const statusText = acc.status === 'active' ? '✓ 正常' : '⚠️ ' + (acc.status || '未知');
+          const userInfo = acc.user_info ? JSON.parse(acc.user_info) : null;
+          return `
+          <div class="user-row">
+            <div style="flex:1;min-width:0">
+              <div class="uname">${esc(acc.name)} <span style="font-size:11px;color:${statusColor};margin-left:6px">${statusText}</span></div>
+              <div class="udate">类型：${esc(acc.driver)} · 创建于 ${esc((acc.created_at||'').replace('T',' ').slice(0,16))}${userInfo && userInfo.nickname ? ' · ' + esc(userInfo.nickname) : ''}</div>
+            </div>
+            <button class="ubtn" onclick="testCloudAccount(${acc.id})" title="测试连接是否正常">🔍 测试</button>
+            <button class="ubtn danger" onclick="deleteCloudAccount(${acc.id},'${escJs(acc.name)}')">🗑️ 删除</button>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    // 渲染首页卡片中的列表
+    if(homeListEl){
+      if(!cloudAccountsCache.length){
+        homeListEl.innerHTML = `
+          <div class="cloud-empty">
+            <div class="cloud-empty-icon">📡</div>
+            还没有连接网盘账号<br>
+            <span style="font-size:11px;opacity:.7">在右侧扫码登录或粘贴Cookie</span>
+          </div>`;
+      }else{
+        homeListEl.innerHTML = cloudAccountsCache.map(acc => {
+          const statusClass = acc.status === 'active' ? 'cloud-status-active' : (acc.status === 'error' ? 'cloud-status-error' : 'cloud-status-pending');
+          const statusText = acc.status === 'active' ? '已连接' : (acc.status || '未知');
+          const driverName = acc.driver === 'pan115' ? '115网盘' : acc.driver;
+          const userInfo = acc.user_info ? JSON.parse(acc.user_info) : null;
+          return `
+          <div class="cloud-account-item">
+            <div class="cloud-account-icon">☁️</div>
+            <div class="cloud-account-info">
+              <div class="cloud-account-name">${esc(acc.name)}</div>
+              <div class="cloud-account-meta">
+                <span class="cloud-status-dot ${statusClass}"></span>
+                <span>${statusText}</span>
+                <span>·</span>
+                <span>${driverName}</span>
+                ${userInfo && userInfo.nickname ? `<span>·</span><span>${esc(userInfo.nickname)}</span>` : ''}
+              </div>
+            </div>
+            <div class="cloud-account-actions">
+              <button class="cloud-mini-btn test" onclick="testCloudAccount(${acc.id})">测试</button>
+              <button class="cloud-mini-btn del" onclick="deleteCloudAccount(${acc.id},'${escJs(acc.name)}')">删除</button>
+            </div>
+          </div>`;
+        }).join('');
+      }
+    }
+  }catch(e){
+    if(listEl) listEl.innerHTML = '<div class="user-empty-tip">加载失败，请重试</div>';
+    if(homeListEl) homeListEl.innerHTML = '<div class="cloud-empty">加载失败，请刷新页面重试</div>';
+  }
+}
+
+async function addCloudAccount(){
+  const driver = document.getElementById('cloud-driver-select').value;
+  const name = document.getElementById('cloud-name-input').value.trim();
+  const cookie = document.getElementById('cloud-cookie-input').value.trim();
+  const errEl = document.getElementById('cloud-add-err');
+  errEl.textContent = '';
+
+  if(!name){ errEl.textContent = '请填写账号名称'; return; }
+  if(!cookie){ errEl.textContent = '请填写Cookie'; return; }
+  if(!cookie.includes('UID') || !cookie.includes('SEID')){
+    errEl.textContent = 'Cookie格式不正确，应包含 UID、CID、SEID、KID';
+    return;
+  }
+
+  try{
+    const r = await fetch('/api/cloud/accounts/cookie', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ driver, name, cookie }),
+    });
+    if(r.status === 401){ closeCloudModal(); showLogin(); return; }
+    const d = await r.json();
+    if(!r.ok){ errEl.textContent = d.error || '添加失败'; return; }
+    document.getElementById('cloud-name-input').value = '';
+    document.getElementById('cloud-cookie-input').value = '';
+    toast('账号已添加 ✓');
+    loadCloudAccounts();
+  }catch(e){
+    errEl.textContent = '请求失败，请检查网络';
+  }
+}
+
+async function testCloudAccount(id){
+  try{
+    const r = await fetch(`/api/cloud/accounts/${id}/test`, { method: 'POST' });
+    if(r.status === 401){ closeCloudModal(); showLogin(); return; }
+    const d = await r.json();
+    if(d.success){
+      toast('连接测试成功 ✓');
+    }else{
+      toast('连接测试失败：' + (d.error || '未知错误'));
+    }
+    loadCloudAccounts();
+  }catch(e){
+    toast('测试失败：' + e.message);
+  }
+}
+
+// ---------- 扫码登录相关 ----------
+let qrPollTimer = null;
+let qrLoginData = null;
+
+function switchCloudTab(tab){
+  const qrBtn = document.getElementById('tab-qrcode');
+  const cookieBtn = document.getElementById('tab-cookie');
+  const qrSection = document.getElementById('cloud-qrcode-section');
+  const cookieSection = document.getElementById('cloud-cookie-section');
+  if(tab === 'qrcode'){
+    qrBtn.classList.add('primary');
+    cookieBtn.classList.remove('primary');
+    qrSection.style.display = 'block';
+    cookieSection.style.display = 'none';
+  }else{
+    qrBtn.classList.remove('primary');
+    cookieBtn.classList.add('primary');
+    qrSection.style.display = 'none';
+    cookieSection.style.display = 'block';
+    stopQrPolling();
+  }
+}
+
+async function startQrLogin(){
+  const btn = document.getElementById('cloud-qr-start-btn');
+  const container = document.getElementById('qrcode-container');
+  const statusEl = document.getElementById('qrcode-status');
+  btn.disabled = true;
+  btn.textContent = '获取中...';
+  statusEl.textContent = '正在获取二维码...';
+  container.innerHTML = '<div style="color:#999;font-size:12px">加载中...</div>';
+
+  try{
+    const r = await fetch('/api/cloud/qrcode/token');
+    if(r.status === 401){ closeCloudModal(); showLogin(); return; }
+    const d = await r.json();
+    if(!r.ok){ throw new Error(d.error || '获取失败'); }
+
+    qrLoginData = d;
+    container.innerHTML = `<img src="${d.qrcode_img}" style="width:100%;height:100%;object-fit:contain" alt="扫码登录">`;
+    statusEl.textContent = '请用手机115 App扫码';
+    statusEl.style.color = 'var(--cyan)';
+    btn.textContent = '刷新二维码';
+    btn.disabled = false;
+
+    // 开始轮询状态
+    startQrPolling();
+  }catch(e){
+    container.innerHTML = '<div style="color:var(--pink);font-size:12px;text-align:center">获取失败<br>' + e.message + '</div>';
+    statusEl.textContent = '获取失败，请重试';
+    statusEl.style.color = 'var(--pink)';
+    btn.textContent = '重新获取';
+    btn.disabled = false;
+  }
+}
+
+function startQrPolling(){
+  stopQrPolling();
+  qrPollTimer = setInterval(pollQrStatus, 2000);
+}
+
+function stopQrPolling(){
+  if(qrPollTimer){
+    clearInterval(qrPollTimer);
+    qrPollTimer = null;
+  }
+}
+
+async function pollQrStatus(){
+  if(!qrLoginData) return;
+  const statusEl = document.getElementById('qrcode-status');
+  try{
+    const r = await fetch(`/api/cloud/qrcode/status?uid=${qrLoginData.uid}&time=${qrLoginData.time}&sign=${qrLoginData.sign}`);
+    if(r.status === 401){ closeCloudModal(); showLogin(); return; }
+    const d = await r.json();
+    const status = d.status;
+
+    if(status === 0){
+      statusEl.textContent = '等待扫码...';
+      statusEl.style.color = 'var(--sub)';
+    }else if(status === 1){
+      statusEl.textContent = '已扫描，请在手机上确认';
+      statusEl.style.color = 'var(--cyan)';
+    }else if(status === 2){
+      statusEl.textContent = '登录成功，正在创建账号...';
+      statusEl.style.color = 'var(--cyan)';
+      stopQrPolling();
+      await completeQrLogin();
+    }else if(status === -1){
+      statusEl.textContent = '二维码已过期，请刷新';
+      statusEl.style.color = 'var(--pink)';
+      stopQrPolling();
+    }else if(status === -2){
+      statusEl.textContent = '已取消扫码';
+      statusEl.style.color = 'var(--pink)';
+      stopQrPolling();
+    }
+  }catch(e){
+    // 轮询超时或网络错误，忽略继续
+  }
+}
+
+async function completeQrLogin(){
+  const name = document.getElementById('cloud-qr-name-input').value.trim() || '我的115';
+  const app = document.getElementById('cloud-qr-app-select').value;
+  const statusEl = document.getElementById('qrcode-status');
+
+  try{
+    const r = await fetch('/api/cloud/qrcode/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: qrLoginData.uid, app, name }),
+    });
+    if(r.status === 401){ closeCloudModal(); showLogin(); return; }
+    const d = await r.json();
+    if(!r.ok || !d.success){ throw new Error(d.error || '创建账号失败'); }
+
+    statusEl.textContent = '✓ 账号创建成功！';
+    statusEl.style.color = 'var(--cyan)';
+    toast('115网盘账号添加成功 ✓');
+
+    // 重置扫码区域
+    qrLoginData = null;
+    document.getElementById('qrcode-container').innerHTML = '<div style="color:#999;font-size:12px">点击下方按钮获取二维码</div>';
+    document.getElementById('cloud-qr-start-btn').textContent = '获取二维码';
+
+    // 刷新账号列表
+    loadCloudAccounts();
+  }catch(e){
+    statusEl.textContent = '创建失败: ' + e.message;
+    statusEl.style.color = 'var(--pink)';
+  }
+}
+
+// 关闭 modal 时停止轮询
+const _origCloseCloudModal = closeCloudModal;
+closeCloudModal = function(){
+  stopQrPolling();
+  qrLoginData = null;
+  _origCloseCloudModal();
+};
+
+async function deleteCloudAccount(id, name){
+  if(!confirm(`确认删除网盘账号「${name}」？
+
+删除后该网盘的曲库来源将无法访问，但已扫描入库的歌曲记录会保留。`)) return;
+  try{
+    const r = await fetch(`/api/cloud/accounts/${id}`, { method: 'DELETE' });
+    if(r.status === 401){ closeCloudModal(); showLogin(); return; }
+    toast('账号已删除 ✓');
+    loadCloudAccounts();
+  }catch(e){
+    toast('删除失败：' + e.message);
+  }
+}
+</script>
+
+</body>
+</html>

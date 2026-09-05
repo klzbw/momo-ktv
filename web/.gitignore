@@ -1,0 +1,4 @@
+# App installers (build artifacts, too large for git)
+clients/*.apk
+clients/*.ipa
+clients/*.ipa.dSYM.zip

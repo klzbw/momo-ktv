@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>墨墨爱K歌 · 手机麦克风</title>
+<style>
+  :root{
+    --bg:#0e0e1e; --card:#17172e; --line:rgba(255,255,255,.08);
+    --ac:#7c5cff; --ac2:#4f8bff; --pink:#ff5ca8;
+    --txt:#ffffff; --sub:#9a9ac0; --ok:#34d399; --warn:#fbbf24; --err:#f87171;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;
+    -webkit-user-select:none;user-select:none;}
+  body{min-height:100vh;display:flex;justify-content:center;
+    background:radial-gradient(120% 60% at 50% -10%,rgba(124,92,255,.22),transparent 60%),
+               radial-gradient(100% 50% at 100% 100%,rgba(255,92,168,.14),transparent 60%),var(--bg);}
+  .wrap{width:100%;max-width:480px;padding:calc(18px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;gap:14px;}
+  .title{text-align:center;margin:6px 0 2px;}
+  .title h1{margin:0;font-size:22px;font-weight:800;letter-spacing:1px;
+    background:linear-gradient(90deg,var(--ac2),var(--ac),var(--pink));-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .title p{margin:6px 0 0;font-size:13px;color:var(--sub);}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;}
+  .status{display:flex;flex-direction:column;gap:8px;font-size:14px;}
+  .srow{display:flex;align-items:center;gap:8px;}
+  .dot{width:9px;height:9px;border-radius:50%;background:#555;flex:none;}
+  .dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok);}
+  .dot.wait{background:var(--warn);box-shadow:0 0 8px var(--warn);}
+  .dot.off{background:var(--err);}
+  .srow .k{color:var(--sub);width:64px;flex:none;}
+  .srow .v{font-weight:600;}
+  .mic-area{display:flex;flex-direction:column;align-items:center;gap:14px;padding:18px 0 8px;}
+  .mic-btn{width:168px;height:168px;border-radius:50%;border:none;cursor:pointer;position:relative;
+    display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;color:#fff;
+    background:linear-gradient(145deg,var(--ac),var(--ac2));
+    box-shadow:0 12px 40px rgba(124,92,255,.45);transition:transform .12s ease,box-shadow .2s;}
+  .mic-btn:active{transform:scale(.96);}
+  .mic-btn.live{background:linear-gradient(145deg,var(--pink),var(--ac));
+    box-shadow:0 0 0 0 rgba(255,92,168,.5);animation:pulse 1.6s infinite;}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,92,168,.5);}70%{box-shadow:0 0 0 26px rgba(255,92,168,0);}100%{box-shadow:0 0 0 0 rgba(255,92,168,0);}}
+  .mic-btn svg{width:58px;height:58px;}
+  .mic-btn .b-txt{font-size:19px;font-weight:800;letter-spacing:2px;}
+  .mic-btn:disabled{filter:grayscale(.6) brightness(.6);animation:none;}
+  .meter{width:100%;height:10px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;}
+  .meter i{display:block;height:100%;width:0%;border-radius:999px;
+    background:linear-gradient(90deg,var(--ok),var(--warn) 70%,var(--err));transition:width .06s linear;}
+  .seg{display:flex;gap:8px;}
+  .seg button{flex:1;padding:11px 0;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.05);
+    color:var(--sub);font-size:15px;font-weight:700;cursor:pointer;}
+  .seg button.sel{color:#fff;border-color:transparent;background:linear-gradient(145deg,var(--ac),var(--ac2));}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:15px;padding:7px 0;}
+  .row .lab{color:var(--txt);font-weight:600;}
+  .row .hint{display:block;font-size:12px;color:var(--sub);font-weight:400;margin-top:2px;}
+  .switch{position:relative;width:50px;height:30px;flex:none;}
+  .switch input{opacity:0;width:0;height:0;}
+  .slider{position:absolute;inset:0;border-radius:999px;background:rgba(255,255,255,.15);transition:.2s;}
+  .slider::before{content:"";position:absolute;width:24px;height:24px;left:3px;top:3px;border-radius:50%;background:#fff;transition:.2s;}
+  .switch input:checked + .slider{background:linear-gradient(90deg,var(--ac),var(--ac2));}
+  .switch input:checked + .slider::before{transform:translateX(20px);}
+  input[type=range]{width:100%;accent-color:var(--ac);height:28px;}
+  .sec-t{font-size:13px;color:var(--sub);font-weight:700;margin:2px 0 -4px;letter-spacing:1px;}
+  .tip{font-size:12.5px;color:var(--sub);line-height:1.7;}
+  .alert{display:none;background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.5);color:#fecaca;
+    border-radius:12px;padding:12px 14px;font-size:13.5px;line-height:1.6;}
+  .alert.show{display:block;}
+  .gainval{font-size:14px;color:var(--ac2);font-weight:800;width:44px;text-align:right;}
+</style>
+<link rel="stylesheet" href="/cartoon-theme.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="title">
+    <h1>墨墨爱K歌 · 手机麦克风</h1>
+    <p>手机和电视连同一个 WiFi，点下方按钮即可开唱</p>
+  </div>
+
+  <div id="httpsAlert" class="alert"></div>
+
+  <div class="card status">
+    <div class="srow"><span class="dot" id="dotServer"></span><span class="k">服务器</span><span class="v" id="tvServer">连接中…</span></div>
+    <div class="srow"><span class="dot" id="dotTv"></span><span class="k">电视端</span><span class="v" id="tvState">等待电视进入麦克风模式</span></div>
+    <div class="srow" style="font-size:11px;color:#fbbf24;line-height:1.5;"><span class="k" style="width:48px;">调试</span><span class="v" id="dbg" style="font-weight:600;white-space:normal;">等待…</span></div>
+  </div>
+
+  <div class="card mic-area">
+    <button class="mic-btn" id="btnMic" disabled>
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
+      <span class="b-txt" id="btnTxt">开始唱歌</span>
+    </button>
+    <div class="meter"><i id="meterBar"></i></div>
+  </div>
+
+  <div class="card">
+    <div class="sec-t">使用场景</div>
+    <div class="seg" style="margin-top:8px;">
+      <button id="modeEar" class="sel">戴耳机（推荐）</button>
+      <button id="modeSpk">电视外放</button>
+    </div>
+    <div class="tip" id="modeTip" style="margin-top:8px;">戴耳机时几乎没有回声，效果最好：把电视接耳机/音响，或演唱者戴监听耳机。</div>
+  </div>
+
+  <div class="card">
+    <div class="sec-t">人声设置</div>
+    <div class="row">
+      <div><span class="lab">回声消除</span><span class="hint">电视外放时建议开启，戴耳机可关闭以获得更原声</span></div>
+      <label class="switch"><input type="checkbox" id="swEcho"><span class="slider"></span></label>
+    </div>
+    <div class="row">
+      <div><span class="lab">环境降噪</span><span class="hint">压低空调、风扇等背景噪音</span></div>
+      <label class="switch"><input type="checkbox" id="swNs" checked><span class="slider"></span></label>
+    </div>
+    <div class="row">
+      <div><span class="lab">自动增益</span><span class="hint">声音小时自动放大</span></div>
+      <label class="switch"><input type="checkbox" id="swAgc" checked><span class="slider"></span></label>
+    </div>
+    <div class="row" style="margin-bottom:-6px;">
+      <span class="lab">麦克风音量</span><span class="gainval" id="gainVal">100%</span>
+    </div>
+    <input type="range" id="gain" min="0" max="200" value="100" />
+  </div>
+
+  <div class="tip" style="text-align:center;padding:0 6px;">
+    本页面只把你的人声传给电视，手机不会外放，避免啸叫。<br/>
+    若打不开麦克风，多为浏览器要求加密连接：请用 <b>https://</b> 域名打开本页。
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var $ = function(id){return document.getElementById(id);};
+  var btnMic=$("btnMic"), btnTxt=$("btnTxt"), meterBar=$("meterBar");
+  var dotServer=$("dotServer"), dotTv=$("dotTv"), tvServer=$("tvServer"), tvState=$("tvState");
+  var swEcho=$("swEcho"), swNs=$("swNs"), swAgc=$("swAgc"), gainSlider=$("gain"), gainVal=$("gainVal");
+  var modeEar=$("modeEar"), modeSpk=$("modeSpk"), modeTip=$("modeTip"), alertBox=$("httpsAlert");
+
+  var mode = "ear";           // ear | speaker
+  var ws=null, wsReady=false, tvOnline=false, wantLive=false, busy=false;
+  var ac=null, source=null, proc=null, muteGain=null, stream=null;
+  var gain=1.0, lastConfigRate=0;
+  var meterTimer=null, lastMeter=0, rms=0;
+  var dbgEl=null, sentFrames=0, lastErr="", dbgFrame=0;
+  function setDbg(s){ if(dbgEl){ try{ dbgEl.textContent=s; }catch(e){} } }
+
+  // ---------- HTTPS / 能力检测 ----------
+  var secure = window.isSecureContext !== false;
+  if(!secure){
+    alertBox.classList.add("show");
+    alertBox.innerHTML = "当前不是加密连接（HTTPS），iPhone/安卓浏览器会<b>禁止使用麦克风</b>。<br/>请用 Lucky 反代的加密域名（如 https://你的域名/mic）扫码打开，而不是 http://内网IP。";
+  }
+  var hasMic = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.WebSocket);
+  if(!hasMic){
+    alertBox.classList.add("show");
+    alertBox.innerHTML = "当前浏览器不支持麦克风采集，请使用 iPhone 自带 Safari 或较新的安卓 Chrome 打开。";
+  }
+
+  // ---------- 场景切换 ----------
+  function setMode(m){
+    mode=m;
+    modeEar.className = m==="ear"?"sel":"";
+    modeSpk.className  = m==="speaker"?"sel":"";
+    if(m==="speaker"){
+      swEcho.checked=true; swNs.checked=true; swEcho.disabled=true;
+      modeTip.textContent="电视外放时已强制开启回声消除+降噪；请把手机靠近嘴、远离电视音箱，可减轻回声/啸叫。";
+    }else{
+      swEcho.checked=false; swEcho.disabled=false;
+      modeTip.textContent="戴耳机时几乎没有回声，效果最好：把电视接耳机/音响，或演唱者戴监听耳机。";
+    }
+    if(wantLive) restartAudio(); // 改变采集约束需要重开麦克风
+  }
+  modeEar.onclick=function(){setMode("ear");};
+  modeSpk.onclick=function(){setMode("speaker");};
+  swEcho.onchange=function(){ if(wantLive) restartAudio(); };
+  swNs.onchange=function(){ if(wantLive) restartAudio(); };
+  swAgc.onchange=function(){ if(wantLive) restartAudio(); };
+  gainSlider.oninput=function(){ gain=gainSlider.value/100; gainVal.textContent=gainSlider.value+"%"; };
+  setMode("ear");
+
+  // ---------- WebSocket ----------
+  function wsURL(role){
+    var proto = location.protocol==="https:" ? "wss" : "ws";
+    return proto+"://"+location.host+"/mic?role="+role;
+  }
+  function connectWS(){
+    try{ ws=new WebSocket(wsURL("mic")); }catch(e){ scheduleReconnect(); return; }
+    ws.binaryType="arraybuffer";
+    ws.onopen=function(){
+      wsReady=true; lastErr="";
+      dotServer.className="dot on"; tvServer.textContent="已连接";
+      setDbg("ws已OPEN rs="+ws.readyState+" 等待开唱");
+      if(wantLive) sendConfig();
+      refreshBtn();
+    };
+    ws.onmessage=function(ev){
+      if(typeof ev.data!=="string") return;
+      var p; try{p=JSON.parse(ev.data);}catch(e){return;}
+      if(p.type==="presence"){
+        tvOnline = (p.tvs && p.tvs>0);
+        dotTv.className = tvOnline?"dot on":"dot wait";
+        tvState.textContent = tvOnline ? ("电视已在线"+(p.phones?"，正在传输":"，等待开唱")) : "等待电视进入麦克风模式";
+      }else if(p.type==="busy"){
+        busy=true; if(wantLive) stopAudio();
+        alertBox.classList.add("show");
+        alertBox.textContent="已有一部手机正在使用麦克风，请先在那部手机上停止。";
+      }else if(p.type==="hello"){
+        // 服务端欢迎，presence 会紧随其后
+      }
+      refreshBtn();
+    };
+    ws.onclose=function(){ wsReady=false; tvOnline=false; dotServer.className="dot wait";
+      setDbg("ws已CLOSED 2.5s后重连");
+      dotTv.className="dot off"; tvServer.textContent="已断开，重连中…"; scheduleReconnect(); };
+    ws.onerror=function(){ setDbg("ws ERROR"); try{ws.close();}catch(e){} };
+  }
+  var reconnectTimer=null;
+  function scheduleReconnect(){
+    if(reconnectTimer) return;
+    reconnectTimer=setTimeout(function(){reconnectTimer=null;connectWS();},2500);
+  }
+  function sendConfig(){
+    if(wsReady && ac){
+      var cfg={type:"config",sampleRate:ac.sampleRate,channels:1};
+      if(lastConfigRate!==ac.sampleRate){ ws.send(JSON.stringify(cfg)); lastConfigRate=ac.sampleRate; }
+    }
+  }
+
+  // ---------- 麦克风采集 ----------
+  function pcm16(float32){
+    var n=float32.length, out=new Int16Array(n);
+    for(var i=0;i<n;i++){
+      var s=float32[i]*gain;
+      if(s>1)s=1; else if(s<-1)s=-1;
+      out[i] = s<0 ? s*0x8000 : s*0x7FFF;
+    }
+    return out;
+  }
+
+  async function startAudio(){
+    if(!secure || !hasMic){ alertBox.classList.add("show"); return; }
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio:{
+          channelCount:1,
+          echoCancellation: !!swEcho.checked,
+          noiseSuppression: !!swNs.checked,
+          autoGainControl: !!swAgc.checked
+        }, video:false
+      });
+      var AC = window.AudioContext || window.webkitAudioContext;
+      ac = new AC();
+      if(ac.state==="suspended"){ try{await ac.resume();}catch(e){} }
+      source = ac.createMediaStreamSource(stream);
+      proc = ac.createScriptProcessor(512,1,1);
+      muteGain = ac.createGain(); muteGain.gain.value=0; // 手机端不外放，避免自激啸叫
+      source.connect(proc); proc.connect(muteGain); muteGain.connect(ac.destination);
+      proc.onaudioprocess=function(e){
+        var f=e.inputBuffer.getChannelData(0);
+        // 电平
+        var sum=0; for(var i=0;i<f.length;i++){sum+=f[i]*f[i];} rms=Math.sqrt(sum/f.length);
+        dbgFrame++;
+        if(!wsReady || busy){
+          if(dbgFrame%30===0) setDbg("采集OK但未发: wsReady="+wsReady+" busy="+busy+" rs="+(ws?ws.readyState:"?"));
+          return;
+        }
+        var out=pcm16(f);
+        // 网络堆积时丢帧，防止延迟越滚越大
+        try{
+          if(ws.bufferedAmount < 16384){ ws.send(out.buffer); sentFrames++; }
+          else { lastErr="buf="+ws.bufferedAmount+"超阈值丢帧"; }
+        }catch(err){ lastErr="send异常:"+(err&&err.message?err.message:err); }
+        if(dbgFrame%15===0){
+          setDbg("rs="+ws.readyState+" buf="+ws.bufferedAmount+" 已发帧="+sentFrames+" 率="+(ac?ac.sampleRate:"?")+(lastErr?" |"+lastErr:""));
+        }
+      };
+      lastConfigRate=0; sendConfig();
+      startMeter();
+    }catch(err){
+      alertBox.classList.add("show");
+      alertBox.textContent="无法打开麦克风："+(err&&err.message?err.message:err)+"。请在浏览器地址栏的网站设置里允许麦克风，并用 HTTPS 打开。";
+      wantLive=false; refreshBtn();
+    }
+  }
+  function stopAudio(){
+    wantLive=false;
+    try{proc&&proc.disconnect();}catch(e){}
+    try{source&&source.disconnect();}catch(e){}
+    try{muteGain&&muteGain.disconnect();}catch(e){}
+    try{ac&&ac.close();}catch(e){}
+    if(stream){stream.getTracks().forEach(function(t){try{t.stop();}catch(e){}});}
+    proc=null;source=null;muteGain=null;ac=null;stream=null;
+    stopMeter(); meterBar.style.width="0%";
+  }
+  async function restartAudio(){
+    if(!wantLive) return;
+    stopAudio(); wantLive=true;
+    await new Promise(function(r){setTimeout(r,120);});
+    await startAudio();
+  }
+
+  // ---------- 电平表 ----------
+  function startMeter(){
+    stopMeter();
+    meterTimer=setInterval(function(){
+      var v=Math.min(1,rms*2.2);
+      meterBar.style.width=Math.round(v*100)+"%";
+    },60);
+  }
+  function stopMeter(){ if(meterTimer){clearInterval(meterTimer);meterTimer=null;} }
+
+  // ---------- 按钮 ----------
+  function refreshBtn(){
+    var can = secure && hasMic;
+    btnMic.disabled = !can;
+    if(wantLive){ btnMic.classList.add("live"); btnTxt.textContent="停止"; }
+    else{ btnMic.classList.remove("live"); btnTxt.textContent="开始唱歌"; }
+  }
+  btnMic.onclick=async function(){
+    if(wantLive){ stopAudio(); refreshBtn(); return; }
+    wantLive=true; busy=false; alertBox.classList.remove("show"); refreshBtn();
+    await startAudio(); refreshBtn();
+  };
+
+  // 切回前台时恢复被系统挂起的音频
+  document.addEventListener("visibilitychange",function(){
+    if(document.visibilityState==="visible" && ac && ac.state==="suspended"){ ac.resume(); }
+  });
+
+  // 初始
+  dbgEl=$("dbg");
+  setDbg("页面加载，连接中…");
+  refreshBtn();
+  connectWS();
+})();
+</script>
+</body>
+</html>

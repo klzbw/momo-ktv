@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>墨墨爱K歌 · 客户端下载</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body{
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    min-height:100vh; color:#fff;
+    background:linear-gradient(135deg,#2b1055 0%,#1a1a2e 55%,#0f3460 100%);
+    padding:32px 18px 60px;
+  }
+  .wrap{max-width:960px;margin:0 auto;}
+  header{text-align:center;margin-bottom:34px;}
+  header .logo{font-size:46px;}
+  header h1{font-size:32px;margin:10px 0 8px;letter-spacing:2px;
+    background:linear-gradient(90deg,#ff8fb1,#ffd86b,#6be1ff);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  header p{color:#c9c4e6;font-size:15px;line-height:1.7;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:20px;}
+  .card{
+    background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);
+    border-radius:20px;padding:24px;backdrop-filter:blur(8px);
+    display:flex;flex-direction:column;transition:transform .2s,box-shadow .2s;
+  }
+  .card:hover{transform:translateY(-4px);box-shadow:0 14px 40px rgba(0,0,0,.35);}
+  .card .ico{font-size:40px;margin-bottom:10px;}
+  .card h2{font-size:20px;margin-bottom:6px;}
+  .card .sub{color:#b9b4da;font-size:13px;line-height:1.6;margin-bottom:16px;flex:1;}
+  .card .sub b{color:#ffd86b;}
+  a.btn{
+    display:block;text-align:center;text-decoration:none;color:#1a1a2e;font-weight:700;
+    background:linear-gradient(90deg,#ffd86b,#ffb36b);border-radius:14px;padding:14px 16px;font-size:16px;
+    box-shadow:0 6px 18px rgba(255,190,90,.35);
+  }
+  a.btn.alt{background:linear-gradient(90deg,#6be1ff,#8ff0c8);box-shadow:0 6px 18px rgba(107,225,255,.3);}
+  a.btn.pink{background:linear-gradient(90deg,#ff8fb1,#ffb3d1);box-shadow:0 6px 18px rgba(255,143,177,.3);}
+  .tip{margin-top:26px;background:rgba(255,255,255,.06);border-radius:16px;padding:18px 20px;font-size:13.5px;line-height:1.9;color:#d7d3ee;}
+  .tip b{color:#ffd86b;}
+  .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(107,225,255,.18);color:#9fe9ff;margin-left:6px;vertical-align:middle;}
+  footer{text-align:center;color:#8f8ab0;font-size:12px;margin-top:34px;line-height:1.8;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">🎤</div>
+    <h1>墨墨爱K歌 · 客户端下载</h1>
+    <p>这些安装包已随飞牛应用内置，无需再去 GitHub 找。<br>请在对应的设备上，或用对应设备的浏览器打开本页下载。</p>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <div class="ico">📺</div>
+      <h2>安卓电视 / 安卓盒子 <span class="tag">APK</span></h2>
+      <div class="sub">适用于 Android TV、小米/海信/当贝/谷歌 TV 等安卓系统的电视或盒子。<br><br>安装：用电视浏览器打开本页直接下载，或把 APK 拷到 U 盘插入电视安装；需在系统设置里允许<b>「安装未知来源应用」</b>。</div>
+      <a class="btn" href="./MomoKTV-AndroidTV.apk" download>下载安卓 TV 安装包</a>
+    </div>
+
+    <div class="card">
+      <div class="ico">📱</div>
+      <h2>iPad / iPhone（iOS 15 及以上） <span class="tag">IPA</span></h2>
+      <div class="sub">适用于较新的 iPad、iPhone（系统 iOS/iPadOS 15.0 或更高）。<br><br>IPA 需用 <b>AltStore / Sideloadly / 巨魔</b>等侧载工具，用自己的 Apple ID 签名后安装，不能直接点开安装。</div>
+      <a class="btn alt" href="./MomoKTV-iOS15.ipa" download>下载 iOS15+ 安装包</a>
+    </div>
+
+    <div class="card">
+      <div class="ico">📲</div>
+      <h2>老款 iPad（iOS 12） <span class="tag">IPA</span></h2>
+      <div class="sub">专门给老设备（如 iPad mini 2/3、iPad Air 1 等停留在 iOS 12 的机型）使用，已内嵌运行库。<br><br>同样需要用侧载工具签名安装；新设备请选上面的 iOS15 包。</div>
+      <a class="btn pink" href="./MomoKTV-iOS12.ipa" download>下载 iOS12 老设备包</a>
+    </div>
+  </div>
+
+  <div class="tip">
+    <b>温馨提示：</b><br>
+    1. Apple TV（tvOS）安装包与 iPad/iPhone 不同，如需 tvOS 版请到项目 GitHub 的 Actions 下载，或用侧载工具安装。<br>
+    2. 手机/平板点歌其实<b>无需安装 App</b>：用 Safari/浏览器打开 <b>http://本机IP:8083/mobile/</b>，再「添加到主屏幕」即可像 App 一样使用。<br>
+    3. 电视播放入口：浏览器打开 <b>http://本机IP:8083/tv/</b>；管理后台：<b>http://本机IP:8083/admin</b>。<br>
+    4. 安装包与本服务端版本配套，升级飞牛应用后建议重新下载最新客户端。
+  </div>
+
+  <footer>墨墨爱K歌 MomoKTV · 家庭局域网点歌系统 · 安装包已内置，离线可下载</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>墨墨爱K歌 · 登录</title>
+<style>
+:root{--bg:#07071a;--card:#10102a;--accent:#c736f7;--cyan:#36d9f7;--pink:#ff4f9b;--text:#f4f4ff;--sub:#8888aa}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:"PingFang SC","Microsoft YaHei",sans-serif;
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+  position:relative;overflow:hidden;
+}
+body::before{
+  content:'';position:fixed;inset:0;z-index:0;
+  background:radial-gradient(ellipse at 50% -10%, rgba(199,54,247,.16), transparent 55%),
+             radial-gradient(ellipse at 90% 100%, rgba(54,217,247,.12), transparent 50%),
+             var(--bg);
+}
+.box{
+  position:relative;z-index:1;
+  background:rgba(16,16,42,.78);border:1px solid rgba(255,255,255,.08);border-radius:20px;
+  padding:40px 36px;width:360px;max-width:88vw;text-align:center;
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+}
+.box h1{
+  font-size:26px;font-weight:900;letter-spacing:1px;margin-bottom:6px;
+  background:linear-gradient(90deg,var(--cyan),var(--accent),var(--pink));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.box .sub{color:var(--sub);font-size:13px;margin-bottom:26px;letter-spacing:1px}
+.box input[type=text],.box input[type=password]{
+  width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:10px;padding:13px 14px;color:var(--text);font-size:15px;outline:none;margin-bottom:14px;
+}
+.box input:focus{border-color:var(--accent)}
+.remember-row{display:flex;align-items:center;gap:8px;margin:2px 2px 18px;font-size:13px;color:var(--sub);text-align:left;user-select:none;cursor:pointer}
+.remember-row input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+.box button{
+  width:100%;padding:13px;border-radius:10px;border:none;font-weight:700;cursor:pointer;
+  background:linear-gradient(135deg,var(--accent),var(--cyan));color:#07071a;font-size:15px;
+}
+.box button:disabled{opacity:.5;cursor:not-allowed}
+#err{color:var(--pink);font-size:12px;margin:-4px 0 12px;min-height:14px}
+#no-user-tip{color:var(--sub);font-size:12px;line-height:1.7;margin-top:18px;padding-top:16px;border-top:1px solid rgba(255,255,255,.07);display:none}
+</style>
+<link rel="stylesheet" href="/cartoon-theme.css">
+</head>
+<body>
+<div class="box">
+  <h1>墨墨爱K歌</h1>
+  <div class="sub">请输入账号密码进入K歌主页面</div>
+  <input id="username" type="text" placeholder="账号" autocomplete="username" onkeydown="if(event.key==='Enter')document.getElementById('password').focus()">
+  <input id="password" type="password" placeholder="密码" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+  <label class="remember-row"><input id="remember" type="checkbox" checked>记住登录（30天内免登录）</label>
+  <div id="err"></div>
+  <button id="login-btn" onclick="doLogin()">进入</button>
+  <div id="no-user-tip">还没有可用的登录账号，请让管理员先在「管理后台 → 用户管理」里创建一个账号。</div>
+</div>
+
+<script>
+// 登录成功、或者这个浏览器本来就已经带着有效登录态打开这个页面时，都要
+// 跳到 ?to= 指定的目标页面（默认 /tv/index.html）；一律走 replace，不留
+// 一条"登录页"在浏览器历史记录里，避免用户点返回又回到登录页。
+const params = new URLSearchParams(location.search);
+const target = params.get('to') || '/tv/index.html';
+
+async function checkAlreadyAuthed(){
+  try{
+    const r = await fetch('/api/tv-auth/session');
+    const d = await r.json();
+    if(d.authed){ location.replace(target); return; }
+    if(!d.hasUsers){ document.getElementById('no-user-tip').style.display = 'block'; }
+  }catch(e){ /* 查询失败就留在登录页，不影响正常登录流程 */ }
+}
+checkAlreadyAuthed();
+
+async function doLogin(){
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const remember = document.getElementById('remember').checked;
+  const errEl = document.getElementById('err');
+  const btn = document.getElementById('login-btn');
+  errEl.textContent = '';
+  if(!username || !password){ errEl.textContent = '请输入账号和密码'; return; }
+  btn.disabled = true;
+  try{
+    const r = await fetch('/api/tv-auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, remember }),
+    });
+    if(r.ok){
+      location.replace(target);
+      return;
+    }
+    const d = await r.json().catch(()=>({}));
+    errEl.textContent = d.error || '登录失败，请重试';
+  }catch(e){
+    errEl.textContent = '请求失败，请检查网络';
+  }
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>

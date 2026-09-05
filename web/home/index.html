@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>墨墨爱K歌</title>
+<style>
+:root{--bg:#07071a;--card:#10102a;--accent:#c736f7;--cyan:#36d9f7;--pink:#ff4f9b;--text:#f4f4ff;--sub:#8888aa}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:"PingFang SC","Microsoft YaHei",sans-serif;
+  min-height:100vh;overflow-x:hidden;position:relative;
+}
+
+/* 全屏粒子动画背景：canvas 铺满整个视口，固定在最底层，内容都叠在它上面 */
+#particles{
+  position:fixed;inset:0;z-index:0;display:block;
+  background:radial-gradient(ellipse at 50% -10%, rgba(199,54,247,.16), transparent 55%),
+             radial-gradient(ellipse at 90% 100%, rgba(54,217,247,.12), transparent 50%),
+             var(--bg);
+}
+
+.page{
+  position:relative;z-index:1;min-height:100vh;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:40px 20px 100px;
+}
+
+.brand{text-align:center;margin-bottom:56px}
+.brand h1{
+  font-size:56px;font-weight:900;letter-spacing:2px;
+  background:linear-gradient(90deg,var(--cyan),var(--accent),var(--pink));
+  background-size:200% auto;
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:sheen 6s linear infinite;
+  filter:drop-shadow(0 0 28px rgba(199,54,247,.35));
+}
+.brand p{
+  margin-top:14px;font-size:16px;letter-spacing:6px;color:var(--sub);
+  font-weight:300;
+}
+@keyframes sheen{
+  0%{background-position:0% center}
+  100%{background-position:200% center}
+}
+
+.nav-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:24px;
+  width:100%;max-width:920px;
+}
+@media (max-width:760px){
+  .nav-grid{grid-template-columns:1fr;max-width:360px}
+  .brand h1{font-size:38px}
+  .brand p{font-size:13px;letter-spacing:4px}
+}
+
+.nav-card{
+  position:relative;overflow:hidden;
+  background:rgba(16,16,42,.68);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:22px;padding:34px 26px;
+  text-decoration:none;color:var(--text);
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;
+  transition:transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+}
+.nav-card::before{
+  content:'';position:absolute;inset:0;opacity:0;
+  background:linear-gradient(135deg, rgba(199,54,247,.18), rgba(54,217,247,.18));
+  transition:opacity .25s ease;
+}
+.nav-card:hover{
+  transform:translateY(-6px);
+  border-color:rgba(199,54,247,.45);
+  box-shadow:0 18px 40px rgba(199,54,247,.18);
+}
+.nav-card:hover::before{opacity:1}
+.nav-card .icon{
+  width:64px;height:64px;border-radius:18px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:30px;position:relative;z-index:1;
+  background:linear-gradient(135deg,var(--accent),var(--cyan));
+  box-shadow:0 8px 24px rgba(199,54,247,.35);
+}
+.nav-card .title{position:relative;z-index:1;font-size:19px;font-weight:700}
+.nav-card .desc{position:relative;z-index:1;font-size:13px;color:var(--sub)}
+
+/* 右下角 GitHub 悬浮按钮 */
+.github-btn{
+  position:fixed;right:22px;bottom:22px;z-index:5;
+  display:flex;align-items:center;gap:8px;
+  padding:10px 18px 10px 14px;border-radius:999px;
+  background:rgba(16,16,42,.82);border:1px solid rgba(255,255,255,.12);
+  color:var(--text);text-decoration:none;font-size:13px;font-weight:600;
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  transition:transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.github-btn:hover{
+  transform:translateY(-3px);
+  border-color:rgba(54,217,247,.5);
+  box-shadow:0 10px 26px rgba(54,217,247,.22);
+}
+.github-btn .star{font-size:14px;color:#ffd34d;line-height:1}
+.github-btn svg{width:18px;height:18px;fill:currentColor}
+
+.footer-tip{
+  position:relative;z-index:1;margin-top:44px;font-size:12px;color:var(--sub);
+  letter-spacing:1px;text-align:center;
+}
+
+/* ===== 网盘管理展开面板 ===== */
+.cloud-panel{
+  position:relative;z-index:1;width:100%;max-width:920px;margin-top:24px;
+  display:none;
+}
+.cloud-panel.open{display:block;animation:fadeIn .3s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+
+.cloud-card{
+  background:rgba(16,16,42,.72);
+  border:1px solid rgba(199,54,247,.25);
+  border-radius:22px;padding:28px;
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  position:relative;overflow:hidden;
+}
+.cloud-card::before{
+  content:'';position:absolute;top:-60%;right:-10%;width:400px;height:400px;
+  background:radial-gradient(circle,rgba(199,54,247,.15),transparent 70%);
+  pointer-events:none;
+}
+.cloud-card-header{
+  display:flex;align-items:center;gap:12px;margin-bottom:20px;position:relative;z-index:1
+}
+.cloud-card-title{
+  font-size:20px;font-weight:800;
+  background:linear-gradient(90deg,var(--cyan),var(--accent));
+  -webkit-background-clip:text;background-clip:text;color:transparent
+}
+.cloud-card-sub{font-size:12px;color:var(--sub);margin-left:4px}
+.cloud-card-close{
+  margin-left:auto;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);
+  color:var(--text);width:32px;height:32px;border-radius:9px;cursor:pointer;
+  font-size:16px;display:flex;align-items:center;justify-content:center;transition:.2s
+}
+.cloud-card-close:hover{background:rgba(255,79,155,.2);border-color:rgba(255,79,155,.4)}
+
+.cloud-card-body{display:flex;gap:20px;position:relative;z-index:1}
+.cloud-accounts-col{flex:1.2;min-width:0}
+.cloud-add-col{flex:.8;min-width:0}
+.cloud-col-title{
+  font-size:13px;font-weight:600;color:var(--sub);
+  margin-bottom:12px;display:flex;align-items:center;gap:6px
+}
+.cloud-col-title::before{
+  content:'';width:3px;height:14px;border-radius:2px;
+  background:linear-gradient(180deg,var(--cyan),var(--accent))
+}
+
+/* 账号列表项 */
+.cloud-account-item{
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);
+  border-radius:14px;padding:14px 16px;margin-bottom:10px;
+  display:flex;align-items:center;gap:12px;transition:.2s
+}
+.cloud-account-item:hover{
+  background:rgba(199,54,247,.1);border-color:rgba(199,54,247,.3);
+  transform:translateX(4px)
+}
+.cloud-account-icon{
+  width:44px;height:44px;border-radius:12px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:22px;
+  background:linear-gradient(135deg,rgba(54,217,247,.2),rgba(199,54,247,.2));
+  border:1px solid rgba(255,255,255,.1)
+}
+.cloud-account-info{flex:1;min-width:0}
+.cloud-account-name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cloud-account-meta{font-size:11px;color:var(--sub);margin-top:4px;display:flex;gap:8px;align-items:center}
+.cloud-status-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.cloud-status-active{background:#4ade80;box-shadow:0 0 8px #4ade80}
+.cloud-status-error{background:#f87171;box-shadow:0 0 8px #f87171}
+.cloud-status-pending{background:#fbbf24;box-shadow:0 0 8px #fbbf24}
+.cloud-account-actions{display:flex;gap:6px;flex-shrink:0}
+.cloud-mini-btn{
+  padding:5px 10px;border-radius:7px;font-size:11px;border:none;cursor:pointer;
+  background:rgba(255,255,255,.08);color:var(--text);transition:.15s;white-space:nowrap
+}
+.cloud-mini-btn:hover{background:rgba(199,54,247,.3)}
+.cloud-mini-btn.test:hover{background:rgba(54,217,247,.25);color:var(--cyan)}
+.cloud-mini-btn.del:hover{background:rgba(255,79,155,.25);color:var(--pink)}
+
+/* 空状态 */
+.cloud-empty{
+  text-align:center;padding:30px 20px;color:var(--sub);font-size:13px;
+  background:rgba(255,255,255,.02);border:1px dashed rgba(255,255,255,.1);
+  border-radius:14px
+}
+.cloud-empty-icon{font-size:32px;margin-bottom:8px;opacity:.5}
+
+/* 添加账号区域 */
+.cloud-add-box{
+  background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);
+  border-radius:14px;padding:16px
+}
+.cloud-tabs{display:flex;gap:4px;margin-bottom:14px;padding:3px;background:rgba(255,255,255,.05);border-radius:10px}
+.cloud-tab{
+  flex:1;padding:8px 0;text-align:center;font-size:12px;border-radius:8px;
+  cursor:pointer;color:var(--sub);border:none;background:transparent;transition:.15s
+}
+.cloud-tab.active{background:var(--accent);color:#fff;font-weight:600}
+.cloud-tab:hover:not(.active){color:var(--text)}
+
+/* 扫码登录 */
+.cloud-qr-mini{text-align:center}
+.cloud-qr-img-box{
+  width:150px;height:150px;background:#fff;border-radius:12px;
+  margin:0 auto 12px;display:flex;align-items:center;justify-content:center;
+  overflow:hidden;border:2px solid rgba(199,54,247,.3)
+}
+.cloud-qr-img-box img{width:100%;height:100%;object-fit:contain}
+.cloud-qr-status{font-size:11px;color:var(--sub);margin-bottom:10px;min-height:16px}
+.cloud-qr-app-row{display:flex;gap:6px;margin-bottom:10px}
+.cloud-qr-app-row select,.cloud-qr-app-row input{
+  flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:8px;padding:7px 8px;color:var(--text);font-size:11px;outline:none
+}
+
+/* Cookie登录 */
+.cloud-cookie-mini textarea{
+  width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:8px;padding:8px 10px;color:var(--text);font-size:11px;outline:none;
+  min-height:55px;resize:vertical;font-family:monospace;margin-bottom:8px
+}
+.cloud-cookie-mini input{
+  width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;outline:none;margin-bottom:8px
+}
+
+/* 通用按钮 */
+.cloud-btn-primary{
+  width:100%;padding:10px;border-radius:10px;font-size:13px;font-weight:600;
+  background:linear-gradient(135deg,var(--accent),var(--cyan));border:none;
+  color:#07071a;cursor:pointer;transition:.2s
+}
+.cloud-btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(199,54,247,.3)}
+.cloud-btn-primary:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.cloud-err{color:var(--pink);font-size:11px;min-height:14px;margin-bottom:8px}
+
+/* 响应式 */
+@media(max-width:760px){
+  .cloud-card-body{flex-direction:column}
+  .cloud-panel{max-width:360px}
+}
+</style>
+<link rel="stylesheet" href="/cartoon-theme.css">
+</head>
+<body>
+
+<canvas id="particles"></canvas>
+
+<div class="page">
+  <div class="brand">
+    <h1>墨墨爱K歌</h1>
+    <p>扫码点歌 · 大屏沉浸演唱</p>
+  </div>
+
+  <div class="nav-grid">
+    <a class="nav-card" href="/tv" target="_blank" rel="noopener">
+      <div class="icon">📺</div>
+      <div class="title">主页面</div>
+      <div class="desc">大屏播放 · 沉浸体验</div>
+    </a>
+    <a class="nav-card" href="/admin" target="_blank" rel="noopener">
+      <div class="icon">🗂️</div>
+      <div class="title">管理后台</div>
+      <div class="desc">曲库管理 · 用户管理</div>
+    </a>
+    <a class="nav-card" href="/m" target="_blank" rel="noopener">
+      <div class="icon">📱</div>
+      <div class="title">手机遥控</div>
+      <div class="desc">扫码点歌 · 随身操作</div>
+    </a>
+    <div class="nav-card" style="cursor:pointer" onclick="toggleCloudPanel()">
+      <div class="icon">☁️</div>
+      <div class="title">网盘管理</div>
+      <div class="desc">115网盘 · 扫码登录 · 直链播放</div>
+    </div>
+  </div>
+
+  <!-- ===== 网盘管理展开面板 ===== -->
+  <div class="cloud-panel" id="cloud-panel">
+    <div class="cloud-card">
+      <div class="cloud-card-header">
+        <div class="cloud-card-title">☁️ 网盘管理</div>
+        <div class="cloud-card-sub">115网盘 · 扫码登录 · 302直链播放</div>
+        <button class="cloud-card-close" onclick="toggleCloudPanel()">✕</button>
+      </div>
+      <div class="cloud-card-body">
+        <div class="cloud-accounts-col">
+          <div class="cloud-col-title">已连接账号</div>
+          <div id="cloud-home-accounts-list">
+            <div class="cloud-empty">
+              <div class="cloud-empty-icon">📡</div>
+              还没有连接网盘账号<br>
+              <span style="font-size:11px;opacity:.7">在右侧扫码登录或粘贴Cookie</span>
+            </div>
+          </div>
+        </div>
+        <div class="cloud-add-col">
+          <div class="cloud-col-title">快速添加</div>
+          <div class="cloud-add-box">
+            <div class="cloud-tabs">
+              <button class="cloud-tab active" id="home-tab-qrcode" onclick="switchHomeCloudTab('qrcode')">📱 扫码</button>
+              <button class="cloud-tab" id="home-tab-cookie" onclick="switchHomeCloudTab('cookie')">🍪 Cookie</button>
+            </div>
+            <div id="home-cloud-qrcode-section" class="cloud-qr-mini">
+              <div class="cloud-qr-img-box" id="home-qrcode-container">
+                <div style="color:#999;font-size:11px">点击获取二维码</div>
+              </div>
+              <div class="cloud-qr-status" id="home-qrcode-status">等待获取二维码...</div>
+              <div class="cloud-qr-app-row">
+                <input id="home-cloud-qr-name" placeholder="账号名" value="我的115">
+                <select id="home-cloud-qr-app">
+                  <option value="wechatmini">微信小程序</option>
+                  <option value="web">网页版</option>
+                  <option value="android">安卓</option>
+                  <option value="ios">iOS</option>
+                  <option value="tv">TV</option>
+                  <option value="linux">Linux</option>
+                </select>
+              </div>
+              <button class="cloud-btn-primary" onclick="startHomeQrLogin()">获取二维码</button>
+            </div>
+            <div id="home-cloud-cookie-section" class="cloud-cookie-mini" style="display:none">
+              <input id="home-cloud-name" placeholder="账号名称，如：我的115">
+              <textarea id="home-cloud-cookie" placeholder="UID=xxx; CID=xxx; SEID=xxx; KID=xxx"></textarea>
+              <div class="cloud-err" id="home-cloud-add-err"></div>
+              <button class="cloud-btn-primary" onclick="addHomeCloudCookie()">添加账号</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-tip">局域网K歌系统 · 手机扫码点歌 · 电视/投影仪全屏播放</div>
+  <div class="footer-tip" style="margin-top:6px">墨墨爱K歌 · 家庭定制版<span id="nav-version"></span></div>
+</div>
+
+<a class="github-btn" href="https://github.com/klzbw/momo-ktv" target="_blank" rel="noopener noreferrer">
+  <span class="star">★</span>
+  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+    0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+    -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07
+    -1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82
+    .64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12
+    .51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2
+    0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+  <span>GitHub</span>
+</a>
+
+<script>
+// 全屏粒子动画：不依赖任何外部库/CDN（LAN 环境不一定能访问外网），纯 canvas 2D
+// 手写实现。粒子彼此靠近时用连线呈现"动感网络"的效果，配色取自品牌三色
+// （紫 accent / 青 cyan / 粉 pink），透明度都比较低，避免抢导航卡片的视觉焦点。
+(function(){
+  const canvas = document.getElementById('particles');
+  const ctx = canvas.getContext('2d');
+  let w, h, dpr;
+  let particles = [];
+
+  const COLORS = ['199,54,247', '54,217,247', '255,79,155'];
+  const LINK_DIST = 130;
+  const MOUSE_DIST = 160;
+
+  const mouse = { x: -9999, y: -9999 };
+
+  function resize(){
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    w = window.innerWidth;
+    h = window.innerHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    initParticles();
+  }
+
+  function initParticles(){
+    // 粒子数量按屏幕面积算，太大的屏幕（比如投影仪/电视）也不会因为粒子过密
+    // 拖慢帧率；太小的屏幕（手机横屏预览这个页面）也不会显得空荡。
+    const count = Math.min(120, Math.max(40, Math.round((w * h) / 16000)));
+    particles = new Array(count).fill(0).map(() => ({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 0.35,
+      vy: (Math.random() - 0.5) * 0.35,
+      r: Math.random() * 1.6 + 0.6,
+      c: COLORS[Math.floor(Math.random() * COLORS.length)],
+    }));
+  }
+
+  function step(){
+    ctx.clearRect(0, 0, w, h);
+
+    for (const p of particles){
+      p.x += p.vx;
+      p.y += p.vy;
+      // 轻微被鼠标吸引/推开，增加一点互动感，不移动鼠标时完全不影响观感
+      const dx = mouse.x - p.x, dy = mouse.y - p.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < MOUSE_DIST * MOUSE_DIST){
+        const d = Math.sqrt(d2) || 1;
+        const f = (MOUSE_DIST - d) / MOUSE_DIST * 0.02;
+        p.vx -= (dx / d) * f;
+        p.vy -= (dy / d) * f;
+      }
+      // 简单的速度阻尼，避免鼠标交互后粒子越冲越快
+      p.vx *= 0.995;
+      p.vy *= 0.995;
+
+      if (p.x < 0) p.x = w; else if (p.x > w) p.x = 0;
+      if (p.y < 0) p.y = h; else if (p.y > h) p.y = 0;
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${p.c},0.75)`;
+      ctx.fill();
+    }
+
+    for (let i = 0; i < particles.length; i++){
+      for (let j = i + 1; j < particles.length; j++){
+        const a = particles[i], b = particles[j];
+        const dx = a.x - b.x, dy = a.y - b.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < LINK_DIST){
+          const alpha = (1 - dist / LINK_DIST) * 0.22;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.strokeStyle = `rgba(${a.c},${alpha})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
+    }
+
+    requestAnimationFrame(step);
+  }
+
+  window.addEventListener('resize', resize, { passive: true });
+  window.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; }, { passive: true });
+  window.addEventListener('mouseleave', () => { mouse.x = -9999; mouse.y = -9999; });
+  // 触屏设备没有鼠标悬浮，用触摸位置替代，效果一致
+  window.addEventListener('touchmove', (e) => {
+    if (e.touches && e.touches[0]){ mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; }
+  }, { passive: true });
+
+  resize();
+  requestAnimationFrame(step);
+})();
+
+// 需求：导航页也要显示当前版本号。跟 TV 端设置面板、曲库管理后台一样，
+// 都是从同一个 /api/stats 接口读 appVersion 字段，单一数据来源，不用在
+// 这里单独硬编码版本号。
+fetch('/api/stats').then(r=>r.json()).then(d=>{
+  if(d && d.appVersion){
+    document.getElementById('nav-version').textContent=' · v'+d.appVersion;
+  }
+}).catch(()=>{});
+
+// ========== 网盘管理 ==========
+let cloudAccountsCache = [];
+let homeQrLoginData = null;
+let homeQrPollTimer = null;
+
+function toggleCloudPanel(){
+  const panel = document.getElementById('cloud-panel');
+  panel.classList.toggle('open');
+  if(panel.classList.contains('open')){
+    loadCloudAccounts();
+    panel.scrollIntoView({behavior:'smooth',block:'center'});
+  }
+}
+
+function switchHomeCloudTab(tab){
+  const qrBtn = document.getElementById('home-tab-qrcode');
+  const cookieBtn = document.getElementById('home-tab-cookie');
+  const qrSection = document.getElementById('home-cloud-qrcode-section');
+  const cookieSection = document.getElementById('home-cloud-cookie-section');
+  if(tab === 'qrcode'){
+    qrBtn.classList.add('active'); cookieBtn.classList.remove('active');
+    qrSection.style.display = ''; cookieSection.style.display = 'none';
+  }else{
+    cookieBtn.classList.add('active'); qrBtn.classList.remove('active');
+    cookieSection.style.display = ''; qrSection.style.display = 'none';
+  }
+}
+
+async function loadCloudAccounts(){
+  const listEl = document.getElementById('cloud-home-accounts-list');
+  if(!listEl) return;
+  listEl.innerHTML = '<div class="cloud-empty"><div class="cloud-empty-icon">⏳</div>加载中...</div>';
+  try{
+    const r = await fetch('/api/cloud/accounts');
+    const d = await r.json();
+    cloudAccountsCache = d.accounts || [];
+    if(!cloudAccountsCache.length){
+      listEl.innerHTML = '<div class="cloud-empty"><div class="cloud-empty-icon">📡</div>还没有连接网盘账号<br><span style="font-size:11px;opacity:.7">在右侧扫码登录或粘贴Cookie</span></div>';
+      return;
+    }
+    listEl.innerHTML = cloudAccountsCache.map(acc => {
+      const statusClass = acc.status === 'active' ? 'cloud-status-active' : (acc.status === 'error' ? 'cloud-status-error' : 'cloud-status-pending');
+      const statusText = acc.status === 'active' ? '已连接' : (acc.status || '未知');
+      const driverName = acc.driver === 'pan115' ? '115网盘' : acc.driver;
+      const userInfo = acc.user_info ? JSON.parse(acc.user_info) : null;
+      return '<div class="cloud-account-item">' +
+        '<div class="cloud-account-icon">☁️</div>' +
+        '<div class="cloud-account-info">' +
+          '<div class="cloud-account-name">' + escHtml(acc.name) + '</div>' +
+          '<div class="cloud-account-meta">' +
+            '<span class="cloud-status-dot ' + statusClass + '"></span>' +
+            '<span>' + statusText + '</span><span>·</span><span>' + driverName + '</span>' +
+            (userInfo && userInfo.nickname ? '<span>·</span><span>' + escHtml(userInfo.nickname) + '</span>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="cloud-account-actions">' +
+          '<button class="cloud-mini-btn test" onclick="testCloudAccount(' + acc.id + ')">测试</button>' +
+          '<button class="cloud-mini-btn del" onclick="deleteCloudAccount(' + acc.id + ',\'' + escJs(acc.name) + '\')">删除</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }catch(e){
+    listEl.innerHTML = '<div class="cloud-empty">加载失败，请刷新页面重试</div>';
+  }
+}
+
+function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escJs(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'); }
+
+async function startHomeQrLogin(){
+  const btn = event.target;
+  const container = document.getElementById('home-qrcode-container');
+  const statusEl = document.getElementById('home-qrcode-status');
+  btn.disabled = true; btn.textContent = '获取中...';
+  try{
+    const r = await fetch('/api/cloud/qrcode/token');
+    const d = await r.json();
+    if(!d.uid || !d.qrcode_img) throw new Error('获取二维码失败');
+    homeQrLoginData = d;
+    container.innerHTML = '<img src="' + d.qrcode_img + '" alt="扫码登录">';
+    statusEl.textContent = '请用手机115 App扫码';
+    btn.textContent = '重新获取';
+    if(homeQrPollTimer) clearInterval(homeQrPollTimer);
+    homeQrPollTimer = setInterval(pollHomeQrStatus, 2000);
+  }catch(e){
+    statusEl.textContent = '获取失败：' + e.message;
+    btn.textContent = '获取二维码';
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+async function pollHomeQrStatus(){
+  if(!homeQrLoginData) return;
+  try{
+    const r = await fetch('/api/cloud/qrcode/status?uid=' + homeQrLoginData.uid + '&time=' + homeQrLoginData.time + '&sign=' + homeQrLoginData.sign);
+    const d = await r.json();
+    const statusEl = document.getElementById('home-qrcode-status');
+    if(d.status === '等待扫码'){ statusEl.textContent = '等待扫码...'; }
+    else if(d.status === '已扫码'){ statusEl.textContent = '已扫码，请在手机上确认'; }
+    else if(d.status === '已授权' || d.status === 'success'){
+      clearInterval(homeQrPollTimer);
+      statusEl.textContent = '登录成功，正在添加账号...';
+      await finishHomeQrLogin();
+    }else if(d.status === '已取消' || d.status === '已过期'){
+      clearInterval(homeQrPollTimer);
+      statusEl.textContent = d.status;
+    }
+  }catch(e){}
+}
+
+async function finishHomeQrLogin(){
+  const name = document.getElementById('home-cloud-qr-name').value.trim() || '我的115';
+  const app = document.getElementById('home-cloud-qr-app').value;
+  try{
+    const r = await fetch('/api/cloud/qrcode/login', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ uid: homeQrLoginData.uid, app, name }),
+    });
+    const d = await r.json();
+    if(d.success || d.account){
+      alert('115网盘账号添加成功！');
+      loadCloudAccounts();
+      document.getElementById('home-qrcode-container').innerHTML = '<div style="color:#999;font-size:11px">点击获取二维码</div>';
+      document.getElementById('home-qrcode-status').textContent = '等待获取二维码...';
+      homeQrLoginData = null;
+    }else{
+      alert('添加失败：' + (d.error || '未知错误'));
+    }
+  }catch(e){
+    alert('登录请求失败');
+  }
+}
+
+async function addHomeCloudCookie(){
+  const name = document.getElementById('home-cloud-name').value.trim();
+  const cookie = document.getElementById('home-cloud-cookie').value.trim();
+  const errEl = document.getElementById('home-cloud-add-err');
+  errEl.textContent = '';
+  if(!name){ errEl.textContent = '请填写账号名称'; return; }
+  if(!cookie){ errEl.textContent = '请填写Cookie'; return; }
+  if(!cookie.includes('UID') || !cookie.includes('SEID')){
+    errEl.textContent = 'Cookie格式不正确，应包含 UID、CID、SEID、KID'; return;
+  }
+  try{
+    const r = await fetch('/api/cloud/accounts/cookie', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ driver: 'pan115', name, cookie }),
+    });
+    const d = await r.json();
+    if(!r.ok){ errEl.textContent = d.error || '添加失败'; return; }
+    document.getElementById('home-cloud-name').value = '';
+    document.getElementById('home-cloud-cookie').value = '';
+    alert('账号已添加！');
+    loadCloudAccounts();
+  }catch(e){
+    errEl.textContent = '请求失败，请检查网络';
+  }
+}
+
+async function testCloudAccount(id){
+  try{
+    const r = await fetch('/api/cloud/accounts/' + id + '/test', { method: 'POST' });
+    const d = await r.json();
+    if(d.success){ alert('连接测试成功！'); loadCloudAccounts(); }
+    else{ alert('连接测试失败：' + (d.error || '未知错误')); }
+  }catch(e){ alert('测试请求失败'); }
+}
+
+async function deleteCloudAccount(id, name){
+  if(!confirm('确认删除网盘账号「' + name + '」？\n\n删除后该网盘的曲库来源将无法访问，但已扫描入库的歌曲记录会保留。')) return;
+  try{
+    const r = await fetch('/api/cloud/accounts/' + id, { method: 'DELETE' });
+    if(r.ok){ alert('账号已删除'); loadCloudAccounts(); }
+    else{ alert('删除失败'); }
+  }catch(e){ alert('删除请求失败'); }
+}
+</script>
+</body>
+</html>

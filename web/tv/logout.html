@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>退出登录</title>
+<link rel="stylesheet" href="/cartoon-theme.css">
+</head>
+<body style="background:#07071a;color:#f4f4ff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div>正在退出登录…</div>
+<script>
+// 独立的退出登录入口：K歌主页面本身是一整块大屏应用，不专门在里面塞一个
+// "退出登录"按钮的入口(容易跟播放/点歌相关的界面元素混在一起、干扰主要
+// 使用场景)；需要换账号/退出时，直接访问 /tv/logout.html 即可，清掉登录
+// cookie 后自动跳回登录页。
+fetch('/api/tv-auth/logout', { method: 'POST' }).finally(() => {
+  location.replace('/tv/login.html');
+});
+</script>
+</body>
+</html>
