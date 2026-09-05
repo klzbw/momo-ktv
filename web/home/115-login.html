@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>115 网盘登录 - momo-ktv</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  .container {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 30px;
+  }
+  .header h1 {
+    font-size: 28px;
+    color: #fff;
+    margin-bottom: 8px;
+  }
+  .header p {
+    color: #888;
+    font-size: 14px;
+  }
+  .card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px;
+    padding: 28px;
+    margin-bottom: 20px;
+    backdrop-filter: blur(10px);
+  }
+  .card h2 {
+    font-size: 18px;
+    color: #fff;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .status-online {
+    background: rgba(76, 175, 80, 0.15);
+    color: #4caf50;
+    border: 1px solid rgba(76, 175, 80, 0.3);
+  }
+  .status-offline {
+    background: rgba(244, 67, 54, 0.15);
+    color: #f44336;
+    border: 1px solid rgba(244, 67, 54, 0.3);
+  }
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 14px;
+  }
+  .info-row:last-child { border-bottom: none; }
+  .info-label { color: #888; }
+  .info-value { color: #e0e0e0; }
+  .qr-area {
+    text-align: center;
+    padding: 20px 0;
+  }
+  .qr-box {
+    display: inline-block;
+    background: #fff;
+    padding: 16px;
+    border-radius: 12px;
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .qr-box img {
+    width: 240px;
+    height: 240px;
+    display: block;
+  }
+  .qr-mask {
+    position: absolute;
+    inset: 16px;
+    background: rgba(0,0,0,0.75);
+    border-radius: 4px;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    gap: 12px;
+  }
+  .qr-mask.show { display: flex; }
+  .qr-status {
+    font-size: 16px;
+    font-weight: 500;
+  }
+  .btn {
+    display: inline-block;
+    padding: 12px 28px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, #4a90e2, #357abd);
+    color: #fff;
+  }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(74,144,226,0.4); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .btn-secondary {
+    background: rgba(255,255,255,0.1);
+    color: #e0e0e0;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  .btn-secondary:hover { background: rgba(255,255,255,0.15); }
+  .btn-success {
+    background: linear-gradient(135deg, #4caf50, #388e3c);
+    color: #fff;
+  }
+  textarea {
+    width: 100%;
+    min-height: 100px;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    padding: 12px;
+    color: #e0e0e0;
+    font-family: monospace;
+    font-size: 13px;
+    resize: vertical;
+  }
+  textarea:focus { outline: none; border-color: #4a90e2; }
+  .steps {
+    background: rgba(74,144,226,0.08);
+    border-left: 3px solid #4a90e2;
+    padding: 14px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+    font-size: 13px;
+    line-height: 1.8;
+    color: #b0c4de;
+  }
+  .steps ol { padding-left: 20px; }
+  .actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+  .toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .toast.success { background: #4caf50; color: #fff; }
+  .toast.error { background: #f44336; color: #fff; }
+  .toast.info { background: #4a90e2; color: #fff; }
+  .test-result {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    display: none;
+  }
+  .test-result.show { display: block; }
+  .test-result.ok { background: rgba(76,175,80,0.1); border: 1px solid rgba(76,175,80,0.3); }
+  .test-result.fail { background: rgba(244,67,54,0.1); border: 1px solid rgba(244,67,54,0.3); }
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid rgba(255,255,255,0.2);
+    border-top-color: #4a90e2;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>115 网盘账号管理</h1>
+    <p>扫码登录或手动更新 Cookie，用于网盘歌曲直连播放</p>
+  </div>
+
+  <!-- 当前状态 -->
+  <div class="card">
+    <h2>当前登录状态</h2>
+    <div id="statusArea">
+      <div class="spinner"></div>
+      <span style="margin-left:10px;">正在查询...</span>
+    </div>
+  </div>
+
+  <!-- 扫码登录 -->
+  <div class="card">
+    <h2>方式一：扫码登录（推荐）</h2>
+    <div class="steps">
+      <ol>
+        <li>点击"生成二维码"按钮</li>
+        <li>打开手机上的 <b>115 App</b> 或 <b>115生活（微信小程序）</b></li>
+        <li>使用"扫一扫"扫描下方二维码</li>
+        <li>在手机上确认登录</li>
+        <li>系统会自动获取 Cookie 并更新到 alist</li>
+      </ol>
+    </div>
+    <div class="qr-area">
+      <div class="qr-box">
+        <img id="qrImage" src="" alt="二维码" style="display:none;">
+        <div id="qrPlaceholder" style="width:240px;height:240px;display:flex;align-items:center;justify-content:center;color:#999;font-size:14px;">
+          点击下方按钮生成二维码
+        </div>
+        <div class="qr-mask" id="qrMask">
+          <div class="spinner" id="qrSpinner"></div>
+          <div class="qr-status" id="qrStatusText">等待扫码...</div>
+        </div>
+      </div>
+      <div class="actions" style="justify-content:center;">
+        <button class="btn btn-primary" id="generateBtn" onclick="generateQR()">生成二维码</button>
+        <button class="btn btn-success" id="applyBtn" onclick="applyScan()" style="display:none;">应用登录结果</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 手动更新 Cookie -->
+  <div class="card">
+    <h2>方式二：手动输入 Cookie</h2>
+    <div class="steps">
+      在浏览器登录 <a href="https://115.com" target="_blank" style="color:#4a90e2;">115.com</a>，
+      按 F12 打开开发者工具 → Network → 刷新页面 → 找到 Cookie，复制包含 UID/CID/SEID/KID 的完整字符串。
+    </div>
+    <textarea id="cookieInput" placeholder="UID=xxx; CID=xxx; SEID=xxx; KID=xxx"></textarea>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="updateCookie()">保存 Cookie</button>
+      <button class="btn btn-secondary" onclick="testConnection()">测试连接</button>
+    </div>
+    <div class="test-result" id="testResult"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let pollTimer = null;
+let currentSession = null;
+
+function toast(msg, type = 'info') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+async function api(url, options = {}) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options
+  });
+  return res.json();
+}
+
+// 查询当前状态
+async function loadStatus() {
+  const area = document.getElementById('statusArea');
+  try {
+    const data = await api('/api/115/status');
+    if (data.loggedIn) {
+      area.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <span class="status-badge status-online"><span class="status-dot"></span>已登录</span>
+          <span style="font-size:13px;color:#888;">alist 存储状态: ${data.status}</span>
+        </div>
+        <div class="info-row"><span class="info-label">存储 ID</span><span class="info-value">${data.storageId}</span></div>
+        <div class="info-row"><span class="info-label">挂载路径</span><span class="info-value">${data.mountPath}</span></div>
+        <div class="info-row"><span class="info-label">账号 UID</span><span class="info-value">${data.uid || '未知'}</span></div>
+        <div class="info-row"><span class="info-label">Cookie</span><span class="info-value">${data.cookiePreview || '无'}</span></div>
+      `;
+    } else {
+      area.innerHTML = `
+        <span class="status-badge status-offline"><span class="status-dot"></span>未登录</span>
+        <div style="margin-top:12px;font-size:14px;color:#888;">${data.message || '请通过下方方式登录 115 网盘'}</div>
+      `;
+    }
+  } catch (e) {
+    area.innerHTML = `<span style="color:#f44336;">查询失败: ${e.message}</span>`;
+  }
+}
+
+// 生成二维码
+async function generateQR() {
+  const btn = document.getElementById('generateBtn');
+  const qrImg = document.getElementById('qrImage');
+  const placeholder = document.getElementById('qrPlaceholder');
+  const mask = document.getElementById('qrMask');
+  const statusText = document.getElementById('qrStatusText');
+  const applyBtn = document.getElementById('applyBtn');
+
+  btn.disabled = true;
+  btn.textContent = '生成中...';
+  applyBtn.style.display = 'none';
+
+  try {
+    const data = await api('/api/115/qrcode/generate');
+    if (!data.success) throw new Error(data.error);
+
+    currentSession = data;
+    qrImg.src = data.qrImage;
+    qrImg.style.display = 'block';
+    placeholder.style.display = 'none';
+    mask.classList.add('show');
+    statusText.textContent = '等待扫码...';
+
+    toast('二维码已生成，请用 115 App 扫码', 'success');
+    startPolling(data);
+  } catch (e) {
+    toast('生成失败: ' + e.message, 'error');
+    qrImg.style.display = 'none';
+    placeholder.style.display = 'flex';
+    mask.classList.remove('show');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '重新生成';
+  }
+}
+
+// 轮询扫码状态
+function startPolling(session) {
+  if (pollTimer) clearInterval(pollTimer);
+
+  const statusText = document.getElementById('qrStatusText');
+  const mask = document.getElementById('qrMask');
+  const applyBtn = document.getElementById('applyBtn');
+
+  pollTimer = setInterval(async () => {
+    try {
+      const data = await api(`/api/115/qrcode/status?uid=${session.uid}&sign=${session.sign}&time=${session.time}`);
+
+      if (data.status === 'scanned') {
+        statusText.textContent = '已扫码，请在手机上确认';
+      } else if (data.status === 'confirmed') {
+        statusText.textContent = '登录成功！正在应用...';
+        clearInterval(pollTimer);
+
+        if (data.cookie) {
+          // 自动应用
+          await applyScan();
+        } else {
+          applyBtn.style.display = 'inline-block';
+        }
+      } else if (data.status === 'expired') {
+        statusText.textContent = '二维码已过期';
+        clearInterval(pollTimer);
+        mask.classList.remove('show');
+        toast('二维码已过期，请重新生成', 'error');
+      }
+    } catch (e) {
+      console.error('轮询失败:', e);
+    }
+  }, 2000);
+}
+
+// 应用扫码结果
+async function applyScan() {
+  if (!currentSession) return;
+  try {
+    const data = await api('/api/115/apply-scan', {
+      method: 'POST',
+      body: JSON.stringify({ uid: currentSession.uid })
+    });
+    if (data.success) {
+      toast('115 登录成功，Cookie 已更新到 alist！', 'success');
+      document.getElementById('qrMask').classList.remove('show');
+      loadStatus();
+    } else {
+      toast('应用失败: ' + (data.error || '未知错误'), 'error');
+    }
+  } catch (e) {
+    toast('应用失败: ' + e.message, 'error');
+  }
+}
+
+// 手动更新 Cookie
+async function updateCookie() {
+  const cookie = document.getElementById('cookieInput').value.trim();
+  if (!cookie) {
+    toast('请输入 Cookie', 'error');
+    return;
+  }
+  try {
+    const data = await api('/api/115/cookie/update', {
+      method: 'POST',
+      body: JSON.stringify({ cookie })
+    });
+    if (data.success) {
+      toast('Cookie 保存成功！', 'success');
+      document.getElementById('cookieInput').value = '';
+      loadStatus();
+    } else {
+      toast('保存失败: ' + (data.error || '未知错误'), 'error');
+    }
+  } catch (e) {
+    toast('保存失败: ' + e.message, 'error');
+  }
+}
+
+// 测试连接
+async function testConnection() {
+  const result = document.getElementById('testResult');
+  result.className = 'test-result show';
+  result.textContent = '正在测试...';
+  try {
+    const data = await api('/api/115/test', { method: 'POST' });
+    if (data.success) {
+      result.className = 'test-result show ok';
+      result.innerHTML = `✅ ${data.message}，根目录文件数: ${data.fileCount}<br>${(data.files || []).map(f => '• ' + f).join('<br>')}`;
+    } else {
+      result.className = 'test-result show fail';
+      result.textContent = '❌ ' + (data.message || data.error || '连接失败');
+    }
+  } catch (e) {
+    result.className = 'test-result show fail';
+    result.textContent = '❌ ' + e.message;
+  }
+}
+
+// 页面加载时查询状态
+loadStatus();
+</script>
+</body>
+</html>

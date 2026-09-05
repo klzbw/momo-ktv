@@ -88,6 +88,7 @@ const cloudDrive = require('./cloud-drive');
 
 
 const directStream = require('./direct-stream');
+const cloud115Login = require('./cloud-115-login');
 
 
 
@@ -292,6 +293,7 @@ app.use('/api/cloud', cloudDrive.init(db));
 
 
 app.use('/api/direct-stream', directStream);
+app.use('/api/115', cloud115Login);
 
 
 
