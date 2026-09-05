@@ -236,7 +236,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
     func restart() {
         #if canImport(TVVLCKit)
         guard let p = player else { return }
-        p.time = 0
+        p.time = VLCTime(int: 0)
         p.play()
         isPlaying = true
         log("restart: 回到开头并播放")
@@ -254,7 +254,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
     func seek(to seconds: Double) {
         #if canImport(TVVLCKit)
         guard let p = player else { return }
-        p.time = Int32(seconds * 1000)
+        p.time = VLCTime(int: Int32(seconds * 1000))
         log("seek: \(seconds)s")
         #endif
     }
