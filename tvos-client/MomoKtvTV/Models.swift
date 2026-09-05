@@ -66,7 +66,6 @@ struct Song: Codable, Identifiable, Hashable {
 
     /// 是否网络歌曲（115网盘直连）。用于列表/播放界面显示"云"标识。
     var isNetworkSong: Bool {
-        if (is_network ?? 0) == 1 { return true }
         if let sr = source_root, sr.hasPrefix("netktv") { return true }
         return false
     }
@@ -133,7 +132,6 @@ struct QueueItem: Codable, Identifiable, Hashable {
 
     /// 是否网络歌曲（115网盘直连）
     var isNetworkSong: Bool {
-        if (is_network ?? 0) == 1 { return true }
         if let sr = source_root, sr.hasPrefix("netktv") { return true }
         return false
     }
