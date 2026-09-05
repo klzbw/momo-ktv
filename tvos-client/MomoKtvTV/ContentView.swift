@@ -402,8 +402,13 @@ struct ContentView: View {
                let hlsURL = api.hlsURL(songId: playing.song_id) {
                 // Video preview using shared player
                 // Use id to force rebuild when returning from fullscreen
-                SharedVideoView(playerManager: playerManager)
-                    .id("preview-\(showingPlayer ? "fs" : "normal")")
+                if isUsingVLC {
+                    VLCVideoView(vlcManager: vlcManager)
+                        .id("preview-vlc-\(showingPlayer ? "fs" : "normal")")
+                } else {
+                    SharedVideoView(playerManager: playerManager)
+                        .id("preview-\(showingPlayer ? "fs" : "normal")")
+                }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onAppear {
                         playerManager.vocalTrackCount = playing.audio_tracks ?? 1
