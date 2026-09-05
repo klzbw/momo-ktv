@@ -241,9 +241,8 @@ class VLCPlayerManager: NSObject, ObservableObject {
     /// 重新演唱（回到开头并播放）
     func restart() {
         #if canImport(TVVLCKit)
-        guard let p = player, let media = p.media, !isRestarting else { return }
+        guard let p = player, let media = p.media, let url = media.url, !isRestarting else { return }
         isRestarting = true
-        let url = media.url
         log("restart: 停止并重新播放（网络流不支持seek，重新建立连接）")
         // 停止播放（网络流无法seek到0，必须重新建立连接）
         p.stop()
