@@ -34,6 +34,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
     private var lastDebugSecond: Int = -1
 
     private var libraryInitialized = false
+    private var isRestarting = false  // 防止restart重复调用
 
     private override init() {
         super.init()
@@ -50,7 +51,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
         let options = [
             "--http-user-agent=Mozilla/5.0 115Browser/23.9.3.2",
             "--no-video-title-show",
-            "--network-caching=1000"
+            "--network-caching=500"
         ]
         let lib = VLCLibrary(options: options)
         library = lib
@@ -235,17 +236,19 @@ class VLCPlayerManager: NSObject, ObservableObject {
     /// 重新演唱（回到开头并播放）
     func restart() {
         #if canImport(TVVLCKit)
-        guard let p = player else { return }
+        guard let p = player, !isRestarting else { return }
+        isRestarting = true
         p.time = VLCTime(int: 0)
         p.play()
         isPlaying = true
         log("restart: 回到开头并播放")
-        // 重唱后重新设置视频输出
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+        // 重唱后重新设置视频输出（减少次数，避免过度调用）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             self?.refreshDrawables()
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             self?.refreshDrawables()
+            self?.isRestarting = false  // 2秒后允许再次restart
         }
         #endif
     }
