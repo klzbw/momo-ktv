@@ -1407,14 +1407,24 @@ struct OrderSongsPage: View {
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(song.displayTitle)
-                            .font(.system(size: 32, weight: .semibold))
-                            .foregroundColor(.white)
-                            .lineLimit(1)
-                        Text(song.displayArtist)
-                            .font(.system(size: 24))
-                            .foregroundColor(WebColors.sub)
-                            .lineLimit(1)
+                            HStack(spacing: 8) {
+                                Text(song.displayTitle)
+                                    .font(.system(size: 32, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
+                                if song.isNetworkSong {
+                                    Label("云", systemImage: "cloud.fill")
+                                        .font(.system(size: 16, weight: .medium))
+                                        .padding(.horizontal, 8).padding(.vertical, 3)
+                                        .background(Color(hex: 0x0288d1).opacity(0.25))
+                                        .foregroundColor(Color(hex: 0x4fc3f7))
+                                        .cornerRadius(6)
+                                }
+                            }
+                            Text(song.displayArtist)
+                                .font(.system(size: 24))
+                                .foregroundColor(WebColors.sub)
+                                .lineLimit(1)
                     }
 
                     Spacer(minLength: 0)
