@@ -562,6 +562,10 @@ struct ContentView: View {
                             return
                         }
 
+                        // 切到非VLC歌曲时，先停止VLC播放，避免两种声音同时存在
+                        self.isUsingVLC = false
+                        self.vlcManager.stop()
+
                         // 网络KTV歌曲：直接走DUAL双FLAC模式，不走HLS
                         if let info = info, info.isNetworkDual,
                            let vocalPath = info.vocalUrl, let accompPath = info.accompUrl,
@@ -572,6 +576,10 @@ struct ContentView: View {
                             self.playerManager.setVolume(volume)
                             return
                         }
+
+                        // 切到非VLC歌曲时，先停止VLC播放，避免两种声音同时存在
+                        self.isUsingVLC = false
+                        self.vlcManager.stop()
 
                         // 本地歌曲：走原有的HLS播放流程
                         if let url = self.api.hlsURL(songId: sid) {
