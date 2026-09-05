@@ -1,41 +1,13 @@
 const express = require('express');
 const router = express.Router();
 
-// Gbox alist configuration
-const ALIST_BASE_URL = 'http://192.168.3.16:5234';
+// 内置 Gbox alist 配置（集成在 momo-ktv 镜像中）
+const ALIST_BASE_URL = 'http://localhost:5234';
 const ALIST_BASE_PATH = '/🥝115网盘/115';
 
-// Cache for direct URLs (to avoid frequent alist API calls)
-const urlCache = new Map();
-const CACHE_TTL = 25 * 60 * 1000; // 25 minutes
-
 /**
- * Get direct URL from Gbox alist
- */
-async function getAlistDirectUrl(filePath) {
-  const cacheKey = filePath;
-  const cached = urlCache.get(cacheKey);
-  if (cached && Date.now() - cached.time < CACHE_TTL) {
-    return cached.url;
-  }
-
-  try {
-    // Use Gbox alist /d/ endpoint directly (it handles 302 redirect with proper headers)
-    const fullPath = ALIST_BASE_PATH + '/' + filePath;
-    const encodedPath = encodeURIComponent(fullPath).replace(/%2F/g, '/');
-    const alistUrl = ALIST_BASE_URL + '/d/' + encodedPath;
-    
-    urlCache.set(cacheKey, { url: alistUrl, time: Date.now() });
-    return alistUrl;
-  } catch (error) {
-    console.error('[DirectStream] Failed to get alist URL:', error.message);
-    throw error;
-  }
-}
-
-/**
- * Handle stream request - redirect to Gbox alist /d/ endpoint
- * Gbox alist handles 115 CDN authentication properly (cookies, headers)
+ * Handle stream request - redirect to 内置 Gbox alist /d/ 端点
+ * Gbox alist 处理 115 CDN 认证（cookies、headers）
  */
 router.get('/*', async (req, res) => {
   try {
@@ -46,12 +18,14 @@ router.get('/*', async (req, res) => {
       return res.status(400).json({ error: 'File path is required' });
     }
 
-    // Get Gbox alist URL (which handles 115 CDN authentication)
-    const alistUrl = await getAlistDirectUrl(filePath);
-    console.log('[DirectStream] Redirecting to alist:', alistUrl);
+    // 使用内置 Gbox alist /d/ 端点
+    const fullPath = ALIST_BASE_PATH + '/' + filePath;
+    const encodedPath = encodeURIComponent(fullPath).replace(/%2F/g, '/');
+    const alistUrl = ALIST_BASE_URL + '/d/' + encodedPath;
+    
+    console.log('[DirectStream] Redirecting to built-in alist:', alistUrl);
 
-    // 302 redirect to Gbox alist /d/ endpoint
-    // Gbox alist will then redirect to 115 CDN with proper authentication
+    // 302 重定向到内置 Gbox alist
     res.redirect(302, alistUrl);
   } catch (error) {
     console.error('[DirectStream] Error:', error.message);
