@@ -725,6 +725,27 @@ struct FullPlayerView: View {
 
             AtmosphereOverlay().zIndex(21)
 
+            // 调试日志覆盖层
+            if showDebugLog {
+                VStack {
+                    Spacer()
+                    ScrollView {
+                        Text(vlcManager.debugLog)
+                            .font(.system(size: 14, design: .monospaced))
+                            .foregroundColor(.green)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding()
+                    }
+                    .frame(height: 400)
+                    .background(Color.black.opacity(0.85))
+                    .cornerRadius(12)
+                    .padding(.horizontal, 40)
+                    .padding(.bottom, 200)
+                }
+                .transition(.opacity)
+                .zIndex(100)
+            }
+
         }
 
         // 强制 ZStack 铺满全屏，大小不受任何子视图（背景图片/歌词等）影响，彻底杜绝控件位置漂移
