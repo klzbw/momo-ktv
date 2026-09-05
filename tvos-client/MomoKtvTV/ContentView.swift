@@ -413,6 +413,9 @@ struct ContentView: View {
                             if playing.isVideoFile { previewLyrics.lyrics = .empty }
                             else if previewLyrics.lyrics.isEmpty { previewLyrics.load(server: api.serverAddress, songId: playing.song_id) }
                         }
+                        .onLongPressGesture(minimumDuration: 1.0) {
+                            showDebugLog.toggle()
+                        }
                 } else if let hlsURL = hlsURL {
                     SharedVideoView(playerManager: playerManager)
                         .id("preview-\(showingPlayer ? "fs" : "normal")")
