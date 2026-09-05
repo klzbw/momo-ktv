@@ -126,14 +126,15 @@ class VLCPlayerManager: NSObject, ObservableObject {
         isPlaying = true
         onStateChange?(true)
 
-        // 播放开始后延迟重新设置drawable，确保视频输出正确初始化
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self = self, let p = self.player else { return }
-            let views = self.drawableViews.allObjects
-            for view in views {
-                p.drawable = view
+        // 播放开始后多次延迟重新设置drawable，确保视频输出正确初始化
+        // VLC视频输出需要时间初始化，多次设置提高成功率
+        let delays: [Double] = [0.3, 0.8, 1.5, 2.5, 4.0]
+        for (i, delay) in delays.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self = self else { return }
+                self.refreshDrawables()
+                self.log("播放后第\(i+1)次刷新drawable (\(delay)s)")
             }
-            self.log("播放后重新设置drawable: \(views.count)个视图")
         }
 
         // 延迟2秒后刷新音轨信息
@@ -220,6 +221,33 @@ class VLCPlayerManager: NSObject, ObservableObject {
         // VLC音量范围是0-200，转换0-1到0-200
         p.audio?.volume = Int32(volume * 200)
         log("setVolume: \(volume) (VLC: \(Int32(volume * 200)))")
+        #endif
+    }
+
+    /// 重新演唱（回到开头并播放）
+    func restart() {
+        #if canImport(TVVLCKit)
+        guard let p = player else { return }
+        p.time = 0
+        p.play()
+        isPlaying = true
+        log("restart: 回到开头并播放")
+        // 重唱后重新设置视频输出
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.refreshDrawables()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.refreshDrawables()
+        }
+        #endif
+    }
+
+    /// 跳转到指定时间（秒）
+    func seek(to seconds: Double) {
+        #if canImport(TVVLCKit)
+        guard let p = player else { return }
+        p.time = Int32(seconds * 1000)
+        log("seek: \(seconds)s")
         #endif
     }
 
