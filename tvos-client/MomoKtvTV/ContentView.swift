@@ -47,6 +47,8 @@ struct ContentView: View {
     @FocusState private var settingsNavFocused: Bool
     @State private var lastNavButton: String? = nil
     private let playerManager = PlayerManager.shared
+    private let vlcManager = VLCPlayerManager.shared
+    @State private var isUsingVLC = false
     @StateObject private var previewLyrics = LyricsLoader()  // 首页小窗预览歌词
 
     enum PanelType { case search, queue, settings, eq }
