@@ -238,13 +238,20 @@ class VLCPlayerManager: NSObject, ObservableObject {
         #if canImport(TVVLCKit)
         guard let p = player, !isRestarting else { return }
         isRestarting = true
-        // 使用position=0回到开头，避免time=0导致网络流重新缓冲
+        // 先暂停，再回到开头，延迟后再播放，确保状态机正确转换
+        p.pause()
         p.position = 0
-        p.play()
-        isPlaying = true
-        log("restart: 回到开头并播放(position=0)")
+        isPlaying = false
+        log("restart: 暂停并回到开头(position=0)")
+        // 延迟0.5秒后再播放，给VLC时间处理seek
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak p] in
+            guard let self = self, let p = p else { return }
+            p.play()
+            self.isPlaying = true
+            self.log("restart: 恢复播放")
+        }
         // 重唱后多次延迟重新设置视频输出，确保视频层正确初始化
-        let delays: [Double] = [0.5, 1.0, 2.0, 3.5, 5.0]
+        let delays: [Double] = [0.8, 1.5, 2.5, 4.0, 6.0]
         for (i, delay) in delays.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 self?.refreshDrawables()
@@ -388,12 +395,18 @@ class VLCPlayerManager: NSObject, ObservableObject {
     }
 
     /// 重新设置活动的drawable（用于视频输出恢复）
+    /// 先清除再设置，强制VLC重新创建视频输出层
     func refreshDrawables() {
         #if canImport(TVVLCKit)
         guard let p = player else { return }
         if let active = activeDrawable {
-            p.drawable = active
-            log("refreshDrawables: 重新设置活动drawable")
+            // 先清除，再延迟设置，强制VLC重新创建视频输出层
+            p.drawable = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak p, weak active] in
+                guard let p = p, let active = active else { return }
+                p.drawable = active
+            }
+            log("refreshDrawables: 清除并重新设置活动drawable")
         } else if let first = drawableViews.allObjects.first as? UIView {
             setActiveDrawable(first)
         } else {
