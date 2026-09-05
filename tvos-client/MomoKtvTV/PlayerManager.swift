@@ -305,6 +305,9 @@ class PlayerManager: ObservableObject {
 
     private init() {}
 
+    /// 持有CustomSchemeLoader强引用（否则delegate被释放，资源加载中断）
+    private var customSchemeLoader: CustomSchemeLoader?
+
     /// 115网盘直连所需User-Agent（CDN校验UA，缺失返回403）
     static let netKtvUA = "Mozilla/5.0 115Browser/23.9.3.2"
 
@@ -352,17 +355,17 @@ class PlayerManager: ObservableObject {
             return
         }
 
-        // 有自定义请求头（如115网盘）：先解析302重定向最终URL（每跳保留UA，且不下载整个body），
-        // 再用最终CDN地址直接创建AVURLAsset（无后续重定向，UA不会丢失）。
-        print("[PlayerManager] 解析302重定向最终URL: \(url.absoluteString.prefix(80))...")
-        let gen = loadGeneration
-        RedirectResolver(headers: headers).resolve(url) { [weak self] finalURL in
-            guard let self = self, self.loadGeneration == gen else { return }
-            print("[PlayerManager] 最终直连URL: \(finalURL.absoluteString.prefix(80))...")
-            let asset = AVURLAsset(url: finalURL, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-            let playerItem = AVPlayerItem(asset: asset)
-            self.setupPlayerInternal(for: url, playerItem: playerItem)
-        }
+        // 有自定义请求头（如115网盘）：使用CustomSchemeLoader拦截所有请求，
+        // 手动用URLSession请求（保留自定义UA），302重定向时每跳保留UA，
+        // Range请求也透传UA。这是tvOS上唯一可靠的自定义UA播放方式。
+        print("[PlayerManager] 使用CustomSchemeLoader播放（自定义UA）: \(url.absoluteString.prefix(80))...")
+        let loader = CustomSchemeLoader(originalURL: url, customHeaders: headers)
+        customSchemeLoader = loader
+        let customURL = CustomSchemeLoader.makeCustomSchemeURL(url)
+        let asset = AVURLAsset(url: customURL)
+        asset.resourceLoader.setDelegate(loader, queue: .main)
+        let playerItem = AVPlayerItem(asset: asset)
+        setupPlayerInternal(for: url, playerItem: playerItem)
     }
 
     /// 内部播放方法：设置状态并起播
