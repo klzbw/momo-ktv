@@ -218,11 +218,13 @@ router.get('/alist/qrcode/status', requireManager, async (req, res) => {
         if ((loginResult.state === 1 || loginResult.state === true) && loginResult.data) {
           const data = loginResult.data;
           // 提取 cookie 字段：UID(或uid)、CID、SEID、KID
-          const uid = data.uid || data.UID || data.user_id || '';
-          const cid = data.CID || data.cid || '';
-          const seid = data.SEID || data.seid || '';
-          const kid = data.KID || data.kid || '';
-          console.log('[Alist] 提取到的字段: uid=' + (uid||'空').substring(0, 25) + ', cid=' + (cid||'空').substring(0, 25) + ', seid=' + (seid||'空').substring(0, 25) + ', kid=' + (kid||'空').substring(0, 25));
+          // cookie 字段在 data.cookie 中
+          const cookieObj = data.cookie || {};
+          const uid = cookieObj.UID || cookieObj.uid || '';
+          const cid = cookieObj.CID || cookieObj.cid || '';
+          const seid = cookieObj.SEID || cookieObj.seid || '';
+          const kid = cookieObj.KID || cookieObj.kid || '';
+          console.log('[Alist] 提取到的字段: uid=' + String(uid||'空').substring(0, 25) + ', cid=' + String(cid||'空').substring(0, 25) + ', seid=' + String(seid||'空').substring(0, 25) + ', kid=' + String(kid||'空').substring(0, 25));
           const cookieParts = [];
           if (uid) cookieParts.push(`UID=${uid}`);
           if (cid) cookieParts.push(`CID=${cid}`);
