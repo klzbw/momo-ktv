@@ -98,10 +98,16 @@ class VLCPlayerManager: NSObject, ObservableObject {
         player.media = media
 
         // 设置视频输出到所有已注册的view
-        for view in drawableViews.allObjects {
+        // 注意：VLC是懒加载的，VLCVideoView注册时player可能为nil，
+        // 所以这里需要重新注册所有drawable
+        let views = drawableViews.allObjects
+        for view in views {
             player.drawable = view
         }
-        log("已注册drawable数量: \(drawableViews.allObjects.count)")
+        log("已注册drawable数量: \(views.count)")
+        if views.isEmpty {
+            log("⚠️ 警告：没有已注册的视频输出视图，视频将无法显示！")
+        }
 
         player.play()
         isPlaying = true
@@ -190,7 +196,13 @@ class VLCPlayerManager: NSObject, ObservableObject {
     func addDrawable(_ view: UIView) {
         drawableViews.add(view)
         #if canImport(TVVLCKit)
-        player?.drawable = view
+        // 如果VLC已初始化，立即设置；否则等play()时统一注册
+        if let p = player {
+            p.drawable = view
+            log("addDrawable: 立即设置视频输出")
+        } else {
+            log("addDrawable: VLC未初始化，已保存视图，play()时统一注册")
+        }
         #endif
     }
 
