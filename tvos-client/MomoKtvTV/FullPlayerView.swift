@@ -35,6 +35,7 @@ struct FullPlayerView: View {
     @State private var showQueue = false
 
     @State private var showQR = false
+    @State private var showDebugLog = false
 
     @FocusState private var tapAreaFocused: Bool  // 控制条隐藏后，透明点击区自动获得遥控器焦点，确保按确认键能呼出控制条
 
@@ -432,6 +433,12 @@ struct FullPlayerView: View {
 
                             }
 
+                            TVTightButton(action: { lastFocusedBtn = 13; showDebugLog.toggle() }, focusedTag: $focusedBtn, focusTag: 13, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+
+                                controlContent(icon: "ladybug", title: showDebugLog ? "关闭调试" : "调试", focused: focused)
+
+                            }
+
 
 
                             // 歌词显示模式：双排 / 上下滚动 循环切换（纯音频歌才显示）
@@ -723,6 +730,26 @@ struct FullPlayerView: View {
         // 强制 ZStack 铺满全屏，大小不受任何子视图（背景图片/歌词等）影响，彻底杜绝控件位置漂移
 
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        // 调试日志覆盖层
+        if showDebugLog {
+            VStack {
+                Spacer()
+                ScrollView {
+                    Text(vlcManager.debugLog)
+                        .font(.system(size: 14, design: .monospaced))
+                        .foregroundColor(.green)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                }
+                .frame(height: 400)
+                .background(Color.black.opacity(0.85))
+                .cornerRadius(12)
+                .padding(.horizontal, 40)
+                .padding(.bottom, 200)
+            }
+            .transition(.opacity)
+        }
 
         .onPlayPauseCommand {
 
