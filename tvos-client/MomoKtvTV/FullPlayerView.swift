@@ -123,43 +123,44 @@ struct FullPlayerView: View {
 
 
 
-            if isUsingVLC {
-                VLCVideoView(vlcManager: vlcManager)
-                    .ignoresSafeArea()
-                    .id("fullscreen-video-vlc")
-                    .onAppear {
-                        setup()
-                        // VLC模式：重新设置视频输出
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            vlcManager.refreshDrawables()
+            Group {
+                if isUsingVLC {
+                    VLCVideoView(vlcManager: vlcManager)
+                        .ignoresSafeArea()
+                        .id("fullscreen-video-vlc")
+                        .onAppear {
+                            setup()
+                            // VLC模式：重新设置视频输出
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                vlcManager.refreshDrawables()
+                            }
                         }
-                    }
-                    .onDisappear { cleanup() }
-            } else {
-                SharedVideoView(playerManager: playerManager)
-                    .ignoresSafeArea()
-                    .id("fullscreen-video")
-                    .onAppear { setup() }
-                    .onDisappear { cleanup() }
+                        .onDisappear { cleanup() }
+                } else {
+                    SharedVideoView(playerManager: playerManager)
+                        .ignoresSafeArea()
+                        .id("fullscreen-video")
+                        .onAppear { setup() }
+                        .onDisappear { cleanup() }
+                }
             }
+            .onChange(of: api.queue.first(where: { $0.isPlaying })?.id) { _ in
 
-                .onChange(of: api.queue.first(where: { $0.isPlaying })?.id) { _ in
+                sepTimer?.invalidate()
+                sepTimer = nil
+                sepPolling = false
+                currentSepStatus = nil
 
-                    sepTimer?.invalidate()
-                    sepTimer = nil
-                    sepPolling = false
-                    currentSepStatus = nil
-
-                    // Song changed, re-attach layer to ensure video shows
-                    if let playing = api.queue.first(where: { $0.isPlaying }), playing.isNetworkMkv {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            vlcManager.refreshDrawables()
-                        }
-                    } else {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                            playerManager.attachLayerToCurrentHost()
-                        }
+                // Song changed, re-attach layer to ensure video shows
+                if isUsingVLC {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        vlcManager.refreshDrawables()
                     }
+                } else {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        playerManager.attachLayerToCurrentHost()
+                    }
+                }
 
                     if let playing = api.queue.first(where: { $0.isPlaying }) {
 
