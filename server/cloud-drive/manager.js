@@ -123,9 +123,9 @@ class CloudDriveManager {
   }
 
   /**
-   * 使用 Cookie 创建账号（适用于 115 等二维码接口失效的网盘）
+   * 创建网盘账号
    * 用户从浏览器复制 Cookie 粘贴到系统中
-   * @param {string} driver - 驱动类型，如 'pan115'
+   * @param {string} driver - 驱动类型
    * @param {string} name - 账号名称
    * @param {string} cookie - 浏览器中的 Cookie 字符串
    * @returns {object} 账号信息
@@ -189,7 +189,7 @@ class CloudDriveManager {
    * @returns {Promise<{accountId: number, qrId: string, qrImage: string, expiresIn: number}>}
    */
   async startQRLogin(driver, name) {
-    const account = this.createAccount(driver, name || `我的${driver === 'pan115' ? '115' : driver}`);
+    const account = this.createAccount(driver, name || `我的${driver}`);
     const driverInstance = this.getDriver(account);
     const qr = await driverInstance.getQRCode();
 
@@ -329,8 +329,8 @@ class CloudDriveManager {
   getSupportedDrivers() {
     return Object.entries(DRIVERS).map(([key, cls]) => ({
       type: key,
-      name: key === 'pan115' ? '115网盘' : key === 'aliyun' ? '阿里云盘' : key,
-      authMethod: key === 'pan115' ? 'cookie' : 'qrcode', // 115 扫码接口已失效，使用 Cookie 登录
+      name: key,
+      authMethod: 'cookie',
     }));
   }
 }
