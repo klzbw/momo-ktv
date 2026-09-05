@@ -227,9 +227,11 @@ class VLCPlayerManager: NSObject, ObservableObject {
     func setVolume(_ volume: Float) {
         #if canImport(TVVLCKit)
         guard let p = player else { return }
-        // VLC音量范围是0-200，转换0-1到0-200
-        p.audio?.volume = Int32(volume * 200)
-        log("setVolume: \(volume) (VLC: \(Int32(volume * 200)))")
+        // VLC音量范围是0-100（100=100%音量），超过100会增益导致爆破声
+        // 使用0-100范围，避免音量过大失真
+        let vlcVolume = Int32(volume * 100)
+        p.audio?.volume = vlcVolume
+        log("setVolume: \(volume) (VLC: \(vlcVolume))")
         #endif
     }
 
