@@ -250,14 +250,6 @@ class VLCPlayerManager: NSObject, ObservableObject {
         #endif
     }
 
-    /// 跳转到指定时间（秒）
-    func seek(to seconds: Double) {
-        #if canImport(TVVLCKit)
-        guard let p = player else { return }
-        p.time = VLCTime(int: Int32(seconds * 1000))
-        log("seek: \(seconds)s")
-        #endif
-    }
 
     func refreshAudioTracks() {
         #if canImport(TVVLCKit)
