@@ -211,21 +211,25 @@ router.get('/alist/qrcode/status', requireManager, async (req, res) => {
           body: `app=${app}&account=${uid}`,
         });
         const loginResult = await loginResp.json();
+        console.log('[Alist] passportapi 返回完整数据:', JSON.stringify(loginResult).substring(0, 800));
+        console.log('[Alist] passportapi state:', loginResult.state, ', data keys:', loginResult.data ? Object.keys(loginResult.data) : '无data');
         
         // 115 passportapi 返回 state=1 (数字) 表示成功，cookie 字段在 data 中
         if ((loginResult.state === 1 || loginResult.state === true) && loginResult.data) {
           const data = loginResult.data;
           // 提取 cookie 字段：UID(或uid)、CID、SEID、KID
-          const uid = data.uid || data.UID || '';
+          const uid = data.uid || data.UID || data.user_id || '';
           const cid = data.CID || data.cid || '';
           const seid = data.SEID || data.seid || '';
           const kid = data.KID || data.kid || '';
+          console.log('[Alist] 提取到的字段: uid=' + (uid||'空').substring(0, 25) + ', cid=' + (cid||'空').substring(0, 25) + ', seid=' + (seid||'空').substring(0, 25) + ', kid=' + (kid||'空').substring(0, 25));
           const cookieParts = [];
           if (uid) cookieParts.push(`UID=${uid}`);
           if (cid) cookieParts.push(`CID=${cid}`);
           if (seid) cookieParts.push(`SEID=${seid}`);
           if (kid) cookieParts.push(`KID=${kid}`);
           const cookieStr = cookieParts.join('; ');
+          console.log('[Alist] 构造的 cookie 长度:', cookieStr.length, ', 内容:', cookieStr.substring(0, 100));
           console.log('[Alist] 获取 cookie 成功:', cookieStr.substring(0, 50) + '...');
           
           // Update alist storage with cookie
