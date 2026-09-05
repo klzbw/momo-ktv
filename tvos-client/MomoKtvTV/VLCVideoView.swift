@@ -17,7 +17,8 @@ struct VLCVideoView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        // VLC drawable 已在 makeUIView 中设置
+        // 每次更新时重新设置 drawable，确保视频输出正确
+        vlcManager.addDrawable(uiView)
     }
 
     func dismantleUIView(_ uiView: UIView, coordinator: ()) {
