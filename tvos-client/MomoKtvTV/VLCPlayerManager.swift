@@ -128,8 +128,8 @@ class VLCPlayerManager: NSObject, ObservableObject {
         onStateChange?(true)
 
         // 播放开始后多次延迟重新设置drawable，确保视频输出正确初始化
-        // VLC视频输出需要时间初始化，多次设置提高成功率
-        let delays: [Double] = [0.3, 0.8, 1.5, 2.5, 4.0]
+        // VLC视频输出需要时间初始化，多次设置提高成功率（包括更长延迟）
+        let delays: [Double] = [0.3, 0.8, 1.5, 2.5, 4.0, 6.0, 8.0]
         for (i, delay) in delays.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self = self else { return }
@@ -238,17 +238,20 @@ class VLCPlayerManager: NSObject, ObservableObject {
         #if canImport(TVVLCKit)
         guard let p = player, !isRestarting else { return }
         isRestarting = true
-        p.time = VLCTime(int: 0)
+        // 使用position=0回到开头，避免time=0导致网络流重新缓冲
+        p.position = 0
         p.play()
         isPlaying = true
-        log("restart: 回到开头并播放")
-        // 重唱后重新设置视频输出（减少次数，避免过度调用）
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            self?.refreshDrawables()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.refreshDrawables()
-            self?.isRestarting = false  // 2秒后允许再次restart
+        log("restart: 回到开头并播放(position=0)")
+        // 重唱后多次延迟重新设置视频输出，确保视频层正确初始化
+        let delays: [Double] = [0.5, 1.0, 2.0, 3.5, 5.0]
+        for (i, delay) in delays.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.refreshDrawables()
+                if i == delays.count - 1 {
+                    self?.isRestarting = false  // 最后一次后允许再次restart
+                }
+            }
         }
         #endif
     }
