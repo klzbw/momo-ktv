@@ -267,6 +267,30 @@ class VLCPlayerManager: NSObject, ObservableObject {
         #endif
     }
 
+    /// 强制重置视频输出（先清除所有drawable，再重新设置，解决大屏视频不显示的问题）
+    func forceResetDrawable() {
+        #if canImport(TVVLCKit)
+        guard let p = player else { return }
+        // 先清除所有drawable
+        p.drawable = nil
+        activeDrawable = nil
+        log("forceResetDrawable: 清除所有drawable")
+        // 延迟后重新设置activeDrawable
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self = self, let p = self.player else { return }
+            if let active = self.drawableViews.allObjects.last as? UIView {
+                self.activeDrawable = active
+                p.drawable = active
+                self.log("forceResetDrawable: 重新设置drawable到最新视图")
+            } else if let first = self.drawableViews.allObjects.first as? UIView {
+                self.activeDrawable = first
+                p.drawable = first
+                self.log("forceResetDrawable: 重新设置drawable到第一个视图")
+            }
+        }
+        #endif
+    }
+
     func refreshAudioTracks() {
         #if canImport(TVVLCKit)
         guard let player = player else { return }
