@@ -134,18 +134,26 @@ struct WebSongRow: View {
                                     .cornerRadius(6)
                             }
                             if song.isNetworkSong {
-                                Label(song.isVideoFile ? "云视频" : "云音频", systemImage: song.isVideoFile ? "film" : "music.note")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(song.isVideoFile ? Color(hex: 0x0288d1).opacity(0.25) : Color(hex: 0x2e7d32).opacity(0.25))
-                                    .foregroundColor(song.isVideoFile ? Color(hex: 0x4fc3f7) : Color(hex: 0x81c784))
+                                Label("云", systemImage: "cloud.fill")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .padding(.horizontal, 7).padding(.vertical, 2)
+                                    .background(Color(hex: 0x0288d1).opacity(0.25))
+                                    .foregroundColor(Color(hex: 0x4fc3f7))
                                     .cornerRadius(5)
                             }
                         }
-                        Text(song.displayArtist)
-                            .font(.system(size: 22))
-                            .foregroundColor(WebColors.sub)
-                            .lineLimit(1)
+                        HStack(spacing: 6) {
+                            Text(song.displayArtist)
+                                .font(.system(size: 22))
+                                .foregroundColor(WebColors.sub)
+                                .lineLimit(1)
+                            Label(song.mediaTypeLabel, systemImage: song.mediaTypeIcon)
+                                .font(.system(size: 12, weight: .medium))
+                                .padding(.horizontal, 5).padding(.vertical, 0)
+                                .background(song.isVideoFile ? Color(hex: 0x0288d1).opacity(0.2) : Color(hex: 0x2e7d32).opacity(0.2))
+                                .foregroundColor(song.isVideoFile ? Color(hex: 0x4fc3f7) : Color(hex: 0x81c784))
+                                .cornerRadius(3)
+                        }
                     }
 
                     Spacer(minLength: 0)
