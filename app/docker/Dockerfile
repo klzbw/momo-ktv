@@ -48,14 +48,14 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENV DATA_DIR=/data
 ENV MV_DIR=/mv
 ENV PORT=8080
-ENV ALIST_PORT=5234
+ENV ALIST_PORT=5235
 ENV ALIST_DATA_DIR=/opt/alist/data
 
 # 构建时间元数据：每次构建注入，确保 GHCR latest digest 变化，驱动 watchtower 自动更新
 ARG BUILD_TIME=unknown
 LABEL org.opencontainers.image.created=$BUILD_TIME
 
-EXPOSE 8080 5234
+EXPOSE 8080 5235
 VOLUME ["/data", "/mv", "/opt/alist/data"]
 
 # 先运行 alist 初始化，再启动服务
