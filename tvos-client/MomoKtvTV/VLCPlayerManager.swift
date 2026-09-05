@@ -123,6 +123,21 @@ class VLCPlayerManager: NSObject, ObservableObject {
         player.play()
         isPlaying = true
         onStateChange?(true)
+
+        // 播放开始后延迟重新设置drawable，确保视频输出正确初始化
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self, let p = self.player else { return }
+            let views = self.drawableViews.allObjects
+            for view in views {
+                p.drawable = view
+            }
+            self.log("播放后重新设置drawable: \(views.count)个视图")
+        }
+
+        // 延迟2秒后刷新音轨信息
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.refreshAudioTracks()
+        }
         log("▶️ 开始播放: \(url.lastPathComponent)")
         log("media状态: \(media.state.rawValue), 时长: \(media.length.intValue)ms")
         log("player状态: \(player.state.rawValue)")
@@ -200,6 +215,28 @@ class VLCPlayerManager: NSObject, ObservableObject {
         currentAudioTrackIndex = index
         log("切换音轨到: \(index)")
         #endif
+    }
+
+    /// 切换原唱/伴唱（在VLC模式下替代PlayerManager.toggleVoice）
+    func toggleVoice() {
+        #if canImport(TVVLCKit)
+        guard let player = player else { return }
+        refreshAudioTracks()
+        let nextIndex = (currentAudioTrackIndex + 1) % max(audioTrackNames.count, 1)
+        setAudioTrack(index: nextIndex)
+        log("toggleVoice: 当前\(currentAudioTrackIndex) -> 下一个\(nextIndex), 轨道数:\(audioTrackNames.count)")
+        #endif
+    }
+
+    /// 当前音轨标签（用于UI显示）
+    var voiceLabel: String {
+        if audioTrackNames.isEmpty {
+            return currentAudioTrackIndex == 0 ? "原唱" : "伴唱"
+        }
+        if currentAudioTrackIndex < audioTrackNames.count {
+            return audioTrackNames[currentAudioTrackIndex]
+        }
+        return "原唱"
     }
 
     // MARK: - 视频输出视图
