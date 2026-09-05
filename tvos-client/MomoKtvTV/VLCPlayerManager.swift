@@ -88,7 +88,9 @@ class VLCPlayerManager: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             guard let self = self, let p = self.player else { return }
             print("[VLCPlayer] 2秒后状态: \(p.state.rawValue), time: \(p.time.intValue)ms, length: \(p.media?.length.intValue ?? 0)ms")
-            print("[VLCPlayer] 可播放视频轨道数: \(p.media?.numberOfVideoTracks ?? 0), 音频轨道数: \(p.media?.numberOfAudioTracks ?? 0)")
+            if let audioNames = p.audioTrackNames as? [String] {
+                print("[VLCPlayer] 音频轨道数: \(audioNames.count), 名称: \(audioNames)")
+            }
         }
         #else
         onError?("MobileVLCKit未集成")
