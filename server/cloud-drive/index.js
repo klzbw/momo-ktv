@@ -28,11 +28,12 @@ function init(db) {
   // 挂载到模块导出，供 netktv-test / netktv-scan 等外部模块访问
   
 
-// ==================== Alist 115 扫码登录 ====================
+// ==================== Alist 115 扫码登录（参考 alist 官方文档） ====================
 
 const ALIST_URL = process.env.ALIST_URL || 'http://localhost:5235';
 const ALIST_USER = process.env.ALIST_USER || 'admin';
 const ALIST_PASS = process.env.ALIST_PASS || 'Dd112233';
+const QRCODE_UA = 'Mozilla/5.0 115Browser/23.9.3.2';
 
 async function alistLogin() {
   const loginData = JSON.stringify({ username: ALIST_USER, password: ALIST_PASS });
@@ -48,9 +49,8 @@ async function alistLogin() {
   throw new Error('Alist 登录失败: ' + (result.message || '未知错误'));
 }
 
-async function updateAlistStorage(cookie) {
+async function updateAlistStorage(cookie, qrcodeToken) {
   const token = await alistLogin();
-  // Get current storage config
   const getResp = await fetch(`${ALIST_URL}/api/admin/storage/list?page=1&per_page=10`, {
     headers: { 'Authorization': token },
   });
@@ -60,17 +60,25 @@ async function updateAlistStorage(cookie) {
   }
   const storage = getResult.data.content.find(s => s.driver === '115 Cloud' || s.mount_path === '/115');
   if (!storage) {
-    throw new Error('未找到 115 网盘存储');
+    throw new Error('未找到 115 网盘存储，请先在 Alist 中添加 115 Cloud 驱动');
   }
   
-  // Update addition with new cookie
   let addition = {};
   try {
     addition = JSON.parse(storage.addition || '{}');
   } catch (e) {
     addition = {};
   }
-  addition.cookie = cookie;
+  
+  // Priority: qrcode_token > cookie
+  if (qrcodeToken) {
+    addition.qrcode_token = qrcodeToken;
+    addition.cookie = ''; // Clear cookie when using qrcode_token
+    addition.qrcode_source = addition.qrcode_source || 'wechatmini';
+  } else if (cookie) {
+    addition.cookie = cookie;
+    addition.qrcode_token = ''; // Clear qrcode_token when using cookie
+  }
   
   const updateData = {
     id: storage.id,
@@ -97,29 +105,27 @@ async function updateAlistStorage(cookie) {
 
 /**
  * GET /api/cloud/alist/qrcode
- * 获取 115 扫码登录二维码
+ * 获取 115 扫码登录二维码（参考 alist 官方文档）
+ * Step 1: GET https://qrcodeapi.115.com/api/1.0/web/1.0/token/
+ * Step 2: 显示二维码图片 https://qrcodeapi.115.com/api/1.0/mac/1.0/qrcode?uid=<uid>
  */
 router.get('/alist/qrcode', requireManager, async (req, res) => {
   try {
-    // Get qrcode token first
     const tokenResp = await fetch('https://qrcodeapi.115.com/api/1.0/web/1.0/token/', {
-      headers: { 'User-Agent': 'Mozilla/5.0 115Browser/23.9.3.2' },
+      headers: { 'User-Agent': QRCODE_UA },
     });
     const tokenResult = await tokenResp.json();
     if (!tokenResult.data || !tokenResult.data.uid) {
       return res.status(500).json({ error: '获取二维码 token 失败', detail: tokenResult });
     }
-    const uid = tokenResult.data.uid;
-    const time = tokenResult.data.time;
-    const sign = tokenResult.data.sign;
+    const { uid, time, sign } = tokenResult.data;
     
-    // Return qrcode info (frontend will display qrcode image)
     res.json({
       uid,
       time,
       sign,
       qrcode_url: `https://qrcodeapi.115.com/api/1.0/mac/1.0/qrcode?uid=${uid}`,
-      message: '请使用 115 手机 App 扫描二维码登录',
+      message: '请使用 115 手机 App 扫描二维码，选择不常用设备（如 wechatmini）登录',
     });
   } catch (err) {
     console.error('[Alist] 获取二维码失败:', err.message);
@@ -128,44 +134,77 @@ router.get('/alist/qrcode', requireManager, async (req, res) => {
 });
 
 /**
- * GET /api/cloud/alist/qrcode/status?uid=xxx&time=xxx&sign=xxx
+ * GET /api/cloud/alist/qrcode/status?uid=xxx&time=xxx&sign=xxx&app=wechatmini
  * 轮询 115 扫码登录状态
+ * Step 3: GET https://qrcodeapi.115.com/get/status/?uid=<uid>&time=<time>&sign=<sign>
+ * Step 4 (status=2): POST https://passportapi.115.com/app/1.0/{app}/1.0/login/qrcode/ 获取 cookie
  */
 router.get('/alist/qrcode/status', requireManager, async (req, res) => {
   try {
-    const { uid, time, sign } = req.query;
+    const { uid, time, sign, app = 'wechatmini' } = req.query;
     if (!uid) {
       return res.status(400).json({ error: '缺少 uid 参数' });
     }
     
     const statusResp = await fetch(`https://qrcodeapi.115.com/get/status/?uid=${uid}&time=${time}&sign=${sign}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 115Browser/23.9.3.2' },
+      headers: { 'User-Agent': QRCODE_UA },
     });
     const statusResult = await statusResp.json();
+    const status = statusResult.data?.status ?? 0;
     
-    // Status: 0=等待扫码, 1=已扫码未确认, 2=已确认登录成功, -1=二维码过期
-    const status = statusResult.data?.status || 0;
     const statusMsg = {
       0: '等待扫码',
       1: '已扫码，请在手机上确认',
       2: '登录成功',
       '-1': '二维码已过期',
+      '-2': '已取消',
     };
     
-    if (status === 2 && statusResult.data?.cookie) {
-      // Login success, update alist storage
+    if (status === 2) {
+      // Step 4: Call passportapi to get cookie
       try {
-        await updateAlistStorage(statusResult.data.cookie);
-        return res.json({
-          status: 2,
-          message: '登录成功，已配置到 Alist',
-          cookie: statusResult.data.cookie.substring(0, 30) + '...',
+        const loginResp = await fetch(`https://passportapi.115.com/app/1.0/${app}/1.0/login/qrcode/`, {
+          method: 'POST',
+          headers: { 
+            'User-Agent': QRCODE_UA,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: `app=${app}&account=${uid}`,
         });
-      } catch (updateErr) {
+        const loginResult = await loginResp.json();
+        
+        if (loginResult.state === true && loginResult.data?.cookie) {
+          const cookieObj = loginResult.data.cookie;
+          const cookieStr = Object.entries(cookieObj).map(([k, v]) => `${k}=${v}`).join('; ');
+          
+          // Update alist storage with cookie
+          try {
+            await updateAlistStorage(cookieStr, null);
+            return res.json({
+              status: 2,
+              message: '登录成功，已自动配置到 Alist',
+              cookie_preview: cookieStr.substring(0, 50) + '...',
+              app,
+            });
+          } catch (updateErr) {
+            return res.json({
+              status: 2,
+              message: '登录成功，但配置到 Alist 失败: ' + updateErr.message,
+              cookie: cookieStr,
+              app,
+            });
+          }
+        } else {
+          return res.json({
+            status: 2,
+            message: '扫码确认成功，但获取 cookie 失败: ' + (loginResult.error || JSON.stringify(loginResult)),
+            raw: loginResult,
+          });
+        }
+      } catch (loginErr) {
         return res.json({
           status: 2,
-          message: '登录成功，但配置到 Alist 失败: ' + updateErr.message,
-          cookie: statusResult.data.cookie,
+          message: '扫码确认成功，但调用登录接口失败: ' + loginErr.message,
         });
       }
     }
@@ -173,7 +212,6 @@ router.get('/alist/qrcode/status', requireManager, async (req, res) => {
     res.json({
       status,
       message: statusMsg[status] || '未知状态',
-      raw: statusResult.data,
     });
   } catch (err) {
     console.error('[Alist] 轮询登录状态失败:', err.message);
