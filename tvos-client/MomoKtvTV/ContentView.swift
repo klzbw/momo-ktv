@@ -516,22 +516,26 @@ struct ContentView: View {
                         // 快切歌保护：当前仍在播放同一首才继续
                         guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
 
-                        // 网络KTV MKV视频：直接用videoUrl播放，单文件多音轨切换，不走HLS
+                        // 网络KTV MKV视频：使用VLC播放器播放（AVFoundation不支持MKV容器）
+                        // VLC内置115专用UA，自动跟随302重定向，真正直连不占NAS带宽
                         if let info = info, info.isNetworkMkv,
                            let videoPath = info.videoUrl,
                            let videoURL = self.api.apiURL(videoPath) {
-                            self.playerManager.vocalTrackCount = info.audioTracks ?? 2
-                            // 代理模式(?proxy=1)：服务端已处理UA，直接普通播放
-                            // 302直连模式：需要tvOS端设置115专用UA
-                            if videoPath.contains("proxy=1") {
-                                self.playerManager.setupPlayer(for: videoURL)
-                                print("[ContentView] 网络KTV MKV视频播放(代理模式): \(videoPath)")
-                            } else {
-                                let headers = ["User-Agent": "Mozilla/5.0 115Browser/23.9.3.2"]
-                                self.playerManager.setupPlayer(for: videoURL, customHeaders: headers)
-                                print("[ContentView] 网络KTV MKV视频播放(302直连+自定义UA): \(videoPath)")
+                            self.isUsingVLC = true
+                            self.playerManager.cleanup()
+                            self.vlcManager.play(url: videoURL)
+                            self.vlcManager.onStateChange = { playing in
+                                DispatchQueue.main.async {
+                                    self.playerManager.isPlaying = playing
+                                }
                             }
-                            self.playerManager.setVolume(volume)
+                            self.vlcManager.onTimeUpdate = { current, total in
+                                DispatchQueue.main.async {
+                                    self.playerManager.currentTime = current
+                                    self.playerManager.duration = total
+                                }
+                            }
+                            print("[ContentView] 网络KTV MKV视频播放(VLC播放器): \(videoPath)")
                             return
                         }
 
@@ -557,6 +561,8 @@ struct ContentView: View {
                 }
             } else {
                 // No song playing
+                isUsingVLC = false
+                vlcManager.stop()
                 playerManager.cleanup()
             }
             isPlaying = playerManager.isPlaying
