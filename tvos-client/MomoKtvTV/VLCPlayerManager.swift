@@ -28,6 +28,7 @@ class VLCPlayerManager: NSObject {
     #endif
     private var drawableViews: NSHashTable<UIView> = NSHashTable.weakObjects()
     private var timeObserverTimer: Timer?
+    private var lastDebugSecond: Int = -1
 
     private override init() {
         super.init()
@@ -78,8 +79,17 @@ class VLCPlayerManager: NSObject {
         player.play()
         isPlaying = true
         onStateChange?(true)
+        print("[VLCPlayer] ▶️ 开始播放: \(url.lastPathComponent)")
+        print("[VLCPlayer] media状态: \(media.state.rawValue), 时长: \(media.length.intValue)ms")
+        print("[VLCPlayer] player状态: \(player.state.rawValue)")
 
         startTimer()
+        // 延迟2秒后再次检查状态（VLC异步加载）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            guard let self = self, let p = self.player else { return }
+            print("[VLCPlayer] 2秒后状态: \(p.state.rawValue), time: \(p.time.intValue)ms, length: \(p.media?.length.intValue ?? 0)ms")
+            print("[VLCPlayer] 可播放视频轨道数: \(p.media?.numberOfVideoTracks ?? 0), 音频轨道数: \(p.media?.numberOfAudioTracks ?? 0)")
+        }
         #else
         onError?("MobileVLCKit未集成")
         #endif
@@ -173,8 +183,15 @@ class VLCPlayerManager: NSObject {
     private func updateTime() {
         #if canImport(TVVLCKit)
         guard let player = player else { return }
-        let current = Double(player.time.intValue) / 1000.0
-        let total = Double(player.media?.length.intValue ?? 0) / 1000.0
+        let currentMs = player.time.intValue
+        let totalMs = player.media?.length.intValue ?? 0
+        let current = Double(currentMs) / 1000.0
+        let total = Double(totalMs) / 1000.0
+        // 每5秒打印一次调试信息
+        if Int(current) % 5 == 0 && Int(current) != lastDebugSecond {
+            lastDebugSecond = Int(current)
+            print("[VLCPlayer] 时间更新: current=\(currentMs)ms(\(current)s), total=\(totalMs)ms(\(total)s), state=\(player.state.rawValue)")
+        }
         if current != currentTime || total != duration {
             currentTime = current
             duration = total
@@ -200,7 +217,9 @@ class VLCPlayerManager: NSObject {
 extension VLCPlayerManager: VLCMediaPlayerDelegate {
     func mediaPlayerStateChanged(_ aNotification: Notification) {
         guard let player = player else { return }
-        print("[VLCPlayer] 状态变化: \(player.state.rawValue)")
+        let stateNames = ["Idle", "Opening", "Buffering", "Ended", "Error", "Playing", "Paused", "Stopped"]
+        let stateName = player.state.rawValue < stateNames.count ? stateNames[Int(player.state.rawValue)] : "Unknown"
+        print("[VLCPlayer] 状态变化: \(player.state.rawValue)(\(stateName)), time=\(player.time.intValue)ms, length=\(player.media?.length.intValue ?? 0)ms")
         // VLCMediaPlayerState: 0=Idle,1=Opening,2=Buffering,3=Ended,4=Error,5=Playing,6=Paused,7=Stopped
         switch player.state {
         case .playing:
