@@ -35,6 +35,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
     private var libraryInitialized = false
     private var isRestarting = false  // 防止restart重复调用
+    private var lastReportedState: Int = -1  // 状态变化去重，避免刷屏
 
     private override init() {
         super.init()
@@ -240,27 +241,28 @@ class VLCPlayerManager: NSObject, ObservableObject {
     /// 重新演唱（回到开头并播放）
     func restart() {
         #if canImport(TVVLCKit)
-        guard let p = player, !isRestarting else { return }
+        guard let p = player, let media = p.media, !isRestarting else { return }
         isRestarting = true
-        // 先暂停，再回到开头，延迟后再播放，确保状态机正确转换
-        p.pause()
-        p.position = 0
+        let url = media.url
+        log("restart: 停止并重新播放（网络流不支持seek，重新建立连接）")
+        // 停止播放（网络流无法seek到0，必须重新建立连接）
+        p.stop()
         isPlaying = false
-        log("restart: 暂停并回到开头(position=0)")
-        // 延迟0.5秒后再播放，给VLC时间处理seek
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak p] in
-            guard let self = self, let p = p else { return }
-            p.play()
-            self.isPlaying = true
-            self.log("restart: 恢复播放")
-        }
-        // 重唱后多次延迟重新设置视频输出，确保视频层正确初始化
-        let delays: [Double] = [0.8, 1.5, 2.5, 4.0, 6.0]
-        for (i, delay) in delays.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.refreshDrawables()
-                if i == delays.count - 1 {
-                    self?.isRestarting = false  // 最后一次后允许再次restart
+        onStateChange?(false)
+        activeDrawable = nil
+        // 延迟0.5秒后重新播放
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            self.play(url: url)
+            self.log("restart: 重新播放完成")
+            // 重唱后多次延迟重新设置视频输出
+            let delays: [Double] = [0.5, 1.2, 2.0, 3.5]
+            for (i, delay) in delays.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.refreshDrawables()
+                    if i == delays.count - 1 {
+                        self?.isRestarting = false
+                    }
                 }
             }
         }
@@ -498,7 +500,11 @@ extension VLCPlayerManager: VLCMediaPlayerDelegate {
         guard let player = player else { return }
         let stateNames = ["Idle", "Opening", "Buffering", "Ended", "Error", "Playing", "Paused", "Stopped"]
         let stateName = player.state.rawValue < stateNames.count ? stateNames[Int(player.state.rawValue)] : "Unknown"
-        log("状态变化: \(player.state.rawValue)(\(stateName)), time=\(player.time.intValue)ms, length=\(player.media?.length.intValue ?? 0)ms")
+        // 状态变化去重，避免Buffering状态反复刷屏
+        if player.state.rawValue != lastReportedState {
+            log("状态变化: \(player.state.rawValue)(\(stateName)), time=\(player.time.intValue)ms, length=\(player.media?.length.intValue ?? 0)ms")
+            lastReportedState = player.state.rawValue
+        }
         // VLCMediaPlayerState: 0=Idle,1=Opening,2=Buffering,3=Ended,4=Error,5=Playing,6=Paused,7=Stopped
         switch player.state {
         case .playing:
