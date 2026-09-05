@@ -93,16 +93,26 @@ class CustomSchemeLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDat
 
         // 填充contentInformationRequest
         if let infoRequest = loadingRequest.contentInformationRequest {
-            infoRequest.contentType = httpResponse.mimeType ?? "application/octet-stream"
+            // 115 CDN返回application/octet-stream，AVFoundation无法识别MKV/FLAC，
+            // 必须根据文件扩展名覆盖为正确的MIME类型，否则无法解析duration/进度条
+            let detectedType = CustomSchemeLoader.contentType(for: originalURL)
+            infoRequest.contentType = detectedType
+            print("[CustomSchemeLoader] contentType覆盖: \(httpResponse.mimeType ?? "nil") -> \(detectedType)")
             infoRequest.isByteRangeAccessSupported = httpResponse.statusCode == 206
-            // 206响应时从Content-Range头提取整个文件长度
+            // 提取整个文件长度：优先从Content-Range（206），其次从Content-Length（200）
             if httpResponse.statusCode == 206,
                let contentRange = httpResponse.allHeaderFields["Content-Range"] as? String,
                let slashRange = contentRange.range(of: "/") {
                 let totalLengthStr = contentRange[slashRange.upperBound...]
                 infoRequest.contentLength = Int64(totalLengthStr) ?? httpResponse.expectedContentLength
+                print("[CustomSchemeLoader] contentLength(from Content-Range): \(infoRequest.contentLength)")
+            } else if let contentLengthStr = httpResponse.allHeaderFields["Content-Length"] as? String,
+                      let contentLength = Int64(contentLengthStr) {
+                infoRequest.contentLength = contentLength
+                print("[CustomSchemeLoader] contentLength(from Content-Length): \(contentLength)")
             } else {
                 infoRequest.contentLength = httpResponse.expectedContentLength
+                print("[CustomSchemeLoader] contentLength(from expected): \(httpResponse.expectedContentLength)")
             }
         }
 
@@ -140,6 +150,26 @@ class CustomSchemeLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDat
         }
         print("[CustomSchemeLoader] 302重定向，保留UA: \(request.url?.absoluteString.prefix(60) ?? "")")
         completionHandler(newRequest)
+    }
+}
+
+// MARK: - MIME类型辅助
+extension CustomSchemeLoader {
+    /// 根据文件扩展名返回正确的MIME类型（115 CDN返回application/octet-stream，AVFoundation无法识别）
+    static func contentType(for url: URL) -> String {
+        let ext = url.pathExtension.lowercased()
+        switch ext {
+        case "mkv": return "video/x-matroska"
+        case "flac": return "audio/flac"
+        case "mp4": return "video/mp4"
+        case "m4a": return "audio/mp4"
+        case "mp3": return "audio/mpeg"
+        case "aac": return "audio/aac"
+        case "wav": return "audio/wav"
+        case "webm": return "video/webm"
+        case "mov": return "video/quicktime"
+        default: return "application/octet-stream"
+        }
     }
 }
 
