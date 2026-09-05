@@ -71,6 +71,18 @@ struct ContentView: View {
                         pageView(page)
                             .zIndex(1)
                     }
+
+                    // VLC调试日志覆盖层（长按视频区域1秒切换显示）
+                    if showDebugLog {
+                        VStack {
+                            Spacer()
+                            DebugLogOverlay(log: vlcManager.debugLog) {
+                                showDebugLog = false
+                            }
+                        }
+                        .zIndex(2)
+                        .transition(.move(edge: .bottom))
+                    }
                 }
             } else if showSetupInput || serverAddress.isEmpty {
                 // 首次使用（无历史地址）或用户选择"输入新地址"：进入 IP 输入页
