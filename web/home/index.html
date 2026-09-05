@@ -284,7 +284,7 @@ body{
     <div class="nav-card" style="cursor:pointer" onclick="toggleCloudPanel()">
       <div class="icon">☁️</div>
       <div class="title">网盘管理</div>
-      <div class="desc">115网盘 · 扫码登录 · 直链播放</div>
+      <div class="desc">115网盘 · Alist扫码登录 · 302直链播放</div>
     </div>
   </div>
 
@@ -293,7 +293,7 @@ body{
     <div class="cloud-card">
       <div class="cloud-card-header">
         <div class="cloud-card-title">☁️ 网盘管理</div>
-        <div class="cloud-card-sub">115网盘 · 扫码登录 · 302直链播放</div>
+        <div class="cloud-card-sub">115网盘 · Alist扫码登录 · 302直链播放（不占NAS带宽）</div>
         <button class="cloud-card-close" onclick="toggleCloudPanel()">✕</button>
       </div>
       <div class="cloud-card-body">
@@ -541,69 +541,71 @@ function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&l
 function escJs(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'); }
 
 async function startHomeQrLogin(){
-  const btn = event.target;
   const container = document.getElementById('home-qrcode-container');
   const statusEl = document.getElementById('home-qrcode-status');
-  btn.disabled = true; btn.textContent = '获取中...';
+  const app = document.getElementById('home-cloud-qr-app').value;
+  const name = document.getElementById('home-cloud-qr-name').value || '我的115';
+  
   try{
-    const r = await fetch('/api/cloud/qrcode/token');
+    statusEl.textContent = '正在获取二维码...';
+    const r = await fetch('/api/cloud/alist/qrcode');
     const d = await r.json();
-    if(!d.uid || !d.qrcode_img) throw new Error('获取二维码失败');
-    homeQrLoginData = d;
-    container.innerHTML = '<img src="' + d.qrcode_img + '" alt="扫码登录">';
-    statusEl.textContent = '请用手机115 App扫码';
-    btn.textContent = '重新获取';
-    if(homeQrPollTimer) clearInterval(homeQrPollTimer);
-    homeQrPollTimer = setInterval(pollHomeQrStatus, 2000);
+    if(!d.uid) throw new Error(d.error || '获取二维码失败');
+    
+    window.homeAlistQrData = { uid: d.uid, time: d.time, sign: d.sign, app, name };
+    container.innerHTML = '<img src="' + d.qrcode_url + '" alt="扫码登录" style="width:160px;height:160px;border-radius:8px">';
+    statusEl.textContent = '请用 115 手机 App 扫码（选择' + app + '设备）';
+    
+    // Start polling
+    pollAlistQrStatus();
   }catch(e){
     statusEl.textContent = '获取失败：' + e.message;
-    btn.textContent = '获取二维码';
-  }finally{
-    btn.disabled = false;
+    container.innerHTML = '<div style="color:#ff6b6b;font-size:11px">获取失败<br>' + e.message + '</div>';
   }
 }
 
-async function pollHomeQrStatus(){
-  if(!homeQrLoginData) return;
+async function pollAlistQrStatus(){
+  if(!window.homeAlistQrData) return;
+  const { uid, time, sign, app } = window.homeAlistQrData;
+  const statusEl = document.getElementById('home-qrcode-status');
+  const container = document.getElementById('home-qrcode-container');
+  
   try{
-    const r = await fetch('/api/cloud/qrcode/status?uid=' + homeQrLoginData.uid + '&time=' + homeQrLoginData.time + '&sign=' + homeQrLoginData.sign);
+    const r = await fetch('/api/cloud/alist/qrcode/status?uid=' + uid + '&time=' + time + '&sign=' + sign + '&app=' + app);
     const d = await r.json();
-    const statusEl = document.getElementById('home-qrcode-status');
-    if(d.status === '等待扫码'){ statusEl.textContent = '等待扫码...'; }
-    else if(d.status === '已扫码'){ statusEl.textContent = '已扫码，请在手机上确认'; }
-    else if(d.status === '已授权' || d.status === 'success'){
-      clearInterval(homeQrPollTimer);
-      statusEl.textContent = '登录成功，正在添加账号...';
-      await finishHomeQrLogin();
-    }else if(d.status === '已取消' || d.status === '已过期'){
-      clearInterval(homeQrPollTimer);
-      statusEl.textContent = d.status;
+    
+    if(d.status === 0){
+      statusEl.textContent = '等待扫码...';
+      setTimeout(pollAlistQrStatus, 2000);
     }
-  }catch(e){}
-}
-
-async function finishHomeQrLogin(){
-  const name = document.getElementById('home-cloud-qr-name').value.trim() || '我的115';
-  const app = document.getElementById('home-cloud-qr-app').value;
-  try{
-    const r = await fetch('/api/cloud/qrcode/login', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ uid: homeQrLoginData.uid, app, name }),
-    });
-    const d = await r.json();
-    if(d.success || d.account){
-      alert('115网盘账号添加成功！');
-      loadCloudAccounts();
-      document.getElementById('home-qrcode-container').innerHTML = '<div style="color:#999;font-size:11px">点击获取二维码</div>';
-      document.getElementById('home-qrcode-status').textContent = '等待获取二维码...';
-      homeQrLoginData = null;
-    }else{
-      alert('添加失败：' + (d.error || '未知错误'));
+    else if(d.status === 1){
+      statusEl.textContent = '已扫码，请在手机上确认';
+      setTimeout(pollAlistQrStatus, 1500);
+    }
+    else if(d.status === 2){
+      statusEl.textContent = '✅ ' + (d.message || '登录成功，已配置到 Alist');
+      container.innerHTML = '<div style="color:#4ade80;font-size:14px;text-align:center;padding:20px">✅ 登录成功<br><span style="font-size:11px;opacity:.8">' + (d.message || '已自动配置到 Alist') + '</span></div>';
+      // Refresh account list after 2 seconds
+      setTimeout(loadCloudAccounts, 2000);
+    }
+    else if(d.status === -1){
+      statusEl.textContent = '二维码已过期，请重新获取';
+      container.innerHTML = '<div style="color:#999;font-size:11px">二维码已过期<br>点击"获取二维码"重新开始</div>';
+    }
+    else if(d.status === -2){
+      statusEl.textContent = '已取消';
+      container.innerHTML = '<div style="color:#999;font-size:11px">已取消<br>点击"获取二维码"重新开始</div>';
+    }
+    else{
+      statusEl.textContent = d.message || '状态未知，继续轮询...';
+      setTimeout(pollAlistQrStatus, 2000);
     }
   }catch(e){
-    alert('登录请求失败');
+    statusEl.textContent = '轮询失败：' + e.message;
+    setTimeout(pollAlistQrStatus, 3000);
   }
 }
+
 
 async function addHomeCloudCookie(){
   const name = document.getElementById('home-cloud-name').value.trim();
