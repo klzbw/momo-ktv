@@ -17,6 +17,9 @@ struct FullPlayerView: View {
     @ObservedObject var api: KTVAPIClient
 
     @ObservedObject private var playerManager = PlayerManager.shared
+    private let vlcManager = VLCPlayerManager.shared
+    /// 当前是否使用VLC播放器（网络MKV歌曲）
+    private var isUsingVLC: Bool { currentItem.isNetworkMkv }
 
 
 
@@ -120,15 +123,25 @@ struct FullPlayerView: View {
 
 
 
-            SharedVideoView(playerManager: playerManager)
-
-                .ignoresSafeArea()
-
-                .id("fullscreen-video")
-
-                .onAppear { setup() }
-
-                .onDisappear { cleanup() }
+            if currentItem.isNetworkMkv {
+                VLCVideoView(vlcManager: vlcManager)
+                    .ignoresSafeArea()
+                    .id("fullscreen-video-vlc")
+                    .onAppear {
+                        setup()
+                        // VLC模式：重新设置视频输出
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            vlcManager.refreshDrawables()
+                        }
+                    }
+                    .onDisappear { cleanup() }
+            } else {
+                SharedVideoView(playerManager: playerManager)
+                    .ignoresSafeArea()
+                    .id("fullscreen-video")
+                    .onAppear { setup() }
+                    .onDisappear { cleanup() }
+            }
 
                 .onChange(of: api.queue.first(where: { $0.isPlaying })?.id) { _ in
 
@@ -138,11 +151,14 @@ struct FullPlayerView: View {
                     currentSepStatus = nil
 
                     // Song changed, re-attach layer to ensure video shows
-
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-
-                        playerManager.attachLayerToCurrentHost()
-
+                    if let playing = api.queue.first(where: { $0.isPlaying }), playing.isNetworkMkv {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            vlcManager.refreshDrawables()
+                        }
+                    } else {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            playerManager.attachLayerToCurrentHost()
+                        }
                     }
 
                     if let playing = api.queue.first(where: { $0.isPlaying }) {
@@ -345,11 +361,15 @@ struct FullPlayerView: View {
 
                             TVTightButton(action: {
                                 lastFocusedBtn = 3
-                                toggleVoice()
+                                if currentItem.isNetworkMkv {
+                                    vlcManager.toggleVoice()
+                                } else {
+                                    toggleVoice()
+                                }
                                 showVocalHUD()
                             }, focusedTag: $focusedBtn, focusTag: 3, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
 
-                                controlContent(icon: "mic.fill", title: playerManager.vocalTrackLabel, focused: focused)
+                                controlContent(icon: "mic.fill", title: currentItem.isNetworkMkv ? vlcManager.voiceLabel : playerManager.vocalTrackLabel, focused: focused)
 
                             }
                             .onMoveCommand { direction in
