@@ -46,14 +46,11 @@ class VLCPlayerManager: NSObject {
             "--network-caching=1000",
             "--file-caching=1000"
         ]
-        if let lib = VLCLibrary(options: options) {
-            library = lib
-            player = VLCMediaPlayer(library: lib)
-            player?.delegate = self
-            print("[VLCPlayer] VLCLibrary初始化成功")
-        } else {
-            print("[VLCPlayer] ❌ VLCLibrary初始化失败")
-        }
+        let lib = VLCLibrary(options: options)
+        library = lib
+        player = VLCMediaPlayer(library: lib)
+        player?.delegate = self
+        print("[VLCPlayer] VLCLibrary初始化成功")
     }
     #endif
 
