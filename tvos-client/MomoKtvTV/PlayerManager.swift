@@ -590,8 +590,8 @@ class PlayerManager: ObservableObject {
         let gen = loadGeneration + 1
         loadGeneration = gen
         DispatchQueue.global(qos: .userInitiated).async {
-            let vocalAsset = directAsset(for: vocalFile)
-            let accompAsset = directAsset(for: accompFile)
+            let vocalAsset = self.directAsset(for: vocalFile)
+            let accompAsset = self.directAsset(for: accompFile)
             guard let vTrack = vocalAsset.tracks(withMediaType: .audio).first,
                   let aTrack = accompAsset.tracks(withMediaType: .audio).first else {
                 print("[PlayerManager] DUAL 缺少音频轨，保留 HLS song=\(songId)"); return
