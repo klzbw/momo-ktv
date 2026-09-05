@@ -130,8 +130,11 @@ struct FullPlayerView: View {
                         .id("fullscreen-video-vlc")
                         .onAppear {
                             setup()
-                            // VLC模式：多次延迟重新设置视频输出，提高成功率
-                            let delays: [Double] = [0.3, 0.8, 1.5, 2.5, 4.0]
+                            // VLC模式：先强制重置视频输出，再多次延迟刷新，解决大屏视频不显示的问题
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                vlcManager.forceResetDrawable()
+                            }
+                            let delays: [Double] = [0.5, 1.0, 1.8, 2.8, 4.0, 5.5]
                             for (i, delay) in delays.enumerated() {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                                     vlcManager.refreshDrawables()
