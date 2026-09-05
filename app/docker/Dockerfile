@@ -18,7 +18,7 @@ FROM node:20-bookworm-slim
 RUN apt-get update && apt-get install -y \
       python3 make g++ ffmpeg \
       libva2 libva-drm2 va-driver-all vainfo \
-      curl ca-certificates \
+      curl ca-certificates sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 alist（网盘直连服务，302直连不占NAS带宽，避免115 API风控）
@@ -35,6 +35,11 @@ RUN npm install --omit=dev
 
 COPY server ./server
 COPY web ./web
+
+# 复制 alist 配置和初始化脚本
+COPY alist-config.json /app/docker/alist-config.json
+COPY alist-init.sh /app/docker/alist-init.sh
+RUN chmod +x /app/docker/alist-init.sh
 
 # 复制 alist 启动脚本
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
@@ -53,4 +58,5 @@ LABEL org.opencontainers.image.created=$BUILD_TIME
 EXPOSE 8080 5234
 VOLUME ["/data", "/mv", "/opt/alist/data"]
 
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+# 先运行 alist 初始化，再启动服务
+ENTRYPOINT ["/bin/bash", "-c", "/app/docker/alist-init.sh && /usr/local/bin/docker-entrypoint.sh"]
