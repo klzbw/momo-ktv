@@ -195,6 +195,32 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
     // MARK: - 音轨切换（原唱/伴唱）
 
+    /// 切换播放/暂停
+    func togglePlayPause() {
+        #if canImport(TVVLCKit)
+        guard let p = player else { return }
+        if isPlaying {
+            p.pause()
+            isPlaying = false
+            log("togglePlayPause: 暂停")
+        } else {
+            p.play()
+            isPlaying = true
+            log("togglePlayPause: 播放")
+        }
+        #endif
+    }
+
+    /// 设置音量 (0.0 - 1.0)
+    func setVolume(_ volume: Float) {
+        #if canImport(TVVLCKit)
+        guard let p = player else { return }
+        // VLC音量范围是0-200，转换0-1到0-200
+        p.audio?.volume = Int32(volume * 200)
+        log("setVolume: \(volume) (VLC: \(Int32(volume * 200)))")
+        #endif
+    }
+
     func refreshAudioTracks() {
         #if canImport(TVVLCKit)
         guard let player = player else { return }
@@ -292,26 +318,51 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
     func addDrawable(_ view: UIView) {
         drawableViews.add(view)
-        #if canImport(TVVLCKit)
-        // 如果VLC已初始化，立即设置；否则等play()时统一注册
-        if let p = player {
-            p.drawable = view
-            log("addDrawable: 立即设置视频输出")
+        // 如果没有活动的drawable，自动设置这个为活动的
+        if activeDrawable == nil {
+            setActiveDrawable(view)
         } else {
-            log("addDrawable: VLC未初始化，已保存视图，play()时统一注册")
+            log("addDrawable: 已保存视图（当前有活动drawable，不覆盖）")
+        }
+    }
+
+    /// 设置当前活动的视频输出视图（只有这个会被设置为VLC的drawable）
+    func setActiveDrawable(_ view: UIView?) {
+        activeDrawable = view
+        #if canImport(TVVLCKit)
+        if let p = player, let v = view {
+            p.drawable = v
+            log("setActiveDrawable: 设置视频输出")
+        } else if view == nil {
+            log("setActiveDrawable: 清除活动drawable")
         }
         #endif
     }
 
-    /// 重新设置所有已注册的drawable（用于视频输出恢复）
+    /// 清除指定的活动drawable（如果它是当前活动的）
+    func clearActiveDrawable(_ view: UIView) {
+        if activeDrawable === view {
+            activeDrawable = nil
+            // 尝试找下一个可用的drawable
+            if let next = drawableViews.allObjects.first(where: { $0 !== view }) as? UIView {
+                setActiveDrawable(next)
+            }
+        }
+        drawableViews.remove(view)
+    }
+
+    /// 重新设置活动的drawable（用于视频输出恢复）
     func refreshDrawables() {
         #if canImport(TVVLCKit)
         guard let p = player else { return }
-        let views = drawableViews.allObjects
-        for view in views {
-            p.drawable = view
+        if let active = activeDrawable {
+            p.drawable = active
+            log("refreshDrawables: 重新设置活动drawable")
+        } else if let first = drawableViews.allObjects.first as? UIView {
+            setActiveDrawable(first)
+        } else {
+            log("refreshDrawables: 没有可用的drawable")
         }
-        log("refreshDrawables: 重新设置\(views.count)个视频输出视图")
         #endif
     }
 
