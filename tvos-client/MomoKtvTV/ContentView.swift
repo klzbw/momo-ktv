@@ -633,7 +633,13 @@ struct ContentView: View {
                     vlcManager.togglePlayPause()
                     isPlaying = vlcManager.isPlaying
                     FeedbackCenter.shared.show(vlcManager.isPlaying ? "开始播放" : "暂停播放",
+                                           icon: vlcManager.isPlaying ? "play.fill" : "pause.fill")
+                } else {
+                    playerManager.togglePlayPause()
+                    isPlaying = playerManager.isPlaying
+                    FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
                                            icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
+                }
             case "repeat":
                 playerManager.restart()
                 api.restartSong()
