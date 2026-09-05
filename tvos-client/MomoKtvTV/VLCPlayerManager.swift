@@ -42,17 +42,22 @@ class VLCPlayerManager: NSObject, ObservableObject {
     private func setupLibrary() {
         // 115网盘需要特定UA，否则CDN返回403
         // --no-video-title-show 隐藏VLC默认标题显示
+        // --http-reconnect 网络中断自动重连
+        // --no-http-referrer 不发送referrer
         let options = [
             "--http-user-agent=Mozilla/5.0 115Browser/23.9.3.2",
             "--no-video-title-show",
-            "--network-caching=1000",
-            "--file-caching=1000"
+            "--network-caching=3000",
+            "--file-caching=3000",
+            "--http-reconnect",
+            "--no-http-referrer",
+            "--no-http-forward-cookies"
         ]
         let lib = VLCLibrary(options: options)
         library = lib
         player = VLCMediaPlayer(library: lib)
         player?.delegate = self
-        log("VLCLibrary初始化成功")
+        log("VLCLibrary初始化成功, options: \(options)")
     }
     #endif
 
@@ -84,7 +89,13 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
         cleanup()
 
+        log("▶️ 完整URL: \(url.absoluteString)")
+        log("URL scheme: \(url.scheme ?? "nil"), host: \(url.host ?? "nil")")
+
         let media = VLCMedia(url: url)
+        // 在media级别也设置UA，确保115 CDN能识别
+        media.addOption("--http-user-agent=Mozilla/5.0 115Browser/23.9.3.2")
+        media.addOption("--no-http-referrer")
         self.media = media
         player.media = media
 
@@ -92,6 +103,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
         for view in drawableViews.allObjects {
             player.drawable = view
         }
+        log("已注册drawable数量: \(drawableViews.allObjects.count)")
 
         player.play()
         isPlaying = true
@@ -99,14 +111,20 @@ class VLCPlayerManager: NSObject, ObservableObject {
         log("▶️ 开始播放: \(url.lastPathComponent)")
         log("media状态: \(media.state.rawValue), 时长: \(media.length.intValue)ms")
         log("player状态: \(player.state.rawValue)")
+        log("player可播放: \(player.isSeekable), 可暂停: \(player.canPause)")
 
         startTimer()
         // 延迟2秒后再次检查状态（VLC异步加载）
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             guard let self = self, let p = self.player else { return }
             log("2秒后状态: \(p.state.rawValue), time: \(p.time.intValue)ms, length: \(p.media?.length.intValue ?? 0)ms")
+            log("2秒后 可播放: \(p.isSeekable), 可暂停: \(p.canPause)")
+            log("2秒后 视频轨道: \(p.videoTrackNames?.count ?? 0), 音频轨道: \(p.audioTrackNames?.count ?? 0)")
             if let audioNames = p.audioTrackNames as? [String] {
                 log("音频轨道数: \(audioNames.count), 名称: \(audioNames)")
+            }
+            if let videoNames = p.videoTrackNames as? [String] {
+                log("视频轨道数: \(videoNames.count), 名称: \(videoNames)")
             }
         }
         #else
@@ -252,6 +270,12 @@ extension VLCPlayerManager: VLCMediaPlayerDelegate {
             isPlaying = false
             onStateChange?(false)
         case .error:
+            log("❌ VLC错误! media状态: \(player.media?.state.rawValue ?? -1), media时长: \(player.media?.length.intValue ?? 0)ms")
+            log("❌ 可播放: \(player.isSeekable), 可暂停: \(player.canPause), 视频轨道数: \(player.videoTrackNames?.count ?? 0)")
+            if let media = player.media {
+                log("❌ media URL: \(media.url?.absoluteString ?? "nil")")
+                log("❌ media 类型: \(media.mediaType.rawValue)")
+            }
             onError?("VLC播放错误")
         default:
             break
