@@ -71,6 +71,11 @@ struct Song: Codable, Identifiable, Hashable {
         return false
     }
 
+    /// 媒体类型标签：视频歌曲显示"MKV"，音频歌曲显示"FLAC"
+    var mediaTypeLabel: String { isVideoFile ? "MKV" : "FLAC" }
+    /// 媒体类型图标：视频用 film，音频用 music.note
+    var mediaTypeIcon: String { isVideoFile ? "film" : "music.note" }
+
     var durationText: String {
 
         guard let d = duration else { return "" }
