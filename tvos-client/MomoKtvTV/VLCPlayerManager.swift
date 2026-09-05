@@ -119,13 +119,11 @@ class VLCPlayerManager: NSObject, ObservableObject {
             guard let self = self, let p = self.player else { return }
             log("2秒后状态: \(p.state.rawValue), time: \(p.time.intValue)ms, length: \(p.media?.length.intValue ?? 0)ms")
             log("2秒后 可播放: \(p.isSeekable), 可暂停: \(p.canPause)")
-            log("2秒后 视频轨道: \(p.videoTrackNames.count), 音频轨道: \(p.audioTrackNames?.count ?? 0)")
-            if let audioNames = p.audioTrackNames as? [String] {
-                log("音频轨道数: \(audioNames.count), 名称: \(audioNames)")
-            }
-            if let videoNames = p.videoTrackNames as? [String] {
-                log("视频轨道数: \(videoNames.count), 名称: \(videoNames)")
-            }
+            let audioNames = p.audioTrackNames as? [String] ?? []
+            let videoNames = p.videoTrackNames as? [String] ?? []
+            log("2秒后 视频轨道: \(videoNames.count), 音频轨道: \(audioNames.count)")
+            log("音频轨道名称: \(audioNames)")
+            log("视频轨道名称: \(videoNames)")
         }
         #else
         onError?("MobileVLCKit未集成")
@@ -170,9 +168,8 @@ class VLCPlayerManager: NSObject, ObservableObject {
     func refreshAudioTracks() {
         #if canImport(TVVLCKit)
         guard let player = player else { return }
-        if let names = player.audioTrackNames as? [String] {
-            audioTrackNames = names
-        }
+        let names = player.audioTrackNames as? [String] ?? []
+        audioTrackNames = names
         if audioTrackNames.isEmpty {
             audioTrackNames = ["原唱", "伴唱"]
         }
