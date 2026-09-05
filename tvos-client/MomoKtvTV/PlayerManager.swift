@@ -39,8 +39,16 @@ class CustomSchemeLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDat
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader,
                         shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
-        guard let customURL = loadingRequest.request.url else { return false }
+        guard let customURL = loadingRequest.request.url else {
+            print("[CustomSchemeLoader] ❌ no url in loadingRequest")
+            return false
+        }
         let url = originalURL(from: customURL)
+        let hasContentInfo = loadingRequest.contentInformationRequest != nil
+        let hasDataRequest = loadingRequest.dataRequest != nil
+        let dataOffset = loadingRequest.dataRequest?.requestedOffset ?? 0
+        let dataLength = loadingRequest.dataRequest?.requestedLength ?? 0
+        print("[CustomSchemeLoader] 请求: hasContentInfo=\(hasContentInfo) hasData=\(hasDataRequest) offset=\(dataOffset) length=\(dataLength) url=\(url.lastPathComponent)")
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -94,10 +102,10 @@ class CustomSchemeLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDat
         // 填充contentInformationRequest
         if let infoRequest = loadingRequest.contentInformationRequest {
             // 115 CDN返回application/octet-stream，AVFoundation无法识别MKV/FLAC，
-            // 必须根据文件扩展名覆盖为正确的MIME类型，否则无法解析duration/进度条
-            let detectedType = CustomSchemeLoader.contentType(for: originalURL)
-            infoRequest.contentType = detectedType
-            print("[CustomSchemeLoader] contentType覆盖: \(httpResponse.mimeType ?? "nil") -> \(detectedType)")
+            // 必须根据文件扩展名覆盖为正确的UTI（不是MIME），否则无法解析duration/进度条
+            let detectedUTI = CustomSchemeLoader.contentTypeUTI(for: originalURL)
+            infoRequest.contentType = detectedUTI
+            print("[CustomSchemeLoader] contentType UTI: \(httpResponse.mimeType ?? "nil") -> \(detectedUTI)")
             infoRequest.isByteRangeAccessSupported = httpResponse.statusCode == 206
             // 提取整个文件长度：优先从Content-Range（206），其次从Content-Length（200）
             if httpResponse.statusCode == 206,
@@ -153,22 +161,23 @@ class CustomSchemeLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDat
     }
 }
 
-// MARK: - MIME类型辅助
+// MARK: - UTI类型辅助
 extension CustomSchemeLoader {
-    /// 根据文件扩展名返回正确的MIME类型（115 CDN返回application/octet-stream，AVFoundation无法识别）
-    static func contentType(for url: URL) -> String {
+    /// 根据文件扩展名返回AVFoundation认可的UTI（必须是UTI不是MIME，否则无法解析）
+    /// MKV在tvOS上原生支持有限，用public.movie通用类型尝试
+    static func contentTypeUTI(for url: URL) -> String {
         let ext = url.pathExtension.lowercased()
         switch ext {
-        case "mkv": return "video/x-matroska"
-        case "flac": return "audio/flac"
-        case "mp4": return "video/mp4"
-        case "m4a": return "audio/mp4"
-        case "mp3": return "audio/mpeg"
-        case "aac": return "audio/aac"
-        case "wav": return "audio/wav"
-        case "webm": return "video/webm"
-        case "mov": return "video/quicktime"
-        default: return "application/octet-stream"
+        case "mkv": return "public.movie"  // MKV专用UTI不被AVFoundation认可，用通用movie类型
+        case "flac": return "public.flac-audio"
+        case "mp4": return "public.mpeg-4"
+        case "m4a": return "public.mpeg-4-audio"
+        case "mp3": return "public.mp3"
+        case "aac": return "public.aac-audio"
+        case "wav": return "com.microsoft.waveform-audio"
+        case "webm": return "public.movie"
+        case "mov": return "com.apple.quicktime-movie"
+        default: return "public.data"
         }
     }
 }
@@ -392,7 +401,8 @@ class PlayerManager: ObservableObject {
         let loader = CustomSchemeLoader(originalURL: url, customHeaders: headers)
         customSchemeLoader = loader
         let customURL = CustomSchemeLoader.makeCustomSchemeURL(url)
-        let asset = AVURLAsset(url: customURL)
+        // 开启精确时长计算，对MKV等非原生格式尤其重要
+        let asset = AVURLAsset(url: customURL, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
         asset.resourceLoader.setDelegate(loader, queue: .main)
         let playerItem = AVPlayerItem(asset: asset)
         setupPlayerInternal(for: url, playerItem: playerItem)
@@ -452,9 +462,16 @@ class PlayerManager: ObservableObject {
 
         // Item ready：HLS 选回演唱音轨；DUAL 应用当前人声增益
         itemStatusObserver = playerItem.observe(\.status, options: [.new]) { [weak self] _, _ in
+            print("[PlayerManager] playerItem status: \(playerItem.status.rawValue) (0=unknown,1=ready,2=failed)")
             if playerItem.status == .readyToPlay {
+                print("[PlayerManager] ✅ readyToPlay, duration=\(playerItem.duration.seconds)")
                 DispatchQueue.main.async {
                     if isDual { self?.applyDualVolume() } else { self?.applyVoiceMode() }
+                }
+            } else if playerItem.status == .failed {
+                print("[PlayerManager] ❌ playerItem failed: \(playerItem.error?.localizedDescription ?? "unknown")")
+                if let error = playerItem.error as NSError? {
+                    print("[PlayerManager] error code=\(error.code) domain=\(error.domain) userInfo=\(error.userInfo)")
                 }
             }
         }
