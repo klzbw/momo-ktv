@@ -28,6 +28,8 @@ class VLCPlayerManager: NSObject, ObservableObject {
     private var media: VLCMedia?
     #endif
     private var drawableViews: NSHashTable<UIView> = NSHashTable.weakObjects()
+    /// 当前活动的视频输出视图（只有一个会被设置为VLC的drawable）
+    private var activeDrawable: UIView?
     private var timeObserverTimer: Timer?
     private var lastDebugSecond: Int = -1
 
