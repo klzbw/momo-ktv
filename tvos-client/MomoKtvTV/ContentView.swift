@@ -854,13 +854,19 @@ struct ContentView: View {
     private var mvCtrl: some View {
         HStack(spacing: 6) {
             MVButton(icon: "slider.horizontal.3", title: "均衡器") { activePanel = .eq }
-            MVButton(icon: "mic", title: playerManager.vocalTrackLabel) {
-                playerManager.toggleVoice()
-                api.toggleVoice()
-                showToast(playerManager.vocalTrackLabel)
+            MVButton(icon: "mic", title: isUsingVLC ? vlcManager.voiceLabel : playerManager.vocalTrackLabel) {
+                if isUsingVLC {
+                    // VLC模式：使用VLC音轨切换
+                    vlcManager.toggleVoice()
+                    showToast(vlcManager.voiceLabel)
+                } else {
+                    playerManager.toggleVoice()
+                    api.toggleVoice()
+                    showToast(playerManager.vocalTrackLabel)
+                }
                 // Sync voice state to server so mobile remote original/accompaniment
                 // button highlight stays in sync with the TV.
-                api.sendPlaybackState(paused: !playerManager.isPlaying, voice: playerManager.voiceStateString)
+                api.sendPlaybackState(paused: !playerManager.isPlaying, voice: isUsingVLC ? vlcManager.voiceLabel : playerManager.voiceStateString)
             }
             MVButton(icon: "speaker.minus", title: "音量-") {
                 volume = max(0, volume - 0.1)
