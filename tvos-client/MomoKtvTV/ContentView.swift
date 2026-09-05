@@ -50,7 +50,7 @@ struct ContentView: View {
     @StateObject private var previewLyrics = LyricsLoader()  // 首页小窗预览歌词
 
     enum PanelType { case search, queue, settings, eq }
-    enum PageType { case order, artists, artistSongs, charts, favorites, history, newest, category, netktv }
+    enum PageType { case order, artists, artistSongs, charts, favorites, history, newest, category }
 
     init() {
         let addr = UserDefaults.standard.string(forKey: "serverAddress") ?? ""
@@ -875,7 +875,6 @@ struct ContentView: View {
             bigRequestButton(title: "歌手点歌", icon: "mic.fill", gradient: LinearGradient(colors: [Color(hex: 0x8e44f7), Color(hex: 0xc736f7)], startPoint: .leading, endPoint: .trailing)) { activePage = .artists }
             bigRequestButton(title: "分类点歌", icon: "square.grid.2x2.fill", gradient: LinearGradient(colors: [Color(hex: 0xff8c42), Color(hex: 0xffb347)], startPoint: .leading, endPoint: .trailing)) { activePage = .category }
             bigRequestButton(title: "扫码点歌", icon: "qrcode", gradient: LinearGradient(colors: [Color(hex: 0x1a7bff), Color(hex: 0x36d9f7)], startPoint: .leading, endPoint: .trailing)) { showQR.toggle() }
-            bigRequestButton(title: "网络KTV", icon: "cloud.fill", gradient: LinearGradient(colors: [Color(hex: 0x00c853), Color(hex: 0x69f0ae)], startPoint: .leading, endPoint: .trailing)) { activePage = .netktv }
         }
         .frame(maxHeight: .infinity)
         .focusSection()
@@ -1048,8 +1047,6 @@ struct ContentView: View {
         case .newest:
             NewestPage(api: api, onBack: { activePage = nil },
                        onAdd: { song in api.addToQueue(songId: song.id); showToast("已点: \(song.displayTitle)") })
-        case .netktv:
-            NetKtvListView(api: api, player: playerManager, onBack: { activePage = nil })
         case .category:
             CategoryPage(api: api, onBack: { activePage = nil },
                          onAdd: { song in api.addToQueue(songId: song.id); showToast("已点: \(song.displayTitle)") })
