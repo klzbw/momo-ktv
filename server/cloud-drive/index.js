@@ -178,9 +178,21 @@ router.get('/alist/qrcode/status', requireManager, async (req, res) => {
         });
         const loginResult = await loginResp.json();
         
-        if (loginResult.state === true && loginResult.data?.cookie) {
-          const cookieObj = loginResult.data.cookie;
-          const cookieStr = Object.entries(cookieObj).map(([k, v]) => `${k}=${v}`).join('; ');
+        // 115 passportapi 返回 state=1 (数字) 表示成功，cookie 字段在 data 中
+        if ((loginResult.state === 1 || loginResult.state === true) && loginResult.data) {
+          const data = loginResult.data;
+          // 提取 cookie 字段：UID(或uid)、CID、SEID、KID
+          const uid = data.uid || data.UID || '';
+          const cid = data.CID || data.cid || '';
+          const seid = data.SEID || data.seid || '';
+          const kid = data.KID || data.kid || '';
+          const cookieParts = [];
+          if (uid) cookieParts.push(`UID=${uid}`);
+          if (cid) cookieParts.push(`CID=${cid}`);
+          if (seid) cookieParts.push(`SEID=${seid}`);
+          if (kid) cookieParts.push(`KID=${kid}`);
+          const cookieStr = cookieParts.join('; ');
+          console.log('[Alist] 获取 cookie 成功:', cookieStr.substring(0, 50) + '...');
           
           // Update alist storage with cookie
           try {
