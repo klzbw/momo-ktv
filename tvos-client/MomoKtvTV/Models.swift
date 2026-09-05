@@ -130,6 +130,14 @@ struct QueueItem: Codable, Identifiable, Hashable {
 
 
     /// 媒体类型标签：视频歌曲显示"MKV"，音频歌曲显示"FLAC"
+
+    /// 是否网络歌曲（115网盘直连）
+    var isNetworkSong: Bool {
+        if (is_network ?? 0) == 1 { return true }
+        if let sr = source_root, sr.hasPrefix("netktv") { return true }
+        return false
+    }
+
     var mediaTypeLabel: String { isVideoFile ? "MKV" : "FLAC" }
     /// 媒体类型图标：视频用 film，音频用 music.note
     var mediaTypeIcon: String { isVideoFile ? "film" : "music.note" }
