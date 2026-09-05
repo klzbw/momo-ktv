@@ -93,7 +93,11 @@ class VLCPlayerManager: NSObject, ObservableObject {
         log("URL scheme: \(url.scheme ?? "nil"), host: \(url.host ?? "nil")")
 
         let media = VLCMedia(url: url)
-        // UA已在library级别设置，这里不再重复设置（避免不支持的API导致崩溃）
+        // 在media级别也设置UA，确保115 CDN能识别
+        // library级别的--http-user-agent在tvOS上可能不生效，这里用media级别
+        let uaOption = ":http-user-agent=Mozilla/5.0 115Browser/23.9.3.2"
+        media.addOption(uaOption)
+        log("已设置media UA选项: \(uaOption)")
         self.media = media
         player.media = media
 
@@ -107,6 +111,13 @@ class VLCPlayerManager: NSObject, ObservableObject {
         log("已注册drawable数量: \(views.count)")
         if views.isEmpty {
             log("⚠️ 警告：没有已注册的视频输出视图，视频将无法显示！")
+        }
+
+        // 打印URL是否包含proxy参数（调试用）
+        if url.absoluteString.contains("proxy=1") {
+            log("使用代理模式（服务端转发，占NAS带宽）")
+        } else {
+            log("使用302直连模式（不占NAS带宽，VLC直接访问115 CDN）")
         }
 
         player.play()
