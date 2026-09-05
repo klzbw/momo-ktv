@@ -19,7 +19,7 @@ struct FullPlayerView: View {
     @ObservedObject private var playerManager = PlayerManager.shared
     private let vlcManager = VLCPlayerManager.shared
     /// 当前是否使用VLC播放器（网络MKV歌曲）
-    private var isUsingVLC: Bool { currentItem.isNetworkMkv }
+    private var isUsingVLC: Bool { vlcManager.isPlaying }
 
 
 
@@ -123,7 +123,7 @@ struct FullPlayerView: View {
 
 
 
-            if currentItem.isNetworkMkv {
+            if isUsingVLC {
                 VLCVideoView(vlcManager: vlcManager)
                     .ignoresSafeArea()
                     .id("fullscreen-video-vlc")
@@ -361,7 +361,7 @@ struct FullPlayerView: View {
 
                             TVTightButton(action: {
                                 lastFocusedBtn = 3
-                                if currentItem.isNetworkMkv {
+                                if isUsingVLC {
                                     vlcManager.toggleVoice()
                                 } else {
                                     toggleVoice()
@@ -369,7 +369,7 @@ struct FullPlayerView: View {
                                 showVocalHUD()
                             }, focusedTag: $focusedBtn, focusTag: 3, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
 
-                                controlContent(icon: "mic.fill", title: currentItem.isNetworkMkv ? vlcManager.voiceLabel : playerManager.vocalTrackLabel, focused: focused)
+                                controlContent(icon: "mic.fill", title: isUsingVLC ? vlcManager.voiceLabel : playerManager.vocalTrackLabel, focused: focused)
 
                             }
                             .onMoveCommand { direction in
