@@ -1380,12 +1380,18 @@ struct OrderSongsPage: View {
         }
         .background(WebColors.bg.ignoresSafeArea())
         .onAppear {
+            // 重置搜索状态：清空上次搜索关键词和增量过滤缓存，确保每次进入都是全新搜索
+            inputText = ""
+            lastFilterQuery = ""
+            lastFilterIndices = []
+            currentPage = 0
             filteredSongs = api.songs
             if api.songs.isEmpty {
                 api.fetchSongs { buildCache() }
             } else {
                 buildCache()
             }
+        }
         }
         .onChange(of: api.songs.count) { _ in buildCache() }
     }
