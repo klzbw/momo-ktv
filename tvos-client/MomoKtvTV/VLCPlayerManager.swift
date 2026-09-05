@@ -31,33 +31,30 @@ class VLCPlayerManager: NSObject, ObservableObject {
     private var timeObserverTimer: Timer?
     private var lastDebugSecond: Int = -1
 
+    private var libraryInitialized = false
+
     private override init() {
         super.init()
-        #if canImport(TVVLCKit)
-        setupLibrary()
-        #endif
+        // 不在init时初始化VLC，避免APP启动时崩溃
+        // 改为懒加载：第一次播放时才调用setupLibrary()
     }
 
     #if canImport(TVVLCKit)
     private func setupLibrary() {
+        guard !libraryInitialized else { return }
+        libraryInitialized = true
         // 115网盘需要特定UA，否则CDN返回403
-        // --no-video-title-show 隐藏VLC默认标题显示
-        // --http-reconnect 网络中断自动重连
-        // --no-http-referrer 不发送referrer
+        // 只保留最基本的选项，避免不支持的选项导致崩溃
         let options = [
             "--http-user-agent=Mozilla/5.0 115Browser/23.9.3.2",
             "--no-video-title-show",
-            "--network-caching=3000",
-            "--file-caching=3000",
-            "--http-reconnect",
-            "--no-http-referrer",
-            "--no-http-forward-cookies"
+            "--network-caching=1000"
         ]
         let lib = VLCLibrary(options: options)
         library = lib
         player = VLCMediaPlayer(library: lib)
         player?.delegate = self
-        log("VLCLibrary初始化成功, options: \(options)")
+        log("VLCLibrary初始化成功")
     }
     #endif
 
@@ -82,6 +79,9 @@ class VLCPlayerManager: NSObject, ObservableObject {
     /// 播放URL（支持115网盘302直连，VLC自动跟随重定向并保留UA）
     func play(url: URL) {
         #if canImport(TVVLCKit)
+        // 懒加载：第一次播放时才初始化VLC，避免APP启动崩溃
+        setupLibrary()
+
         guard let player = player else {
             onError?("VLC播放器未初始化")
             return
@@ -93,9 +93,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
         log("URL scheme: \(url.scheme ?? "nil"), host: \(url.host ?? "nil")")
 
         let media = VLCMedia(url: url)
-        // 在media级别也设置UA，确保115 CDN能识别
-        media.addOption("--http-user-agent=Mozilla/5.0 115Browser/23.9.3.2")
-        media.addOption("--no-http-referrer")
+        // UA已在library级别设置，这里不再重复设置（避免不支持的API导致崩溃）
         self.media = media
         player.media = media
 
