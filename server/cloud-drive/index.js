@@ -55,7 +55,10 @@ async function alistLogin() {
 }
 
 async function updateAlistStorage(cookie, qrcodeToken) {
+  console.log('[Alist] 开始更新存储配置, cookie长度:', cookie ? cookie.length : 0, ', qrcodeToken:', qrcodeToken ? '有' : '无');
   const token = await alistLogin();
+  console.log('[Alist] 登录成功, token长度:', token.length);
+  
   const getResp = await fetch(`${ALIST_URL}/api/admin/storage/list?page=1&per_page=10`, {
     headers: { 'Authorization': token },
   });
@@ -63,10 +66,13 @@ async function updateAlistStorage(cookie, qrcodeToken) {
   if (getResult.code !== 200) {
     throw new Error('获取 Alist 存储列表失败: ' + getResult.message);
   }
+  console.log('[Alist] 存储列表数量:', getResult.data?.content?.length || 0);
+  
   const storage = getResult.data.content.find(s => s.driver === '115 Cloud' || s.mount_path === '/115');
   if (!storage) {
     throw new Error('未找到 115 网盘存储，请先在 Alist 中添加 115 Cloud 驱动');
   }
+  console.log('[Alist] 找到存储 ID=', storage.id, ', 挂载=', storage.mount_path, ', 当前cookie长度:', (storage.addition || '').length);
   
   let addition = {};
   try {
@@ -80,9 +86,11 @@ async function updateAlistStorage(cookie, qrcodeToken) {
     addition.qrcode_token = qrcodeToken;
     addition.cookie = ''; // Clear cookie when using qrcode_token
     addition.qrcode_source = addition.qrcode_source || 'wechatmini';
+    console.log('[Alist] 使用 qrcode_token 模式');
   } else if (cookie) {
     addition.cookie = cookie;
     addition.qrcode_token = ''; // Clear qrcode_token when using cookie
+    console.log('[Alist] 使用 cookie 模式, 新cookie前50字符:', cookie.substring(0, 50) + '...');
   }
   
   const updateData = {
@@ -93,18 +101,44 @@ async function updateAlistStorage(cookie, qrcodeToken) {
     webdav_policy: storage.webdav_policy || '302_redirect',
     web_proxy: storage.web_proxy || false,
     order: storage.order || 0,
-    status: storage.status || 'work',
+    status: 'work',
   };
   
+  console.log('[Alist] 开始更新存储, addition长度:', updateData.addition.length);
   const updateResp = await fetch(`${ALIST_URL}/api/admin/storage/update`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': token },
     body: JSON.stringify(updateData),
   });
   const updateResult = await updateResp.json();
+  console.log('[Alist] 更新结果:', JSON.stringify(updateResult));
   if (updateResult.code !== 200) {
     throw new Error('更新 Alist 存储配置失败: ' + updateResult.message);
   }
+  
+  // Wait for storage to reload and verify
+  console.log('[Alist] 等待存储重新加载...');
+  await new Promise(r => setTimeout(r, 3000));
+  
+  // Verify update
+  try {
+    const verifyResp = await fetch(`${ALIST_URL}/api/admin/storage/get?id=${storage.id}`, {
+      headers: { 'Authorization': token },
+    });
+    const verifyResult = await verifyResp.json();
+    if (verifyResult.code === 200) {
+      const verifyAddition = JSON.parse(verifyResult.data.addition || '{}');
+      console.log('[Alist] 验证更新: 新cookie长度=', verifyAddition.cookie ? verifyAddition.cookie.length : 0, ', status=', verifyResult.data.status);
+      if (cookie && verifyAddition.cookie === cookie) {
+        console.log('[Alist] ✅ Cookie 更新成功并验证通过');
+      } else if (cookie) {
+        console.log('[Alist] ⚠️ Cookie 可能未更新, 期望长度=', cookie.length, ', 实际长度=', verifyAddition.cookie ? verifyAddition.cookie.length : 0);
+      }
+    }
+  } catch (verifyErr) {
+    console.log('[Alist] 验证更新失败:', verifyErr.message);
+  }
+  
   return true;
 }
 
