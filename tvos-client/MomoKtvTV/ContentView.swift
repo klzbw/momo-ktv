@@ -49,6 +49,7 @@ struct ContentView: View {
     private let playerManager = PlayerManager.shared
     private let vlcManager = VLCPlayerManager.shared
     @State private var isUsingVLC = false
+    @State private var showDebugLog = false
     @StateObject private var previewLyrics = LyricsLoader()  // 首页小窗预览歌词
 
     enum PanelType { case search, queue, settings, eq }
@@ -1527,4 +1528,46 @@ struct VideoPreview: UIViewRepresentable {
 // 歌词快慢校准通知：遥控端 -> 全屏播放器
 extension Notification.Name {
     static let momoLyricsOffset = Notification.Name("momoLyricsOffset")
+}
+
+// MARK: - VLC调试日志覆盖层
+struct DebugLogOverlay: View {
+    let log: String
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("VLC调试日志 (长按队列按钮关闭)")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.white)
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(hex: 0x1a1a2e).opacity(0.95))
+
+            ScrollView {
+                Text(log)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.green)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+            }
+            .frame(maxHeight: 300)
+            .background(Color.black.opacity(0.9))
+        }
+        .cornerRadius(8)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.green.opacity(0.5), lineWidth: 1)
+        )
+        .padding(16)
+    }
 }
