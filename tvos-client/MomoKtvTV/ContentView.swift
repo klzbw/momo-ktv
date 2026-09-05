@@ -109,7 +109,6 @@ struct ContentView: View {
             default:
                 break
             }
-        }
         .onChange(of: showingPlayer) { isPresented in
             if isPresented {
                 // Entering fullscreen: record state, shared player keeps playing
