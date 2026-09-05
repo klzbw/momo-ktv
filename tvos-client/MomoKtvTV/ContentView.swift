@@ -405,11 +405,12 @@ struct ContentView: View {
                 if isUsingVLC {
                     VLCVideoView(vlcManager: vlcManager)
                         .id("preview-vlc-\(showingPlayer ? "fs" : "normal")")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     SharedVideoView(playerManager: playerManager)
                         .id("preview-\(showingPlayer ? "fs" : "normal")")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .onAppear {
                         playerManager.vocalTrackCount = playing.audio_tracks ?? 1
                         playerManager.setupPlayer(for: hlsURL)
