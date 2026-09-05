@@ -145,6 +145,63 @@ class CustomSchemeLoader: NSObject, AVAssetResourceLoaderDelegate, URLSessionDat
 
 /// Shared player manager - holds a single AVPlayer and AVPlayerLayer.
 /// The layer moves between small preview and fullscreen views via currentHostView.
+// MARK: - 轻量302重定向解析器
+/// 跟随重定向并在每跳保留自定义请求头(UA)，拿到最终URL后立即取消body下载，
+/// 仅用于定位115直连地址，不把整个MKV/FLAC拉回内存（替代会下载整文件的 dataTask）。
+private final class RedirectResolver: NSObject, URLSessionDataDelegate {
+    private var completion: ((URL) -> Void)?
+    private var session: URLSession?
+    private let headers: [String: String]
+    private var keepAlive: RedirectResolver?
+
+    init(headers: [String: String]) { self.headers = headers; super.init() }
+
+    func resolve(_ url: URL, completion: @escaping (URL) -> Void) {
+        keepAlive = self
+        self.completion = completion
+        var req = URLRequest(url: url)
+        for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.requestCachePolicy = .reloadIgnoringLocalCacheData
+        session = URLSession(configuration: cfg, delegate: self, delegateQueue: nil)
+        session?.dataTask(with: req).resume()
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask,
+                    didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        // 已到最终响应：取其URL作为直连地址，立即取消body下载（不下载整个文件）
+        let final = response.url ?? dataTask.originalRequest?.url
+        completionHandler(.cancel)
+        finish(with: final ?? dataTask.originalRequest?.url ?? URL(string: "about:blank")!)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        // 关键：重定向到115 CDN时重新带上自定义UA，避免403
+        var req = request
+        for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+        completionHandler(req)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let e = error as NSError?, e.code != NSURLErrorCancelled {
+            finish(with: task.originalRequest?.url ?? URL(string: "about:blank")!)
+        }
+    }
+
+    private func finish(with url: URL) {
+        guard let cb = completion else { return }
+        completion = nil
+        session?.invalidateAndCancel()
+        keepAlive = nil
+        DispatchQueue.main.async { cb(url) }
+    }
+}
+
+
 class PlayerManager: ObservableObject {
     static let shared = PlayerManager()
 
@@ -248,6 +305,27 @@ class PlayerManager: ObservableObject {
 
     private init() {}
 
+    /// 115网盘直连所需User-Agent（CDN校验UA，缺失返回403）
+    static let netKtvUA = "Mozilla/5.0 115Browser/23.9.3.2"
+
+    /// 构造播放用AVURLAsset。网络(http/https)URL先解析302最终地址并带115专用UA，
+    /// 避免AVURLAsset跟随重定向时丢失UA被CDN拒绝；本地file://保持原样，不影响本地播放。
+    private func directAsset(for url: URL) -> AVURLAsset {
+        let isNetwork = url.scheme == "http" || url.scheme == "https"
+        guard isNetwork else { return AVURLAsset(url: url) }
+        let headers = ["User-Agent": PlayerManager.netKtvUA]
+        let sem = DispatchSemaphore(value: 0)
+        var final = url
+        let resolver = RedirectResolver(headers: headers)
+        resolver.resolve(url) { resolved in
+            final = resolved
+            sem.signal()
+        }
+        _ = sem.wait(timeout: .now() + 10)
+        print("[PlayerManager] DUAL直连 \(url.lastPathComponent) -> \(final.absoluteString.prefix(60))")
+        return AVURLAsset(url: final, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+    }
+
     func setupPlayer(for url: URL) {
         setupPlayer(for: url, customHeaders: nil)
     }
@@ -274,24 +352,17 @@ class PlayerManager: ObservableObject {
             return
         }
 
-        // 有自定义请求头（如115网盘）：先用URLSession获取302重定向后的最终URL
-        // 然后用最终URL直接创建AVURLAsset（无重定向，UA不会丢失）
-        print("[PlayerManager] 获取302重定向最终URL: \(url.absoluteString.prefix(80))...")
-        var request = URLRequest(url: url)
-        for (key, value) in headers {
-            request.setValue(value, forHTTPHeaderField: key)
-        }
+        // 有自定义请求头（如115网盘）：先解析302重定向最终URL（每跳保留UA，且不下载整个body），
+        // 再用最终CDN地址直接创建AVURLAsset（无后续重定向，UA不会丢失）。
+        print("[PlayerManager] 解析302重定向最终URL: \(url.absoluteString.prefix(80))...")
         let gen = loadGeneration
-        URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
+        RedirectResolver(headers: headers).resolve(url) { [weak self] finalURL in
             guard let self = self, self.loadGeneration == gen else { return }
-            let finalURL = response?.url ?? url
-            print("[PlayerManager] 最终URL: \(finalURL.absoluteString.prefix(80))...")
-            DispatchQueue.main.async {
-                let asset = AVURLAsset(url: finalURL, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-                let playerItem = AVPlayerItem(asset: asset)
-                self.setupPlayerInternal(for: url, playerItem: playerItem)
-            }
-        }.resume()
+            print("[PlayerManager] 最终直连URL: \(finalURL.absoluteString.prefix(80))...")
+            let asset = AVURLAsset(url: finalURL, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+            let playerItem = AVPlayerItem(asset: asset)
+            self.setupPlayerInternal(for: url, playerItem: playerItem)
+        }
     }
 
     /// 内部播放方法：设置状态并起播
@@ -519,8 +590,8 @@ class PlayerManager: ObservableObject {
         let gen = loadGeneration + 1
         loadGeneration = gen
         DispatchQueue.global(qos: .userInitiated).async {
-            let vocalAsset = AVURLAsset(url: vocalFile)
-            let accompAsset = AVURLAsset(url: accompFile)
+            let vocalAsset = directAsset(for: vocalFile)
+            let accompAsset = directAsset(for: accompFile)
             guard let vTrack = vocalAsset.tracks(withMediaType: .audio).first,
                   let aTrack = accompAsset.tracks(withMediaType: .audio).first else {
                 print("[PlayerManager] DUAL 缺少音频轨，保留 HLS song=\(songId)"); return
