@@ -6,13 +6,14 @@ import TVVLCKit
 
 /// VLC播放器封装 - 用于播放MKV等AVFoundation不支持的格式
 /// 支持115网盘自定义UA、302直连、音轨切换（原唱/伴唱）
-class VLCPlayerManager: NSObject {
+class VLCPlayerManager: NSObject, ObservableObject {
     static let shared = VLCPlayerManager()
 
     // MARK: - 状态
-    private(set) var isPlaying = false
-    private(set) var currentTime: Double = 0
-    private(set) var duration: Double = 0
+    @Published private(set) var isPlaying = false
+    @Published private(set) var currentTime: Double = 0
+    @Published private(set) var duration: Double = 0
+    @Published var debugLog: String = ""  // 调试日志，实时显示在界面上
     private(set) var audioTrackNames: [String] = []
     private(set) var currentAudioTrackIndex: Int = 0
 
@@ -51,9 +52,25 @@ class VLCPlayerManager: NSObject {
         library = lib
         player = VLCMediaPlayer(library: lib)
         player?.delegate = self
-        print("[VLCPlayer] VLCLibrary初始化成功")
+        log("VLCLibrary初始化成功")
     }
     #endif
+
+    /// 记录调试日志（同时print和保存到debugLog供界面显示）
+    private func log(_ message: String) {
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        let line = "[\(timestamp)] \(message)"
+        print(line)
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.debugLog = line + "\n" + self.debugLog
+            // 最多保留50行
+            let lines = self.debugLog.components(separatedBy: "\n")
+            if lines.count > 50 {
+                self.debugLog = lines.prefix(50).joined(separator: "\n")
+            }
+        }
+    }
 
     // MARK: - 播放控制
 
@@ -79,17 +96,17 @@ class VLCPlayerManager: NSObject {
         player.play()
         isPlaying = true
         onStateChange?(true)
-        print("[VLCPlayer] ▶️ 开始播放: \(url.lastPathComponent)")
-        print("[VLCPlayer] media状态: \(media.state.rawValue), 时长: \(media.length.intValue)ms")
-        print("[VLCPlayer] player状态: \(player.state.rawValue)")
+        log("▶️ 开始播放: \(url.lastPathComponent)")
+        log("media状态: \(media.state.rawValue), 时长: \(media.length.intValue)ms")
+        log("player状态: \(player.state.rawValue)")
 
         startTimer()
         // 延迟2秒后再次检查状态（VLC异步加载）
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             guard let self = self, let p = self.player else { return }
-            print("[VLCPlayer] 2秒后状态: \(p.state.rawValue), time: \(p.time.intValue)ms, length: \(p.media?.length.intValue ?? 0)ms")
+            log("2秒后状态: \(p.state.rawValue), time: \(p.time.intValue)ms, length: \(p.media?.length.intValue ?? 0)ms")
             if let audioNames = p.audioTrackNames as? [String] {
-                print("[VLCPlayer] 音频轨道数: \(audioNames.count), 名称: \(audioNames)")
+                log("音频轨道数: \(audioNames.count), 名称: \(audioNames)")
             }
         }
         #else
@@ -142,7 +159,7 @@ class VLCPlayerManager: NSObject {
             audioTrackNames = ["原唱", "伴唱"]
         }
         currentAudioTrackIndex = Int(player.currentAudioTrackIndex)
-        print("[VLCPlayer] 音轨列表: \(audioTrackNames), 当前: \(currentAudioTrackIndex)")
+        log("音轨列表: \(audioTrackNames), 当前: \(currentAudioTrackIndex)")
         #endif
     }
 
@@ -151,7 +168,7 @@ class VLCPlayerManager: NSObject {
         guard let player = player else { return }
         player.currentAudioTrackIndex = Int32(index)
         currentAudioTrackIndex = index
-        print("[VLCPlayer] 切换音轨到: \(index)")
+        log("切换音轨到: \(index)")
         #endif
     }
 
@@ -192,7 +209,7 @@ class VLCPlayerManager: NSObject {
         // 每5秒打印一次调试信息
         if Int(current) % 5 == 0 && Int(current) != lastDebugSecond {
             lastDebugSecond = Int(current)
-            print("[VLCPlayer] 时间更新: current=\(currentMs)ms(\(current)s), total=\(totalMs)ms(\(total)s), state=\(player.state.rawValue)")
+            log("时间更新: current=\(currentMs)ms(\(current)s), total=\(totalMs)ms(\(total)s), state=\(player.state.rawValue)")
         }
         if current != currentTime || total != duration {
             currentTime = current
@@ -221,7 +238,7 @@ extension VLCPlayerManager: VLCMediaPlayerDelegate {
         guard let player = player else { return }
         let stateNames = ["Idle", "Opening", "Buffering", "Ended", "Error", "Playing", "Paused", "Stopped"]
         let stateName = player.state.rawValue < stateNames.count ? stateNames[Int(player.state.rawValue)] : "Unknown"
-        print("[VLCPlayer] 状态变化: \(player.state.rawValue)(\(stateName)), time=\(player.time.intValue)ms, length=\(player.media?.length.intValue ?? 0)ms")
+        log("状态变化: \(player.state.rawValue)(\(stateName)), time=\(player.time.intValue)ms, length=\(player.media?.length.intValue ?? 0)ms")
         // VLCMediaPlayerState: 0=Idle,1=Opening,2=Buffering,3=Ended,4=Error,5=Playing,6=Paused,7=Stopped
         switch player.state {
         case .playing:
