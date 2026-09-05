@@ -629,9 +629,10 @@ struct ContentView: View {
             guard let api = api else { return }
             switch action {
             case "play_pause":
-                playerManager.togglePlayPause()
-                isPlaying = playerManager.isPlaying
-                FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
+                if isUsingVLC {
+                    vlcManager.togglePlayPause()
+                    isPlaying = vlcManager.isPlaying
+                    FeedbackCenter.shared.show(vlcManager.isPlaying ? "开始播放" : "暂停播放",
                                            icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
             case "repeat":
                 playerManager.restart()
@@ -656,7 +657,7 @@ struct ContentView: View {
                     ?? Float(payload["delta"] as? Double ?? 0)
                 guard delta != 0 else { return }
                 volume = max(0, min(1, volume + delta))
-                playerManager.setVolume(volume)
+                if isUsingVLC { vlcManager.setVolume(volume) } else { playerManager.setVolume(volume) }
                 FeedbackCenter.shared.show("音量 \(Int(volume * 100))%",
                                            icon: delta > 0 ? "speaker.plus" : "speaker.minus")
             case "next":
@@ -870,14 +871,15 @@ struct ContentView: View {
             }
             MVButton(icon: "speaker.minus", title: "音量-") {
                 volume = max(0, volume - 0.1)
-                playerManager.setVolume(volume)
+                if isUsingVLC { vlcManager.setVolume(volume) } else { playerManager.setVolume(volume) }
                 showToast("音量: \(Int(volume * 100))%")
             }
-            MVButton(icon: playerManager.isPlaying ? "pause.fill" : "play.fill",
-                    title: playerManager.isPlaying ? "暂停" : "播放", isCenter: true) {
-                playerManager.togglePlayPause()
-                isPlaying = playerManager.isPlaying
-                FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
+            MVButton(icon: (isUsingVLC ? vlcManager.isPlaying : playerManager.isPlaying) ? "pause.fill" : "play.fill",
+                    title: (isUsingVLC ? vlcManager.isPlaying : playerManager.isPlaying) ? "暂停" : "播放", isCenter: true) {
+                if isUsingVLC {
+                    vlcManager.togglePlayPause()
+                    isPlaying = vlcManager.isPlaying
+                    FeedbackCenter.shared.show(vlcManager.isPlaying ? "开始播放" : "暂停播放",
                                            icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
                 // Sync playback state to server so mobile remote play/pause
                 // button icon stays in sync with the TV.
@@ -886,7 +888,7 @@ struct ContentView: View {
             }
             MVButton(icon: "speaker.plus", title: "音量+") {
                 volume = min(1, volume + 0.1)
-                playerManager.setVolume(volume)
+                if isUsingVLC { vlcManager.setVolume(volume) } else { playerManager.setVolume(volume) }
                 showToast("音量: \(Int(volume * 100))%")
             }
             MVButton(icon: "forward.end.fill", title: "切歌") { FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill"); advancePlayback() }
