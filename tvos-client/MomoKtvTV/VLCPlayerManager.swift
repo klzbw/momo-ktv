@@ -199,21 +199,69 @@ class VLCPlayerManager: NSObject, ObservableObject {
         #if canImport(TVVLCKit)
         guard let player = player else { return }
         let names = player.audioTrackNames as? [String] ?? []
-        audioTrackNames = names
-        if audioTrackNames.isEmpty {
-            audioTrackNames = ["原唱", "伴唱"]
+        // 过滤掉Disable，只保留实际音轨，并映射成中文名称
+        var mappedNames: [String] = []
+        for (i, name) in names.enumerated() {
+            if name.lowercased() == "disable" { continue }
+            if name.lowercased().contains("track 1") || name.lowercased().contains("track1") {
+                mappedNames.append("原唱")
+            } else if name.lowercased().contains("track 2") || name.lowercased().contains("track2") {
+                mappedNames.append("伴唱")
+            } else {
+                mappedNames.append(name)
+            }
         }
-        currentAudioTrackIndex = Int(player.currentAudioTrackIndex)
-        log("音轨列表: \(audioTrackNames), 当前: \(currentAudioTrackIndex)")
+        if mappedNames.isEmpty {
+            mappedNames = ["原唱", "伴唱"]
+        }
+        audioTrackNames = mappedNames
+        // 只在当前索引无效时才从player读取
+        let playerIndex = Int(player.currentAudioTrackIndex)
+        if currentAudioTrackIndex < 0 || currentAudioTrackIndex >= mappedNames.count {
+            // VLC的索引可能包含Disable(-1)，需要转换
+            if playerIndex >= 0 && playerIndex < names.count {
+                // 计算在过滤后的列表中的索引
+                var filteredIndex = 0
+                for i in 0...playerIndex {
+                    if i < names.count && names[i].lowercased() != "disable" {
+                        if i == playerIndex { break }
+                        filteredIndex += 1
+                    }
+                }
+                currentAudioTrackIndex = filteredIndex
+            } else {
+                currentAudioTrackIndex = 0
+            }
+        }
+        log("音轨列表: \(audioTrackNames), 当前: \(currentAudioTrackIndex), player原始索引: \(playerIndex)")
         #endif
     }
 
     func setAudioTrack(index: Int) {
         #if canImport(TVVLCKit)
         guard let player = player else { return }
-        player.currentAudioTrackIndex = Int32(index)
+        // 获取VLC原始音轨列表，转换为实际索引（跳过Disable）
+        let rawNames = player.audioTrackNames as? [String] ?? []
+        var vlcIndex = 0
+        var found = false
+        var filteredCount = 0
+        for (i, name) in rawNames.enumerated() {
+            if name.lowercased() == "disable" { continue }
+            if filteredCount == index {
+                vlcIndex = i
+                found = true
+                break
+            }
+            filteredCount += 1
+        }
+        if found {
+            player.currentAudioTrackIndex = Int32(vlcIndex)
+            log("切换音轨: 映射索引\(index) -> VLC索引\(vlcIndex), \(rawNames[vlcIndex])")
+        } else {
+            player.currentAudioTrackIndex = Int32(index)
+            log("切换音轨到: \(index)（未找到映射，直接设置）")
+        }
         currentAudioTrackIndex = index
-        log("切换音轨到: \(index)")
         #endif
     }
 
@@ -221,10 +269,11 @@ class VLCPlayerManager: NSObject, ObservableObject {
     func toggleVoice() {
         #if canImport(TVVLCKit)
         guard let player = player else { return }
-        refreshAudioTracks()
-        let nextIndex = (currentAudioTrackIndex + 1) % max(audioTrackNames.count, 1)
+        // 不调用refreshAudioTracks，避免重置currentAudioTrackIndex
+        let count = max(audioTrackNames.count, 1)
+        let nextIndex = (currentAudioTrackIndex + 1) % count
+        log("toggleVoice: 当前\(currentAudioTrackIndex) -> 下一个\(nextIndex), 轨道数:\(count)")
         setAudioTrack(index: nextIndex)
-        log("toggleVoice: 当前\(currentAudioTrackIndex) -> 下一个\(nextIndex), 轨道数:\(audioTrackNames.count)")
         #endif
     }
 
@@ -251,6 +300,18 @@ class VLCPlayerManager: NSObject, ObservableObject {
         } else {
             log("addDrawable: VLC未初始化，已保存视图，play()时统一注册")
         }
+        #endif
+    }
+
+    /// 重新设置所有已注册的drawable（用于视频输出恢复）
+    func refreshDrawables() {
+        #if canImport(TVVLCKit)
+        guard let p = player else { return }
+        let views = drawableViews.allObjects
+        for view in views {
+            p.drawable = view
+        }
+        log("refreshDrawables: 重新设置\(views.count)个视频输出视图")
         #endif
     }
 
