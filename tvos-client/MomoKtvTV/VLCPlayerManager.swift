@@ -119,7 +119,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
             guard let self = self, let p = self.player else { return }
             log("2秒后状态: \(p.state.rawValue), time: \(p.time.intValue)ms, length: \(p.media?.length.intValue ?? 0)ms")
             log("2秒后 可播放: \(p.isSeekable), 可暂停: \(p.canPause)")
-            log("2秒后 视频轨道: \(p.videoTrackNames?.count ?? 0), 音频轨道: \(p.audioTrackNames?.count ?? 0)")
+            log("2秒后 视频轨道: \(p.videoTrackNames.count), 音频轨道: \(p.audioTrackNames?.count ?? 0)")
             if let audioNames = p.audioTrackNames as? [String] {
                 log("音频轨道数: \(audioNames.count), 名称: \(audioNames)")
             }
@@ -271,7 +271,7 @@ extension VLCPlayerManager: VLCMediaPlayerDelegate {
             onStateChange?(false)
         case .error:
             log("❌ VLC错误! media状态: \(player.media?.state.rawValue ?? -1), media时长: \(player.media?.length.intValue ?? 0)ms")
-            log("❌ 可播放: \(player.isSeekable), 可暂停: \(player.canPause), 视频轨道数: \(player.videoTrackNames?.count ?? 0)")
+            log("❌ 可播放: \(player.isSeekable), 可暂停: \(player.canPause), 视频轨道数: \(player.videoTrackNames.count)")
             if let media = player.media {
                 log("❌ media URL: \(media.url?.absoluteString ?? "nil")")
                 log("❌ media 类型: \(media.mediaType.rawValue)")
