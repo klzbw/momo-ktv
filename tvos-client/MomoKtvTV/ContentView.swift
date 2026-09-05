@@ -641,7 +641,11 @@ struct ContentView: View {
                                            icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
                 }
             case "repeat":
-                playerManager.restart()
+                if isUsingVLC {
+                    vlcManager.restart()
+                } else {
+                    playerManager.restart()
+                }
                 api.restartSong()
                 FeedbackCenter.shared.show("重新演唱", icon: "gobackward")
             case "voice":
@@ -905,7 +909,11 @@ struct ContentView: View {
             }
             MVButton(icon: "forward.end.fill", title: "切歌") { FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill"); advancePlayback() }
             MVButton(icon: "gobackward", title: "重唱") {
-                playerManager.restart()
+                if isUsingVLC {
+                    vlcManager.restart()
+                } else {
+                    playerManager.restart()
+                }
                 api.restartSong()
                 FeedbackCenter.shared.show("重新演唱", icon: "gobackward")
             }
