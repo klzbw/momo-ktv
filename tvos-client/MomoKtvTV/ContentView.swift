@@ -926,12 +926,15 @@ struct ContentView: View {
                             .font(.system(size: 28, weight: .bold))
                             .foregroundColor(focused ? Color(hex: 0x1a1a2e) : .white)
                             .lineLimit(1)
-                        Label(item.mediaTypeLabel, systemImage: item.mediaTypeIcon)
-                            .font(.system(size: 14, weight: .medium))
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(item.isVideoFile ? Color(hex: 0x0288d1).opacity(0.25) : Color(hex: 0x2e7d32).opacity(0.25))
-                            .foregroundColor(item.isVideoFile ? Color(hex: 0x4fc3f7) : Color(hex: 0x81c784))
-                            .cornerRadius(4)
+                            .layoutPriority(1)
+                        if item.isNetworkSong {
+                            Label(item.isVideoFile ? "云视频" : "云音频", systemImage: item.isVideoFile ? "film" : "music.note")
+                                .font(.system(size: 13, weight: .medium))
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(item.isVideoFile ? Color(hex: 0x0288d1).opacity(0.25) : Color(hex: 0x2e7d32).opacity(0.25))
+                                .foregroundColor(item.isVideoFile ? Color(hex: 0x4fc3f7) : Color(hex: 0x81c784))
+                                .cornerRadius(4)
+                        }
                     }
                     Text(item.displayArtist)
                         .font(.system(size: 20, weight: .medium))
@@ -1424,12 +1427,14 @@ struct OrderSongsPage: View {
                                     .font(.system(size: 32, weight: .semibold))
                                     .foregroundColor(.white)
                                     .lineLimit(1)
-                                Label(song.mediaTypeLabel, systemImage: song.mediaTypeIcon)
-                                    .font(.system(size: 16, weight: .medium))
-                                    .padding(.horizontal, 8).padding(.vertical, 3)
-                                    .background(song.isVideoFile ? Color(hex: 0x0288d1).opacity(0.25) : Color(hex: 0x2e7d32).opacity(0.25))
-                                    .foregroundColor(song.isVideoFile ? Color(hex: 0x4fc3f7) : Color(hex: 0x81c784))
-                                    .cornerRadius(6)
+                                if song.isNetworkSong {
+                                    Label(song.isVideoFile ? "云视频" : "云音频", systemImage: song.isVideoFile ? "film" : "music.note")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(song.isVideoFile ? Color(hex: 0x0288d1).opacity(0.25) : Color(hex: 0x2e7d32).opacity(0.25))
+                                        .foregroundColor(song.isVideoFile ? Color(hex: 0x4fc3f7) : Color(hex: 0x81c784))
+                                        .cornerRadius(5)
+                                }
                             }
                             Text(song.displayArtist)
                                 .font(.system(size: 24))
