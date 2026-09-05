@@ -1,7 +1,7 @@
 import UIKit
 import AVFoundation
-#if canImport(MobileVLCKit)
-import MobileVLCKit
+#if canImport(TVVLCKit)
+import TVVLCKit
 #endif
 
 /// VLC播放器封装 - 用于播放MKV等AVFoundation不支持的格式
@@ -21,7 +21,7 @@ class VLCPlayerManager: NSObject {
     var onError: ((String) -> Void)?
 
     // MARK: - VLC实例
-    #if canImport(MobileVLCKit)
+    #if canImport(TVVLCKit)
     private var library: VLCLibrary?
     private var player: VLCMediaPlayer?
     private var media: VLCMedia?
@@ -31,12 +31,12 @@ class VLCPlayerManager: NSObject {
 
     private override init() {
         super.init()
-        #if canImport(MobileVLCKit)
+        #if canImport(TVVLCKit)
         setupLibrary()
         #endif
     }
 
-    #if canImport(MobileVLCKit)
+    #if canImport(TVVLCKit)
     private func setupLibrary() {
         // 115网盘需要特定UA，否则CDN返回403
         // --no-video-title-show 隐藏VLC默认标题显示
@@ -56,7 +56,7 @@ class VLCPlayerManager: NSObject {
 
     /// 播放URL（支持115网盘302直连，VLC自动跟随重定向并保留UA）
     func play(url: URL) {
-        #if canImport(MobileVLCKit)
+        #if canImport(TVVLCKit)
         guard let player = player else {
             onError?("VLC播放器未初始化")
             return
@@ -84,7 +84,7 @@ class VLCPlayerManager: NSObject {
     }
 
     func pause() {
-        #if canImport(MobileVLCKit)
+        #if canImport(TVVLCKit)
         player?.pause()
         isPlaying = false
         onStateChange?(false)
@@ -92,7 +92,7 @@ class VLCPlayerManager: NSObject {
     }
 
     func resume() {
-        #if canImport(MobileVLCKit)
+        #if canImport(TVVLCKit)
         player?.play()
         isPlaying = true
         onStateChange?(true)
@@ -100,7 +100,7 @@ class VLCPlayerManager: NSObject {
     }
 
     func stop() {
-        #if canImport(MobileVLCKit)
+        #if canImport(TVVLCKit)
         player?.stop()
         isPlaying = false
         onStateChange?(false)
@@ -109,7 +109,7 @@ class VLCPlayerManager: NSObject {
     }
 
     func seek(to seconds: Double) {
-        #if canImport(MobileVLCKit)
+        #if canImport(TVVLCKit)
         guard let player = player else { return }
         player.time = VLCTime(int: Int32(seconds * 1000))
         currentTime = seconds
@@ -119,7 +119,7 @@ class VLCPlayerManager: NSObject {
     // MARK: - 音轨切换（原唱/伴唱）
 
     func refreshAudioTracks() {
-        #if canImport(MobileVLCKit)
+        #if canImport(TVVLCKit)
         guard let player = player, let media = player.media else { return }
         let tracks = media.trackInformation(of: .audio)
         audioTrackNames = tracks.compactMap { $0["name"] as? String }
@@ -132,7 +132,7 @@ class VLCPlayerManager: NSObject {
     }
 
     func setAudioTrack(index: Int) {
-        #if canImport(MobileVLCKit)
+        #if canImport(TVVLCKit)
         guard let player = player else { return }
         player.currentAudioTrackIndex = Int32(index)
         currentAudioTrackIndex = index
@@ -144,7 +144,7 @@ class VLCPlayerManager: NSObject {
 
     func addDrawable(_ view: UIView) {
         drawableViews.add(view)
-        #if canImport(MobileVLCKit)
+        #if canImport(TVVLCKit)
         player?.drawable = view
         #endif
     }
@@ -168,7 +168,7 @@ class VLCPlayerManager: NSObject {
     }
 
     private func updateTime() {
-        #if canImport(MobileVLCKit)
+        #if canImport(TVVLCKit)
         guard let player = player else { return }
         let current = Double(player.time.intValue) / 1000.0
         let total = Double(player.media?.length.intValue ?? 0) / 1000.0
@@ -182,7 +182,7 @@ class VLCPlayerManager: NSObject {
 
     private func cleanup() {
         stopTimer()
-        #if canImport(MobileVLCKit)
+        #if canImport(TVVLCKit)
         player?.stop()
         media = nil
         #endif
@@ -193,7 +193,7 @@ class VLCPlayerManager: NSObject {
     }
 }
 
-#if canImport(MobileVLCKit)
+#if canImport(TVVLCKit)
 extension VLCPlayerManager: VLCMediaPlayerDelegate {
     func mediaPlayerStateChanged(_ aNotification: Notification) {
         guard let player = player else { return }
