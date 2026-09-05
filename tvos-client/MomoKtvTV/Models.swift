@@ -128,6 +128,12 @@ struct QueueItem: Codable, Identifiable, Hashable {
 
     var isTop: Bool { (is_top ?? 0) == 1 }
 
+
+    /// 媒体类型标签：视频歌曲显示"MKV"，音频歌曲显示"FLAC"
+    var mediaTypeLabel: String { isVideoFile ? "MKV" : "FLAC" }
+    /// 媒体类型图标：视频用 film，音频用 music.note
+    var mediaTypeIcon: String { isVideoFile ? "film" : "music.note" }
+
     var hasMultiTrack: Bool { (audio_tracks ?? 1) >= 2 }
 
     /// 是否视频歌曲（MKV/MP4 等）。服务端 media_type 历史数据大量为空，用扩展名兜底；
