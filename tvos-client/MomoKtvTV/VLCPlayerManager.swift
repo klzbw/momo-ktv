@@ -46,9 +46,14 @@ class VLCPlayerManager: NSObject {
             "--network-caching=1000",
             "--file-caching=1000"
         ]
-        library = VLCLibrary(options: options)
-        player = VLCMediaPlayer(library: library)
-        player?.delegate = self
+        if let lib = VLCLibrary(options: options) {
+            library = lib
+            player = VLCMediaPlayer(library: lib)
+            player?.delegate = self
+            print("[VLCPlayer] VLCLibrary初始化成功")
+        } else {
+            print("[VLCPlayer] ❌ VLCLibrary初始化失败")
+        }
     }
     #endif
 
@@ -120,11 +125,12 @@ class VLCPlayerManager: NSObject {
 
     func refreshAudioTracks() {
         #if canImport(TVVLCKit)
-        guard let player = player, let media = player.media else { return }
-        let tracks = media.trackInformation(of: .audio)
-        audioTrackNames = tracks.compactMap { $0["name"] as? String }
+        guard let player = player else { return }
+        if let names = player.audioTrackNames as? [String] {
+            audioTrackNames = names
+        }
         if audioTrackNames.isEmpty {
-            audioTrackNames = tracks.enumerated().map { "音轨\($0.offset + 1)" }
+            audioTrackNames = ["原唱", "伴唱"]
         }
         currentAudioTrackIndex = Int(player.currentAudioTrackIndex)
         print("[VLCPlayer] 音轨列表: \(audioTrackNames), 当前: \(currentAudioTrackIndex)")
