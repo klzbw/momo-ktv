@@ -28,11 +28,12 @@ function init(db) {
   // 挂载到模块导出，供 netktv-test / netktv-scan 等外部模块访问
   
 
-// ==================== Alist 115 扫码登录 ====================
+// ==================== Alist 115 扫码登录（参考 alist 官方文档） ====================
 
 const ALIST_URL = process.env.ALIST_URL || 'http://localhost:5235';
 const ALIST_USER = process.env.ALIST_USER || 'admin';
 const ALIST_PASS = process.env.ALIST_PASS || 'Dd112233';
+const QRCODE_UA = 'Mozilla/5.0 115Browser/23.9.3.2';
 
 async function alistLogin() {
   const loginData = JSON.stringify({ username: ALIST_USER, password: ALIST_PASS });
@@ -48,9 +49,8 @@ async function alistLogin() {
   throw new Error('Alist 登录失败: ' + (result.message || '未知错误'));
 }
 
-async function updateAlistStorage(cookie) {
+async function updateAlistStorage(cookie, qrcodeToken) {
   const token = await alistLogin();
-  // Get current storage config
   const getResp = await fetch(`${ALIST_URL}/api/admin/storage/list?page=1&per_page=10`, {
     headers: { 'Authorization': token },
   });
@@ -60,17 +60,25 @@ async function updateAlistStorage(cookie) {
   }
   const storage = getResult.data.content.find(s => s.driver === '115 Cloud' || s.mount_path === '/115');
   if (!storage) {
-    throw new Error('未找到 115 网盘存储');
+    throw new Error('未找到 115 网盘存储，请先在 Alist 中添加 115 Cloud 驱动');
   }
   
-  // Update addition with new cookie
   let addition = {};
   try {
     addition = JSON.parse(storage.addition || '{}');
   } catch (e) {
     addition = {};
   }
-  addition.cookie = cookie;
+  
+  // Priority: qrcode_token > cookie
+  if (qrcodeToken) {
+    addition.qrcode_token = qrcodeToken;
+    addition.cookie = ''; // Clear cookie when using qrcode_token
+    addition.qrcode_source = addition.qrcode_source || 'wechatmini';
+  } else if (cookie) {
+    addition.cookie = cookie;
+    addition.qrcode_token = ''; // Clear qrcode_token when using cookie
+  }
   
   const updateData = {
     id: storage.id,
@@ -97,29 +105,27 @@ async function updateAlistStorage(cookie) {
 
 /**
  * GET /api/cloud/alist/qrcode
- * 获取 115 扫码登录二维码
+ * 获取 115 扫码登录二维码（参考 alist 官方文档）
+ * Step 1: GET https://qrcodeapi.115.com/api/1.0/web/1.0/token/
+ * Step 2: 显示二维码图片 https://qrcodeapi.115.com/api/1.0/mac/1.0/qrcode?uid=<uid>
  */
 router.get('/alist/qrcode', requireManager, async (req, res) => {
   try {
-    // Get qrcode token first
     const tokenResp = await fetch('https://qrcodeapi.115.com/api/1.0/web/1.0/token/', {
-      headers: { 'User-Agent': 'Mozilla/5.0 115Browser/23.9.3.2' },
+      headers: { 'User-Agent': QRCODE_UA },
     });
     const tokenResult = await tokenResp.json();
     if (!tokenResult.data || !tokenResult.data.uid) {
       return res.status(500).json({ error: '获取二维码 token 失败', detail: tokenResult });
     }
-    const uid = tokenResult.data.uid;
-    const time = tokenResult.data.time;
-    const sign = tokenResult.data.sign;
+    const { uid, time, sign } = tokenResult.data;
     
-    // Return qrcode info (frontend will display qrcode image)
     res.json({
       uid,
       time,
       sign,
       qrcode_url: `https://qrcodeapi.115.com/api/1.0/mac/1.0/qrcode?uid=${uid}`,
-      message: '请使用 115 手机 App 扫描二维码登录',
+      message: '请使用 115 手机 App 扫描二维码，选择不常用设备（如 wechatmini）登录',
     });
   } catch (err) {
     console.error('[Alist] 获取二维码失败:', err.message);
@@ -128,44 +134,77 @@ router.get('/alist/qrcode', requireManager, async (req, res) => {
 });
 
 /**
- * GET /api/cloud/alist/qrcode/status?uid=xxx&time=xxx&sign=xxx
+ * GET /api/cloud/alist/qrcode/status?uid=xxx&time=xxx&sign=xxx&app=wechatmini
  * 轮询 115 扫码登录状态
+ * Step 3: GET https://qrcodeapi.115.com/get/status/?uid=<uid>&time=<time>&sign=<sign>
+ * Step 4 (status=2): POST https://passportapi.115.com/app/1.0/{app}/1.0/login/qrcode/ 获取 cookie
  */
 router.get('/alist/qrcode/status', requireManager, async (req, res) => {
   try {
-    const { uid, time, sign } = req.query;
+    const { uid, time, sign, app = 'wechatmini' } = req.query;
     if (!uid) {
       return res.status(400).json({ error: '缺少 uid 参数' });
     }
     
     const statusResp = await fetch(`https://qrcodeapi.115.com/get/status/?uid=${uid}&time=${time}&sign=${sign}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 115Browser/23.9.3.2' },
+      headers: { 'User-Agent': QRCODE_UA },
     });
     const statusResult = await statusResp.json();
+    const status = statusResult.data?.status ?? 0;
     
-    // Status: 0=等待扫码, 1=已扫码未确认, 2=已确认登录成功, -1=二维码过期
-    const status = statusResult.data?.status || 0;
     const statusMsg = {
       0: '等待扫码',
       1: '已扫码，请在手机上确认',
       2: '登录成功',
       '-1': '二维码已过期',
+      '-2': '已取消',
     };
     
-    if (status === 2 && statusResult.data?.cookie) {
-      // Login success, update alist storage
+    if (status === 2) {
+      // Step 4: Call passportapi to get cookie
       try {
-        await updateAlistStorage(statusResult.data.cookie);
-        return res.json({
-          status: 2,
-          message: '登录成功，已配置到 Alist',
-          cookie: statusResult.data.cookie.substring(0, 30) + '...',
+        const loginResp = await fetch(`https://passportapi.115.com/app/1.0/${app}/1.0/login/qrcode/`, {
+          method: 'POST',
+          headers: { 
+            'User-Agent': QRCODE_UA,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: `app=${app}&account=${uid}`,
         });
-      } catch (updateErr) {
+        const loginResult = await loginResp.json();
+        
+        if (loginResult.state === true && loginResult.data?.cookie) {
+          const cookieObj = loginResult.data.cookie;
+          const cookieStr = Object.entries(cookieObj).map(([k, v]) => `${k}=${v}`).join('; ');
+          
+          // Update alist storage with cookie
+          try {
+            await updateAlistStorage(cookieStr, null);
+            return res.json({
+              status: 2,
+              message: '登录成功，已自动配置到 Alist',
+              cookie_preview: cookieStr.substring(0, 50) + '...',
+              app,
+            });
+          } catch (updateErr) {
+            return res.json({
+              status: 2,
+              message: '登录成功，但配置到 Alist 失败: ' + updateErr.message,
+              cookie: cookieStr,
+              app,
+            });
+          }
+        } else {
+          return res.json({
+            status: 2,
+            message: '扫码确认成功，但获取 cookie 失败: ' + (loginResult.error || JSON.stringify(loginResult)),
+            raw: loginResult,
+          });
+        }
+      } catch (loginErr) {
         return res.json({
           status: 2,
-          message: '登录成功，但配置到 Alist 失败: ' + updateErr.message,
-          cookie: statusResult.data.cookie,
+          message: '扫码确认成功，但调用登录接口失败: ' + loginErr.message,
         });
       }
     }
@@ -173,7 +212,6 @@ router.get('/alist/qrcode/status', requireManager, async (req, res) => {
     res.json({
       status,
       message: statusMsg[status] || '未知状态',
-      raw: statusResult.data,
     });
   } catch (err) {
     console.error('[Alist] 轮询登录状态失败:', err.message);
@@ -182,138 +220,288 @@ router.get('/alist/qrcode/status', requireManager, async (req, res) => {
 });
 
 
-module.exports.scanner = scanner;
-  
 
-// ==================== Alist 115 扫码登录 ====================
-
-
-async function alistLogin() {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: loginData,
-  });
-  if (result.code === 200 && result.data?.token) {
-    return result.data.token;
+function requireManager(req, res, next) {
+  if (!manager) {
+    return res.status(500).json({ error: 'CloudDrive module not initialized' });
   }
-  throw new Error('Alist 登录失败: ' + (result.message || '未知错误'));
+  req.manager = manager;
+  req.scanner = scanner;
+  req.streamer = streamer;
+  next();
 }
 
-async function updateAlistStorage(cookie) {
-  // Get current storage config
-    headers: { 'Authorization': token },
-  });
-  if (getResult.code !== 200) {
-    throw new Error('获取 Alist 存储列表失败: ' + getResult.message);
-  }
-  if (!storage) {
-    throw new Error('未找到 115 网盘存储');
-  }
-  
-  // Update addition with new cookie
-  let addition = {};
+// ==================== 驱动信息 ====================
+
+/**
+ * GET /api/cloud/drivers
+ * 列出支持的网盘驱动
+ */
+router.get('/drivers', requireManager, (req, res) => {
+  res.json({ drivers: manager.getSupportedDrivers() });
+});
+
+// ==================== 网盘账号管理 ====================
+
+/**
+ * GET /api/cloud/accounts
+ * 列出所有网盘账号
+ */
+router.get('/accounts', requireManager, (req, res) => {
+  const accounts = manager.listAccounts().map((a) => ({
+    ...a,
+    access_token: undefined, // 不返回 token
+    refresh_token: undefined,
+    user_info: a.user_info ? JSON.parse(a.user_info) : null,
+  }));
+  res.json({ accounts });
+});
+
+/**
+ * POST /api/cloud/accounts
+ * 开始扫码登录（返回二维码）
+ * Body: { driver, name? }
+ */
+router.post('/accounts', requireManager, async (req, res) => {
   try {
-    addition = JSON.parse(storage.addition || '{}');
+    const { driver, name } = req.body;
+    if (!driver) {
+      return res.status(400).json({ error: 'driver is required' });
+    }
+    const result = await manager.startQRLogin(driver, name);
+    res.json(result);
   } catch (e) {
-    addition = {};
-  }
-  addition.cookie = cookie;
-  
-    id: storage.id,
-    mount_path: storage.mount_path,
-    driver: storage.driver,
-    addition: JSON.stringify(addition),
-    webdav_policy: storage.webdav_policy || '302_redirect',
-    web_proxy: storage.web_proxy || false,
-    order: storage.order || 0,
-    status: storage.status || 'work',
-  };
-  
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': token },
-    body: JSON.stringify(updateData),
-  });
-  if (updateResult.code !== 200) {
-    throw new Error('更新 Alist 存储配置失败: ' + updateResult.message);
-  }
-  return true;
-}
-
-/**
- * GET /api/cloud/alist/qrcode
- * 获取 115 扫码登录二维码
- */
-router.get('/alist/qrcode', requireManager, async (req, res) => {
-  try {
-    // Get qrcode token first
-      headers: { 'User-Agent': 'Mozilla/5.0 115Browser/23.9.3.2' },
-    });
-    if (!tokenResult.data || !tokenResult.data.uid) {
-      return res.status(500).json({ error: '获取二维码 token 失败', detail: tokenResult });
-    }
-    
-    // Return qrcode info (frontend will display qrcode image)
-    res.json({
-      uid,
-      time,
-      sign,
-      qrcode_url: `https://qrcodeapi.115.com/api/1.0/mac/1.0/qrcode?uid=${uid}`,
-      message: '请使用 115 手机 App 扫描二维码登录',
-    });
-  } catch (err) {
-    console.error('[Alist] 获取二维码失败:', err.message);
-    res.status(500).json({ error: '获取二维码失败', detail: err.message });
+    console.error('开始扫码登录失败:', e);
+    res.status(500).json({ error: e.message });
   }
 });
 
 /**
- * GET /api/cloud/alist/qrcode/status?uid=xxx&time=xxx&sign=xxx
- * 轮询 115 扫码登录状态
+ * POST /api/cloud/accounts/cookie
+ * 使用 Cookie 创建账号
+ * Body: { driver, name, cookie }
  */
-router.get('/alist/qrcode/status', requireManager, async (req, res) => {
+router.post('/accounts/cookie', requireManager, (req, res) => {
   try {
-    if (!uid) {
-      return res.status(400).json({ error: '缺少 uid 参数' });
+    const { driver, name, cookie } = req.body;
+    if (!driver || !cookie) {
+      return res.status(400).json({ error: 'driver and cookie are required' });
     }
-    
-      headers: { 'User-Agent': 'Mozilla/5.0 115Browser/23.9.3.2' },
-    });
-    
-    // Status: 0=等待扫码, 1=已扫码未确认, 2=已确认登录成功, -1=二维码过期
-      0: '等待扫码',
-      1: '已扫码，请在手机上确认',
-      2: '登录成功',
-      '-1': '二维码已过期',
-    };
-    
-    if (status === 2 && statusResult.data?.cookie) {
-      // Login success, update alist storage
-      try {
-        await updateAlistStorage(statusResult.data.cookie);
-        return res.json({
-          status: 2,
-          message: '登录成功，已配置到 Alist',
-          cookie: statusResult.data.cookie.substring(0, 30) + '...',
-        });
-      } catch (updateErr) {
-        return res.json({
-          status: 2,
-          message: '登录成功，但配置到 Alist 失败: ' + updateErr.message,
-          cookie: statusResult.data.cookie,
-        });
-      }
-    }
-    
-    res.json({
-      status,
-      message: statusMsg[status] || '未知状态',
-      raw: statusResult.data,
-    });
-  } catch (err) {
-    console.error('[Alist] 轮询登录状态失败:', err.message);
-    res.status(500).json({ error: '轮询登录状态失败', detail: err.message });
+    const account = manager.createAccountWithCookie(driver, name || '我的网盘', cookie);
+    res.json({ ok: true, account: {
+      id: account.id,
+      driver: account.driver,
+      name: account.name,
+      status: account.status,
+    }});
+  } catch (e) {
+    console.error('Cookie 登录失败:', e);
+    res.status(500).json({ error: e.message });
   }
 });
+
+/**
+ * GET /api/cloud/accounts/:id/qrcode?qrId=xxx (已禁用)
+ * 查询扫码状态
+ */
+router.get('/accounts/:id/qrcode', requireManager, async (req, res) => {
+  try {
+    const { qrId } = req.query;
+    if (!qrId) {
+      return res.status(400).json({ error: 'qrId is required' });
+    }
+    const result = await manager.checkQRLogin(qrId);
+    res.json(result);
+  } catch (e) {
+    console.error('查询扫码状态失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * DELETE /api/cloud/accounts/:id
+ * 删除网盘账号
+ */
+router.delete('/accounts/:id', requireManager, (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    manager.deleteAccount(id);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('删除网盘账号失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/cloud/accounts/:id/test
+ * 测试网盘账号连接是否正常
+ */
+router.post('/accounts/:id/test', requireManager, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const account = manager.getAccount(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+    const driver = manager.getDriver(account);
+    const result = await driver.testConnection();
+    if (result.success) {
+      manager.updateAccount(id, { status: 'active' });
+      res.json({ success: true });
+    } else {
+      manager.updateAccount(id, { status: 'error' });
+      res.json({ success: false, error: result.error || '连接失败' });
+    }
+  } catch (e) {
+    console.error('测试连接失败:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+/**
+ * POST /api/cloud/accounts/:id/refresh
+ * 手动刷新 token
+ */
+router.post('/accounts/:id/refresh', requireManager, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const account = manager.getAccount(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+    const driver = manager.getDriver(account);
+    const tokens = await driver.refreshToken();
+    manager.updateAccount(id, {
+      access_token: tokens.accessToken,
+      refresh_token: tokens.refreshToken,
+      token_expires_at: tokens.expiresAt.toISOString(),
+    });
+    res.json({ ok: true, expiresAt: tokens.expiresAt });
+  } catch (e) {
+    console.error('刷新token失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ==================== 网盘文件浏览 ====================
+
+/**
+ * GET /api/cloud/accounts/:id/browse?path=/KTV/华语
+ * 浏览网盘目录
+ */
+router.get('/accounts/:id/browse', requireManager, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const remotePath = req.query.path || '/';
+    const driver = manager.getDriverById(id);
+    const files = await driver.listFiles(remotePath);
+    res.json({ path: remotePath, files });
+  } catch (e) {
+    console.error('浏览网盘目录失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/cloud/accounts/:id/userinfo
+ * 获取用户信息
+ */
+router.get('/accounts/:id/userinfo', requireManager, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const driver = manager.getDriverById(id);
+    const userInfo = await driver.getUserInfo();
+    res.json(userInfo);
+  } catch (e) {
+    console.error('获取用户信息失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==================== 网盘曲库管理 ====================
+
+/**
+ * GET /api/cloud/libraries
+ * 列出所有网盘曲库
+ */
+router.get('/libraries', requireManager, (req, res) => {
+  const libraries = manager.listLibraries();
+  res.json({ libraries });
+});
+
+/**
+ * POST /api/cloud/libraries
+ * 添加网盘曲库
+ * Body: { account_id, mount_path, local_name }
+ */
+router.post('/libraries', requireManager, (req, res) => {
+  try {
+    const { account_id, mount_path, local_name } = req.body;
+    if (!account_id || !mount_path || !local_name) {
+      return res.status(400).json({ error: 'account_id, mount_path, local_name are required' });
+    }
+    const id = manager.addLibrary(account_id, mount_path, local_name);
+    res.json({ ok: true, id });
+  } catch (e) {
+    console.error('添加网盘曲库失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * DELETE /api/cloud/libraries/:id
+ * 删除网盘曲库
+ */
+router.delete('/libraries/:id', requireManager, (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    manager.deleteLibrary(id);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('删除网盘曲库失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/cloud/libraries/:id/scan
+ * 触发扫描（异步，扫描状态通过 GET /libraries 查询）
+ */
+router.post('/libraries/:id/scan', requireManager, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    // 异步执行扫描
+    req.scanner.scanLibrary(id).then((result) => {
+      console.log('网盘扫描完成:', result);
+    }).catch((e) => console.error('扫描失败:', e));
+    res.json({ ok: true, message: '扫描已开始' });
+  } catch (e) {
+    console.error('触发扫描失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/cloud/stream/:file_id
+ * 网盘串流代理（支持 Range 请求）
+ */
+router.get('/stream/:file_id', requireManager, (req, res) => {
+  req.streamer.handleStream(req, res);
+});
+
+/**
+ * GET /api/cloud/stream-path/:accountId/*
+ * 通过文件路径获取网盘直链（302 重定向）
+ * 用于 STRM 文件直接包含文件路径，不需要先扫描入库
+ * 示例: /api/cloud/stream-path/1/momo-ktv/separated/abc123/vocals.flac
+ */
+router.get('/stream-path/:accountId/*', requireManager, (req, res) => {
+  req.streamer.handleStreamByPath(req, res);
+});
+
+
 
 
 module.exports = { init, router };
