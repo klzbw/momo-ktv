@@ -133,14 +133,12 @@ struct WebSongRow: View {
                                     .foregroundColor(WebColors.ac2)
                                     .cornerRadius(6)
                             }
-                            if song.isNetworkSong {
-                                Label("云", systemImage: "cloud.fill")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .padding(.horizontal, 8).padding(.vertical, 3)
-                                    .background(Color(hex: 0x0288d1).opacity(0.25))
-                                    .foregroundColor(Color(hex: 0x4fc3f7))
-                                    .cornerRadius(6)
-                            }
+                            Label(song.mediaTypeLabel, systemImage: song.mediaTypeIcon)
+                                .font(.system(size: 14, weight: .medium))
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(song.isVideoFile ? Color(hex: 0x0288d1).opacity(0.25) : Color(hex: 0x2e7d32).opacity(0.25))
+                                .foregroundColor(song.isVideoFile ? Color(hex: 0x4fc3f7) : Color(hex: 0x81c784))
+                                .cornerRadius(6)
                         }
                         Text(song.displayArtist)
                             .font(.system(size: 22))
