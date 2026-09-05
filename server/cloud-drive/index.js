@@ -26,7 +26,12 @@ function init(db) {
   streamer = new CloudDriveStreamer(manager);
 
   // 挂载到模块导出，供 netktv-test / netktv-scan 等外部模块访问
+  module.exports.manager = manager;
+  module.exports.scanner = scanner;
+  module.exports.streamer = streamer;
   
+  return router;
+}
 
 // ==================== Alist 115 扫码登录（参考 alist 官方文档） ====================
 
