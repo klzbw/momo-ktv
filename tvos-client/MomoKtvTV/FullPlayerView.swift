@@ -731,26 +731,6 @@ struct FullPlayerView: View {
 
         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-        // 调试日志覆盖层
-        if showDebugLog {
-            VStack {
-                Spacer()
-                ScrollView {
-                    Text(vlcManager.debugLog)
-                        .font(.system(size: 14, design: .monospaced))
-                        .foregroundColor(.green)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                }
-                .frame(height: 400)
-                .background(Color.black.opacity(0.85))
-                .cornerRadius(12)
-                .padding(.horizontal, 40)
-                .padding(.bottom, 200)
-            }
-            .transition(.opacity)
-        }
-
         .onPlayPauseCommand {
 
             if isUsingVLC {
