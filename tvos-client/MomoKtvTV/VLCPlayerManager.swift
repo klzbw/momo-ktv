@@ -388,11 +388,10 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
     func addDrawable(_ view: UIView) {
         drawableViews.add(view)
-        // 如果没有活动的drawable，自动设置这个为活动的
-        if activeDrawable == nil {
+        // 如果没有活动的drawable，或者活动的drawable不在数组中，设置这个为活动的
+        let activeInArray = drawableViews.allObjects.contains(where: { $0 as AnyObject === activeDrawable })
+        if activeDrawable == nil || !activeInArray {
             setActiveDrawable(view)
-        } else {
-            log("addDrawable: 已保存视图（当前有活动drawable，不覆盖）")
         }
     }
 
