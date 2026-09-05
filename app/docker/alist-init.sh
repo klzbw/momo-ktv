@@ -8,7 +8,7 @@ ALIST_DATA_DIR="/opt/alist/data"
 ALIST_CONFIG="/opt/alist/data/config.json"
 ALIST_DB="/opt/alist/data/data.db"
 MOMO_DB="/data/cloud-drive.db"
-ALIST_URL="http://localhost:5234"
+ALIST_URL="http://localhost:5235"
 
 # 检查是否已初始化
 if [ -f "$ALIST_DB" ]; then
