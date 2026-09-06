@@ -53,8 +53,9 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          # Dockerfile 内的 COPY server / COPY web 均相对 app/docker 目录
-          context: app/docker
+          # 构建上下文为仓库根目录：Dockerfile 内 COPY server/web 直接用根目录最新源码，
+          # 不再使用 app/docker 下的历史副本，避免镜像代码陈旧
+          context: .
           file: app/docker/Dockerfile
           platforms: linux/amd64
           push: true
