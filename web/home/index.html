@@ -516,7 +516,9 @@ async function loadCloudAccounts(){
       const statusClass = acc.status === 'active' ? 'cloud-status-active' : (acc.status === 'error' ? 'cloud-status-error' : 'cloud-status-pending');
       const statusText = acc.status === 'active' ? '已连接' : (acc.status || '未知');
       const driverName = acc.driver === 'pan115' ? '115网盘' : acc.driver;
-      const userInfo = acc.user_info ? JSON.parse(acc.user_info) : null;
+      const rawUserInfo = acc.user_info;
+      let userInfo = rawUserInfo ? (typeof rawUserInfo === 'string' ? null : rawUserInfo) : null;
+      if(typeof rawUserInfo === 'string'){ try{ userInfo = JSON.parse(rawUserInfo); }catch(_){ userInfo = null; } }
       return '<div class="cloud-account-item">' +
         '<div class="cloud-account-icon">☁️</div>' +
         '<div class="cloud-account-info">' +
@@ -525,6 +527,7 @@ async function loadCloudAccounts(){
             '<span class="cloud-status-dot ' + statusClass + '"></span>' +
             '<span>' + statusText + '</span><span>·</span><span>' + driverName + '</span>' +
             (userInfo && userInfo.nickname ? '<span>·</span><span>' + escHtml(userInfo.nickname) + '</span>' : '') +
+            (acc.token_expires_at ? '<span>·</span><span>到期' + escHtml(String(acc.token_expires_at).replace('T',' ').slice(0,16)) + '</span>' : '') +
           '</div>' +
         '</div>' +
         '<div class="cloud-account-actions">' +
