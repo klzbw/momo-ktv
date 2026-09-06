@@ -367,6 +367,10 @@ select option{color:#000}
   border:1px solid rgba(255,255,255,.1)
 }
 #src-modal h3{font-size:17px;margin-bottom:14px}
+#cloud-modal-overlay{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.65);display:none;align-items:flex-start;justify-content:center;overflow:auto;padding:32px 16px}
+#cloud-modal-overlay.open{display:flex}
+#cloud-modal{background:#12122e;border-radius:18px;padding:28px;width:680px;max-width:94vw;border:1px solid rgba(255,255,255,.1)}
+#cloud-modal h3{font-size:17px;margin-bottom:14px}
 .src-cols{display:flex;gap:18px;margin-bottom:20px}
 .src-col{flex:1;min-width:0}
 .src-col-title{font-size:13px;color:var(--sub);margin-bottom:8px;font-weight:600}
@@ -914,12 +918,6 @@ select option{color:#000}
         </select>
       </div>
       <div class="form-row" style="margin-bottom:10px">
-        <label>网盘类型</label>
-        <select id="cloud-driver-select" style="width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none">
-          <option value="pan115">115网盘</option>
-        </select>
-      </div>
-      <div class="form-row" style="margin-bottom:10px">
         <label>账号名称（备注，如"我的115"）</label>
         <input id="cloud-name-input" placeholder="账号名称">
       </div>
@@ -929,7 +927,6 @@ select option{color:#000}
       </div>
       <div id="cloud-add-err" style="color:var(--pink);font-size:12px;min-height:14px;margin-bottom:8px"></div>
       <button class="hbtn primary" onclick="addCloudAccount()" style="width:100%">添加并测试连接</button>
-    </div>
     </div>
     <div style="font-size:13px;font-weight:600;margin-bottom:10px">📋 已添加的账号</div>
     <div id="cloud-accounts-list" style="max-height:300px;overflow-y:auto"></div>
@@ -2688,7 +2685,9 @@ async function loadCloudAccounts(){
         listEl.innerHTML = cloudAccountsCache.map(acc => {
           const statusColor = acc.status === 'active' ? 'var(--cyan)' : 'var(--pink)';
           const statusText = acc.status === 'active' ? '✓ 正常' : '⚠️ ' + (acc.status || '未知');
-          const userInfo = acc.user_info ? JSON.parse(acc.user_info) : null;
+          const rawUserInfo = acc.user_info;
+          let userInfo = rawUserInfo ? (typeof rawUserInfo === 'string' ? null : rawUserInfo) : null;
+          if(typeof rawUserInfo === 'string'){ try{ userInfo = JSON.parse(rawUserInfo); }catch(_){ userInfo = null; } }
           return `
           <div class="user-row">
             <div style="flex:1;min-width:0">
@@ -2716,7 +2715,9 @@ async function loadCloudAccounts(){
           const statusClass = acc.status === 'active' ? 'cloud-status-active' : (acc.status === 'error' ? 'cloud-status-error' : 'cloud-status-pending');
           const statusText = acc.status === 'active' ? '已连接' : (acc.status || '未知');
           const driverName = acc.driver === 'pan115' ? '115网盘' : acc.driver;
-          const userInfo = acc.user_info ? JSON.parse(acc.user_info) : null;
+          const rawUserInfo = acc.user_info;
+          let userInfo = rawUserInfo ? (typeof rawUserInfo === 'string' ? null : rawUserInfo) : null;
+          if(typeof rawUserInfo === 'string'){ try{ userInfo = JSON.parse(rawUserInfo); }catch(_){ userInfo = null; } }
           return `
           <div class="cloud-account-item">
             <div class="cloud-account-icon">☁️</div>
