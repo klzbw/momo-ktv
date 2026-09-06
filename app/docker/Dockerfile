@@ -45,10 +45,10 @@ COPY server ./server
 COPY web ./web
 
 # 复制 alist 基础配置（首次启动时使用，用户可在管理界面修改）
-COPY alist-config.json /opt/alist/data/config.json
+COPY app/docker/alist-config.json /opt/alist/data/config.json
 
 # 复制 entrypoint 启动脚本
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY app/docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENV DATA_DIR=/data
