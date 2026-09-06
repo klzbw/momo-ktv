@@ -6092,7 +6092,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-  // [临时测试] 默认只返回网络KTV歌曲，测试完成后改回 ''
+  // 默认(不传scope)返回全部本地+网络；scope=local/network 才分别限制
 
 
 
@@ -6107,7 +6107,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    : 'is_network = 1';
+    : '';
 
 
 
