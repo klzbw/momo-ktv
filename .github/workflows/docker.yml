@@ -1,6 +1,6 @@
 name: Build Docker Image
 
-# 推送到 main（改动 app/docker 或本 workflow）自动构建并推送 GHCR；也可手动触发。
+# 推送到 main（改动 app/docker、server、web、package.json 或本 workflow）自动构建并推送 GHCR；也可手动触发。
 # 产出：ghcr.io/klzbw/momo-ktv:latest 与 :sha-xxxxxx
 # 闭环：服务器侧 watchtower 轮询 GHCR，发现 latest 的 digest 变化即自动 pull 并重建容器。
 on:
@@ -8,6 +8,9 @@ on:
     branches: [main]
     paths:
       - 'app/docker/**'
+      - 'server/**'
+      - 'web/**'
+      - 'package.json'
       - '.github/workflows/docker.yml'
   workflow_dispatch:
 
