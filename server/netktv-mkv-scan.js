@@ -1,11 +1,16 @@
 /**
  * 网络KTV MKV视频扫描模块
- * 通过 cloud-drive API 扫描 115 网盘上的 MKV 视频，生成 STRM 文件并入库
+ * 通过 cloud-drive API 扫描 115 网盘上的 MKV 视频，直接入库（不生成本地STRM文件）
  *
  * 不依赖 NAS 挂载路径，只要有 cloud-drive 扫码登录就能使用。
  *
- * STRM文件内容指向 cloud-drive 的302直连API：
- *   /api/cloud/stream-path/<accountId>/ktv-output/<文件名>
+ * 入库字段说明：
+ *   filename   - 原始 MKV 文件名，如 歌手-歌名.mkv
+ *   filepath   - 115 网盘相对路径（相对于 Alist 挂载点 /115），如 ktv-output/歌手-歌名.mkv
+ *                播放时由 /api/direct-stream/<filepath> 302 到 Alist，再到 115 CDN
+ *   source_root - 'netktv-mkv'
+ *   is_network  - 1
+ *   is_strm     - 1（表示网络流歌曲，虽不生成本地.strm文件，但语义上仍是网络直连）
  *
  * API：
  *   POST /api/netktv/mkv/scan — 触发扫描（body: { accountId, basePath, limit }）
@@ -87,7 +92,7 @@ function parseMkvFilename(filename) {
  * @param {number} accountId - 115 账号 ID
  * @param {string} basePath - MKV 文件根目录，如 /ktv-output
  * @param {object} db - 数据库实例
- * @param {string} strmDir - STRM 文件输出目录
+ * @param {string} strmDir - [已废弃] STRM 文件输出目录，保留参数兼容旧调用
  * @param {number} limit - 限制扫描数量（0表示全部）
  */
 async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit = 0) {
@@ -126,9 +131,9 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
     scanStatus.total = mkvFiles.length;
     console.log(`[NETKTV-MKV-SCAN] 找到 ${mkvFiles.length} 个MKV文件`);
 
-    if (!fs.existsSync(strmDir)) {
-      fs.mkdirSync(strmDir, { recursive: true });
-    }
+    // basePath 去掉前导 /，用于拼接相对路径
+    // 如 /ktv-output → ktv-output，最终 filepath = ktv-output/xxx.mkv
+    const relativeBase = basePath.replace(/^\//, '');
 
     for (const fileInfo of mkvFiles) {
       const filename = fileInfo.name;
@@ -140,9 +145,14 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
         // 用 pickCode 作为唯一标识（115每个文件都有唯一pickCode）
         const songKey = fileInfo.pickCode || Buffer.from(filename).toString('hex').substring(0, 16);
 
-        // 检查是否已经入库
-        const existing = db.prepare('SELECT id FROM songs WHERE source_root = ? AND filename = ?').get(
+        // 检查是否已经入库（兼容新旧两种 filename 格式）
+        // 新格式：原始 MKV 文件名，如 歌手-歌名.mkv
+        // 旧格式：netktv_mkv_<songKey>.strm（旧版扫描生成的STRM文件名）
+        const existing = db.prepare(`
+          SELECT id FROM songs WHERE source_root = ? AND (filename = ? OR filename = ?)
+        `).get(
           'netktv-mkv',
+          filename,
           `netktv_mkv_${songKey}.strm`
         );
 
@@ -151,15 +161,11 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
           continue;
         }
 
-        // URL编码文件名
-        const encodedFilename = encodeURIComponent(filename);
-        // STRM内容指向cloud-drive的302直连API
-        const strmContent = `http://127.0.0.1:8080/api/cloud/stream-path/${accountId}/ktv-output/${encodedFilename}\n`;
+        // 115 网盘相对路径（相对于 Alist 挂载点 /115）
+        // 播放时由 /api/direct-stream/<filepath> 302 到 Alist → 115 CDN
+        const relativePath = relativeBase ? `${relativeBase}/${filename}` : filename;
 
-        const strmPath = path.join(strmDir, `netktv_mkv_${songKey}.strm`);
-        fs.writeFileSync(strmPath, strmContent);
-
-        // 入库
+        // 入库（不再生成本地 STRM 文件，filepath 直接存 115 相对路径）
         const now = new Date().toISOString();
         const result = db.prepare(`
           INSERT INTO songs (title, artist, filename, filepath, source_root, is_network, is_strm, media_type, audio_tracks, duration, created_at)
@@ -167,8 +173,8 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
         `).run(
           meta.title,
           meta.artist,
-          `netktv_mkv_${songKey}.strm`,
-          strmPath,
+          filename,           // 原始 MKV 文件名
+          relativePath,       // 115 相对路径，如 ktv-output/xxx.mkv
           'netktv-mkv',
           fileInfo.size ? Math.round(fileInfo.size / 1000) : null, // 粗略估算时长（按1MB≈1秒）
           now
@@ -202,6 +208,75 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
 }
 
 /**
+ * 迁移旧数据：将旧版扫描入库的 netktv-mkv 歌曲从"本地STRM路径"迁移为"115相对路径"
+ * 旧数据特征：filename LIKE 'netktv_mkv_%.strm'，filepath 是本地 .strm 文件路径
+ * 迁移逻辑：读取 .strm 文件内容，从中解析出原始 MKV 文件名，更新 filepath 和 filename
+ *
+ * @param {object} db - 数据库实例
+ * @param {string} defaultBasePath - 默认的 115 基础路径，如 ktv-output
+ * @returns {object} 迁移结果统计
+ */
+async function migrateOldStrmData(db, defaultBasePath = 'ktv-output') {
+  const result = { total: 0, migrated: 0, skipped: 0, failed: 0, errors: [] };
+
+  try {
+    // 查询旧格式数据
+    const oldSongs = db.prepare(`
+      SELECT id, filename, filepath FROM songs
+      WHERE source_root = 'netktv-mkv' AND filename LIKE 'netktv_mkv_%.strm'
+    `).all();
+
+    result.total = oldSongs.length;
+    console.log(`[NETKTV-MKV-MIGRATE] 找到 ${oldSongs.length} 条旧格式数据需要迁移`);
+
+    for (const song of oldSongs) {
+      try {
+        // 读取 STRM 文件内容
+        if (!fs.existsSync(song.filepath)) {
+          result.skipped++;
+          result.errors.push({ id: song.id, error: `STRM文件不存在: ${song.filepath}` });
+          continue;
+        }
+
+        const strmContent = fs.readFileSync(song.filepath, 'utf-8').trim();
+        // STRM 内容格式: http://127.0.0.1:8080/api/cloud/stream-path/<accountId>/ktv-output/<encodedFilename>
+        const match = strmContent.match(/\/ktv-output\/([^/\s]+)$/);
+        if (!match) {
+          result.skipped++;
+          result.errors.push({ id: song.id, error: `无法从STRM内容解析文件名: ${strmContent}` });
+          continue;
+        }
+
+        const encodedFilename = match[1];
+        const originalFilename = decodeURIComponent(encodedFilename);
+        const relativePath = `${defaultBasePath}/${originalFilename}`;
+
+        // 更新数据库
+        db.prepare(`
+          UPDATE songs SET filename = ?, filepath = ? WHERE id = ?
+        `).run(originalFilename, relativePath, song.id);
+
+        result.migrated++;
+        console.log(`[NETKTV-MKV-MIGRATE] 迁移成功: id=${song.id} ${originalFilename}`);
+
+      } catch (e) {
+        result.failed++;
+        result.errors.push({ id: song.id, error: e.message });
+        console.error(`[NETKTV-MKV-MIGRATE] 迁移失败 id=${song.id}:`, e.message);
+      }
+    }
+
+    console.log(`[NETKTV-MKV-MIGRATE] 迁移完成: 总计=${result.total} 成功=${result.migrated} 跳过=${result.skipped} 失败=${result.failed}`);
+
+  } catch (e) {
+    console.error('[NETKTV-MKV-MIGRATE] 迁移异常:', e);
+    result.errors.push({ error: e.message });
+  }
+
+  return result;
+}
+
+/**
  * 初始化模块
  */
 function init(db, cloudDrive) {
@@ -230,7 +305,18 @@ function init(db, cloudDrive) {
     res.json(scanStatus);
   });
 
+  // POST /api/netktv/mkv/migrate — 迁移旧版STRM数据到新格式（115相对路径）
+  router.post('/mkv/migrate', async (req, res) => {
+    const { basePath = 'ktv-output' } = req.body || {};
+    try {
+      const result = await migrateOldStrmData(db, basePath);
+      res.json({ ok: true, result });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   return router;
 }
 
-module.exports = { init, router, scanMkvFiles, parseMkvFilename };
+module.exports = { init, router, scanMkvFiles, parseMkvFilename, migrateOldStrmData };
