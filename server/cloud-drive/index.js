@@ -35,10 +35,23 @@ function init(db) {
 
 // ==================== Alist 115 扫码登录（参考 alist 官方文档） ====================
 
-const ALIST_URL = process.env.ALIST_URL || 'http://localhost:5235';
+const ALIST_URL = process.env.ALIST_INTERNAL_URL || process.env.ALIST_URL || 'http://localhost:5234';
 const ALIST_USER = process.env.ALIST_USER || 'admin';
 const ALIST_PASS = process.env.ALIST_PASS || 'Dd112233';
 const QRCODE_UA = 'Mozilla/5.0 115Browser/23.9.3.2';
+
+/**
+ * 带超时的 fetch（115 云盾 WAF 偶发对请求静默丢包，必须主动超时避免连接挂死）
+ */
+async function fetch115(url, options = {}, timeoutMs = 6000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function alistLogin() {
   const loginData = JSON.stringify({ username: ALIST_USER, password: ALIST_PASS });
@@ -59,16 +72,20 @@ async function updateAlistStorage(cookie, qrcodeToken) {
   const token = await alistLogin();
   console.log('[Alist] 登录成功, token长度:', token.length);
   
-  const getResp = await fetch(`${ALIST_URL}/api/admin/storage/list?page=1&per_page=10`, {
-    headers: { 'Authorization': token },
-  });
-  const getResult = await getResp.json();
-  if (getResult.code !== 200) {
-    throw new Error('获取 Alist 存储列表失败: ' + getResult.message);
+  // 分页查找 115 Cloud 存储（存储数量可能较多，不能只看第一页）
+  let storage = null;
+  for (let page = 1; page <= 30 && !storage; page++) {
+    const getResp = await fetch(`${ALIST_URL}/api/admin/storage/list?page=${page}&per_page=100`, {
+      headers: { 'Authorization': token },
+    });
+    const getResult = await getResp.json();
+    if (getResult.code !== 200) {
+      throw new Error('获取 Alist 存储列表失败: ' + getResult.message);
+    }
+    const arr = getResult.data?.content || [];
+    if (!arr.length) break;
+    storage = arr.find(s => s.driver === '115 Cloud' || (s.mount_path || '').includes('115'));
   }
-  console.log('[Alist] 存储列表数量:', getResult.data?.content?.length || 0);
-  
-  const storage = getResult.data.content.find(s => s.driver === '115 Cloud' || s.mount_path === '/115');
   if (!storage) {
     throw new Error('未找到 115 网盘存储，请先在 Alist 中添加 115 Cloud 驱动');
   }
@@ -143,28 +160,26 @@ async function updateAlistStorage(cookie, qrcodeToken) {
 }
 
 /**
- * GET /api/cloud/alist/qrcode
- * 获取 115 扫码登录二维码（参考 alist 官方文档）
- * Step 1: GET https://qrcodeapi.115.com/api/1.0/web/1.0/token/
- * Step 2: 显示二维码图片 https://qrcodeapi.115.com/api/1.0/mac/1.0/qrcode?uid=<uid>
+ * GET /api/cloud/qrcode/token
+ * 获取 115 扫码登录二维码 token（前端主页/管理后台调用）
+ * 返回: { uid, time, sign, qrcode_url, qrcode_img }
  */
-router.get('/alist/qrcode', requireManager, async (req, res) => {
+router.get('/qrcode/token', requireManager, async (req, res) => {
   try {
-    const tokenResp = await fetch('https://qrcodeapi.115.com/api/1.0/web/1.0/token/', {
+    const tokenResp = await fetch115('https://qrcodeapi.115.com/api/1.0/web/1.0/token/', {
       headers: { 'User-Agent': QRCODE_UA },
-    });
+    }, 8000);
     const tokenResult = await tokenResp.json();
     if (!tokenResult.data || !tokenResult.data.uid) {
       return res.status(500).json({ error: '获取二维码 token 失败', detail: tokenResult });
     }
     const { uid, time, sign } = tokenResult.data;
-    
     res.json({
       uid,
       time,
       sign,
-      qrcode_url: `https://qrcodeapi.115.com/api/1.0/mac/1.0/qrcode?uid=${uid}`,
-      message: '请使用 115 手机 App 扫描二维码，选择不常用设备（如 wechatmini）登录',
+      qrcode_url: `https://115.com/scan/dg-${uid}`,
+      qrcode_img: `https://qrcodeapi.115.com/api/1.0/mac/1.0/qrcode?uid=${uid}`,
     });
   } catch (err) {
     console.error('[Alist] 获取二维码失败:', err.message);
@@ -173,106 +188,87 @@ router.get('/alist/qrcode', requireManager, async (req, res) => {
 });
 
 /**
- * GET /api/cloud/alist/qrcode/status?uid=xxx&time=xxx&sign=xxx&app=wechatmini
- * 轮询 115 扫码登录状态
- * Step 3: GET https://qrcodeapi.115.com/get/status/?uid=<uid>&time=<time>&sign=<sign>
- * Step 4 (status=2): POST https://passportapi.115.com/app/1.0/{app}/1.0/login/qrcode/ 获取 cookie
+ * GET /api/cloud/qrcode/status?uid&time&sign
+ * 仅轮询扫码状态，返回数字状态码：0=等待, 1=已扫描待确认, 2=已确认, -1=过期, -2=取消
+ * cookie 的获取与 alist 写入统一放到 POST /qrcode/login，避免轮询重复触发
  */
-router.get('/alist/qrcode/status', requireManager, async (req, res) => {
+router.get('/qrcode/status', requireManager, async (req, res) => {
   try {
-    const { uid, time, sign, app = 'wechatmini' } = req.query;
-    if (!uid) {
-      return res.status(400).json({ error: '缺少 uid 参数' });
+    const { uid, time, sign } = req.query;
+    if (!uid || !time || !sign) {
+      return res.status(400).json({ error: 'uid, time, sign are required' });
     }
-    
-    const statusResp = await fetch(`https://qrcodeapi.115.com/get/status/?uid=${uid}&time=${time}&sign=${sign}`, {
-      headers: { 'User-Agent': QRCODE_UA },
-    });
-    const statusResult = await statusResp.json();
+    let statusResult;
+    try {
+      const statusResp = await fetch115(`https://qrcodeapi.115.com/get/status/?uid=${uid}&time=${time}&sign=${sign}`, {
+        headers: { 'User-Agent': QRCODE_UA },
+      }, 6000);
+      statusResult = await statusResp.json();
+    } catch (netErr) {
+      // WAF 抖动/超时：返回“继续等待”，让前端下一轮继续轮询，而不是报错卡死
+      console.warn('[Alist] 查询扫码状态网络抖动，按等待处理:', netErr.message);
+      return res.json({ status: 0, message: '等待扫码', retrying: true });
+    }
     const status = statusResult.data?.status ?? 0;
-    
-    const statusMsg = {
-      0: '等待扫码',
-      1: '已扫码，请在手机上确认',
-      2: '登录成功',
-      '-1': '二维码已过期',
-      '-2': '已取消',
-    };
-    
-    if (status === 2) {
-      // Step 4: Call passportapi to get cookie
-      try {
-        const loginResp = await fetch(`https://passportapi.115.com/app/1.0/${app}/1.0/login/qrcode/`, {
-          method: 'POST',
-          headers: { 
-            'User-Agent': QRCODE_UA,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: `app=${app}&account=${uid}`,
-        });
-        const loginResult = await loginResp.json();
-        console.log('[Alist] passportapi 返回完整数据:', JSON.stringify(loginResult).substring(0, 800));
-        console.log('[Alist] passportapi state:', loginResult.state, ', data keys:', loginResult.data ? Object.keys(loginResult.data) : '无data');
-        
-        // 115 passportapi 返回 state=1 (数字) 表示成功，cookie 字段在 data 中
-        if ((loginResult.state === 1 || loginResult.state === true) && loginResult.data) {
-          const data = loginResult.data;
-          // 提取 cookie 字段：UID(或uid)、CID、SEID、KID
-          // cookie 字段在 data.cookie 中
-          const cookieObj = data.cookie || {};
-          const uid = cookieObj.UID || cookieObj.uid || '';
-          const cid = cookieObj.CID || cookieObj.cid || '';
-          const seid = cookieObj.SEID || cookieObj.seid || '';
-          const kid = cookieObj.KID || cookieObj.kid || '';
-          console.log('[Alist] 提取到的字段: uid=' + String(uid||'空').substring(0, 25) + ', cid=' + String(cid||'空').substring(0, 25) + ', seid=' + String(seid||'空').substring(0, 25) + ', kid=' + String(kid||'空').substring(0, 25));
-          const cookieParts = [];
-          if (uid) cookieParts.push(`UID=${uid}`);
-          if (cid) cookieParts.push(`CID=${cid}`);
-          if (seid) cookieParts.push(`SEID=${seid}`);
-          if (kid) cookieParts.push(`KID=${kid}`);
-          const cookieStr = cookieParts.join('; ');
-          console.log('[Alist] 构造的 cookie 长度:', cookieStr.length, ', 内容:', cookieStr.substring(0, 100));
-          console.log('[Alist] 获取 cookie 成功:', cookieStr.substring(0, 50) + '...');
-          
-          // Update alist storage with cookie
-          try {
-            await updateAlistStorage(cookieStr, null);
-            return res.json({
-              status: 2,
-              message: '登录成功，已自动配置到 Alist',
-              cookie_preview: cookieStr.substring(0, 50) + '...',
-              app,
-            });
-          } catch (updateErr) {
-            return res.json({
-              status: 2,
-              message: '登录成功，但配置到 Alist 失败: ' + updateErr.message,
-              cookie: cookieStr,
-              app,
-            });
-          }
-        } else {
-          return res.json({
-            status: 2,
-            message: '扫码确认成功，但获取 cookie 失败: ' + (loginResult.error || JSON.stringify(loginResult)),
-            raw: loginResult,
-          });
-        }
-      } catch (loginErr) {
-        return res.json({
-          status: 2,
-          message: '扫码确认成功，但调用登录接口失败: ' + loginErr.message,
-        });
-      }
-    }
-    
-    res.json({
-      status,
-      message: statusMsg[status] || '未知状态',
-    });
+    const statusMsg = { 0: '等待扫码', 1: '已扫码，请在手机上确认', 2: '登录成功', '-1': '二维码已过期', '-2': '已取消' };
+    res.json({ status, message: statusMsg[status] || '未知状态' });
   } catch (err) {
     console.error('[Alist] 轮询登录状态失败:', err.message);
-    res.status(500).json({ error: '轮询登录状态失败', detail: err.message });
+    // 兜底也返回等待状态，保证前端轮询不中断
+    res.json({ status: 0, message: '等待扫码', retrying: true });
+  }
+});
+
+/**
+ * POST /api/cloud/qrcode/login
+ * 扫码确认(status=2)后由前端调用：获取 cookie -> 写入内置 alist -> 创建本地网盘账号
+ * Body: { uid, app: 'wechatmini'|'web'|..., name }
+ */
+router.post('/qrcode/login', requireManager, async (req, res) => {
+  try {
+    const { uid, app = 'wechatmini', name = '我的115' } = req.body;
+    if (!uid) return res.status(400).json({ error: 'uid is required' });
+
+    const loginResp = await fetch115(`https://passportapi.115.com/app/1.0/${app}/1.0/login/qrcode/`, {
+      method: 'POST',
+      headers: { 'User-Agent': QRCODE_UA, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `app=${app}&account=${uid}`,
+    }, 10000);
+    const loginResult = await loginResp.json();
+    if (!(loginResult.state === 1 || loginResult.state === true) || !loginResult.data) {
+      return res.status(500).json({ error: '获取 cookie 失败', detail: loginResult });
+    }
+    const c = loginResult.data.cookie || {};
+    const parts = [];
+    if (c.UID || c.uid) parts.push(`UID=${c.UID || c.uid}`);
+    if (c.CID || c.cid) parts.push(`CID=${c.CID || c.cid}`);
+    if (c.SEID || c.seid) parts.push(`SEID=${c.SEID || c.seid}`);
+    if (c.KID || c.kid) parts.push(`KID=${c.KID || c.kid}`);
+    const cookieStr = parts.join('; ');
+    if (!cookieStr) return res.status(500).json({ error: '未获取到 cookie', detail: loginResult });
+
+    // 1) 写入内置 alist（实际播放走它的 /d/ 302 直连）
+    let alistSync = { synced: false, message: '' };
+    try {
+      await updateAlistStorage(cookieStr, null);
+      alistSync = { synced: true, message: '已同步到内置 alist' };
+    } catch (e) {
+      alistSync = { synced: false, message: e.message };
+      console.error('[Alist] 扫码登录写入 alist 失败:', e.message);
+    }
+
+    // 2) 创建本地网盘账号（cloud_accounts，用于曲库扫描）
+    const account = manager.createAccountWithCookie('pan115', name, cookieStr);
+
+    res.json({
+      success: true,
+      account: { id: account.id, driver: account.driver, name: account.name, status: account.status },
+      cookie_keys: Object.keys(c),
+      alistSync,
+    });
+  } catch (err) {
+    console.error('[Alist] 扫码登录创建账号失败:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -338,19 +334,31 @@ router.post('/accounts', requireManager, async (req, res) => {
  * 使用 Cookie 创建账号
  * Body: { driver, name, cookie }
  */
-router.post('/accounts/cookie', requireManager, (req, res) => {
+router.post('/accounts/cookie', requireManager, async (req, res) => {
   try {
     const { driver, name, cookie } = req.body;
     if (!driver || !cookie) {
       return res.status(400).json({ error: 'driver and cookie are required' });
     }
     const account = manager.createAccountWithCookie(driver, name || '我的网盘', cookie);
-    res.json({ ok: true, account: {
+    // 115 账号额外把 cookie 写入内置 alist（实际播放使用）
+    let alistSync = null;
+    if (driver === 'pan115') {
+      alistSync = { synced: false, message: '' };
+      try {
+        await updateAlistStorage(cookie, null);
+        alistSync = { synced: true, message: '已同步到内置 alist' };
+      } catch (e) {
+        alistSync = { synced: false, message: e.message };
+        console.error('[Alist] Cookie 登录写入 alist 失败:', e.message);
+      }
+    }
+    res.json({ ok: true, success: true, account: {
       id: account.id,
       driver: account.driver,
       name: account.name,
       status: account.status,
-    }});
+    }, alistSync });
   } catch (e) {
     console.error('Cookie 登录失败:', e);
     res.status(500).json({ error: e.message });
