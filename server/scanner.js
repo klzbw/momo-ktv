@@ -1009,7 +1009,13 @@ async function scanLibrary(mode = 'full') {
   const safetyBlocked = []; // [{ rootDir, totalInRoot, wouldRemove }]
   if (mode !== 'incremental') {
     try {
-      const all = db.prepare('SELECT id, filename, source_root FROM songs').all();
+      // 网络曲目(is_network=1)与 STRM 指针曲目(is_strm=1)不参与本段"按本轮文件
+      // 列表判缺失"的清理：它们由专用网络扫描器(netktv-scan 等)写入，filename
+      // 不带本地根 tag 前缀、source_root 用来源标签(如 netktv-mkv)，与本地根的
+      // tag::rel 命名规则不一致；网盘是否可达也不该用"本地目录列举结果"判断。
+      // 这类曲目的失联清理统一交给本段后面的"cache_status=failed + HEAD 二次
+      // 确认"逻辑，从根本上避免全量扫描把整个云端曲库误判为文件消失而删库。
+      const all = db.prepare('SELECT id, filename, source_root FROM songs WHERE is_network = 0 AND is_strm = 0').all();
       // 先按根目录分组统计"这一轮总共有多少首、其中多少首会被判定为消失"，
       // 用于上面说的骤减熔断判断；分组统计本身不产生任何数据库写操作。
       const byRoot = new Map(); // rootDir -> { total, missing: row[] }
@@ -1272,4 +1278,5 @@ module.exports = {
   parseFilename, splitArtists, syncSongArtists, isProblemAudioCodec, isProblemVideoCodec,
   getMVDir, getMVRoots, getLibraryRoots, saveLibraryRoots, resolveLibraryRootPath, BASE_MOUNTS,
 };
+
 
