@@ -760,6 +760,23 @@ html[data-theme="2"] #home.home-hide{opacity:0;pointer-events:none;transition:op
 .nb:hover,.nb[data-f].focused{border-color:var(--ac);background:rgba(199,54,247,.25);color:var(--ac);transform:scale(1.06)}
 .nb.act{background:var(--g6);border-color:transparent;color:#fff}
 .badge{background:var(--pink);color:#fff;border-radius:999px;padding:0 5px;font-size:14px}
+/* 歌曲标识：云端/媒体类型，与tvOS端一致，易区分 */
+.song-badges{display:inline-flex;align-items:center;gap:4px;margin-left:6px;flex-shrink:0}
+.badge-cloud{display:inline-flex;align-items:center;justify-content:center;
+  min-width:20px;height:18px;padding:0 5px;border-radius:4px;font-size:11px;font-weight:700;
+  background:linear-gradient(135deg,#36d9f7,#c736f7);color:#fff;letter-spacing:.5px}
+.badge-mkv{display:inline-flex;align-items:center;justify-content:center;
+  min-width:34px;height:18px;padding:0 5px;border-radius:4px;font-size:11px;font-weight:700;
+  background:rgba(255,159,64,.2);color:#ff9f40;border:1px solid rgba(255,159,64,.4)}
+.badge-flac{display:inline-flex;align-items:center;justify-content:center;
+  min-width:34px;height:18px;padding:0 5px;border-radius:4px;font-size:11px;font-weight:700;
+  background:rgba(60,220,120,.18);color:#3cdc78;border:1px solid rgba(60,220,120,.4)}
+.badge-mp3{display:inline-flex;align-items:center;justify-content:center;
+  min-width:34px;height:18px;padding:0 5px;border-radius:4px;font-size:11px;font-weight:700;
+  background:rgba(150,150,150,.18);color:#aaa;border:1px solid rgba(150,150,150,.4)}
+.badge-mp4{display:inline-flex;align-items:center;justify-content:center;
+  min-width:34px;height:18px;padding:0 5px;border-radius:4px;font-size:11px;font-weight:700;
+  background:rgba(255,79,155,.18);color:#ff4f9b;border:1px solid rgba(255,79,155,.4)}
 /* 右上角信号图标：反映与后端 WebSocket 的连接状态 */
 .conn-badge{display:flex;align-items:center;padding:6px 10px;border-radius:999px;
   border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);
@@ -3354,8 +3371,10 @@ async function loadSong(v,songId,needsDownload){
       const sepJ=await sepR.json();
       if(!curSong||curSong.song_id!==songId) return; // await 期间已切歌，丢弃
       if(sepJ&&sepJ.isNetKtvMkv&&sepJ.videoUrl){
-        startDirectMkvPlayback(v,songId,sepJ.videoUrl);
-        return;
+        // 网页端浏览器原生不支持MKV容器，DIRECT_MKV直连会播放失败；
+        // 统一走HLS转码（服务端从115 CDN流式读取转码，不占NAS存储）。
+        // tvOS端用VLC可真正MKV直连，不受此限制。
+        console.log('[loadSong] 网盘MKV，网页端走HLS转码（浏览器不支持MKV直连）');
       }
     }
   }catch(e){ console.warn('[loadSong] sep-info 探测失败，回退 HLS:',e); }
@@ -4846,6 +4865,30 @@ function renderCategory(){
 }
 function categoryPage(d){const t=Math.ceil(filtCat.length/CAT_PG)||1;catPg=Math.max(0,Math.min(t-1,catPg+d));renderCategory();}
 // Bug3修复：渲染歌曲列表（所有按钮加 data-f）
+/* 歌曲标识：云端+媒体类型，与tvOS端一致，易区分 */
+function getSongBadges(s){
+  if(!s) return '';
+  const badges=[];
+  const isNet = s.is_network===1 || s.is_strm===1 ||
+    (s.source_root && /netktv|网盘|115|cloud/i.test(s.source_root)) ||
+    (s.filepath && /netktv|网盘|115|ktv-output/i.test(s.filepath));
+  if(isNet) badges.push('<span class="badge-cloud" title="云端歌曲">云</span>');
+  let ext='';
+  if(s.media_type) ext=s.media_type.toLowerCase();
+  if(!ext){
+    const fn=(s.filename||s.filepath||'').toLowerCase();
+    const m=fn.match(/\.(mkv|flac|mp3|mp4|wav|ape|m4a|aac|ogg|wma)(\?|$)/);
+    if(m) ext=m[1];
+  }
+  if(ext==='mkv') badges.push('<span class="badge-mkv">MKV</span>');
+  else if(ext==='flac') badges.push('<span class="badge-flac">FLAC</span>');
+  else if(ext==='mp3') badges.push('<span class="badge-mp3">MP3</span>');
+  else if(ext==='mp4') badges.push('<span class="badge-mp4">MP4</span>');
+  else if(ext && ['wav','ape','m4a','aac','ogg','wma'].indexOf(ext)>=0){
+    badges.push('<span class="badge-mp3">'+ext.toUpperCase()+'</span>');
+  }
+  return badges.length ? '<span class="song-badges">'+badges.join('')+'</span>' : '';
+}
 function renderSongs(el,songs){
   el.innerHTML='';
   if(!songs.length){el.innerHTML='<div style="color:var(--sub);text-align:center;padding:30px">暂无歌曲</div>';return;}
@@ -4854,7 +4897,7 @@ function renderSongs(el,songs){
     const fk='fav_'+s.id,isFaved=localStorage.getItem(fk)==='1';
     const d=document.createElement('div');d.className='so-row';
     d.innerHTML=`<div class="so-num">${i+1}</div>
-      <div class="so-info"><div class="so-t">${s.title}</div><div class="so-a">${s.artist||''}</div></div>
+      <div class="so-info"><div class="so-t">${s.title}${getSongBadges(s)}</div><div class="so-a">${s.artist||''}</div></div>
       <div class="so-acts">
         <button class="btn-fav${isFaved?' faved':''}" data-f onclick="toggleFav(${s.id},this)">❤</button>
         <button class="btn-add" data-f onclick="addSong(${s.id},'${esc(s.title)}')">点歌</button>
@@ -4866,10 +4909,10 @@ function renderSongs(el,songs){
 async function toggleFav(id,btn){const key='fav_'+id,faved=localStorage.getItem(key)==='1';if(faved){await fetch(`/api/favorites/${id}?device=${devId()}`,{method:'DELETE'});localStorage.removeItem(key);btn.classList.remove('faved');showToast('已取消收藏');}else{await fetch(`/api/favorites/${id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device:devId()})});localStorage.setItem(key,'1');btn.classList.add('faved');showToast('已收藏 ❤');};allFav=[];}
 async function addSong(id,title){await fetch('/api/queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({song_id:id,nickname:'TV点歌'})});showToast(`《${title}》已加入队列 🎶`);}
 // 各面板加载
-function loadQueue(){const el=document.getElementById('pl-queue');el.innerHTML='';const visibleQueue=queueData.filter(q=>!q.is_autoplay);if(!visibleQueue.length){el.innerHTML='<div style="color:#555;text-align:center;padding:30px">暂无点歌</div>';return;}visibleQueue.forEach((q,i)=>{const d=document.createElement('div');d.className='qr-row'+(q.status==='playing'?' qrp':'');d.innerHTML=`<div class="qr-num">${q.status==='playing'?'♪':i+1}</div><div class="qr-info"><div class="qr-t">${q.title}</div><div class="qr-m">${q.artist||''} · ${q.nickname}${qDurLabel(q)}${q.status==='playing'?' <span style="color:var(--ac)">播放中</span>':''}</div></div><div class="qr-acts">${q.status!=='playing'?`<button class="ma ma-top" data-f onclick="topQ(${q.queue_id})">置顶</button>`:''}<button class="ma ma-del" data-f onclick="delQ(${q.queue_id})">✕</button></div>`;el.appendChild(d);});}
+function loadQueue(){const el=document.getElementById('pl-queue');el.innerHTML='';const visibleQueue=queueData.filter(q=>!q.is_autoplay);if(!visibleQueue.length){el.innerHTML='<div style="color:#555;text-align:center;padding:30px">暂无点歌</div>';return;}visibleQueue.forEach((q,i)=>{const d=document.createElement('div');d.className='qr-row'+(q.status==='playing'?' qrp':'');d.innerHTML=`<div class="qr-num">${q.status==='playing'?'♪':i+1}</div><div class="qr-info"><div class="qr-t">${q.title}${getSongBadges(q)}</div><div class="qr-m">${q.artist||''} · ${q.nickname}${qDurLabel(q)}${q.status==='playing'?' <span style="color:var(--ac)">播放中</span>':''}</div></div><div class="qr-acts">${q.status!=='playing'?`<button class="ma ma-top" data-f onclick="topQ(${q.queue_id})">置顶</button>`:''}<button class="ma ma-del" data-f onclick="delQ(${q.queue_id})">✕</button></div>`;el.appendChild(d);});}
 async function topQ(id){await fetch(`/api/queue/${id}/top`,{method:'POST'});}
 async function delQ(id){await fetch(`/api/queue/${id}`,{method:'DELETE'});}
-async function loadCharts(){const el=document.getElementById('pl-charts');el.innerHTML='';const songs=(await fetch('/api/charts').then(r=>r.json())).slice(0,20);if(!songs.length){el.innerHTML='<div style="color:#555;text-align:center;padding:30px">还没有人唱过歌</div>';return;}songs.forEach((s,i)=>{const d=document.createElement('div');d.className='chart-row';const rk=i===0?'🥇':i===1?'🥈':i===2?'🥉':`${i+1}`;d.innerHTML=`<div class="ck ${i<3?'r'+(i+1):''}"> ${rk}</div><div class="chart-info"><div class="ct">${s.title}</div><div class="cm">${s.artist||'未知歌手'}</div></div><button class="btn-add" data-f onclick="addSong(${s.id},'${esc(s.title)}')">点歌</button>`;el.appendChild(d);});}
+async function loadCharts(){const el=document.getElementById('pl-charts');el.innerHTML='';const songs=(await fetch('/api/charts').then(r=>r.json())).slice(0,20);if(!songs.length){el.innerHTML='<div style="color:#555;text-align:center;padding:30px">还没有人唱过歌</div>';return;}songs.forEach((s,i)=>{const d=document.createElement('div');d.className='chart-row';const rk=i===0?'🥇':i===1?'🥈':i===2?'🥉':`${i+1}`;d.innerHTML=`<div class="ck ${i<3?'r'+(i+1):''}"> ${rk}</div><div class="chart-info"><div class="ct">${s.title}${getSongBadges(s)}</div><div class="cm">${s.artist||'未知歌手'}</div></div><button class="btn-add" data-f onclick="addSong(${s.id},'${esc(s.title)}')">点歌</button>`;el.appendChild(d);});}
 // 最新入库：直接复用"歌名点歌"那份 allSongs 缓存按 id 倒序排列——
 // id 是自增主键，值越大代表越晚被扫描入库，不需要额外接口/额外字段。
 // 需求：改成左右两栏、每栏10首后，每页实际展示的是 10行×2栏=20首，
