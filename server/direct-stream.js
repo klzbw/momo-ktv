@@ -2,10 +2,10 @@ const express = require('express');
 const router = express.Router();
 
 // 内置 Gbox alist 配置（集成在 momo-ktv 镜像中）
-// 注意：端口必须与 alist-config.json 的 http_port 一致（5235）
-// 挂载路径必须与 alist-init.sh 的 mount_path 一致（/115）
-const ALIST_BASE_URL = process.env.ALIST_BASE_URL || 'http://localhost:5235';
-const ALIST_BASE_PATH = process.env.ALIST_BASE_PATH || '/115';
+// 容器内实际：Alist监听5234（环境变量ALIST_PORT），挂载路径/🥝115网盘/115
+// 可通过环境变量 ALIST_BASE_URL / ALIST_BASE_PATH 覆盖
+const ALIST_BASE_URL = process.env.ALIST_BASE_URL || 'http://localhost:5234';
+const ALIST_BASE_PATH = process.env.ALIST_BASE_PATH || '/🥝115网盘/115';
 
 /**
  * Handle stream request - redirect to 内置 Gbox alist /d/ 端点
