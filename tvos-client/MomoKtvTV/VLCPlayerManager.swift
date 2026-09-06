@@ -96,10 +96,11 @@ class VLCPlayerManager: NSObject, ObservableObject {
         log("▶️ 完整URL: \(url.absoluteString)")
         log("URL scheme: \(url.scheme ?? "nil"), host: \(url.host ?? "nil")")
 
-        // 在media级别设置UA，确保115 CDN能识别（115 CDN拦截VLC默认UA返回403）
+        // 在media级别也设置UA，确保115 CDN能识别（115 CDN专门拦截VLC默认UA返回403）
         // library级别的--http-user-agent在tvOS上可能不生效，这里用media级别双重保障
         let uaOption = ":http-user-agent=Mozilla/5.0 115Browser/23.9.3.2"
-        let media = VLCMedia(url: url, options: [uaOption])
+        let media = VLCMedia(url: url)
+        media.addOption(uaOption)
         log("已设置media UA选项: \(uaOption)")
         self.media = media
         player.media = media
