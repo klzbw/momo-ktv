@@ -3,7 +3,17 @@
 
 
 
+
+
+
+
+
 const http = require('http');
+
+
+
+
+
 
 
 
@@ -13,7 +23,17 @@ const path = require('path');
 
 
 
+
+
+
+
+
 const fs = require('fs');
+
+
+
+
+
 
 
 
@@ -23,7 +43,17 @@ const crypto = require('crypto');
 
 
 
+
+
+
+
+
 const { spawn, execFile } = require('child_process');
+
+
+
+
+
 
 
 
@@ -33,7 +63,17 @@ const { promisify } = require('util');
 
 
 
+
+
+
+
+
 const execFileAsync = promisify(execFile);
+
+
+
+
+
 
 
 
@@ -43,7 +83,17 @@ const { WebSocketServer } = require('ws');
 
 
 
+
+
+
+
+
 const db = require('./db');
+
+
+
+
+
 
 
 
@@ -53,7 +103,17 @@ const { scanLibrary, syncSongArtists, ensureProbedOnDemand, deleteSongCascade, i
 
 
 
+
+
+
+
+
 const { ensureHLS, removeHLS, outDir, waitForFile, onBuildComplete } = require('./hlsgen');
+
+
+
+
+
 
 
 
@@ -63,7 +123,17 @@ const sourceCache = require('./sourceCache');
 
 
 
+
+
+
+
+
 const { schedulePreload, setPreloadUpdateNotifier, setDecodeMode } = require('./queuePreload');
+
+
+
+
+
 
 
 
@@ -73,7 +143,17 @@ const cacheCleaner = require('./cacheCleaner');
 
 
 
+
+
+
+
+
 const lyricsMod = require('./lyrics');
+
+
+
+
+
 
 
 
@@ -83,12 +163,27 @@ const sepMod = require('./separate');
 
 
 
+
+
+
+
+
 const cloudDrive = require('./cloud-drive');
 
 
 
+
+
+
+
 const directStream = require('./direct-stream');
+
 const cloud115Login = require('./cloud-115-login');
+
+
+
+
+
 
 
 
@@ -98,7 +193,17 @@ const netktvTest = require('./netktv-test');
 
 
 
+
+
+
+
+
 const netktvScan = require('./netktv-scan');
+
+
+
+
+
 
 
 
@@ -108,7 +213,17 @@ const netktvMkvScan = require('./netktv-mkv-scan');
 
 
 
+
+
+
+
+
 const catalog = require('./catalog');
+
+
+
+
+
 
 
 
@@ -118,12 +233,27 @@ const multer = require('multer');
 
 
 
+
+
+
+
+
 // 分离产物单首几十 MB，用内存存储收完即落盘到 /data/separated（一首一首传，内存可控）
 
 
 
 
+
+
+
+
+
 const sepUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 512 * 1024 * 1024, files: 4 } });
+
+
+
+
+
 
 
 
@@ -138,7 +268,22 @@ const log = require('./logger');
 
 
 
+
+
+
+
+
+
+
+
+
+
 // ---------- 进程级兜底：单个后台任务的意外错误不该拖垮整个服务 ----------
+
+
+
+
+
 
 
 
@@ -148,7 +293,17 @@ const log = require('./logger');
 
 
 
+
+
+
+
+
 // 存在一个"没人消费"的 rejected Promise，Node 遇到 unhandledRejection 默认
+
+
+
+
+
 
 
 
@@ -158,7 +313,17 @@ const log = require('./logger');
 
 
 
+
+
+
+
+
 // 失败的歌立刻再次触发同样的失败——无限重启死循环。那处具体的坑本身已经
+
+
+
+
+
 
 
 
@@ -168,7 +333,17 @@ const log = require('./logger');
 
 
 
+
+
+
+
+
 // 清理等任何后台异步任务）也不小心留了类似没人 catch 的 rejected Promise，
+
+
+
+
+
 
 
 
@@ -178,7 +353,17 @@ const log = require('./logger');
 
 
 
+
+
+
+
+
 // 这是一个要顶着播放、点歌、曲库管理一起跑的长期服务进程，因为某一首歌
+
+
+
+
+
 
 
 
@@ -188,7 +373,17 @@ const log = require('./logger');
 
 
 
+
+
+
+
+
 // 的正常情况）就把整个服务拖下水重启，代价远大于"打个错误日志、这一次
+
+
+
+
+
 
 
 
@@ -198,7 +393,17 @@ const log = require('./logger');
 
 
 
+
+
+
+
+
 process.on('unhandledRejection', (reason) => {
+
+
+
+
+
 
 
 
@@ -208,7 +413,17 @@ process.on('unhandledRejection', (reason) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
 
 
 
@@ -218,12 +433,32 @@ process.on('uncaughtException', (err) => {
 
 
 
+
+
+
+
+
   log.error('PROCESS', `捕获到未处理的同步异常(已阻止进程崩溃，同样需要找时间定位根因)：${err && err.stack ? err.stack : err}`);
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -238,7 +473,17 @@ process.on('uncaughtException', (err) => {
 
 
 
+
+
+
+
+
 // 这一处定义(取自 package.json 的 version 字段，跟 fnOS 应用包 manifest 里
+
+
+
+
+
 
 
 
@@ -248,7 +493,17 @@ process.on('uncaughtException', (err) => {
 
 
 
+
+
+
+
+
 // 每个页面各自硬编码一份、以后升级容易漏改。
+
+
+
+
+
 
 
 
@@ -263,12 +518,32 @@ const APP_VERSION = require('./package.json').version;
 
 
 
+
+
+
+
+
+
+
+
+
+
 const PORT = process.env.PORT || 8080;
 
 
 
 
+
+
+
+
+
 const app = express();
+
+
+
+
+
 
 
 
@@ -283,7 +558,22 @@ app.use(express.json());
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 网盘曲库集成模块
+
+
+
+
+
 
 
 
@@ -292,8 +582,23 @@ app.use('/api/cloud', cloudDrive.init(db));
 
 
 
+
+
+
+
 app.use('/api/direct-stream', directStream);
+
 app.use('/api/115', cloud115Login);
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -308,7 +613,17 @@ app.use('/api/115', cloud115Login);
 
 
 
+
+
+
+
+
 const netktvRouter = netktvTest.init({
+
+
+
+
+
 
 
 
@@ -318,7 +633,17 @@ const netktvRouter = netktvTest.init({
 
 
 
+
+
+
+
+
   accountId: parseInt(process.env.NETKTV_CLOUD_ACCOUNT_ID || '2', 10),
+
+
+
+
+
 
 
 
@@ -328,7 +653,17 @@ const netktvRouter = netktvTest.init({
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
 
 
 
@@ -343,7 +678,22 @@ app.use('/api/netktv', netktvRouter);
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 网络KTV扫描模块（扫描115分离文件，生成STRM并入库）
+
+
+
+
+
 
 
 
@@ -358,7 +708,22 @@ app.use('/api/netktv', netktvScan.init(db, cloudDrive));
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 网络KTV MKV视频扫描模块（扫描115网盘MKV视频，生成STRM并入库）
+
+
+
+
+
 
 
 
@@ -373,7 +738,22 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
+
+
+
+
+
+
+
+
+
+
 // ---------- 「管理后台」管理员登录 ----------
+
+
+
+
+
 
 
 
@@ -383,7 +763,17 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
+
+
+
+
+
 // 存进 SQLite，而是改成在 docker-compose.yml 的 environment 里用
+
+
+
+
+
 
 
 
@@ -393,7 +783,17 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
+
+
+
+
+
 // 换库/重建容器都不用担心"密码丢了"，也不需要再走一遍"首次设置密码"的
+
+
+
+
+
 
 
 
@@ -403,7 +803,17 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
+
+
+
+
+
 // 默认密码，保证老用户直接升级镜像也能照常登录，但每次启动都会打一条
+
+
+
+
+
 
 
 
@@ -413,7 +823,17 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
+
+
+
+
+
 // 注意：登录状态只用来保护「管理后台」页面里真正的管理操作（编辑/删除
+
+
+
+
+
 
 
 
@@ -423,7 +843,17 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
+
+
+
+
+
 // 的公共接口不受影响——电视端"扫描曲库"本来就需要有人在电视旁边用遥控器
+
+
+
+
+
 
 
 
@@ -433,7 +863,17 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
+
+
+
+
+
 const DEFAULT_ADMIN_PASSWORD = 'admin888';
+
+
+
+
+
 
 
 
@@ -443,7 +883,17 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
 
 
 
+
+
+
+
+
 if (!process.env.ADMIN_PASSWORD) {
+
+
+
+
+
 
 
 
@@ -453,12 +903,27 @@ if (!process.env.ADMIN_PASSWORD) {
 
 
 
+
+
+
+
+
 }
 
 
 
 
+
+
+
+
+
 const ADMIN_SESSION_COOKIE = 'ktv_admin_session';
+
+
+
+
+
 
 
 
@@ -473,7 +938,22 @@ const adminSessions = new Set();
 
 
 
+
+
+
+
+
+
+
+
+
+
 function sha256Hex(text) {
+
+
+
+
+
 
 
 
@@ -483,7 +963,22 @@ function sha256Hex(text) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -498,7 +993,17 @@ function hashesMatch(a, b) {
 
 
 
+
+
+
+
+
   const bufA = Buffer.from(String(a || '').padEnd(64, '0'));
+
+
+
+
+
 
 
 
@@ -508,12 +1013,32 @@ function hashesMatch(a, b) {
 
 
 
+
+
+
+
+
   return String(a).length === 64 && crypto.timingSafeEqual(bufA, bufB);
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -528,7 +1053,17 @@ function hashesMatch(a, b) {
 
 
 
+
+
+
+
+
 function parseCookies(req) {
+
+
+
+
+
 
 
 
@@ -538,7 +1073,17 @@ function parseCookies(req) {
 
 
 
+
+
+
+
+
   const out = {};
+
+
+
+
+
 
 
 
@@ -548,7 +1093,17 @@ function parseCookies(req) {
 
 
 
+
+
+
+
+
   header.split(';').forEach(part => {
+
+
+
+
+
 
 
 
@@ -558,7 +1113,17 @@ function parseCookies(req) {
 
 
 
+
+
+
+
+
     if (idx === -1) return;
+
+
+
+
+
 
 
 
@@ -568,7 +1133,17 @@ function parseCookies(req) {
 
 
 
+
+
+
+
+
     const v = part.slice(idx + 1).trim();
+
+
+
+
+
 
 
 
@@ -578,7 +1153,17 @@ function parseCookies(req) {
 
 
 
+
+
+
+
+
   });
+
+
+
+
+
 
 
 
@@ -588,7 +1173,22 @@ function parseCookies(req) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -603,7 +1203,17 @@ function isAdminAuthed(req) {
 
 
 
+
+
+
+
+
   const token = parseCookies(req)[ADMIN_SESSION_COOKIE];
+
+
+
+
+
 
 
 
@@ -613,7 +1223,22 @@ function isAdminAuthed(req) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -628,7 +1253,17 @@ function requireAdminAuth(req, res, next) {
 
 
 
+
+
+
+
+
   if (isAdminAuthed(req)) return next();
+
+
+
+
+
 
 
 
@@ -638,7 +1273,22 @@ function requireAdminAuth(req, res, next) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -653,7 +1303,17 @@ function startAdminSession(res) {
 
 
 
+
+
+
+
+
   const token = crypto.randomBytes(24).toString('hex');
+
+
+
+
+
 
 
 
@@ -663,7 +1323,17 @@ function startAdminSession(res) {
 
 
 
+
+
+
+
+
   res.cookie(ADMIN_SESSION_COOKIE, token, {
+
+
+
+
+
 
 
 
@@ -673,7 +1343,17 @@ function startAdminSession(res) {
 
 
 
+
+
+
+
+
     sameSite: 'lax',
+
+
+
+
+
 
 
 
@@ -683,12 +1363,32 @@ function startAdminSession(res) {
 
 
 
+
+
+
+
+
   });
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -703,12 +1403,32 @@ app.get('/api/admin/session', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ authed: isAdminAuthed(req) });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -723,7 +1443,17 @@ app.post('/api/admin/login', (req, res) => {
 
 
 
+
+
+
+
+
   const { password } = req.body || {};
+
+
+
+
+
 
 
 
@@ -733,7 +1463,17 @@ app.post('/api/admin/login', (req, res) => {
 
 
 
+
+
+
+
+
   if (!hashesMatch(inputHash, sha256Hex(ADMIN_PASSWORD))) {
+
+
+
+
+
 
 
 
@@ -743,7 +1483,17 @@ app.post('/api/admin/login', (req, res) => {
 
 
 
+
+
+
+
+
     return res.status(401).json({ error: '密码错误' });
+
+
+
+
+
 
 
 
@@ -753,7 +1503,17 @@ app.post('/api/admin/login', (req, res) => {
 
 
 
+
+
+
+
+
   startAdminSession(res);
+
+
+
+
+
 
 
 
@@ -763,12 +1523,32 @@ app.post('/api/admin/login', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -783,7 +1563,17 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
+
+
+
+
+
   const token = parseCookies(req)[ADMIN_SESSION_COOKIE];
+
+
+
+
+
 
 
 
@@ -793,7 +1583,17 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
+
+
+
+
+
   res.clearCookie(ADMIN_SESSION_COOKIE);
+
+
+
+
+
 
 
 
@@ -803,7 +1603,22 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -818,7 +1633,17 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
+
+
+
+
+
 // 需求：以前 TV 大屏页面打开即用，谁都能打开局域网地址直接看/操作；现在
+
+
+
+
+
 
 
 
@@ -828,7 +1653,17 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
+
+
+
+
+
 // 创建(见下方 /api/admin/tv-users)，跟「管理后台」自己的 ADMIN_PASSWORD
+
+
+
+
+
 
 
 
@@ -838,7 +1673,17 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
+
+
+
+
+
 // "能不能打开K歌大屏点歌唱歌"。
+
+
+
+
+
 
 
 
@@ -848,7 +1693,17 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
+
+
+
+
+
 // 会话实现特意不跟管理后台一样用"内存 Set 存 token"：TV 大屏经常是常年
+
+
+
+
+
 
 
 
@@ -858,7 +1713,17 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
+
+
+
+
+
 // 内存走，每次重启都要有人拿着遥控器重新登录一次，体验很差，也是"记住
+
+
+
+
+
 
 
 
@@ -868,7 +1733,17 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
+
+
+
+
+
 // JWT)：payload 里带用户名、过期时间戳、以及当前密码哈希的短指纹，用
+
+
+
+
+
 
 
 
@@ -878,7 +1753,17 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
+
+
+
+
+
 // (session_secret，见下方)，不随进程重启失效，只要 token 没过期、对应的
+
+
+
+
+
 
 
 
@@ -888,7 +1773,17 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
+
+
+
+
+
 // 账号、或者管理员帮用户重置了密码，旧 token 会自然失效，不需要额外维护
+
+
+
+
+
 
 
 
@@ -898,7 +1793,17 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
+
+
+
+
+
 const TV_SESSION_COOKIE = 'ktv_tv_session';
+
+
+
+
+
 
 
 
@@ -908,7 +1813,17 @@ const TV_SESSION_SECRET_KEY = 'session_secret';
 
 
 
+
+
+
+
+
 const TV_SESSION_REMEMBER_MS = 30 * 24 * 60 * 60 * 1000; // "记住我"：30 天
+
+
+
+
+
 
 
 
@@ -923,7 +1838,22 @@ const TV_SESSION_DEFAULT_MS = 12 * 60 * 60 * 1000;       // 不勾选"记住我"
 
 
 
+
+
+
+
+
+
+
+
+
+
 function getSessionSecret() {
+
+
+
+
+
 
 
 
@@ -933,7 +1863,17 @@ function getSessionSecret() {
 
 
 
+
+
+
+
+
   if (row && row.value) return row.value;
+
+
+
+
+
 
 
 
@@ -943,7 +1883,17 @@ function getSessionSecret() {
 
 
 
+
+
+
+
+
   db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+
+
+
+
+
 
 
 
@@ -953,12 +1903,27 @@ function getSessionSecret() {
 
 
 
+
+
+
+
+
   return secret;
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
 
 
 
@@ -973,7 +1938,22 @@ const SESSION_SECRET = getSessionSecret();
 
 
 
+
+
+
+
+
+
+
+
+
+
 function base64url(buf) {
+
+
+
+
+
 
 
 
@@ -983,7 +1963,17 @@ function base64url(buf) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
 
 
 
@@ -993,7 +1983,17 @@ function base64urlDecode(str) {
 
 
 
+
+
+
+
+
   str = str.replace(/-/g, '+').replace(/_/g, '/');
+
+
+
+
+
 
 
 
@@ -1003,12 +2003,32 @@ function base64urlDecode(str) {
 
 
 
+
+
+
+
+
   return Buffer.from(str, 'base64');
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1023,7 +2043,17 @@ function signTvToken(username, ttlMs) {
 
 
 
+
+
+
+
+
   const user = db.prepare('SELECT password_hash FROM tv_users WHERE username = ?').get(username);
+
+
+
+
+
 
 
 
@@ -1033,7 +2063,17 @@ function signTvToken(username, ttlMs) {
 
 
 
+
+
+
+
+
   const payload = { u: username, exp: Date.now() + ttlMs, pv: user.password_hash.slice(0, 8) };
+
+
+
+
+
 
 
 
@@ -1043,7 +2083,17 @@ function signTvToken(username, ttlMs) {
 
 
 
+
+
+
+
+
   const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('hex');
+
+
+
+
+
 
 
 
@@ -1053,7 +2103,22 @@ function signTvToken(username, ttlMs) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1068,7 +2133,17 @@ function verifyTvToken(token) {
 
 
 
+
+
+
+
+
   if (!token || token.indexOf('.') === -1) return null;
+
+
+
+
+
 
 
 
@@ -1078,7 +2153,17 @@ function verifyTvToken(token) {
 
 
 
+
+
+
+
+
   const expectedSig = crypto.createHmac('sha256', SESSION_SECRET).update(payloadB64).digest('hex');
+
+
+
+
+
 
 
 
@@ -1088,7 +2173,17 @@ function verifyTvToken(token) {
 
 
 
+
+
+
+
+
     return null;
+
+
+
+
+
 
 
 
@@ -1098,7 +2193,17 @@ function verifyTvToken(token) {
 
 
 
+
+
+
+
+
   let payload;
+
+
+
+
+
 
 
 
@@ -1108,7 +2213,17 @@ function verifyTvToken(token) {
 
 
 
+
+
+
+
+
   if (!payload || !payload.u || !payload.exp || Date.now() > payload.exp) return null;
+
+
+
+
+
 
 
 
@@ -1118,7 +2233,17 @@ function verifyTvToken(token) {
 
 
 
+
+
+
+
+
   if (!user || user.password_hash.slice(0, 8) !== payload.pv) return null; // 账号已删除或密码已改，旧token失效
+
+
+
+
+
 
 
 
@@ -1128,7 +2253,22 @@ function verifyTvToken(token) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1143,7 +2283,17 @@ function isTvAuthed(req) {
 
 
 
+
+
+
+
+
   const token = parseCookies(req)[TV_SESSION_COOKIE];
+
+
+
+
+
 
 
 
@@ -1153,7 +2303,22 @@ function isTvAuthed(req) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1168,7 +2333,17 @@ function startTvSession(res, username, remember) {
 
 
 
+
+
+
+
+
   const ttl = remember ? TV_SESSION_REMEMBER_MS : TV_SESSION_DEFAULT_MS;
+
+
+
+
+
 
 
 
@@ -1178,7 +2353,17 @@ function startTvSession(res, username, remember) {
 
 
 
+
+
+
+
+
   res.cookie(TV_SESSION_COOKIE, token, {
+
+
+
+
+
 
 
 
@@ -1188,7 +2373,17 @@ function startTvSession(res, username, remember) {
 
 
 
+
+
+
+
+
     sameSite: 'lax',
+
+
+
+
+
 
 
 
@@ -1198,7 +2393,17 @@ function startTvSession(res, username, remember) {
 
 
 
+
+
+
+
+
     // token 自身 12 小时过期时间是两道独立的保险，任一个先到都会要求
+
+
+
+
+
 
 
 
@@ -1208,7 +2413,17 @@ function startTvSession(res, username, remember) {
 
 
 
+
+
+
+
+
     maxAge: remember ? TV_SESSION_REMEMBER_MS : undefined,
+
+
+
+
+
 
 
 
@@ -1218,7 +2433,22 @@ function startTvSession(res, username, remember) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1233,7 +2463,17 @@ app.get('/api/tv-auth/session', (req, res) => {
 
 
 
+
+
+
+
+
   const username = (() => {
+
+
+
+
+
 
 
 
@@ -1243,7 +2483,17 @@ app.get('/api/tv-auth/session', (req, res) => {
 
 
 
+
+
+
+
+
     return verifyTvToken(token);
+
+
+
+
+
 
 
 
@@ -1253,7 +2503,17 @@ app.get('/api/tv-auth/session', (req, res) => {
 
 
 
+
+
+
+
+
   const hasUsers = db.prepare('SELECT COUNT(*) c FROM tv_users').get().c > 0;
+
+
+
+
+
 
 
 
@@ -1263,7 +2523,22 @@ app.get('/api/tv-auth/session', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1278,7 +2553,17 @@ app.post('/api/tv-auth/login', (req, res) => {
 
 
 
+
+
+
+
+
   const { username, password, remember } = req.body || {};
+
+
+
+
+
 
 
 
@@ -1288,7 +2573,17 @@ app.post('/api/tv-auth/login', (req, res) => {
 
 
 
+
+
+
+
+
   const inputHash = password ? sha256Hex(password) : '';
+
+
+
+
+
 
 
 
@@ -1298,7 +2593,17 @@ app.post('/api/tv-auth/login', (req, res) => {
 
 
 
+
+
+
+
+
     log.warn('TV_AUTH', `K歌主页面登录失败：账号或密码错误(账号="${username || ''}")`);
+
+
+
+
+
 
 
 
@@ -1308,7 +2613,17 @@ app.post('/api/tv-auth/login', (req, res) => {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -1318,7 +2633,17 @@ app.post('/api/tv-auth/login', (req, res) => {
 
 
 
+
+
+
+
+
   log.info('TV_AUTH', `K歌主页面登录成功：账号="${row.username}"${remember ? '(已记住登录)' : ''}`);
+
+
+
+
+
 
 
 
@@ -1328,7 +2653,22 @@ app.post('/api/tv-auth/login', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1343,7 +2683,17 @@ app.post('/api/tv-auth/logout', (req, res) => {
 
 
 
+
+
+
+
+
   res.clearCookie(TV_SESSION_COOKIE);
+
+
+
+
+
 
 
 
@@ -1353,7 +2703,22 @@ app.post('/api/tv-auth/logout', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1368,7 +2733,17 @@ app.post('/api/tv-auth/logout', (req, res) => {
 
 
 
+
+
+
+
+
 app.get('/api/admin/tv-users', requireAdminAuth, (req, res) => {
+
+
+
+
+
 
 
 
@@ -1378,12 +2753,32 @@ app.get('/api/admin/tv-users', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, users });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1398,7 +2793,17 @@ app.post('/api/admin/tv-users', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const { username, password } = req.body || {};
+
+
+
+
+
 
 
 
@@ -1408,7 +2813,17 @@ app.post('/api/admin/tv-users', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   if (!name) return res.status(400).json({ error: '请输入账号名' });
+
+
+
+
+
 
 
 
@@ -1418,7 +2833,17 @@ app.post('/api/admin/tv-users', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const exists = db.prepare('SELECT id FROM tv_users WHERE username = ?').get(name);
+
+
+
+
+
 
 
 
@@ -1428,7 +2853,17 @@ app.post('/api/admin/tv-users', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   db.prepare('INSERT INTO tv_users (username, password_hash) VALUES (?, ?)').run(name, sha256Hex(password));
+
+
+
+
+
 
 
 
@@ -1438,12 +2873,32 @@ app.post('/api/admin/tv-users', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1458,7 +2913,17 @@ app.post('/api/admin/tv-users', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 支持改密码，改用户名的场景直接删掉旧账号、新增一个新的即可。
+
+
+
+
+
 
 
 
@@ -1468,7 +2933,17 @@ app.put('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const { password } = req.body || {};
+
+
+
+
+
 
 
 
@@ -1478,7 +2953,17 @@ app.put('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const row = db.prepare('SELECT * FROM tv_users WHERE id = ?').get(req.params.id);
+
+
+
+
+
 
 
 
@@ -1488,7 +2973,17 @@ app.put('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   db.prepare('UPDATE tv_users SET password_hash = ? WHERE id = ?').run(sha256Hex(password), row.id);
+
+
+
+
+
 
 
 
@@ -1498,12 +2993,32 @@ app.put('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1518,7 +3033,17 @@ app.delete('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const row = db.prepare('SELECT * FROM tv_users WHERE id = ?').get(req.params.id);
+
+
+
+
+
 
 
 
@@ -1528,7 +3053,17 @@ app.delete('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   db.prepare('DELETE FROM tv_users WHERE id = ?').run(row.id);
+
+
+
+
+
 
 
 
@@ -1538,12 +3073,32 @@ app.delete('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1558,7 +3113,17 @@ app.delete('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 改成重定向到登录页；登录页本身、以及 /tv 目录下的图片/字体等静态资源
+
+
+
+
+
 
 
 
@@ -1568,7 +3133,17 @@ app.delete('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 后面的 express.static 处理)。用 302 重定向而不是直接在这里 res.send
+
+
+
+
+
 
 
 
@@ -1578,7 +3153,17 @@ app.delete('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 页面"这件事都能用标准的 URL 跳转完成，不需要额外写一套前端路由逻辑。
+
+
+
+
+
 
 
 
@@ -1588,7 +3173,17 @@ app.get(['/tv', '/tv/', '/tv/index.html', '/tv/clean.html'], (req, res, next) =>
 
 
 
+
+
+
+
+
   if (isTvAuthed(req)) return next();
+
+
+
+
+
 
 
 
@@ -1598,12 +3193,32 @@ app.get(['/tv', '/tv/', '/tv/index.html', '/tv/clean.html'], (req, res, next) =>
 
 
 
+
+
+
+
+
   res.redirect(`/tv/login.html?to=${encodeURIComponent(to)}`);
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1618,7 +3233,17 @@ app.get(['/tv', '/tv/', '/tv/index.html', '/tv/clean.html'], (req, res, next) =>
 
 
 
+
+
+
+
+
 // 根路径 "/" 现在是一个导航首页（墨墨爱K歌品牌页 + 粒子动画背景），提供到
+
+
+
+
+
 
 
 
@@ -1628,7 +3253,17 @@ app.get(['/tv', '/tv/', '/tv/index.html', '/tv/clean.html'], (req, res, next) =>
 
 
 
+
+
+
+
+
 // http://<NAS-IP>:8083 就能跳转到想用的功能，不用记具体子路径。
+
+
+
+
+
 
 
 
@@ -1638,7 +3273,17 @@ app.get(['/tv', '/tv/', '/tv/index.html', '/tv/clean.html'], (req, res, next) =>
 
 
 
+
+
+
+
+
 // （比如 "/" 命中 index.html），其它路径（如 /api/xxx、/tv、/admin）会
+
+
+
+
+
 
 
 
@@ -1648,7 +3293,17 @@ app.get(['/tv', '/tv/', '/tv/index.html', '/tv/clean.html'], (req, res, next) =>
 
 
 
+
+
+
+
+
 app.use('/',      express.static(path.join(__dirname, '../web/home')));
+
+
+
+
+
 
 
 
@@ -1658,7 +3313,17 @@ app.use('/tv',    express.static(path.join(__dirname, '../web/tv')));
 
 
 
+
+
+
+
+
 app.use('/m',     express.static(path.join(__dirname, '../web/mobile')));
+
+
+
+
+
 
 
 
@@ -1668,7 +3333,17 @@ app.use('/m',     express.static(path.join(__dirname, '../web/mobile')));
 
 
 
+
+
+
+
+
 // "/mobile" 更直观、容易记，"/m" 更短、原来的二维码/收藏链接可能已经在用，
+
+
+
+
+
 
 
 
@@ -1678,7 +3353,17 @@ app.use('/m',     express.static(path.join(__dirname, '../web/mobile')));
 
 
 
+
+
+
+
+
 app.use('/mobile', express.static(path.join(__dirname, '../web/mobile')));
+
+
+
+
+
 
 
 
@@ -1688,7 +3373,17 @@ app.use('/admin', express.static(path.join(__dirname, '../web/admin')));
 
 
 
+
+
+
+
+
 app.use('/mic',   express.static(path.join(__dirname, '../web/mic')));
+
+
+
+
+
 
 
 
@@ -1698,7 +3393,17 @@ app.use('/mic',   express.static(path.join(__dirname, '../web/mic')));
 
 
 
+
+
+
+
+
 app.use('/sounds',express.static(path.join(__dirname, '../web/sounds')));
+
+
+
+
+
 
 
 
@@ -1708,7 +3413,17 @@ app.use('/sounds',express.static(path.join(__dirname, '../web/sounds')));
 
 
 
+
+
+
+
+
 // 电视/手机/平板访问 http://NAS_IP:8083/clients 即可直接下载，不用再去 GitHub 找。
+
+
+
+
+
 
 
 
@@ -1718,12 +3433,27 @@ app.use('/clients', express.static(path.join(__dirname, '../web/clients')));
 
 
 
+
+
+
+
+
 app.use('/cover', express.static('/data/covers'));
 
 
 
 
+
+
+
+
+
 // 用户上传的动态背景图片（网页遥控端上传、纯音频歌"我的图片"背景模式随机轮播）
+
+
+
+
+
 
 
 
@@ -1738,7 +3468,22 @@ app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 
 
 
 
+
+
+
+
+
+
+
+
+
+
 // ---------- HLS 播放 (音轨切换不中断播放、进度可寻址) ----------
+
+
+
+
+
 
 
 
@@ -1748,7 +3493,17 @@ app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 
 
 
 
+
+
+
+
+
 // Content-Length/Range 支持，所以切音轨、以及切完音轨后拖进度条，都只能从
+
+
+
+
+
 
 
 
@@ -1758,7 +3513,17 @@ app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 
 
 
 
+
+
+
+
+
 // master.m3u8 通过 EXT-X-MEDIA 把所有音频轨声明成同一个 AUDIO group。前端
+
+
+
+
+
 
 
 
@@ -1768,7 +3533,17 @@ app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 
 
 
 
+
+
+
+
+
 // 播放位置、连续性完全不受影响；HLS 分片本身天然可寻址，拖进度条对任意音轨
+
+
+
+
+
 
 
 
@@ -1778,7 +3553,17 @@ app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 
 
 
 
+
+
+
+
+
 // 具体生成逻辑见 hlsgen.js。
+
+
+
+
+
 
 
 
@@ -1788,7 +3573,17 @@ app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 
 
 
 
+
+
+
+
+
 // 它会立刻创建输出目录、把 master.m3u8 写出来，然后把真正耗时的 ffmpeg 转码
+
+
+
+
+
 
 
 
@@ -1798,7 +3593,17 @@ app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 
 
 
 
+
+
+
+
+
 // "有没有查到歌"和"磁盘 IO"，跟这首歌要转多久没有关系，不会再出现点歌后
+
+
+
+
+
 
 
 
@@ -1808,7 +3613,17 @@ app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 
 
 
 
+
+
+
+
+
 app.get('/hls/:id/master.m3u8', async (req, res) => {
+
+
+
+
+
 
 
 
@@ -1818,7 +3633,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
   if (!song || !fs.existsSync(song.filepath)) return res.status(404).end();
+
+
+
+
+
 
 
 
@@ -1828,7 +3653,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
   try {
+
+
+
+
+
 
 
 
@@ -1838,7 +3673,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
     // 异步、不等待的(见 POST /api/queue)，如果这个请求跑得比探测还快，
+
+
+
+
+
 
 
 
@@ -1848,7 +3693,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
     // 而且这次转码结果一旦生成就不会因为探测结果稍后落地而重做，这次播放
+
+
+
+
+
 
 
 
@@ -1858,7 +3713,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
     // STRM/网络挂载曲目且还没探测过，先老老实实 await 一次探测完成——
+
+
+
+
+
 
 
 
@@ -1868,7 +3733,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
     if (song.audio_tracks == null && (song.is_network || song.is_strm)) {
+
+
+
+
+
 
 
 
@@ -1878,7 +3753,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
     }
+
+
+
+
+
 
 
 
@@ -1888,7 +3773,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
     res.set({ 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' });
+
+
+
+
+
 
 
 
@@ -1898,7 +3793,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
     // EXT-X-MEDIA 音轨。带 ?voice=N 时只保留第 N 条音轨并设为默认，前端通过更换
+
+
+
+
+
 
 
 
@@ -1908,7 +3813,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
     const voiceIdx = Number.parseInt(req.query.voice, 10);
+
+
+
+
+
 
 
 
@@ -1918,7 +3833,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
       const srcLines = fs.readFileSync(m3u8Path, 'utf8').split('\n');
+
+
+
+
+
 
 
 
@@ -1928,7 +3853,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
       srcLines.forEach((ln, i) => { if (ln.indexOf('#EXT-X-MEDIA:') === 0) mediaPos.push(i); });
+
+
+
+
+
 
 
 
@@ -1938,7 +3873,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
         const keepPos = mediaPos[voiceIdx];
+
+
+
+
+
 
 
 
@@ -1948,7 +3893,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
           if (ln.indexOf('#EXT-X-MEDIA:') !== 0) return ln;
+
+
+
+
+
 
 
 
@@ -1958,7 +3913,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
           return ln.replace(/DEFAULT=[A-Z]+/, 'DEFAULT=YES').replace(/AUTOSELECT=[A-Z]+/, 'AUTOSELECT=YES');
+
+
+
+
+
 
 
 
@@ -1968,7 +3933,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
         return res.end(out);
+
+
+
+
+
 
 
 
@@ -1978,7 +3953,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
     }
+
+
+
+
+
 
 
 
@@ -1988,7 +3973,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
   } catch (e) {
+
+
+
+
+
 
 
 
@@ -1998,7 +3993,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
     res.status(500).end();
+
+
+
+
+
 
 
 
@@ -2008,7 +4013,22 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2023,7 +4043,17 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
+
+
+
+
+
 // 里的 EXT-X-MEDIA，和实际下发完全一致。hls.js 端从 audioTracks 自取，无需调用。
+
+
+
+
+
 
 
 
@@ -2033,7 +4063,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
   const song = db.prepare('SELECT * FROM songs WHERE id = ?').get(req.params.id);
+
+
+
+
+
 
 
 
@@ -2043,7 +4083,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
   try {
+
+
+
+
+
 
 
 
@@ -2053,7 +4103,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
       song.audio_tracks = await ensureProbedOnDemand(song);
+
+
+
+
+
 
 
 
@@ -2063,7 +4123,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
     const m3u8Path = await ensureHLS(song);
+
+
+
+
+
 
 
 
@@ -2073,7 +4143,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
     fs.readFileSync(m3u8Path, 'utf8').split('\n').forEach(ln => {
+
+
+
+
+
 
 
 
@@ -2083,7 +4163,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
       const m = ln.match(/NAME="([^"]*)"/);
+
+
+
+
+
 
 
 
@@ -2093,7 +4183,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
     });
+
+
+
+
+
 
 
 
@@ -2103,7 +4203,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
   } catch (e) {
+
+
+
+
+
 
 
 
@@ -2113,7 +4223,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
     res.status(500).json({ error: e.message });
+
+
+
+
+
 
 
 
@@ -2123,7 +4243,22 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2138,7 +4273,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
 // id 也强制要求纯数字，避免拼接出 outDir 之外的路径。
+
+
+
+
+
 
 
 
@@ -2148,7 +4293,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
 // 渐进式转码下，这些文件是随着后台 ffmpeg 进程持续产出的：播放器可能会在
+
+
+
+
+
 
 
 
@@ -2158,7 +4313,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
 // 而是短暂轮询等待它出现（waitForFile），一旦转码进度追上就立即响应——
+
+
+
+
+
 
 
 
@@ -2168,7 +4333,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
 // 首歌的转码任务本身已经失败，或者等待太久都没等到（比如源文件损坏、卡在
+
+
+
+
+
 
 
 
@@ -2178,7 +4353,17 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
+
+
+
+
+
 app.get('/hls/:id/:file', async (req, res) => {
+
+
+
+
+
 
 
 
@@ -2188,7 +4373,17 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
   if (!/^\d+$/.test(id) || !/^[\w.-]+$/.test(file)) return res.status(400).end();
+
+
+
+
+
 
 
 
@@ -2203,7 +4398,22 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   let ready = fs.existsSync(p);
+
+
+
+
+
 
 
 
@@ -2213,7 +4423,17 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
     try {
+
+
+
+
+
 
 
 
@@ -2223,7 +4443,17 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
       ready = true;
+
+
+
+
+
 
 
 
@@ -2233,7 +4463,17 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
       if (e.code === 'BUILD_FAILED') {
+
+
+
+
+
 
 
 
@@ -2243,7 +4483,17 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
         return res.status(500).end();
+
+
+
+
+
 
 
 
@@ -2253,7 +4503,17 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
       log.warn('HLS', `等待分片超时: id=${id}, file=${file}`);
+
+
+
+
+
 
 
 
@@ -2263,12 +4523,32 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
     }
 
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2283,7 +4563,17 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
   else if (file.endsWith('.ts')) res.set({ 'Content-Type': 'video/mp2t', 'Cache-Control': 'public, max-age=31536000, immutable' });
+
+
+
+
+
 
 
 
@@ -2293,7 +4583,22 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2308,7 +4613,17 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
 // Android 客户端在"硬解模式"下不走服务端转码，而是直接请求 /stream/:id 拿到
+
+
+
+
+
 
 
 
@@ -2318,7 +4633,17 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
 // 在客户端设备上完成解码，服务端本身"看不见"解码过程本身是否正常——但很多
+
+
+
+
+
 
 
 
@@ -2328,7 +4653,17 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
 // 空间、码率过高导致的兼容性问题等)其实可以在服务端提前用 ffprobe 探测出来，
+
+
+
+
+
 
 
 
@@ -2338,7 +4673,17 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
+
+
+
+
+
 // 问题。probeCodecInfo 结果按歌曲 id 缓存，避免同一首歌被反复请求时重复探测。
+
+
+
+
+
 
 
 
@@ -2353,7 +4698,22 @@ const codecInfoCache = new Map(); // song_id -> { videoCodec, videoProfile, widt
 
 
 
+
+
+
+
+
+
+
+
+
+
 async function probeCodecInfo(song, srcPath) {
+
+
+
+
+
 
 
 
@@ -2363,7 +4723,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
   if (cached) return cached;
+
+
+
+
+
 
 
 
@@ -2373,7 +4743,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
     const { stdout } = await execFileAsync('ffprobe', [
+
+
+
+
+
 
 
 
@@ -2383,7 +4763,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
       '-show_entries', 'stream=codec_type,codec_name,profile,width,height,channels',
+
+
+
+
+
 
 
 
@@ -2393,7 +4783,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
       srcPath || song.filepath,
+
+
+
+
+
 
 
 
@@ -2403,7 +4803,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
     const info = JSON.parse(stdout);
+
+
+
+
+
 
 
 
@@ -2413,7 +4823,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
     const a = (info.streams || []).find(s => s.codec_type === 'audio') || {};
+
+
+
+
+
 
 
 
@@ -2423,7 +4843,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
       videoCodec: v.codec_name || '未知', videoProfile: v.profile || '未知',
+
+
+
+
+
 
 
 
@@ -2433,7 +4863,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
       audioCodec: a.codec_name || '未知', audioChannels: a.channels || 0,
+
+
+
+
+
 
 
 
@@ -2443,7 +4883,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
     };
+
+
+
+
+
 
 
 
@@ -2453,7 +4903,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
     return result;
+
+
+
+
+
 
 
 
@@ -2463,7 +4923,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
     log.warn('STREAM', `[歌曲 id=${song.id}] ffprobe 编解码信息探测失败，不影响直连播放本身，仅缺少诊断信息: ${e.message.split('\n')[0]}`);
+
+
+
+
+
 
 
 
@@ -2473,12 +4943,32 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
   }
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2493,7 +4983,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
 // 硬解(客户端解码，走 /stream/:id 直连原始文件)与软解(服务端解码/转码，走
+
+
+
+
+
 
 
 
@@ -2503,7 +5003,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
 // 也就无从知晓某台设备当前用的是哪种模式。这里加一个轻量上报接口，由 Android
+
+
+
+
+
 
 
 
@@ -2513,7 +5023,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
 // 关键上下文(设备型号、Android 版本、是否命中源文件编解码兼容性问题等)一起
+
+
+
+
+
 
 
 
@@ -2523,7 +5043,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
 // 解码器不支持这个源文件，还是应该切到软解"这类问题。上报失败不影响播放本身，
+
+
+
+
+
 
 
 
@@ -2533,7 +5063,17 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
+
+
+
+
+
 app.post('/api/decode-mode/report', async (req, res) => {
+
+
+
+
+
 
 
 
@@ -2543,7 +5083,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
   const modeName = mode === 'hardware' ? '硬解(客户端解码)' : mode === 'software' ? '软解(服务端解码/转码)' : (mode || '未知');
+
+
+
+
+
 
 
 
@@ -2553,7 +5103,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
   // 转码"感知到当前是硬解还是软解，硬解模式下不再对预热窗口里的歌无条件
+
+
+
+
+
 
 
 
@@ -2563,7 +5123,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
   setDecodeMode(mode);
+
+
+
+
+
 
 
 
@@ -2573,7 +5143,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
   const songTag = song ? `id=${song.id} "${song.title || song.filename}"` : `id=${song_id || '未知'}`;
+
+
+
+
+
 
 
 
@@ -2588,7 +5168,22 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   let extra = '';
+
+
+
+
+
 
 
 
@@ -2598,7 +5193,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
     const codec = await probeCodecInfo(song);
+
+
+
+
+
 
 
 
@@ -2608,7 +5213,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
       extra = ` | 源文件: 视频=${codec.videoCodec}/${codec.videoProfile} ${codec.width}x${codec.height}, 音频=${codec.audioCodec} ${codec.audioChannels}声道, 音轨数=${song.audio_tracks || 1}`;
+
+
+
+
+
 
 
 
@@ -2618,7 +5233,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
       // 其它编码(HEVC 高规格/AV1 等)在部分低端设备上可能没有对应硬件解码器，只是
+
+
+
+
+
 
 
 
@@ -2628,7 +5253,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
       if (!/^h264$/i.test(codec.videoCodec) && codec.videoCodec !== '未知') {
+
+
+
+
+
 
 
 
@@ -2638,7 +5273,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
       }
+
+
+
+
+
 
 
 
@@ -2648,7 +5293,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
       // 不少 Android 设备上没有对应 MediaCodec，画面能出但没声音，直到切音轨
+
+
+
+
+
 
 
 
@@ -2658,7 +5313,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
       // 这首歌是老版本扫描/探测的(那时候还没有 audio_needs_soft 这一列)，
+
+
+
+
+
 
 
 
@@ -2668,7 +5333,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
       // 就能直接从服务端拿到 audio_needs_soft=1，一开始就走软解。
+
+
+
+
+
 
 
 
@@ -2678,7 +5353,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
         extra += ` | 提示: 音频编码=${codec.audioCodec}，部分 Android 设备硬件/软件解码器不支持此音频编码(画面正常但没有声音)，建议切换到软解模式`;
+
+
+
+
+
 
 
 
@@ -2688,7 +5373,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
           db.prepare('UPDATE songs SET audio_needs_soft = 1 WHERE id = ?').run(song.id);
+
+
+
+
+
 
 
 
@@ -2698,7 +5393,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
       }
+
+
+
+
+
 
 
 
@@ -2708,7 +5413,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
       // 只是这里是视频编码——老曲目(扫描时还没有 video_needs_soft 这一列，或
+
+
+
+
+
 
 
 
@@ -2718,7 +5433,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
       // 时顺手探测一次，命中已知有问题的视频编码就回填，之后点这首歌客户端
+
+
+
+
+
 
 
 
@@ -2728,7 +5453,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
       if (isProblemVideoCodec(codec.videoCodec)) {
+
+
+
+
+
 
 
 
@@ -2738,7 +5473,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
         if (!song.video_needs_soft) {
+
+
+
+
+
 
 
 
@@ -2748,7 +5493,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
         }
+
+
+
+
+
 
 
 
@@ -2758,7 +5513,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
     }
+
+
+
+
+
 
 
 
@@ -2768,7 +5533,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
   const reasonTag = reason ? `，触发原因: ${reason}` : '';
+
+
+
+
+
 
 
 
@@ -2778,12 +5553,32 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2798,7 +5593,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
 // 历史接口，现已不是 TV 播放器的主路径(见上面的 /hls)。保留作为兼容兜底：
+
+
+
+
+
 
 
 
@@ -2808,7 +5613,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
 // ?track=0/1（对多音轨文件用 ffmpeg -c copy 现场重新封装出单音轨流），但注意
+
+
+
+
+
 
 
 
@@ -2818,7 +5633,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
+
+
+
+
+
 // 做音轨切换后还要拖进度条的场景——那正是旧 bug 的根因，具体解释见 /hls 路由。
+
+
+
+
+
 
 
 
@@ -2828,7 +5653,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   const song = db.prepare('SELECT * FROM songs WHERE id = ?').get(req.params.id);
+
+
+
+
+
 
 
 
@@ -2838,7 +5673,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   const ua = req.headers['user-agent'] || '未知客户端';
+
+
+
+
+
 
 
 
@@ -2848,7 +5693,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   // 不参与解码，网络挂载曲库如果没有本地缓存兜底，每一次 Range 拖进度都要
+
+
+
+
+
 
 
 
@@ -2858,12 +5713,27 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   // 缓存副本，没缓存好就退回网络路径直传(可用但可能不够流畅)，后台同时在
 
 
 
 
+
+
+
+
+
   // 悄悄补缓存。本地曲库的歌 srcPath 就是原来的 song.filepath，行为不变。
+
+
+
+
+
 
 
 
@@ -2878,7 +5748,22 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   // Bug修复("STRM 歌曲硬解全部失败，只有自动切换软解才能播放")：
+
+
+
+
+
 
 
 
@@ -2888,7 +5773,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   // 当兜底，但 STRM 曲目的 filepath 只是本地几十字节的文本指针，没有这个
+
+
+
+
+
 
 
 
@@ -2898,7 +5793,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   // 直接把 null 当"文件不存在"处理，立刻 404——而 STRM 曲目第一次被点播时，
+
+
+
+
+
 
 
 
@@ -2908,7 +5813,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   // 客户端于是照它自己的"硬解失败就自动退到软解"逻辑切过去，表现上看就是
+
+
+
+
+
 
 
 
@@ -2918,7 +5833,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   // 能正常播放，是因为它已经在为同样的场景 await 一次 ensureCached()(见
+
+
+
+
+
 
 
 
@@ -2928,7 +5853,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   // 准备好时，硬解直连也老老实实等一次缓存落地，而不是直接判"文件不存在"。
+
+
+
+
+
 
 
 
@@ -2938,7 +5873,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   // (缓存已就绪)走 resolvePlaybackPath() 直接命中本地缓存，跟本地曲库一样快，
+
+
+
+
+
 
 
 
@@ -2948,7 +5893,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   if (song && !srcPath && song.is_strm) {
+
+
+
+
+
 
 
 
@@ -2958,7 +5913,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
       srcPath = await sourceCache.ensureCached(song.id, sourceCache.resolveSourceInput(song.filepath));
+
+
+
+
+
 
 
 
@@ -2968,7 +5933,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
       log.error('STREAM', `[硬解直连] ${songTag} STRM 源缓存失败，无法播放: ${e.message}`);
+
+
+
+
+
 
 
 
@@ -2978,12 +5953,32 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
     }
 
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2998,7 +5993,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
     log.warn('STREAM', `[硬解直连] 请求失败(文件不存在): ${songTag}，客户端: ${ua}`);
+
+
+
+
+
 
 
 
@@ -3008,7 +6013,22 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3023,7 +6043,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   const hasMultiTrack = (song.audio_tracks || 1) >= 2;
+
+
+
+
+
 
 
 
@@ -3038,7 +6068,22 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   if (trackParam !== undefined && hasMultiTrack) {
+
+
+
+
+
 
 
 
@@ -3048,7 +6093,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
     log.info('STREAM', `[硬解直连-兜底封装] ${songTag} 音轨=${track}(${track === 0 ? '原唱' : '伴唱'}) 客户端: ${ua} —— 注意: 此分支现场用 ffmpeg 重新封装单音轨，不支持 Range/拖进度，仅作为客户端设备不支持内嵌多音轨切换时的兜底`);
+
+
+
+
+
 
 
 
@@ -3058,7 +6113,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
       'Content-Type': 'video/mp4',
+
+
+
+
+
 
 
 
@@ -3068,7 +6133,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
       'Cache-Control': 'no-store',
+
+
+
+
+
 
 
 
@@ -3078,7 +6153,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
     const ff = spawn('ffmpeg', [
+
+
+
+
+
 
 
 
@@ -3088,7 +6173,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
       '-i', srcPath,
+
+
+
+
+
 
 
 
@@ -3098,7 +6193,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
       '-map', `0:a:${track}`,
+
+
+
+
+
 
 
 
@@ -3108,7 +6213,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
       '-movflags', 'frag_keyframe+empty_moov+faststart',
+
+
+
+
+
 
 
 
@@ -3118,7 +6233,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
       'pipe:1',
+
+
+
+
+
 
 
 
@@ -3128,7 +6253,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
     let responded = false;
+
+
+
+
+
 
 
 
@@ -3138,7 +6273,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
     ff.stderr.on('data', d => log.warn('TRANSCODE', `[stream直传兜底][ffmpeg] ${d.toString().trim()}`));
+
+
+
+
+
 
 
 
@@ -3148,7 +6293,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
     ff.on('error', err => { log.error('TRANSCODE', `[stream直传兜底] ffmpeg 启动失败: ${err.message}`); if (!responded) { responded = true; res.status(500).end(); } cleanup(); });
+
+
+
+
+
 
 
 
@@ -3158,7 +6313,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
     res.on('close', cleanup);
+
+
+
+
+
 
 
 
@@ -3168,7 +6333,22 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3183,7 +6363,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   // 是否能正常解码完全取决于设备硬件解码器对源编码的支持程度，服务端只做
+
+
+
+
+
 
 
 
@@ -3193,7 +6383,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   // "这首歌到底是什么编码"的诊断记录，管理员看到某设备反馈硬解播放异常时
+
+
+
+
+
 
 
 
@@ -3203,7 +6403,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   if (!codecInfoCache.has(song.id)) {
+
+
+
+
+
 
 
 
@@ -3213,7 +6423,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
       if (info) {
+
+
+
+
+
 
 
 
@@ -3223,7 +6443,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
         // 同一处自愈回填：老曲目(扫描时还没有 audio_needs_soft 这一列)第一次
+
+
+
+
+
 
 
 
@@ -3233,7 +6463,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
         // /api/decode-mode/report 里的详细注释。
+
+
+
+
+
 
 
 
@@ -3243,7 +6483,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
           db.prepare('UPDATE songs SET audio_needs_soft = 1 WHERE id = ?').run(song.id);
+
+
+
+
+
 
 
 
@@ -3253,7 +6503,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
         }
+
+
+
+
+
 
 
 
@@ -3263,7 +6523,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
         if (isProblemVideoCodec(info.videoCodec) && !song.video_needs_soft) {
+
+
+
+
+
 
 
 
@@ -3273,7 +6543,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
           log.warn('STREAM', `[硬解直连] ${songTag} 视频编码=${info.videoCodec} 已知在 Android 设备上硬解基本必黑屏(即使能初始化解码器也大概率不出画面)，已标记 video_needs_soft，之后点这首歌客户端会直接走软解`);
+
+
+
+
+
 
 
 
@@ -3283,7 +6563,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
       }
+
+
+
+
+
 
 
 
@@ -3293,7 +6583,22 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3308,7 +6613,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   const range = req.headers.range;
+
+
+
+
+
 
 
 
@@ -3318,7 +6633,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
     log.info('STREAM', `[硬解直连] ${songTag} 完整文件请求(无 Range 头，${(stat.size / 1024 / 1024).toFixed(1)}MB)，客户端: ${ua}`);
+
+
+
+
+
 
 
 
@@ -3328,7 +6653,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
     return fs.createReadStream(srcPath).pipe(res);
+
+
+
+
+
 
 
 
@@ -3338,7 +6673,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   const [s, e] = range.replace(/bytes=/, '').split('-');
+
+
+
+
+
 
 
 
@@ -3348,7 +6693,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   const end = e ? parseInt(e, 10) : stat.size - 1;
+
+
+
+
+
 
 
 
@@ -3358,7 +6713,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   res.writeHead(206, {
+
+
+
+
+
 
 
 
@@ -3368,7 +6733,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
     'Accept-Ranges': 'bytes',
+
+
+
+
+
 
 
 
@@ -3378,7 +6753,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
     'Content-Type': 'video/mp4',
+
+
+
+
+
 
 
 
@@ -3388,7 +6773,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   const readStream = fs.createReadStream(srcPath, { start, end });
+
+
+
+
+
 
 
 
@@ -3398,12 +6793,32 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
   readStream.pipe(res);
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3418,7 +6833,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
 // 实际的切换动作(hls.audioTrack=0/1 或者声道复制)完全发生在浏览器端
+
+
+
+
+
 
 
 
@@ -3428,7 +6853,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
 // 知晓用户什么时候切了原唱/伴唱。这里加一个轻量上报接口，由前端在每次
+
+
+
+
+
 
 
 
@@ -3438,7 +6873,17 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+
+
+
+
+
 // "切了没生效"之类的问题。上报失败与否不影响播放本身，前端是 fire-and-forget。
+
+
+
+
+
 
 
 
@@ -3448,7 +6893,17 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
+
+
+
+
+
   const { song_id, mode, to } = req.body || {};
+
+
+
+
+
 
 
 
@@ -3458,7 +6913,17 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
+
+
+
+
+
   const songTag = song ? `id=${song.id} "${song.title || song.filename}"` : `id=${song_id || '未知'}`;
+
+
+
+
+
 
 
 
@@ -3468,7 +6933,17 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
+
+
+
+
+
   const modeName = mode === 'tracks' ? '多音轨(HLS audioTrack)' : mode === 'stereo' ? '双声道(Web Audio 声道复制)' : (mode || '未知');
+
+
+
+
+
 
 
 
@@ -3478,12 +6953,32 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3498,7 +6993,17 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
+
+
+
+
+
 // 分页支持：TV 端 / 手机点歌页需要一次性拿到完整曲库做本地按首字母浏览、
+
+
+
+
+
 
 
 
@@ -3508,7 +7013,17 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
+
+
+
+
+
 // 向后兼容——只有当请求显式带上 page & pageSize 时才走分页分支，返回
+
+
+
+
+
 
 
 
@@ -3518,7 +7033,17 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
+
+
+
+
+
 // 分页参数时仍然和以前一样直接返回数组，不影响 TV 端/手机端现有逻辑。
+
+
+
+
+
 
 
 
@@ -3528,7 +7053,17 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
+
+
+
+
+
 // 把几千首歌整页渲染进 DOM 导致的加载卡顿。
+
+
+
+
+
 
 
 
@@ -3538,7 +7073,17 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
+
+
+
+
+
 // 取一首歌的歌词：DB 已有则直接返回(不联网、最快)；没有则按"本地同名lrc→在线三源"
+
+
+
+
+
 
 
 
@@ -3548,7 +7093,17 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
+
+
+
+
+
 // 检测歌词是否乱码（含 Unicode 替换字符 U+FFFD，或高比例不可打印字符）
+
+
+
+
+
 
 
 
@@ -3558,7 +7113,17 @@ function isLyricsMojibake(text) {
 
 
 
+
+
+
+
+
   if (!text) return false;
+
+
+
+
+
 
 
 
@@ -3568,7 +7133,17 @@ function isLyricsMojibake(text) {
 
 
 
+
+
+
+
+
   // 统计非 ASCII 可打印字符中，乱码常见的私有区/控制符比例
+
+
+
+
+
 
 
 
@@ -3578,7 +7153,17 @@ function isLyricsMojibake(text) {
 
 
 
+
+
+
+
+
   for (const ch of text) {
+
+
+
+
+
 
 
 
@@ -3588,7 +7173,17 @@ function isLyricsMojibake(text) {
 
 
 
+
+
+
+
+
     if (code > 127) {
+
+
+
+
+
 
 
 
@@ -3598,7 +7193,17 @@ function isLyricsMojibake(text) {
 
 
 
+
+
+
+
+
       // 乱码常见范围：Latin-1 补充(0x80-0xFF)、通用标点区异常、私有区
+
+
+
+
+
 
 
 
@@ -3608,7 +7213,17 @@ function isLyricsMojibake(text) {
 
 
 
+
+
+
+
+
       else if (code >= 0xE000 && code <= 0xF8FF) bad++; // 私有区
+
+
+
+
+
 
 
 
@@ -3618,7 +7233,17 @@ function isLyricsMojibake(text) {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -3628,7 +7253,22 @@ function isLyricsMojibake(text) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3643,7 +7283,17 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
 
+
+
+
+
+
   // DB 已有歌词且不是乱码 → 直接返回(最快)；是乱码则忽略，重新走本地/在线获取
+
+
+
+
+
 
 
 
@@ -3653,12 +7303,27 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
 
+
+
+
+
+
     return { lrc: song.lyrics, source: song.lyrics_source || 'stored', lines: lyricsMod.parseLrc(song.lyrics).length };
 
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -3668,7 +7333,17 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
 
+
+
+
+
+
   if (r && r.lrc) {
+
+
+
+
+
 
 
 
@@ -3678,7 +7353,17 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
 
+
+
+
+
+
     return { lrc: r.lrc, source: r.source, lines: lyricsMod.parseLrc(r.lrc).length };
+
+
+
+
+
 
 
 
@@ -3688,7 +7373,17 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
 
+
+
+
+
+
   // 在线/本地都没拿到，但 DB 有乱码歌词 → 至少返回乱码的（比没有强），但标记 source
+
+
+
+
+
 
 
 
@@ -3698,12 +7393,32 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
 
+
+
+
+
+
   return null;
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3718,7 +7433,17 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
 
+
+
+
+
+
 app.get('/api/songs/:id/lyrics', async (req, res) => {
+
+
+
+
+
 
 
 
@@ -3728,7 +7453,17 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
 
 
 
+
+
+
+
+
     const id = parseInt(req.params.id, 10);
+
+
+
+
+
 
 
 
@@ -3738,7 +7473,17 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
 
 
 
+
+
+
+
+
     const song = db.prepare('SELECT * FROM songs WHERE id=?').get(id);
+
+
+
+
+
 
 
 
@@ -3748,7 +7493,17 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
 
 
 
+
+
+
+
+
     const allowOnline = req.query.online !== '0';
+
+
+
+
+
 
 
 
@@ -3758,7 +7513,17 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
 
 
 
+
+
+
+
+
     if (!r) return res.status(404).json({ id, lyrics: null, message: '暂无歌词（本地无同名lrc，在线三源也未命中）' });
+
+
+
+
+
 
 
 
@@ -3768,7 +7533,17 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
 
 
 
+
+
+
+
+
                word: song.lyrics_word || null, align_status: song.align_status || 'none',
+
+
+
+
+
 
 
 
@@ -3778,7 +7553,17 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
 
 
 
+
+
+
+
+
                filepath: song.filepath || '', source: r.source });
+
+
+
+
+
 
 
 
@@ -3788,7 +7573,17 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
 
 
 
+
+
+
+
+
     res.status(500).json({ error: e.message });
+
+
+
+
+
 
 
 
@@ -3798,7 +7593,22 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3813,7 +7623,17 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
 
 
 
+
+
+
+
+
 app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
+
+
+
+
+
 
 
 
@@ -3823,7 +7643,17 @@ app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
 
 
 
+
+
+
+
+
     const id = parseInt(req.params.id, 10);
+
+
+
+
+
 
 
 
@@ -3833,7 +7663,17 @@ app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
 
 
 
+
+
+
+
+
     if (!song) return res.status(404).json({ error: 'song not found' });
+
+
+
+
+
 
 
 
@@ -3843,7 +7683,17 @@ app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
 
 
 
+
+
+
+
+
     if (!r) return res.status(404).json({ id, lyrics: null, message: '在线三源均未命中' });
+
+
+
+
+
 
 
 
@@ -3853,7 +7703,17 @@ app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
 
 
 
+
+
+
+
+
   } catch (e) {
+
+
+
+
+
 
 
 
@@ -3863,12 +7723,32 @@ app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
 
 
 
+
+
+
+
+
   }
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3883,7 +7763,17 @@ app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
 
 
 
+
+
+
+
+
 function shiftLrcTimestamp(lrc, deltaSec) {
+
+
+
+
+
 
 
 
@@ -3893,7 +7783,17 @@ function shiftLrcTimestamp(lrc, deltaSec) {
 
 
 
+
+
+
+
+
   const fmt = (sec) => {
+
+
+
+
+
 
 
 
@@ -3903,7 +7803,17 @@ function shiftLrcTimestamp(lrc, deltaSec) {
 
 
 
+
+
+
+
+
     const m = Math.floor(sec / 60);
+
+
+
+
+
 
 
 
@@ -3913,7 +7823,17 @@ function shiftLrcTimestamp(lrc, deltaSec) {
 
 
 
+
+
+
+
+
     const ss = rest.toFixed(2).padStart(5, '0');
+
+
+
+
+
 
 
 
@@ -3923,7 +7843,17 @@ function shiftLrcTimestamp(lrc, deltaSec) {
 
 
 
+
+
+
+
+
   };
+
+
+
+
+
 
 
 
@@ -3933,7 +7863,17 @@ function shiftLrcTimestamp(lrc, deltaSec) {
 
 
 
+
+
+
+
+
   return lrc.replace(/[\[<](\d{1,3}):(\d{1,2}(?:\.\d+)?)\s*[\]>]/g, (m) => {
+
+
+
+
+
 
 
 
@@ -3943,7 +7883,17 @@ function shiftLrcTimestamp(lrc, deltaSec) {
 
 
 
+
+
+
+
+
     const close = open === '[' ? ']' : '>';
+
+
+
+
+
 
 
 
@@ -3953,7 +7903,17 @@ function shiftLrcTimestamp(lrc, deltaSec) {
 
 
 
+
+
+
+
+
     const parts = inner.split(':');
+
+
+
+
+
 
 
 
@@ -3963,7 +7923,17 @@ function shiftLrcTimestamp(lrc, deltaSec) {
 
 
 
+
+
+
+
+
     return open + fmt(t) + close;
+
+
+
+
+
 
 
 
@@ -3973,7 +7943,22 @@ function shiftLrcTimestamp(lrc, deltaSec) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3988,7 +7973,17 @@ function shiftLrcTimestamp(lrc, deltaSec) {
 
 
 
+
+
+
+
+
 app.post('/api/songs/:id/lyrics/offset', (req, res) => {
+
+
+
+
+
 
 
 
@@ -3998,7 +7993,17 @@ app.post('/api/songs/:id/lyrics/offset', (req, res) => {
 
 
 
+
+
+
+
+
     const id = parseInt(req.params.id, 10);
+
+
+
+
+
 
 
 
@@ -4008,7 +8013,17 @@ app.post('/api/songs/:id/lyrics/offset', (req, res) => {
 
 
 
+
+
+
+
+
     const delta = parseFloat(req.body && req.body.offset);
+
+
+
+
+
 
 
 
@@ -4018,7 +8033,17 @@ app.post('/api/songs/:id/lyrics/offset', (req, res) => {
 
 
 
+
+
+
+
+
     const song = db.prepare('SELECT * FROM songs WHERE id=?').get(id);
+
+
+
+
+
 
 
 
@@ -4028,7 +8053,17 @@ app.post('/api/songs/:id/lyrics/offset', (req, res) => {
 
 
 
+
+
+
+
+
     const newLyrics = song.lyrics ? shiftLrcTimestamp(song.lyrics, delta) : null;
+
+
+
+
+
 
 
 
@@ -4038,7 +8073,17 @@ app.post('/api/songs/:id/lyrics/offset', (req, res) => {
 
 
 
+
+
+
+
+
     db.prepare('UPDATE songs SET lyrics=?, lyrics_word=? WHERE id=?').run(newLyrics, newWord, id);
+
+
+
+
+
 
 
 
@@ -4048,7 +8093,17 @@ app.post('/api/songs/:id/lyrics/offset', (req, res) => {
 
 
 
+
+
+
+
+
   } catch (e) {
+
+
+
+
+
 
 
 
@@ -4058,12 +8113,32 @@ app.post('/api/songs/:id/lyrics/offset', (req, res) => {
 
 
 
+
+
+
+
+
   }
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4078,7 +8153,22 @@ app.post('/api/songs/:id/lyrics/offset', (req, res) => {
 
 
 
+
+
+
+
+
 let lyricBatch = { running: false, total: 0, done: 0, ok: 0, fail: 0, startedAt: null, finishedAt: null };
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4093,7 +8183,17 @@ let lyricBatch = { running: false, total: 0, done: 0, ok: 0, fail: 0, startedAt:
 
 
 
+
+
+
+
+
 app.post('/api/lyrics/batch-missing', (req, res) => {
+
+
+
+
+
 
 
 
@@ -4103,7 +8203,17 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
+
+
+
+
+
   let limit = parseInt(req.query.limit, 10);
+
+
+
+
+
 
 
 
@@ -4113,7 +8223,17 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
+
+
+
+
+
   limit = Math.min(limit, 1000);
+
+
+
+
+
 
 
 
@@ -4123,7 +8243,17 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
+
+
+
+
+
   lyricBatch = { running: true, total: rows.length, done: 0, ok: 0, fail: 0, startedAt: Date.now(), finishedAt: null };
+
+
+
+
+
 
 
 
@@ -4133,7 +8263,17 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
+
+
+
+
+
   (async () => {
+
+
+
+
+
 
 
 
@@ -4143,7 +8283,17 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
+
+
+
+
+
       try {
+
+
+
+
+
 
 
 
@@ -4153,7 +8303,17 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
+
+
+
+
+
         if (r && r.lrc) { db.prepare('UPDATE songs SET lyrics=?, lyrics_source=? WHERE id=?').run(r.lrc, r.source, song.id); lyricBatch.ok++; }
+
+
+
+
+
 
 
 
@@ -4163,7 +8323,17 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
+
+
+
+
+
       } catch (e) { lyricBatch.fail++; }
+
+
+
+
+
 
 
 
@@ -4173,7 +8343,17 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
+
+
+
+
+
       await sleep(800); // 串行 + 限速，避免触发歌词站反爬/封 IP
+
+
+
+
+
 
 
 
@@ -4183,7 +8363,17 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
+
+
+
+
+
     lyricBatch.running = false;
+
+
+
+
+
 
 
 
@@ -4193,7 +8383,17 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
+
+
+
+
+
     log.info('LYRICS', `批量补抓完成：共 ${lyricBatch.total}，成功 ${lyricBatch.ok}，未命中 ${lyricBatch.fail}`);
+
+
+
+
+
 
 
 
@@ -4203,7 +8403,22 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4218,7 +8433,17 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
+
+
+
+
+
 app.get('/api/lyrics/stats', (req, res) => {
+
+
+
+
+
 
 
 
@@ -4228,7 +8453,17 @@ app.get('/api/lyrics/stats', (req, res) => {
 
 
 
+
+
+
+
+
   const has = db.prepare("SELECT COUNT(*) c FROM songs WHERE lyrics IS NOT NULL AND lyrics<>''").get().c;
+
+
+
+
+
 
 
 
@@ -4238,12 +8473,32 @@ app.get('/api/lyrics/stats', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ total, hasLyrics: has, missing: total - has, coverage: total ? +(has / total * 100).toFixed(1) : 0, bySource: bySrc, batch: lyricBatch });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4258,12 +8513,27 @@ app.get('/api/lyrics/stats', (req, res) => {
 
 
 
+
+
+
+
+
 // 真正吃 GPU 的 Demucs/WhisperX 跑在独立 worker(Windows+N卡)，服务端只做队列调度、
 
 
 
 
+
+
+
+
+
 // 源音频下发、产物回收。worker 流程：claim 领任务 -> GET source 下载 -> 本地推理 ->
+
+
+
+
+
 
 
 
@@ -4278,7 +8548,22 @@ app.get('/api/lyrics/stats', (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 每 5 分钟回收 worker 崩溃留下的 processing 僵尸任务（超 20 分钟未完成 -> 重新排队）
+
+
+
+
+
 
 
 
@@ -4293,7 +8578,22 @@ setInterval(() => { try { sepMod.reclaimStale(db, 20); } catch (e) { /* 忽略 *
 
 
 
+
+
+
+
+
+
+
+
+
+
 // POST /api/separate/enqueue  body {song_ids:[...], type:'separate'|'align'|'both', force:false}
+
+
+
+
+
 
 
 
@@ -4303,7 +8603,17 @@ app.post('/api/separate/enqueue', (req, res) => {
 
 
 
+
+
+
+
+
   try {
+
+
+
+
+
 
 
 
@@ -4313,7 +8623,17 @@ app.post('/api/separate/enqueue', (req, res) => {
 
 
 
+
+
+
+
+
     const r = sepMod.enqueue(db, { songIds: song_ids, type, force: !!force });
+
+
+
+
+
 
 
 
@@ -4323,12 +8643,32 @@ app.post('/api/separate/enqueue', (req, res) => {
 
 
 
+
+
+
+
+
   } catch (e) { res.status(500).json({ error: e.message }); }
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4343,7 +8683,17 @@ app.post('/api/separate/enqueue', (req, res) => {
 
 
 
+
+
+
+
+
 app.post('/api/separate/enqueue-missing', (req, res) => {
+
+
+
+
+
 
 
 
@@ -4353,7 +8703,17 @@ app.post('/api/separate/enqueue-missing', (req, res) => {
 
 
 
+
+
+
+
+
   let limit = parseInt(req.query.limit || (req.body && req.body.limit), 10);
+
+
+
+
+
 
 
 
@@ -4363,7 +8723,17 @@ app.post('/api/separate/enqueue-missing', (req, res) => {
 
 
 
+
+
+
+
+
   limit = Math.min(limit, 5000);
+
+
+
+
+
 
 
 
@@ -4373,7 +8743,17 @@ app.post('/api/separate/enqueue-missing', (req, res) => {
 
 
 
+
+
+
+
+
   const rows = db.prepare(
+
+
+
+
+
 
 
 
@@ -4383,7 +8763,17 @@ app.post('/api/separate/enqueue-missing', (req, res) => {
 
 
 
+
+
+
+
+
   ).all(limit);
+
+
+
+
+
 
 
 
@@ -4393,12 +8783,32 @@ app.post('/api/separate/enqueue-missing', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, candidates: rows.length, ...r });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4413,7 +8823,17 @@ app.post('/api/separate/enqueue-missing', (req, res) => {
 
 
 
+
+
+
+
+
 app.get('/api/separate/jobs/claim', (req, res) => {
+
+
+
+
+
 
 
 
@@ -4423,7 +8843,17 @@ app.get('/api/separate/jobs/claim', (req, res) => {
 
 
 
+
+
+
+
+
   const type = String(req.query.type || 'separate');
+
+
+
+
+
 
 
 
@@ -4433,7 +8863,17 @@ app.get('/api/separate/jobs/claim', (req, res) => {
 
 
 
+
+
+
+
+
   const task = sepMod.claimNext(db, { worker, type, capability });
+
+
+
+
+
 
 
 
@@ -4443,7 +8883,17 @@ app.get('/api/separate/jobs/claim', (req, res) => {
 
 
 
+
+
+
+
+
   task.sourceUrl = `http://${req.get('host')}${task.sourceUrl}`; // 补全为 worker 可直接下载的绝对地址
+
+
+
+
+
 
 
 
@@ -4453,7 +8903,22 @@ app.get('/api/separate/jobs/claim', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4468,7 +8933,17 @@ app.get('/api/separate/jobs/claim', (req, res) => {
 
 
 
+
+
+
+
+
 app.post('/api/separate/jobs/:id/progress', (req, res) => {
+
+
+
+
+
 
 
 
@@ -4478,7 +8953,17 @@ app.post('/api/separate/jobs/:id/progress', (req, res) => {
 
 
 
+
+
+
+
+
   if (req.body && req.body.worker) sepMod.touchWorker(req.body.worker, req.body.capability);
+
+
+
+
+
 
 
 
@@ -4488,12 +8973,32 @@ app.post('/api/separate/jobs/:id/progress', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4508,7 +9013,17 @@ app.post('/api/separate/jobs/:id/progress', (req, res) => {
 
 
 
+
+
+
+
+
 //   files: vocals(人声wav) / accompaniment(伴奏wav) / wordLrc(逐字歌词)；也可走字段 wordLrc
+
+
+
+
+
 
 
 
@@ -4518,7 +9033,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
   { name: 'vocals', maxCount: 1 }, { name: 'accompaniment', maxCount: 1 }, { name: 'wordLrc', maxCount: 1 },
+
+
+
+
+
 
 
 
@@ -4528,7 +9053,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
   try {
+
+
+
+
+
 
 
 
@@ -4538,7 +9073,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
     const job = db.prepare('SELECT * FROM separation_jobs WHERE id=?').get(jobId);
+
+
+
+
+
 
 
 
@@ -4548,7 +9093,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
     const files = req.files || {};
+
+
+
+
+
 
 
 
@@ -4558,12 +9113,20 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
     const sepKey = sepMod.sepKeyForSong(db, job.song_id) || String(job.song_id);
-
-
-
+    const sepSong = db.prepare('SELECT title, artist FROM songs WHERE id=?').get(job.song_id);
 
     const dir = sepMod.ensureSepDir(sepKey);
+
+
+
+
+
 
 
 
@@ -4573,7 +9136,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
     // 一步到 FLAC：worker 回传的是 Demucs 原始 wav，服务端落盘前统一用 ffmpeg 无损转成 FLAC
+
+
+
+
+
 
 
 
@@ -4583,37 +9156,36 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
     // 若容器内 ffmpeg 转换失败，回退直接保留 wav，绝不让整首分离因为压缩而失败/丢产物。
 
 
 
 
+
+
+
+
+
     const convertTrack = async (f, stem) => {
-
-
-
-
       if (!f || !f[0] || !f[0].buffer) return;
-
-
-
-
       const buf = f[0].buffer;
-
-
-
-
+      // 中文命名：歌手-歌曲名-人声.flac / 歌手-歌曲名-伴奏.flac；旧命名兜底
+      const kind = stem === 'vocals' ? 'vocal' : 'accomp';
+      const cnName = sepMod.trackFileName(sepSong, kind, 'flac');
+      const cnNameWav = sepMod.trackFileName(sepSong, kind, 'wav');
       const tmpWav = path.join(dir, stem + '._in.wav');
+      const flacP = path.join(dir, cnName);
+      const wavP = path.join(dir, cnNameWav);
 
 
 
 
-      const flacP = path.join(dir, stem + '.flac');
 
-
-
-
-      const wavP = path.join(dir, stem + '.wav');
 
 
 
@@ -4623,7 +9195,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
       try {
+
+
+
+
+
 
 
 
@@ -4633,7 +9215,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
         if (!fs.existsSync(flacP) || fs.statSync(flacP).size <= 1024) throw new Error('flac output too small');
+
+
+
+
+
 
 
 
@@ -4643,12 +9235,27 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
         try { if (fs.existsSync(wavP)) fs.unlinkSync(wavP); } catch (e) {}
 
 
 
 
-        saved[stem + '.flac'] = fs.statSync(flacP).size;
+
+
+
+
+
+        saved[stem + '.flac'] = fs.statSync(flacP).size;  // 键名保持旧格式用于ext判断，实际文件名是中文
+
+
+
+
+
 
 
 
@@ -4658,7 +9265,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
         try { if (fs.existsSync(flacP)) fs.unlinkSync(flacP); } catch (e2) {}
+
+
+
+
+
 
 
 
@@ -4668,7 +9285,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
-        saved[stem + '.wav'] = buf.length;
+
+
+
+
+
+        saved[stem + '.wav'] = buf.length;  // 键名保持旧格式用于ext判断，实际文件名是中文
+
+
+
+
+
 
 
 
@@ -4678,7 +9305,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
       }
+
+
+
+
+
 
 
 
@@ -4688,7 +9325,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
     await Promise.all([convertTrack(files.vocals, 'vocals'), convertTrack(files.accompaniment, 'accompaniment')]);
+
+
+
+
+
 
 
 
@@ -4698,7 +9345,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
     if (files.wordLrc && files.wordLrc[0]) lyricsWord = files.wordLrc[0].buffer.toString('utf8');
+
+
+
+
+
 
 
 
@@ -4708,7 +9365,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
     const done = sepMod.complete(db, jobId, { lyricsWord, result: { saved, worker: job.worker } });
+
+
+
+
+
 
 
 
@@ -4718,7 +9385,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
     try { removeHLS(job.song_id); } catch (e) { /* 旧产物不存在无妨 */ }
+
+
+
+
+
 
 
 
@@ -4728,7 +9405,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
     if (lyricsWord) {
+
+
+
+
+
 
 
 
@@ -4738,7 +9425,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
         const payload = JSON.stringify({ type: 'lyrics_updated', songId: job.song_id });
+
+
+
+
+
 
 
 
@@ -4748,7 +9445,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
         log.info('LYRIC', `[歌曲 id=${job.song_id}] 逐字歌词重新生成完成，已广播 lyrics_updated`);
+
+
+
+
+
 
 
 
@@ -4758,7 +9465,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
     }
+
+
+
+
+
 
 
 
@@ -4768,12 +9485,32 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
   } catch (e) { res.status(500).json({ error: e.message }); }
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4788,7 +9525,17 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
+
+
+
+
+
 app.post('/api/separate/jobs/:id/fail', (req, res) => {
+
+
+
+
+
 
 
 
@@ -4798,12 +9545,27 @@ app.post('/api/separate/jobs/:id/fail', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
 
 
 
@@ -4813,7 +9575,17 @@ app.post('/api/separate/jobs/:id/fail', (req, res) => {
 
 
 
+
+
+
+
+
 app.post('/api/separate/jobs/:id/reset', (req, res) => {
+
+
+
+
+
 
 
 
@@ -4823,12 +9595,27 @@ app.post('/api/separate/jobs/:id/reset', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
 
 
 
@@ -4838,7 +9625,17 @@ app.post('/api/separate/jobs/:id/reset', (req, res) => {
 
 
 
+
+
+
+
+
 app.get('/api/separate/stats', (req, res) => res.json(sepMod.stats(db)));
+
+
+
+
+
 
 
 
@@ -4848,7 +9645,17 @@ app.get('/api/separate/stats', (req, res) => res.json(sepMod.stats(db)));
 
 
 
+
+
+
+
+
 app.get('/api/separate/jobs', (req, res) => {
+
+
+
+
+
 
 
 
@@ -4858,7 +9665,17 @@ app.get('/api/separate/jobs', (req, res) => {
 
 
 
+
+
+
+
+
   const sql = 'SELECT j.*, s.title, s.artist FROM separation_jobs j LEFT JOIN songs s ON s.id=j.song_id';
+
+
+
+
+
 
 
 
@@ -4868,7 +9685,17 @@ app.get('/api/separate/jobs', (req, res) => {
 
 
 
+
+
+
+
+
     ? db.prepare(sql + ' WHERE j.status=? ORDER BY j.id DESC LIMIT 500').all(status)
+
+
+
+
+
 
 
 
@@ -4878,12 +9705,32 @@ app.get('/api/separate/jobs', (req, res) => {
 
 
 
+
+
+
+
+
   res.json(rows);
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4898,7 +9745,17 @@ app.get('/api/separate/jobs', (req, res) => {
 
 
 
+
+
+
+
+
 // 旧方案：hlsgen 把人声按 0/75/50/25/0 预混成 5 条 AAC 离散音轨，前端只能跳档切换、
+
+
+
+
+
 
 
 
@@ -4908,12 +9765,27 @@ app.get('/api/separate/jobs', (req, res) => {
 
 
 
+
+
+
+
+
 // 两条原始分轨直接以支持 Range(206) 的静态文件下发，网页端用两个 <audio> + WebAudio
 
 
 
 
+
+
+
+
+
 // GainNode 连续调节人声音量，伴奏恒定，从而得到无跳档、无重载的丝滑滑块。存储层以后
+
+
+
+
+
 
 
 
@@ -4928,87 +9800,71 @@ app.get('/api/separate/jobs', (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 解析某首歌某条分轨在磁盘上的真实文件（flac 优先、wav 兜底），不存在返回 null
 
 
 
 
+
+
+
+
+
 function resolveSepTrackFile(song, kind) {
-
-
-
-
   if (!song) return null;
-
-
-
-
   const rel = kind === 'vocal' ? song.vocal_path : song.accomp_path;
-
-
-
-
   if (!rel) return null;
-
-
-
-
   const base = String(rel).replace(/\.(wav|flac)$/i, '');
-
-
-
-
   const candidates = [base + '.flac', base + '.wav', String(rel)];
-
-
-
-
   for (const c of candidates) {
-
-
-
-
     try {
-
-
-
-
       const abs = sepMod.absUnderData(c);
-
-
-
-
       if (abs && fs.existsSync(abs) && fs.statSync(abs).size > 1024) {
-
-
-
-
         return { abs, ext: path.extname(abs).slice(1).toLowerCase() };
-
-
-
-
       }
-
-
-
-
     } catch (e) { /* 试下一个候选 */ }
-
-
-
-
   }
-
-
-
-
+  // 兜底：数据库路径找不到时，扫描分离目录找中文命名文件
+  // （适用于文件已被外部脚本重命名但数据库未更新的情况）
+  try {
+    const m = String(rel).match(/separated\/([a-f0-9]{16})\//);
+    if (m) {
+      const dir = path.join(sepMod.SEP_DIR, m[1]);
+      const keyword = kind === 'vocal' ? '人声' : '伴奏';
+      const files = fs.readdirSync(dir);
+      for (const ext of ['flac', 'wav']) {
+        const found = files.find(f => f.endsWith(`-${keyword}.${ext}`) || f.includes(`-${keyword}.${ext}`));
+        if (found) {
+          const abs = path.join(dir, found);
+          if (fs.statSync(abs).size > 1024) {
+            return { abs, ext, autoFound: true };
+          }
+        }
+      }
+    }
+  } catch (e) { /* 目录不存在或不可读 */ }
   return null;
-
-
-
-
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5023,7 +9879,17 @@ function resolveSepTrackFile(song, kind) {
 
 
 
+
+
+
+
+
 function sendFileWithRange(req, res, abs, contentType) {
+
+
+
+
+
 
 
 
@@ -5033,7 +9899,17 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
   try { stat = fs.statSync(abs); } catch (e) { return res.status(404).end(); }
+
+
+
+
+
 
 
 
@@ -5043,7 +9919,17 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
   res.setHeader('Content-Type', contentType);
+
+
+
+
+
 
 
 
@@ -5053,7 +9939,17 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
   res.setHeader('Cache-Control', 'private, max-age=3600');
+
+
+
+
+
 
 
 
@@ -5063,7 +9959,17 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
   if (m) {
+
+
+
+
+
 
 
 
@@ -5073,7 +9979,17 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
     let end = m[2] ? parseInt(m[2], 10) : total - 1;
+
+
+
+
+
 
 
 
@@ -5083,7 +9999,17 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
     if (Number.isNaN(end) || end >= total) end = total - 1;
+
+
+
+
+
 
 
 
@@ -5093,7 +10019,17 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
       res.status(416).setHeader('Content-Range', `bytes */${total}`);
+
+
+
+
+
 
 
 
@@ -5103,7 +10039,17 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
     }
+
+
+
+
+
 
 
 
@@ -5113,7 +10059,17 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
     res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+
+
+
+
+
 
 
 
@@ -5123,7 +10079,17 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
     if (req.method === 'HEAD') return res.end();
+
+
+
+
+
 
 
 
@@ -5133,7 +10099,17 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
   } else {
+
+
+
+
+
 
 
 
@@ -5143,7 +10119,17 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
     if (req.method === 'HEAD') return res.end();
+
+
+
+
+
 
 
 
@@ -5153,12 +10139,32 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
   }
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5173,7 +10179,17 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
+
+
+
+
+
 app.get('/api/songs/:id/sep-info', (req, res) => {
+
+
+
+
+
 
 
 
@@ -5183,7 +10199,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
   if (!song) return res.status(404).json({ error: 'not found', dual: false });
+
+
+
+
+
 
 
 
@@ -5198,49 +10224,108 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   // 网络KTV MKV视频（115网盘单文件多音轨）：返回视频直链，走单文件播放+音轨切换
+
+
 
   if (song.source_root === 'netktv-mkv') {
 
+
+
     // 使用 direct-stream 端点（302重定向到115 CDN直链，不占NAS带宽）
+
+
 
     // song.filepath 是 115 网盘上的相对路径，如 ktv-output/xxx.mkv
 
+
+
     let videoUrl = null;
+
+
 
     if (song.filepath) {
 
+
+
       videoUrl = '/api/direct-stream/' + encodeURIComponent(song.filepath).replace(/%2F/g, '/');
+
+
 
       console.log('[SEP-INFO] 网络MKV直链:', videoUrl);
 
+
+
     }
+
+
 
     // 纯302直连：tvOS端VLC自动跟随302重定向，直接播放115 CDN直链
 
+
+
     // 不缓存、不转码、不占NAS带宽
+
+
 
     return res.json({
 
+
+
       dual: false,
+
+
 
       hasVocal: true,
 
+
+
       hasAccomp: true,
+
+
 
       sepStatus: 'done',
 
+
+
       videoUrl: videoUrl,
+
+
 
       isNetKtvMkv: true,
 
+
+
       isVideo: true,
+
+
 
       audioTracks: song.audio_tracks || 2,
 
+
+
     });
 
+
+
   }
+
+
+
+
+
+
+
 
 
 
@@ -5252,7 +10337,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
   if (song.source_root === 'netktv' || song.is_network === 1) {
+
+
+
+
+
 
 
 
@@ -5262,7 +10357,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
     let netktvId = null;
+
+
+
+
+
 
 
 
@@ -5272,7 +10377,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
       const match = String(song.vocal_path).match(/([a-f0-9]{16})_vocals\.strm/i);
+
+
+
+
+
 
 
 
@@ -5282,7 +10397,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
     }
+
+
+
+
+
 
 
 
@@ -5292,7 +10417,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
       return res.json({
+
+
+
+
+
 
 
 
@@ -5302,7 +10437,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
         hasVocal: true,
+
+
+
+
+
 
 
 
@@ -5312,7 +10457,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
         sepStatus: 'done',
+
+
+
+
+
 
 
 
@@ -5322,7 +10477,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
         accompUrl: `/api/netktv/stream/${netktvId}/accompaniment`,
+
+
+
+
+
 
 
 
@@ -5332,7 +10497,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
       });
+
+
+
+
+
 
 
 
@@ -5342,7 +10517,22 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5357,7 +10547,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
   const a = resolveSepTrackFile(song, 'accomp');
+
+
+
+
+
 
 
 
@@ -5367,7 +10567,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
     dual: !!(v && a),
+
+
+
+
+
 
 
 
@@ -5377,7 +10587,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
     hasAccomp: !!a,
+
+
+
+
+
 
 
 
@@ -5387,7 +10607,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
     vocalUrl: v ? `/api/songs/${id}/sep-track?kind=vocal` : null,
+
+
+
+
+
 
 
 
@@ -5397,12 +10627,32 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
   });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5417,7 +10667,17 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
+
+
+
+
+
 app.get('/api/songs/:id/sep-track', (req, res) => {
+
+
+
+
+
 
 
 
@@ -5427,7 +10687,17 @@ app.get('/api/songs/:id/sep-track', (req, res) => {
 
 
 
+
+
+
+
+
   if (!song) return res.status(404).end();
+
+
+
+
+
 
 
 
@@ -5437,7 +10707,17 @@ app.get('/api/songs/:id/sep-track', (req, res) => {
 
 
 
+
+
+
+
+
   const f = resolveSepTrackFile(song, kind);
+
+
+
+
+
 
 
 
@@ -5447,12 +10727,32 @@ app.get('/api/songs/:id/sep-track', (req, res) => {
 
 
 
+
+
+
+
+
   sendFileWithRange(req, res, f.abs, f.ext === 'flac' ? 'audio/flac' : 'audio/wav');
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5467,7 +10767,17 @@ app.get('/api/songs/:id/sep-track', (req, res) => {
 
 
 
+
+
+
+
+
 // 导出当前整张曲库为快照（下载到本地备份）
+
+
+
+
+
 
 
 
@@ -5477,7 +10787,17 @@ app.get('/api/admin/catalog/export', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const cat = catalog.exportCatalog(db, getLibraryRoots());
+
+
+
+
+
 
 
 
@@ -5487,7 +10807,17 @@ app.get('/api/admin/catalog/export', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
+
+
+
+
+
 
 
 
@@ -5497,7 +10827,17 @@ app.get('/api/admin/catalog/export', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
 
 
 
@@ -5507,12 +10847,27 @@ app.get('/api/admin/catalog/export', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 app.post('/api/admin/catalog/write-files', requireAdminAuth, (req, res) => {
 
 
 
 
+
+
+
+
+
   try {
+
+
+
+
+
 
 
 
@@ -5522,12 +10877,27 @@ app.post('/api/admin/catalog/write-files', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     log.info('CATALOG', `曲库快照已写出 ${r.count} 首 -> ${r.written.join(' , ')}`);
 
 
 
 
+
+
+
+
+
     res.json({ ok: true, ...r });
+
+
+
+
+
 
 
 
@@ -5537,7 +10907,17 @@ app.post('/api/admin/catalog/write-files', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
 
 
 
@@ -5547,7 +10927,17 @@ const catalogUpload = multer({ storage: multer.memoryStorage(), limits: { fileSi
 
 
 
+
+
+
+
+
 function parseCatalogBody(req) {
+
+
+
+
+
 
 
 
@@ -5557,7 +10947,17 @@ function parseCatalogBody(req) {
 
 
 
+
+
+
+
+
   if (req.body && req.body.catalog) return typeof req.body.catalog === 'string' ? JSON.parse(req.body.catalog) : req.body.catalog;
+
+
+
+
+
 
 
 
@@ -5567,7 +10967,17 @@ function parseCatalogBody(req) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
 
 
 
@@ -5577,7 +10987,17 @@ function parseCatalogBody(req) {
 
 
 
+
+
+
+
+
 app.post('/api/admin/catalog/preview', requireAdminAuth, catalogUpload.single('catalog'), (req, res) => {
+
+
+
+
+
 
 
 
@@ -5587,7 +11007,17 @@ app.post('/api/admin/catalog/preview', requireAdminAuth, catalogUpload.single('c
 
 
 
+
+
+
+
+
     const cat = parseCatalogBody(req);
+
+
+
+
+
 
 
 
@@ -5597,12 +11027,27 @@ app.post('/api/admin/catalog/preview', requireAdminAuth, catalogUpload.single('c
 
 
 
+
+
+
+
+
   } catch (e) { res.status(400).json({ error: '快照解析失败: ' + e.message }); }
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
 
 
 
@@ -5612,12 +11057,27 @@ app.post('/api/admin/catalog/preview', requireAdminAuth, catalogUpload.single('c
 
 
 
+
+
+
+
+
 app.post('/api/admin/catalog/import', requireAdminAuth, catalogUpload.single('catalog'), (req, res) => {
 
 
 
 
+
+
+
+
+
   try {
+
+
+
+
+
 
 
 
@@ -5627,7 +11087,17 @@ app.post('/api/admin/catalog/import', requireAdminAuth, catalogUpload.single('ca
 
 
 
+
+
+
+
+
     let rootMap = {}; try { rootMap = JSON.parse(req.body.rootMap || '{}'); } catch (e) { rootMap = {}; }
+
+
+
+
+
 
 
 
@@ -5637,7 +11107,17 @@ app.post('/api/admin/catalog/import', requireAdminAuth, catalogUpload.single('ca
 
 
 
+
+
+
+
+
     try { syncSongArtists(); } catch (e) {}
+
+
+
+
+
 
 
 
@@ -5647,7 +11127,17 @@ app.post('/api/admin/catalog/import', requireAdminAuth, catalogUpload.single('ca
 
 
 
+
+
+
+
+
     res.json({ ok: true, ...r });
+
+
+
+
+
 
 
 
@@ -5657,7 +11147,17 @@ app.post('/api/admin/catalog/import', requireAdminAuth, catalogUpload.single('ca
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
 
 
 
@@ -5667,7 +11167,17 @@ app.post('/api/admin/catalog/import', requireAdminAuth, catalogUpload.single('ca
 
 
 
+
+
+
+
+
 app.post('/api/admin/catalog/import-from-path', requireAdminAuth, (req, res) => {
+
+
+
+
+
 
 
 
@@ -5677,7 +11187,17 @@ app.post('/api/admin/catalog/import-from-path', requireAdminAuth, (req, res) => 
 
 
 
+
+
+
+
+
     const p = String(req.body.path || '').trim();
+
+
+
+
+
 
 
 
@@ -5687,7 +11207,17 @@ app.post('/api/admin/catalog/import-from-path', requireAdminAuth, (req, res) => 
 
 
 
+
+
+
+
+
     const cat = JSON.parse(fs.readFileSync(p, 'utf8'));
+
+
+
+
+
 
 
 
@@ -5697,7 +11227,17 @@ app.post('/api/admin/catalog/import-from-path', requireAdminAuth, (req, res) => 
 
 
 
+
+
+
+
+
     try { syncSongArtists(); } catch (e) {}
+
+
+
+
+
 
 
 
@@ -5707,12 +11247,32 @@ app.post('/api/admin/catalog/import-from-path', requireAdminAuth, (req, res) => 
 
 
 
+
+
+
+
+
   } catch (e) { res.status(400).json({ error: '导入失败: ' + e.message }); }
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5727,7 +11287,17 @@ app.post('/api/admin/catalog/import-from-path', requireAdminAuth, (req, res) => 
 
 
 
+
+
+
+
+
 const BG_IMG_DIR = path.join(process.env.DATA_DIR || '/data', 'backgrounds');
+
+
+
+
+
 
 
 
@@ -5737,7 +11307,17 @@ const BG_IMG_RE = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
 
 
 
+
+
+
+
+
 function listBgImages() {
+
+
+
+
+
 
 
 
@@ -5747,7 +11327,17 @@ function listBgImages() {
 
 
 
+
+
+
+
+
   catch (e) { return []; }
+
+
+
+
+
 
 
 
@@ -5757,7 +11347,17 @@ function listBgImages() {
 
 
 
+
+
+
+
+
 app.get('/api/backgrounds/images', (req, res) => {
+
+
+
+
+
 
 
 
@@ -5767,7 +11367,17 @@ app.get('/api/backgrounds/images', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
 
 
 
@@ -5777,7 +11387,17 @@ const bgUpload = multer({
 
 
 
+
+
+
+
+
   storage: multer.diskStorage({
+
+
+
+
+
 
 
 
@@ -5787,7 +11407,17 @@ const bgUpload = multer({
 
 
 
+
+
+
+
+
     filename: (req, f, cb) => { const ext = (path.extname(f.originalname) || '.jpg').toLowerCase().match(/^\.[a-z0-9]+$/)?.[0] || '.jpg';
+
+
+
+
+
 
 
 
@@ -5797,7 +11427,17 @@ const bgUpload = multer({
 
 
 
+
+
+
+
+
   }),
+
+
+
+
+
 
 
 
@@ -5807,7 +11447,17 @@ const bgUpload = multer({
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
 
 
 
@@ -5817,7 +11467,17 @@ app.post('/api/backgrounds/upload', bgUpload.array('images', 12), (req, res) => 
 
 
 
+
+
+
+
+
   const files = (req.files || []).map(f => ({ name: f.filename, url: '/bg-images/' + encodeURIComponent(f.filename) }));
+
+
+
+
+
 
 
 
@@ -5827,12 +11487,27 @@ app.post('/api/backgrounds/upload', bgUpload.array('images', 12), (req, res) => 
 
 
 
+
+
+
+
+
   res.json({ ok: true, images: files });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
 
 
 
@@ -5842,7 +11517,17 @@ app.delete('/api/backgrounds/images/:name', (req, res) => {
 
 
 
+
+
+
+
+
   const name = path.basename(req.params.name || ''); // basename 防目录穿越
+
+
+
+
+
 
 
 
@@ -5852,7 +11537,17 @@ app.delete('/api/backgrounds/images/:name', (req, res) => {
 
 
 
+
+
+
+
+
   try { fs.unlinkSync(path.join(BG_IMG_DIR, name)); res.json({ ok: true }); }
+
+
+
+
+
 
 
 
@@ -5862,7 +11557,22 @@ app.delete('/api/backgrounds/images/:name', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5877,7 +11587,17 @@ app.delete('/api/backgrounds/images/:name', (req, res) => {
 
 
 
+
+
+
+
+
 // 用 ffmpeg 按 start/end_offset 实时截取为 44.1k 立体声 wav 流（Demucs 需无损整段）。
+
+
+
+
+
 
 
 
@@ -5887,7 +11607,17 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
   const song = db.prepare('SELECT * FROM songs WHERE id=?').get(parseInt(req.params.id, 10));
+
+
+
+
+
 
 
 
@@ -5897,7 +11627,17 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
   const cached = (song.is_network && song.cache_status === 'ready' && song.cache_path) ? song.cache_path : null;
+
+
+
+
+
 
 
 
@@ -5907,7 +11647,17 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
   if (!src || !fs.existsSync(src)) return res.status(404).json({ error: '源文件在服务端不可达', path: src });
+
+
+
+
+
 
 
 
@@ -5917,7 +11667,17 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
     const start = Number(song.start_offset) || 0;
+
+
+
+
+
 
 
 
@@ -5927,7 +11687,17 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
     const args = ['-loglevel', 'error', '-ss', String(start)];
+
+
+
+
+
 
 
 
@@ -5937,7 +11707,17 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
     args.push('-i', src, '-vn', '-ac', '2', '-ar', '44100', '-c:a', 'pcm_s16le', '-f', 'wav', 'pipe:1');
+
+
+
+
+
 
 
 
@@ -5947,7 +11727,17 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
     const child = spawn('ffmpeg', args);
+
+
+
+
+
 
 
 
@@ -5957,7 +11747,17 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
     child.stderr.on('data', () => { /* 丢弃 ffmpeg 进度噪音 */ });
+
+
+
+
+
 
 
 
@@ -5967,7 +11767,17 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
   } else {
+
+
+
+
+
 
 
 
@@ -5977,7 +11787,17 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
     // 让 TV 端 <audio> 能边下边播、拖动进度条寻址，而不是每次从头下载整首。
+
+
+
+
+
 
 
 
@@ -5987,7 +11807,17 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
     const mime = ext === '.flac' ? 'audio/flac'
+
+
+
+
+
 
 
 
@@ -5997,7 +11827,17 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
       : ext === '.mp3' ? 'audio/mpeg'
+
+
+
+
+
 
 
 
@@ -6007,7 +11847,17 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
       : ext === '.ogg' ? 'audio/ogg'
+
+
+
+
+
 
 
 
@@ -6017,12 +11867,27 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
     sendFileWithRange(req, res, src, mime);
 
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -6037,7 +11902,22 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
 app.get('/api/songs', (req, res) => {
+
+
+
+
+
 
 
 
@@ -6047,7 +11927,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
   const artist = (req.query.artist || '').trim();
+
+
+
+
+
 
 
 
@@ -6057,7 +11947,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
   //   language - 缺语种　genre - 缺风格　artist - 歌手未知/未填
+
+
+
+
+
 
 
 
@@ -6067,7 +11967,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
   const incomplete = (req.query.incomplete || '').trim();
+
+
+
+
+
 
 
 
@@ -6077,7 +11987,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
   // 值都视为"全部"，只有 local/network 会真正加限制条件，跟其它筛选条件
+
+
+
+
+
 
 
 
@@ -6087,7 +12007,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
   const scope = (req.query.scope || '').trim();
+
+
+
+
+
 
 
 
@@ -6097,12 +12027,27 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
   const scopeClause = scope === 'local' ? 'is_network = 0'
 
 
 
 
+
+
+
+
+
     : scope === 'network' ? 'is_network = 1'
+
+
+
+
+
 
 
 
@@ -6117,7 +12062,22 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   const pageRaw = parseInt(req.query.page, 10);
+
+
+
+
+
 
 
 
@@ -6127,7 +12087,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
   const paginate = Number.isInteger(pageRaw) && pageRaw > 0 && Number.isInteger(pageSizeRaw) && pageSizeRaw > 0;
+
+
+
+
+
 
 
 
@@ -6137,7 +12107,22 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
   const pageSize = paginate ? Math.min(pageSizeRaw, 500) : 0;
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6157,7 +12142,22 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   if (artist) {
+
+
+
+
+
 
 
 
@@ -6167,7 +12167,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     // songs.artist 整段字符串做等值比较（那样会漏掉"刀郎 张三"这类多歌手
+
+
+
+
+
 
 
 
@@ -6177,7 +12187,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     let where = 'sa.artist = ?';
+
+
+
+
+
 
 
 
@@ -6187,7 +12207,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     if (scopeClause) where += ` AND s.${scopeClause}`;
+
+
+
+
+
 
 
 
@@ -6197,7 +12227,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     countSql = `SELECT COUNT(*) c FROM songs s JOIN song_artists sa ON sa.song_id = s.id WHERE ${where}`;
+
+
+
+
+
 
 
 
@@ -6207,7 +12247,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     const conditions = {
+
+
+
+
+
 
 
 
@@ -6217,7 +12267,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
       genre: "(genre IS NULL OR genre = '')",
+
+
+
+
+
 
 
 
@@ -6227,7 +12287,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
       // 音轨探测未成功(NULL)或者是单音轨(=1，播放时走"声道型"原/伴唱分离，
+
+
+
+
+
 
 
 
@@ -6237,7 +12307,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
       // 或确认这首歌本来就是单音轨的情况，合并成一个筛选项，不计入"any"
+
+
+
+
+
 
 
 
@@ -6247,7 +12327,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
       track: '(audio_tracks IS NULL OR audio_tracks = 1)',
+
+
+
+
+
 
 
 
@@ -6257,7 +12347,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     const clause = incomplete === 'any'
+
+
+
+
+
 
 
 
@@ -6267,7 +12367,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
       : conditions[incomplete];
+
+
+
+
+
 
 
 
@@ -6277,12 +12387,27 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
       return res.json(paginate ? { items: [], total: 0, page, pageSize, totalPages: 0 } : []);
 
 
 
 
+
+
+
+
+
     }
+
+
+
+
+
 
 
 
@@ -6292,7 +12417,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     if (q) {
+
+
+
+
+
 
 
 
@@ -6302,7 +12437,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
       params.push(`%${q}%`, `%${q}%`);
+
+
+
+
+
 
 
 
@@ -6312,7 +12457,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     if (scopeClause) where += ` AND ${scopeClause}`;
+
+
+
+
+
 
 
 
@@ -6322,7 +12477,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     countSql = `SELECT COUNT(*) c FROM songs WHERE ${where}`;
+
+
+
+
+
 
 
 
@@ -6332,7 +12497,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     // 播放次数相同时(尤其是大量新歌都还是 0 次)，按 id DESC 做次级排序让
+
+
+
+
+
 
 
 
@@ -6342,7 +12517,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     // 不然次级顺序会退化成 SQLite 未定义的物理行序，新歌搜索出来可能反而
+
+
+
+
+
 
 
 
@@ -6352,7 +12537,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     let where = '1=1';
+
+
+
+
+
 
 
 
@@ -6362,7 +12557,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
       where += ' AND (title LIKE ? OR artist LIKE ?)';
+
+
+
+
+
 
 
 
@@ -6372,7 +12577,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     }
+
+
+
+
+
 
 
 
@@ -6382,7 +12597,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     baseSql = `SELECT * FROM songs WHERE ${where} ORDER BY play_count DESC, id DESC`;
+
+
+
+
+
 
 
 
@@ -6392,7 +12617,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     // 非分页调用（TV 端/手机端的即时搜索）保留原来 LIMIT 100 的上限，避免
+
+
+
+
+
 
 
 
@@ -6402,7 +12637,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     if (!paginate) baseSql += ' LIMIT 100';
+
+
+
+
+
 
 
 
@@ -6412,7 +12657,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     baseSql = `SELECT * FROM songs ORDER BY play_count DESC, id DESC`;
+
+
+
+
+
 
 
 
@@ -6422,7 +12677,22 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6437,12 +12707,32 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
     return res.json(db.prepare(baseSql).all(...params));
 
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6457,7 +12747,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+
+
+
+
 
 
 
@@ -6467,7 +12767,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
   const items = db.prepare(`${baseSql} LIMIT ? OFFSET ?`).all(...params, pageSize, offset);
+
+
+
+
+
 
 
 
@@ -6477,7 +12787,22 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6492,7 +12817,17 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+
+
+
 app.get('/api/songs/newest', (req, res) => {
+
+
+
+
+
 
 
 
@@ -6502,7 +12837,17 @@ app.get('/api/songs/newest', (req, res) => {
 
 
 
+
+
+
+
+
   try {
+
+
+
+
+
 
 
 
@@ -6512,7 +12857,17 @@ app.get('/api/songs/newest', (req, res) => {
 
 
 
+
+
+
+
+
     res.json(rows);
+
+
+
+
+
 
 
 
@@ -6522,7 +12877,17 @@ app.get('/api/songs/newest', (req, res) => {
 
 
 
+
+
+
+
+
     console.error('[newest] error:', e.message);
+
+
+
+
+
 
 
 
@@ -6532,12 +12897,32 @@ app.get('/api/songs/newest', (req, res) => {
 
 
 
+
+
+
+
+
   }
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6552,7 +12937,17 @@ app.get('/api/songs/newest', (req, res) => {
 
 
 
+
+
+
+
+
 app.get('/api/songs/letter/:letter', (req, res) => {
+
+
+
+
+
 
 
 
@@ -6562,7 +12957,17 @@ app.get('/api/songs/letter/:letter', (req, res) => {
 
 
 
+
+
+
+
+
   const rows = db.prepare('SELECT * FROM songs WHERE UPPER(SUBSTR(title,1,1)) = ? ORDER BY title LIMIT 100').all(letter);
+
+
+
+
+
 
 
 
@@ -6572,7 +12977,22 @@ app.get('/api/songs/letter/:letter', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6587,7 +13007,17 @@ app.get('/api/songs/letter/:letter', (req, res) => {
 
 
 
+
+
+
+
+
 // 后，播放前要先把源文件缓存到本地(见 sourceCache.js)，这一步网速慢的时候
+
+
+
+
+
 
 
 
@@ -6597,7 +13027,17 @@ app.get('/api/songs/letter/:letter', (req, res) => {
 
 
 
+
+
+
+
+
 // 拿到实时的下载速度/预计剩余时间展示给用户看，而不是让用户对着转圈干等、
+
+
+
+
+
 
 
 
@@ -6607,7 +13047,17 @@ app.get('/api/songs/letter/:letter', (req, res) => {
 
 
 
+
+
+
+
+
 // 就是公开可访问的，跟 /api/songs、/hls 等接口的开放程度保持一致。
+
+
+
+
+
 
 
 
@@ -6617,7 +13067,17 @@ app.get('/api/songs/letter/:letter', (req, res) => {
 
 
 
+
+
+
+
+
 // 返回 status:'local'，前端据此不展示下载速度/预计等待这部分UI。
+
+
+
+
+
 
 
 
@@ -6627,7 +13087,17 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
+
+
+
+
+
   const song = db.prepare('SELECT id, is_network, is_strm, cache_status FROM songs WHERE id = ?').get(req.params.id);
+
+
+
+
+
 
 
 
@@ -6637,7 +13107,17 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
+
+
+
+
+
   if (!song.is_network && !song.is_strm) {
+
+
+
+
+
 
 
 
@@ -6647,7 +13127,17 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -6657,12 +13147,32 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ status: song.cache_status || 'none', ...progress });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6677,7 +13187,17 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
+
+
+
+
+
 // 头像图片由用户自行放进 SINGER_DIR（默认 /singer，对应宿主机
+
+
+
+
+
 
 
 
@@ -6687,7 +13207,17 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
+
+
+
+
+
 // 如"刀郎.jpg"、"周杰伦.png"，大小写敏感（Linux 文件系统本身如此）。命中就
+
+
+
+
+
 
 
 
@@ -6697,7 +13227,17 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
+
+
+
+
+
 // 展示，不强制要求每个歌手都配图。
+
+
+
+
+
 
 
 
@@ -6707,7 +13247,17 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
+
+
+
+
+
 // 能正常工作（目录不存在/为空时，下面的扫描直接兜底成一张空表，不影响
+
+
+
+
+
 
 
 
@@ -6717,7 +13267,17 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
+
+
+
+
+
 const SINGER_DIR = process.env.SINGER_DIR || '/singer';
+
+
+
+
+
 
 
 
@@ -6727,7 +13287,17 @@ const SINGER_AVATAR_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 
 
 
+
+
+
+
+
 // 目录扫描结果做一层短 TTL 缓存：歌手列表接口访问频率不低（每次打开"歌星"
+
+
+
+
+
 
 
 
@@ -6737,7 +13307,17 @@ const SINGER_AVATAR_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 
 
 
+
+
+
+
+
 // 同步 readdir；缓存 30 秒既保证用户新增/替换头像后很快就能在前台看到，
+
+
+
+
+
 
 
 
@@ -6747,12 +13327,27 @@ const SINGER_AVATAR_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 
 
 
+
+
+
+
+
 let singerAvatarCache = null; // Map: 歌手名(不含后缀) -> 实际文件名(含后缀)
 
 
 
 
+
+
+
+
+
 let singerAvatarCacheAt = 0;
+
+
+
+
+
 
 
 
@@ -6767,7 +13362,22 @@ const SINGER_AVATAR_CACHE_TTL = 30 * 1000;
 
 
 
+
+
+
+
+
+
+
+
+
+
 function getSingerAvatarMap() {
+
+
+
+
+
 
 
 
@@ -6777,7 +13387,17 @@ function getSingerAvatarMap() {
 
 
 
+
+
+
+
+
   if (singerAvatarCache && (now - singerAvatarCacheAt) < SINGER_AVATAR_CACHE_TTL) {
+
+
+
+
+
 
 
 
@@ -6787,7 +13407,17 @@ function getSingerAvatarMap() {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -6797,7 +13427,17 @@ function getSingerAvatarMap() {
 
 
 
+
+
+
+
+
   try {
+
+
+
+
+
 
 
 
@@ -6807,7 +13447,17 @@ function getSingerAvatarMap() {
 
 
 
+
+
+
+
+
     for (const f of files) {
+
+
+
+
+
 
 
 
@@ -6817,7 +13467,17 @@ function getSingerAvatarMap() {
 
 
 
+
+
+
+
+
       if (!SINGER_AVATAR_EXTS.includes(ext)) continue;
+
+
+
+
+
 
 
 
@@ -6827,7 +13487,17 @@ function getSingerAvatarMap() {
 
 
 
+
+
+
+
+
     }
+
+
+
+
+
 
 
 
@@ -6837,7 +13507,17 @@ function getSingerAvatarMap() {
 
 
 
+
+
+
+
+
     // 目录不存在（比如用户还没在共享文件夹里建 singer 子目录）或不可读时，
+
+
+
+
+
 
 
 
@@ -6847,7 +13527,17 @@ function getSingerAvatarMap() {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -6857,12 +13547,27 @@ function getSingerAvatarMap() {
 
 
 
+
+
+
+
+
   singerAvatarCacheAt = now;
 
 
 
 
+
+
+
+
+
   return map;
+
+
+
+
+
 
 
 
@@ -6877,7 +13582,22 @@ function getSingerAvatarMap() {
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 头像图片直出接口：按歌手名查缓存里记录的真实文件名再拼路径读取，不直接
+
+
+
+
+
 
 
 
@@ -6887,7 +13607,17 @@ function getSingerAvatarMap() {
 
 
 
+
+
+
+
+
 // 对应头像时返回 404，前端据此决定是否回退到首字头像。
+
+
+
+
+
 
 
 
@@ -6897,7 +13627,17 @@ app.get('/api/singer-avatar/:artist', (req, res) => {
 
 
 
+
+
+
+
+
   const file = getSingerAvatarMap().get(req.params.artist);
+
+
+
+
+
 
 
 
@@ -6907,7 +13647,17 @@ app.get('/api/singer-avatar/:artist', (req, res) => {
 
 
 
+
+
+
+
+
   const filePath = path.resolve(SINGER_DIR, file);
+
+
+
+
+
 
 
 
@@ -6917,7 +13667,17 @@ app.get('/api/singer-avatar/:artist', (req, res) => {
 
 
 
+
+
+
+
+
   res.sendFile(filePath, (err) => {
+
+
+
+
+
 
 
 
@@ -6927,12 +13687,32 @@ app.get('/api/singer-avatar/:artist', (req, res) => {
 
 
 
+
+
+
+
+
   });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6947,7 +13727,17 @@ app.get('/api/singer-avatar/:artist', (req, res) => {
 
 
 
+
+
+
+
+
 // 自动带 30 秒 TTL 缓存刷新的(见上面 getSingerAvatarMap 的注释)，理论上不用
+
+
+
+
+
 
 
 
@@ -6957,7 +13747,17 @@ app.get('/api/singer-avatar/:artist', (req, res) => {
 
 
 
+
+
+
+
+
 // 想立刻看到"识别到了几个"这个确认反馈，而不是模糊地等最多 30 秒、也不知道
+
+
+
+
+
 
 
 
@@ -6967,7 +13767,17 @@ app.get('/api/singer-avatar/:artist', (req, res) => {
 
 
 
+
+
+
+
+
 // 跟"扫描曲库"一样给一次明确的结果反馈。
+
+
+
+
+
 
 
 
@@ -6977,7 +13787,17 @@ app.post('/api/admin/rescan-avatars', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   singerAvatarCache = null;
+
+
+
+
+
 
 
 
@@ -6987,7 +13807,17 @@ app.post('/api/admin/rescan-avatars', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const map = getSingerAvatarMap();
+
+
+
+
+
 
 
 
@@ -6997,7 +13827,27 @@ app.post('/api/admin/rescan-avatars', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7017,7 +13867,17 @@ app.post('/api/admin/rescan-avatars', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 这样"刀郎 张三"这类合唱曲目会让刀郎、张三分别出现在歌手列表里、分别计入
+
+
+
+
+
 
 
 
@@ -7027,7 +13887,17 @@ app.post('/api/admin/rescan-avatars', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 分页支持(需求"歌手列表也支持真正的服务端分页，和点歌列表加载逻辑相同")：
+
+
+
+
+
 
 
 
@@ -7037,7 +13907,17 @@ app.post('/api/admin/rescan-avatars', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 返回 { items, total, page, pageSize, totalPages } 带元信息的对象；不带分页
+
+
+
+
+
 
 
 
@@ -7047,7 +13927,17 @@ app.post('/api/admin/rescan-avatars', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 app.get('/api/artists', (req, res) => {
+
+
+
+
+
 
 
 
@@ -7057,7 +13947,17 @@ app.get('/api/artists', (req, res) => {
 
 
 
+
+
+
+
+
   const pageSizeRaw = parseInt(req.query.pageSize, 10);
+
+
+
+
+
 
 
 
@@ -7067,7 +13967,17 @@ app.get('/api/artists', (req, res) => {
 
 
 
+
+
+
+
+
   const page = paginate ? pageRaw : 1;
+
+
+
+
+
 
 
 
@@ -7082,7 +13992,22 @@ app.get('/api/artists', (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   const rows = db.prepare(`
+
+
+
+
+
 
 
 
@@ -7092,7 +14017,17 @@ app.get('/api/artists', (req, res) => {
 
 
 
+
+
+
+
+
     FROM song_artists
+
+
+
+
+
 
 
 
@@ -7102,7 +14037,17 @@ app.get('/api/artists', (req, res) => {
 
 
 
+
+
+
+
+
     ORDER BY artist
+
+
+
+
+
 
 
 
@@ -7112,7 +14057,17 @@ app.get('/api/artists', (req, res) => {
 
 
 
+
+
+
+
+
   // 附带 hasAvatar 标记，前端据此决定渲染头像图片还是首字兜底，不用再为
+
+
+
+
+
 
 
 
@@ -7122,7 +14077,17 @@ app.get('/api/artists', (req, res) => {
 
 
 
+
+
+
+
+
   const avatarMap = getSingerAvatarMap();
+
+
+
+
+
 
 
 
@@ -7137,7 +14102,22 @@ app.get('/api/artists', (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   if (!paginate) {
+
+
+
+
+
 
 
 
@@ -7147,7 +14127,17 @@ app.get('/api/artists', (req, res) => {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -7157,7 +14147,17 @@ app.get('/api/artists', (req, res) => {
 
 
 
+
+
+
+
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+
+
+
+
 
 
 
@@ -7167,7 +14167,17 @@ app.get('/api/artists', (req, res) => {
 
 
 
+
+
+
+
+
   const items = rows.slice(offset, offset + pageSize).map(withAvatar);
+
+
+
+
+
 
 
 
@@ -7177,7 +14187,22 @@ app.get('/api/artists', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7192,7 +14217,17 @@ app.get('/api/artists', (req, res) => {
 
 
 
+
+
+
+
+
 app.get('/api/history', (req, res) => {
+
+
+
+
+
 
 
 
@@ -7202,7 +14237,17 @@ app.get('/api/history', (req, res) => {
 
 
 
+
+
+
+
+
     SELECT s.*, COUNT(h.id) as times_sung
+
+
+
+
+
 
 
 
@@ -7212,7 +14257,17 @@ app.get('/api/history', (req, res) => {
 
 
 
+
+
+
+
+
     GROUP BY s.id ORDER BY times_sung DESC, s.play_count DESC LIMIT 50
+
+
+
+
+
 
 
 
@@ -7222,12 +14277,32 @@ app.get('/api/history', (req, res) => {
 
 
 
+
+
+
+
+
   res.json(rows);
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7242,7 +14317,17 @@ app.get('/api/history', (req, res) => {
 
 
 
+
+
+
+
+
 app.get('/api/charts', (req, res) => {
+
+
+
+
+
 
 
 
@@ -7252,12 +14337,32 @@ app.get('/api/charts', (req, res) => {
 
 
 
+
+
+
+
+
   res.json(rows);
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7272,7 +14377,17 @@ app.get('/api/charts', (req, res) => {
 
 
 
+
+
+
+
+
 app.get('/api/favorites', (req, res) => {
+
+
+
+
+
 
 
 
@@ -7282,7 +14397,17 @@ app.get('/api/favorites', (req, res) => {
 
 
 
+
+
+
+
+
   const rows = db.prepare(`
+
+
+
+
+
 
 
 
@@ -7292,7 +14417,17 @@ app.get('/api/favorites', (req, res) => {
 
 
 
+
+
+
+
+
     JOIN favorites f ON s.id = f.song_id
+
+
+
+
+
 
 
 
@@ -7302,7 +14437,17 @@ app.get('/api/favorites', (req, res) => {
 
 
 
+
+
+
+
+
   `).all(device);
+
+
+
+
+
 
 
 
@@ -7312,7 +14457,22 @@ app.get('/api/favorites', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7327,7 +14487,17 @@ app.post('/api/favorites/:song_id', (req, res) => {
 
 
 
+
+
+
+
+
   const device = req.body.device || 'default';
+
+
+
+
+
 
 
 
@@ -7337,12 +14507,32 @@ app.post('/api/favorites/:song_id', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7357,7 +14547,17 @@ app.delete('/api/favorites/:song_id', (req, res) => {
 
 
 
+
+
+
+
+
   const device = req.query.device || 'default';
+
+
+
+
+
 
 
 
@@ -7367,12 +14567,32 @@ app.delete('/api/favorites/:song_id', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7387,7 +14607,17 @@ app.delete('/api/favorites/:song_id', (req, res) => {
 
 
 
+
+
+
+
+
 // 「曲库管理」里语种、风格两个字段允许管理员自己维护一份常用取值列表
+
+
+
+
+
 
 
 
@@ -7397,7 +14627,17 @@ app.delete('/api/favorites/:song_id', (req, res) => {
 
 
 
+
+
+
+
+
 // （key = preset_languages / preset_genres，值是 JSON 数组字符串），
+
+
+
+
+
 
 
 
@@ -7407,7 +14647,17 @@ app.delete('/api/favorites/:song_id', (req, res) => {
 
 
 
+
+
+
+
+
 // 它做下拉可选项，也用来支撑"多选歌曲、一键设置语种和风格"的批量操作。
+
+
+
+
+
 
 
 
@@ -7417,7 +14667,17 @@ app.delete('/api/favorites/:song_id', (req, res) => {
 
 
 
+
+
+
+
+
 // 都基于这份列表继续调整，不会每次都被默认值覆盖。
+
+
+
+
+
 
 
 
@@ -7427,12 +14687,27 @@ const PRESET_LANGUAGE_KEY = 'preset_languages';
 
 
 
+
+
+
+
+
 const PRESET_GENRE_KEY = 'preset_genres';
 
 
 
 
+
+
+
+
+
 const DEFAULT_PRESET_LANGUAGES = ['国语', '粤语', '英语', '日语', '韩语', '其他'];
+
+
+
+
+
 
 
 
@@ -7447,7 +14722,22 @@ const DEFAULT_PRESET_GENRES = ['流行', '摇滚', '民谣', '伤感', '怀旧',
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 「曲库管理 - 一键清洗」里管理员自定义的忽略词列表：常见于画质/平台版本
+
+
+
+
+
 
 
 
@@ -7457,7 +14747,17 @@ const DEFAULT_PRESET_GENRES = ['流行', '摇滚', '民谣', '伤感', '怀旧',
 
 
 
+
+
+
+
+
 // 持久化方式跟语种/风格预设完全一样（同一张 settings 表，同一套增删接口，
+
+
+
+
+
 
 
 
@@ -7467,12 +14767,27 @@ const DEFAULT_PRESET_GENRES = ['流行', '摇滚', '民谣', '伤感', '怀旧',
 
 
 
+
+
+
+
+
 // 实际出现过的标记自行增删，这里只给一组常见默认值方便直接用。
 
 
 
 
+
+
+
+
+
 const CLEAN_NOISE_KEY = 'clean_noise_words';
+
+
+
+
+
 
 
 
@@ -7487,7 +14802,22 @@ const DEFAULT_NOISE_WORDS = ['1080p', '720p', '4K', '高清', '抖音版', 'live
 
 
 
+
+
+
+
+
+
+
+
+
+
 function getPresetList(key, fallback) {
+
+
+
+
+
 
 
 
@@ -7497,7 +14827,17 @@ function getPresetList(key, fallback) {
 
 
 
+
+
+
+
+
   if (!row) return fallback.slice();
+
+
+
+
+
 
 
 
@@ -7507,7 +14847,17 @@ function getPresetList(key, fallback) {
 
 
 
+
+
+
+
+
     const arr = JSON.parse(row.value);
+
+
+
+
+
 
 
 
@@ -7517,7 +14867,17 @@ function getPresetList(key, fallback) {
 
 
 
+
+
+
+
+
   } catch (e) {
+
+
+
+
+
 
 
 
@@ -7527,12 +14887,27 @@ function getPresetList(key, fallback) {
 
 
 
+
+
+
+
+
   }
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
 
 
 
@@ -7542,7 +14917,17 @@ function setPresetList(key, list) {
 
 
 
+
+
+
+
+
   db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+
+
+
+
+
 
 
 
@@ -7552,7 +14937,17 @@ function setPresetList(key, list) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
 
 
 
@@ -7562,7 +14957,17 @@ function presetKeyFallback(type) {
 
 
 
+
+
+
+
+
   if (type === 'genre') return { key: PRESET_GENRE_KEY, fallback: DEFAULT_PRESET_GENRES };
+
+
+
+
+
 
 
 
@@ -7572,7 +14977,17 @@ function presetKeyFallback(type) {
 
 
 
+
+
+
+
+
   if (type === 'noise') return { key: CLEAN_NOISE_KEY, fallback: DEFAULT_NOISE_WORDS };
+
+
+
+
+
 
 
 
@@ -7582,7 +14997,17 @@ function presetKeyFallback(type) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
 
 
 
@@ -7592,7 +15017,17 @@ function presetTypeName(type) {
 
 
 
+
+
+
+
+
   if (type === 'genre') return '风格';
+
+
+
+
+
 
 
 
@@ -7602,12 +15037,32 @@ function presetTypeName(type) {
 
 
 
+
+
+
+
+
   return '语种';
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7622,7 +15077,17 @@ app.get('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({
+
+
+
+
+
 
 
 
@@ -7632,7 +15097,17 @@ app.get('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     genres: getPresetList(PRESET_GENRE_KEY, DEFAULT_PRESET_GENRES),
+
+
+
+
+
 
 
 
@@ -7642,12 +15117,32 @@ app.get('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7662,7 +15157,17 @@ app.post('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const { type, value } = req.body || {};
+
+
+
+
+
 
 
 
@@ -7672,7 +15177,17 @@ app.post('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   if (!v) return res.status(400).json({ error: '预设内容不能为空' });
+
+
+
+
+
 
 
 
@@ -7682,7 +15197,17 @@ app.post('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const kf = presetKeyFallback(type);
+
+
+
+
+
 
 
 
@@ -7692,7 +15217,17 @@ app.post('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const list = getPresetList(kf.key, kf.fallback);
+
+
+
+
+
 
 
 
@@ -7702,7 +15237,17 @@ app.post('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   setPresetList(kf.key, list);
+
+
+
+
+
 
 
 
@@ -7712,12 +15257,32 @@ app.post('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, list });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7732,7 +15297,17 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const type = String(req.query.type || '').trim();
+
+
+
+
+
 
 
 
@@ -7742,7 +15317,17 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const kf = presetKeyFallback(type);
+
+
+
+
+
 
 
 
@@ -7752,7 +15337,17 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const list = getPresetList(kf.key, kf.fallback).filter(x => x !== value);
+
+
+
+
+
 
 
 
@@ -7762,7 +15357,17 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   log.info('ADMIN', `删除${presetTypeName(type)}预设: ${value}`);
+
+
+
+
+
 
 
 
@@ -7772,7 +15377,22 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -7787,7 +15407,17 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 有别于 scanner.js 里固定死的"歌手-歌曲名-语种-风格"默认解析规则：这里
+
+
+
+
+
 
 
 
@@ -7797,7 +15427,17 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // filenameTemplate.js 顶部注释），先预览重新解析后的效果，确认没问题
+
+
+
+
+
 
 
 
@@ -7807,7 +15447,17 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // title/artist/language/genre 这几个字段，不涉及扫描/入库/删除，也不会
+
+
+
+
+
 
 
 
@@ -7817,7 +15467,17 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 const { compilePattern, parseWithTemplate, baseNameOf } = require('./filenameTemplate');
+
+
+
+
+
 
 
 
@@ -7832,7 +15492,22 @@ const { cleanTitle } = require('./cleaner');
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 圈定这次要预览/解析哪些歌曲：优先用「曲库管理」页面里已经勾选的歌曲
+
+
+
+
+
 
 
 
@@ -7842,7 +15517,17 @@ const { cleanTitle } = require('./cleaner');
 
 
 
+
+
+
+
+
 // 没有勾选任何歌曲时，退回到当前的搜索关键字 / "信息不完整"筛选条件
+
+
+
+
+
 
 
 
@@ -7852,7 +15537,17 @@ const { cleanTitle } = require('./cleaner');
 
 
 
+
+
+
+
+
 // 当前正看到的范围一致。
+
+
+
+
+
 
 
 
@@ -7862,7 +15557,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
   const { ids, q, incomplete, scope } = body || {};
+
+
+
+
+
 
 
 
@@ -7872,7 +15577,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
     const placeholders = ids.map(() => '?').join(',');
+
+
+
+
+
 
 
 
@@ -7882,7 +15597,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -7892,7 +15617,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
   const inc = String(incomplete || '').trim();
+
+
+
+
+
 
 
 
@@ -7902,7 +15637,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
   // 曲库"时，批量工具(文件名解析/一键清洗)的圈定范围要跟表格里当前看到
+
+
+
+
+
 
 
 
@@ -7912,7 +15657,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
   const sc = String(scope || '').trim();
+
+
+
+
+
 
 
 
@@ -7922,7 +15677,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
   const params = [];
+
+
+
+
+
 
 
 
@@ -7932,7 +15697,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
     const conditions = {
+
+
+
+
+
 
 
 
@@ -7942,7 +15717,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
       genre: "(genre IS NULL OR genre = '')",
+
+
+
+
+
 
 
 
@@ -7952,7 +15737,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
       track: '(audio_tracks IS NULL OR audio_tracks = 1)',
+
+
+
+
+
 
 
 
@@ -7962,7 +15757,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
     const clause = inc === 'any'
+
+
+
+
+
 
 
 
@@ -7972,7 +15777,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
       : conditions[inc];
+
+
+
+
+
 
 
 
@@ -7982,7 +15797,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -7992,7 +15817,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
     where += ' AND (title LIKE ? OR artist LIKE ?)';
+
+
+
+
+
 
 
 
@@ -8002,7 +15837,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -8012,7 +15857,17 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
   else if (sc === 'network') where += ' AND is_network = 1';
+
+
+
+
+
 
 
 
@@ -8022,7 +15877,22 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8037,12 +15907,27 @@ function matchedSongsForParse(body) {
 
 
 
+
+
+
+
+
 // 行数失控；不限制参与解析计算的歌曲数量本身（圈定范围内的歌曲都会先解析
 
 
 
 
+
+
+
+
+
 // 一遍，只是最终展示/可确认的结果条数封顶在这里）。
+
+
+
+
+
 
 
 
@@ -8057,7 +15942,22 @@ const PARSE_PREVIEW_LIMIT = 300;
 
 
 
+
+
+
+
+
+
+
+
+
+
 app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
+
+
+
+
+
 
 
 
@@ -8067,7 +15967,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const presets = {
+
+
+
+
+
 
 
 
@@ -8077,7 +15987,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     genres: getPresetList(PRESET_GENRE_KEY, DEFAULT_PRESET_GENRES),
+
+
+
+
+
 
 
 
@@ -8087,7 +16007,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const compiled = compilePattern(pattern, presets);
+
+
+
+
+
 
 
 
@@ -8102,7 +16032,22 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   const matched = matchedSongsForParse(req.body);
+
+
+
+
+
 
 
 
@@ -8112,7 +16057,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   // 文件名解析"的(parse_ignored=1)，直接从圈定范围里剔除，不参与本次解析
+
+
+
+
+
 
 
 
@@ -8122,12 +16077,32 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const all = matched.filter(s => !s.parse_ignored);
 
 
 
 
+
+
+
+
+
   const ignoredCount = matched.length - all.length;
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8142,7 +16117,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   // 不能匹配上跟这首歌在结果集里排第几名毫无关系，如果解析前就先按数据库
+
+
+
+
+
 
 
 
@@ -8152,7 +16137,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   // 匹配解析格式的歌曲，从一开始就没被拿去解析过，预览里自然也不会出现，
+
+
+
+
+
 
 
 
@@ -8162,7 +16157,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   // 变更"实际只能应用一小部分的根源）。真正应该限量展示的，是"命中且有
+
+
+
+
+
 
 
 
@@ -8172,7 +16177,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   let failedCount = 0;
+
+
+
+
+
 
 
 
@@ -8182,7 +16197,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const changedItems = [];
+
+
+
+
+
 
 
 
@@ -8192,7 +16217,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     const base = baseNameOf(s.filename);
+
+
+
+
+
 
 
 
@@ -8202,7 +16237,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     if (!parsed) { failedCount++; continue; }
+
+
+
+
+
 
 
 
@@ -8212,7 +16257,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       title: s.title || '',
+
+
+
+
+
 
 
 
@@ -8222,7 +16277,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       language: s.language || '',
+
+
+
+
+
 
 
 
@@ -8232,7 +16297,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     };
+
+
+
+
+
 
 
 
@@ -8242,7 +16317,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       parsed.artist !== current.artist ||
+
+
+
+
+
 
 
 
@@ -8252,7 +16337,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       parsed.genre !== current.genre;
+
+
+
+
+
 
 
 
@@ -8262,12 +16357,32 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     changedItems.push({ id: s.id, filename: s.filename, current, parsed, changed: true });
 
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8282,7 +16397,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   // 数量，解析失败/无需更改的行本来就不展示，只汇总数量，不受这个上限
+
+
+
+
+
 
 
 
@@ -8292,7 +16417,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const truncated = changedItems.length > PARSE_PREVIEW_LIMIT;
+
+
+
+
+
 
 
 
@@ -8307,7 +16442,22 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   log.info('ADMIN', `文件名解析预览: 格式="${pattern}" 圈定范围 ${all.length} 首，命中且有变化 ${changedItems.length} 首${truncated ? `（仅返回前 ${PARSE_PREVIEW_LIMIT} 首）` : ''}${ignoredCount ? `，另有 ${ignoredCount} 首已被手动忽略未参与本次` : ''}`);
+
+
+
+
+
 
 
 
@@ -8317,7 +16467,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     ok: true,
+
+
+
+
+
 
 
 
@@ -8327,7 +16487,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     matchedCount: changedItems.length,
+
+
+
+
+
 
 
 
@@ -8337,7 +16507,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     noChangeCount,
+
+
+
+
+
 
 
 
@@ -8347,7 +16527,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     limit: PARSE_PREVIEW_LIMIT,
+
+
+
+
+
 
 
 
@@ -8357,7 +16547,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     ignoredCount,
+
+
+
+
+
 
 
 
@@ -8367,7 +16567,22 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8382,7 +16597,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 项就是预览结果里 parsed 字段本身，前端直接原样带回来，服务端不重新解析，
+
+
+
+
+
 
 
 
@@ -8392,7 +16617,17 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
+
+
+
+
+
 
 
 
@@ -8402,7 +16637,17 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   if (!Array.isArray(updates) || !updates.length) return res.status(400).json({ error: '没有要应用的变更' });
+
+
+
+
+
 
 
 
@@ -8412,7 +16657,17 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   let count = 0;
+
+
+
+
+
 
 
 
@@ -8422,7 +16677,17 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     for (const u of list) {
+
+
+
+
+
 
 
 
@@ -8432,7 +16697,17 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       if (!title || !u.id) continue; // 歌名不能为空，异常行直接跳过，不写坏数据
+
+
+
+
+
 
 
 
@@ -8442,7 +16717,17 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       const language = String(u.language || '').trim();
+
+
+
+
+
 
 
 
@@ -8452,7 +16737,17 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       upd.run(title, artist, language, genre, u.id);
+
+
+
+
+
 
 
 
@@ -8462,7 +16757,17 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       count++;
+
+
+
+
+
 
 
 
@@ -8472,7 +16777,17 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   });
+
+
+
+
+
 
 
 
@@ -8482,7 +16797,17 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   log.info('ADMIN', `文件名解析结果已应用: ${count} 首`);
+
+
+
+
+
 
 
 
@@ -8492,7 +16817,22 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8507,7 +16847,17 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // parse_ignored 字段、只影响 /api/admin/filename-parse/preview 的圈定范围。
+
+
+
+
+
 
 
 
@@ -8517,7 +16867,17 @@ app.post('/api/admin/filename-parse/ignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const { ids } = req.body || {};
+
+
+
+
+
 
 
 
@@ -8527,7 +16887,17 @@ app.post('/api/admin/filename-parse/ignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const upd = db.prepare('UPDATE songs SET parse_ignored = 1 WHERE id = ?');
+
+
+
+
+
 
 
 
@@ -8537,7 +16907,17 @@ app.post('/api/admin/filename-parse/ignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   tx(ids);
+
+
+
+
+
 
 
 
@@ -8547,12 +16927,32 @@ app.post('/api/admin/filename-parse/ignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, count: ids.length });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8567,7 +16967,17 @@ app.post('/api/admin/filename-parse/unignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const { ids } = req.body || {};
+
+
+
+
+
 
 
 
@@ -8577,7 +16987,17 @@ app.post('/api/admin/filename-parse/unignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const upd = db.prepare('UPDATE songs SET parse_ignored = 0 WHERE id = ?');
+
+
+
+
+
 
 
 
@@ -8587,7 +17007,17 @@ app.post('/api/admin/filename-parse/unignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   tx(ids);
+
+
+
+
+
 
 
 
@@ -8597,12 +17027,32 @@ app.post('/api/admin/filename-parse/unignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, count: ids.length });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8617,7 +17067,17 @@ const PARSE_IGNORED_LIST_LIMIT = 300;
 
 
 
+
+
+
+
+
 app.get('/api/admin/filename-parse/ignored', requireAdminAuth, (req, res) => {
+
+
+
+
+
 
 
 
@@ -8627,7 +17087,17 @@ app.get('/api/admin/filename-parse/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const total = db.prepare('SELECT COUNT(*) c FROM songs WHERE parse_ignored = 1').get().c;
+
+
+
+
+
 
 
 
@@ -8637,7 +17107,22 @@ app.get('/api/admin/filename-parse/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8652,7 +17137,17 @@ app.get('/api/admin/filename-parse/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 跟上面的"文件名解析"是两套互补的曲库整理工具：文件名解析是"整段文件名
+
+
+
+
+
 
 
 
@@ -8662,7 +17157,17 @@ app.get('/api/admin/filename-parse/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 里混进了跟歌曲本身无关的画质/平台版本标记（如"[1080p]""（抖音版）"
+
+
+
+
+
 
 
 
@@ -8672,7 +17177,17 @@ app.get('/api/admin/filename-parse/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 里摘掉，只留下干净的歌曲名；同时只要标题里任意位置（不要求在开头、结
+
+
+
+
+
 
 
 
@@ -8682,7 +17197,17 @@ app.get('/api/admin/filename-parse/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // "流行"），也会顺带识别出来，同样是预览对照确认后才批量写回，不直接改
+
+
+
+
+
 
 
 
@@ -8692,7 +17217,17 @@ app.get('/api/admin/filename-parse/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
+
+
+
+
+
 
 
 
@@ -8702,7 +17237,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     languages: getPresetList(PRESET_LANGUAGE_KEY, DEFAULT_PRESET_LANGUAGES),
+
+
+
+
+
 
 
 
@@ -8712,7 +17257,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   };
+
+
+
+
+
 
 
 
@@ -8727,7 +17282,22 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   const matched = matchedSongsForParse(req.body); // 圈定范围规则跟文件名解析共用一套（已选优先，否则按当前搜索/筛选）
+
+
+
+
+
 
 
 
@@ -8737,7 +17307,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   // (clean_ignored=1)，直接从这一轮圈定范围里剔除，不再参与清洗识别/不会
+
+
+
+
+
 
 
 
@@ -8747,7 +17327,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   // 跳过一遍。ignoredCount 单独统计，让管理员知道这次圈定范围里有多少首是
+
+
+
+
+
 
 
 
@@ -8757,7 +17347,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const all = matched.filter(s => !s.clean_ignored);
+
+
+
+
+
 
 
 
@@ -8767,7 +17367,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const truncated = all.length > PARSE_PREVIEW_LIMIT;
+
+
+
+
+
 
 
 
@@ -8782,7 +17392,22 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   const items = songs.map(s => {
+
+
+
+
+
 
 
 
@@ -8792,7 +17417,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       title: s.title || '',
+
+
+
+
+
 
 
 
@@ -8802,12 +17437,27 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       genre: s.genre || '',
 
 
 
 
+
+
+
+
+
     };
+
+
+
+
+
 
 
 
@@ -8817,7 +17467,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     // 没命中语种/风格时不覆盖数据库里原有的取值——一键清洗只负责"从标题
+
+
+
+
+
 
 
 
@@ -8827,7 +17487,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     const cleaned = {
+
+
+
+
+
 
 
 
@@ -8837,7 +17507,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       language: result.language || current.language,
+
+
+
+
+
 
 
 
@@ -8847,7 +17527,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     };
+
+
+
+
+
 
 
 
@@ -8857,7 +17547,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       cleaned.language !== current.language ||
+
+
+
+
+
 
 
 
@@ -8867,7 +17567,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     const emptyTitle = changed && !cleaned.title;
+
+
+
+
+
 
 
 
@@ -8877,7 +17587,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     // 着汉字，见 cleaner.js 顶部注释)，整条结果就标记为低置信度，跟
+
+
+
+
+
 
 
 
@@ -8887,7 +17607,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     return {
+
+
+
+
+
 
 
 
@@ -8897,7 +17627,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       removed: result.removed, changed, emptyTitle,
+
+
+
+
+
 
 
 
@@ -8907,7 +17647,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     };
+
+
+
+
+
 
 
 
@@ -8917,7 +17667,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   log.info('ADMIN', `一键清洗预览: 共匹配 ${all.length} 首${truncated ? `（仅预览前 ${PARSE_PREVIEW_LIMIT} 首）` : ''}${ignoredCount ? `，另有 ${ignoredCount} 首已被手动忽略未参与本次` : ''}`);
+
+
+
+
+
 
 
 
@@ -8927,7 +17687,22 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -8942,7 +17717,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 项就是预览结果里 cleaned 字段本身，前端原样带回来，服务端不重新计算一
+
+
+
+
+
 
 
 
@@ -8952,7 +17737,17 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 只影响 title/language/genre，不涉及歌手，也不碰文件本身。
+
+
+
+
+
 
 
 
@@ -8962,7 +17757,17 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const { updates } = req.body || {};
+
+
+
+
+
 
 
 
@@ -8972,7 +17777,17 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const upd = db.prepare('UPDATE songs SET title=?, language=?, genre=? WHERE id=?');
+
+
+
+
+
 
 
 
@@ -8982,7 +17797,17 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const tx = db.transaction((list) => {
+
+
+
+
+
 
 
 
@@ -8992,7 +17817,17 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       const title = String(u.title || '').trim();
+
+
+
+
+
 
 
 
@@ -9002,7 +17837,17 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       const language = String(u.language || '').trim();
+
+
+
+
+
 
 
 
@@ -9012,7 +17857,17 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       upd.run(title, language, genre, u.id);
+
+
+
+
+
 
 
 
@@ -9022,7 +17877,17 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     }
+
+
+
+
+
 
 
 
@@ -9032,7 +17897,17 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   tx(updates);
+
+
+
+
+
 
 
 
@@ -9042,12 +17917,32 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, count });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9062,7 +17957,17 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 错误的"，点一下就把这首歌标记为以后不再参与一键清洗识别；跟"应用清洗
+
+
+
+
+
 
 
 
@@ -9072,7 +17977,17 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // /api/admin/clean/preview 圈定范围时会不会把这首歌纳入计算。
+
+
+
+
+
 
 
 
@@ -9082,7 +17997,17 @@ app.post('/api/admin/clean/ignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const { ids } = req.body || {};
+
+
+
+
+
 
 
 
@@ -9092,7 +18017,17 @@ app.post('/api/admin/clean/ignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const upd = db.prepare('UPDATE songs SET clean_ignored = 1 WHERE id = ?');
+
+
+
+
+
 
 
 
@@ -9102,7 +18037,17 @@ app.post('/api/admin/clean/ignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   tx(ids);
+
+
+
+
+
 
 
 
@@ -9112,12 +18057,32 @@ app.post('/api/admin/clean/ignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, count: ids.length });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9132,7 +18097,17 @@ app.post('/api/admin/clean/ignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 想重新纳入清洗范围时能撤回，不用整个重新扫描曲库。
+
+
+
+
+
 
 
 
@@ -9142,7 +18117,17 @@ app.post('/api/admin/clean/unignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const { ids } = req.body || {};
+
+
+
+
+
 
 
 
@@ -9152,7 +18137,17 @@ app.post('/api/admin/clean/unignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const upd = db.prepare('UPDATE songs SET clean_ignored = 0 WHERE id = ?');
+
+
+
+
+
 
 
 
@@ -9162,7 +18157,17 @@ app.post('/api/admin/clean/unignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   tx(ids);
+
+
+
+
+
 
 
 
@@ -9172,12 +18177,32 @@ app.post('/api/admin/clean/unignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, count: ids.length });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9192,7 +18217,17 @@ app.post('/api/admin/clean/unignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 当前一共标记忽略了哪些歌、需要的话逐条/批量取消。跟清洗预览一样限量
+
+
+
+
+
 
 
 
@@ -9202,7 +18237,17 @@ app.post('/api/admin/clean/unignore', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 const CLEAN_IGNORED_LIST_LIMIT = 300;
+
+
+
+
+
 
 
 
@@ -9212,7 +18257,17 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const rows = db.prepare('SELECT id, title, filename FROM songs WHERE clean_ignored = 1 ORDER BY id DESC LIMIT ?').all(CLEAN_IGNORED_LIST_LIMIT);
+
+
+
+
+
 
 
 
@@ -9222,12 +18277,32 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, items: rows, total, truncated: total > CLEAN_IGNORED_LIST_LIMIT, limit: CLEAN_IGNORED_LIST_LIMIT });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9242,7 +18317,17 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 只有这几个真正的"增删改"动作要求登录；/api/scan、/api/songs 等电视端、
+
+
+
+
+
 
 
 
@@ -9252,7 +18337,17 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 //
+
+
+
+
+
 
 
 
@@ -9262,7 +18357,17 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 多首歌曲生效，避免逐首打开编辑弹窗手动填。setLanguage/setGenre 两个
+
+
+
+
+
 
 
 
@@ -9272,7 +18377,17 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 请求里即使没带 genre 也不会误清空所有选中歌曲的风格，反之亦然。路由
+
+
+
+
+
 
 
 
@@ -9282,7 +18397,17 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
+
+
+
+
+
 
 
 
@@ -9292,7 +18417,17 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '未选择歌曲' });
+
+
+
+
+
 
 
 
@@ -9302,7 +18437,17 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const lang = (language || '').trim();
+
+
+
+
+
 
 
 
@@ -9312,7 +18457,17 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const tx = db.transaction((idList) => {
+
+
+
+
+
 
 
 
@@ -9322,7 +18477,17 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       if (setLanguage && setGenre) {
+
+
+
+
+
 
 
 
@@ -9332,7 +18497,17 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       } else if (setLanguage) {
+
+
+
+
+
 
 
 
@@ -9342,7 +18517,17 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       } else if (setGenre) {
+
+
+
+
+
 
 
 
@@ -9352,7 +18537,17 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       }
+
+
+
+
+
 
 
 
@@ -9362,7 +18557,17 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   });
+
+
+
+
+
 
 
 
@@ -9372,7 +18577,17 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   log.info('ADMIN', `批量设置 ${ids.length} 首歌曲: ${setLanguage ? `语种="${lang}" ` : ''}${setGenre ? `风格="${gen}"` : ''}`);
+
+
+
+
+
 
 
 
@@ -9382,7 +18597,22 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9397,7 +18627,17 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // song_artists 就直接删 songs，完全没清 queue/history/favorites——queue 表
+
+
+
+
+
 
 
 
@@ -9407,7 +18647,17 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 播完，queue 记录也只会被标 status='done'、从不真删)，这里就会撞上
+
+
+
+
+
 
 
 
@@ -9417,7 +18667,17 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // scanner.js 的 deleteSongCascade()，跟扫描时的自动清理走同一套级联删除
+
+
+
+
+
 
 
 
@@ -9427,7 +18687,17 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 app.delete('/api/songs/:id', requireAdminAuth, (req, res) => {
+
+
+
+
+
 
 
 
@@ -9437,7 +18707,17 @@ app.delete('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     deleteSongCascade(req.params.id);
+
+
+
+
+
 
 
 
@@ -9447,7 +18727,17 @@ app.delete('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   } catch (e) {
+
+
+
+
+
 
 
 
@@ -9457,7 +18747,17 @@ app.delete('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     res.status(500).json({ error: '删除失败: ' + e.message });
+
+
+
+
+
 
 
 
@@ -9467,7 +18767,22 @@ app.delete('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9482,7 +18797,17 @@ app.delete('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // artist 允许填写多位歌手（用空格分隔，和文件名的约定保持一致），保存后
+
+
+
+
+
 
 
 
@@ -9492,7 +18817,17 @@ app.delete('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 每一位歌手都能分别展示、分别按歌手查到这首歌（包括合唱曲目）。
+
+
+
+
+
 
 
 
@@ -9502,7 +18837,17 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const id = req.params.id;
+
+
+
+
+
 
 
 
@@ -9512,7 +18857,17 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const artist = (req.body.artist || '').trim();
+
+
+
+
+
 
 
 
@@ -9522,7 +18877,17 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const genre = (req.body.genre || '').trim();
+
+
+
+
+
 
 
 
@@ -9532,7 +18897,17 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     .run(title, artist, language, genre, id);
+
+
+
+
+
 
 
 
@@ -9542,12 +18917,32 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9562,7 +18957,17 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 永久误判为单音轨"问题的另一种修复入口——那个是"整库清空重新探测"，一次
+
+
+
+
+
 
 
 
@@ -9572,7 +18977,17 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 这里给一首歌单独重新探测一次，确认某一首有问题时只动这一首，不影响
+
+
+
+
+
 
 
 
@@ -9582,7 +18997,17 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // Bug修复(问题2 "点重新探测音轨直接报错"及其暴露的第二个bug)：原来这里
+
+
+
+
+
 
 
 
@@ -9592,7 +19017,17 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // resolve 的 Promise，直接塞给 SQLite 绑定参数会报
+
+
+
+
+
 
 
 
@@ -9602,7 +19037,17 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // null")，也没走 STRM/网络挂载该走的"先解析真实源地址、落地缓存"这一步
+
+
+
+
+
 
 
 
@@ -9612,7 +19057,17 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // processing input")。改成统一调用 scanner.js 的 ensureProbedOnDemand()，
+
+
+
+
+
 
 
 
@@ -9622,7 +19077,17 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, res) => {
+
+
+
+
+
 
 
 
@@ -9632,7 +19097,17 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
+
+
+
+
+
   if (!song) return res.status(404).json({ error: '歌曲不存在' });
+
+
+
+
+
 
 
 
@@ -9642,7 +19117,17 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
+
+
+
+
+
     const audio_tracks = await ensureProbedOnDemand(song, true);
+
+
+
+
+
 
 
 
@@ -9652,7 +19137,17 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
+
+
+
+
+
     res.json({ ok: true, audio_tracks });
+
+
+
+
+
 
 
 
@@ -9662,7 +19157,17 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
+
+
+
+
+
     log.error('SCAN', `管理员触发：单曲重新探测音轨失败 [歌曲 id=${song.id} "${song.title}"]: ${e.message}`);
+
+
+
+
+
 
 
 
@@ -9672,12 +19177,32 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
+
+
+
+
+
   }
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9692,7 +19217,17 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
+
+
+
+
+
 // 歌曲分别重新探测一遍，跟单曲的 /api/songs/:id/reprobe-audio-tracks 是同一
+
+
+
+
+
 
 
 
@@ -9702,7 +19237,17 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
+
+
+
+
+
 // scanner.js 的 yieldToEventLoop 同样的考虑），避免一次性勾选很多首时长时间
+
+
+
+
+
 
 
 
@@ -9712,7 +19257,17 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
+
+
+
+
+
 // 其余歌曲继续探测。
+
+
+
+
+
 
 
 
@@ -9722,7 +19277,17 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
+
+
+
+
+
   const { ids } = req.body || {};
+
+
+
+
+
 
 
 
@@ -9732,7 +19297,17 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
+
+
+
+
+
   const results = [];
+
+
+
+
+
 
 
 
@@ -9742,7 +19317,17 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
+
+
+
+
+
     try {
+
+
+
+
+
 
 
 
@@ -9752,7 +19337,17 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
+
+
+
+
+
       if (!song) continue;
+
+
+
+
+
 
 
 
@@ -9762,7 +19357,17 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
+
+
+
+
+
       // 对 filepath 跑未 await 的 probeAudioTracks()。
+
+
+
+
+
 
 
 
@@ -9772,7 +19377,17 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
+
+
+
+
+
       results.push({ id: song.id, audio_tracks });
+
+
+
+
+
 
 
 
@@ -9782,7 +19397,17 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
+
+
+
+
+
       log.error('SCAN', `批量重探音轨-单曲失败(id=${id}): ${e.message}`);
+
+
+
+
+
 
 
 
@@ -9792,7 +19417,17 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
+
+
+
+
+
     await new Promise(resolve => setImmediate(resolve));
+
+
+
+
+
 
 
 
@@ -9802,7 +19437,17 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
+
+
+
+
+
   log.info('SCAN', `管理员触发：批量重新探测音轨，共 ${results.length} 首`);
+
+
+
+
+
 
 
 
@@ -9812,7 +19457,22 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9827,7 +19487,17 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
+
+
+
+
+
 // 配合「曲库管理」页面的"清理缓存"按钮：管理员可以在两种策略间选择——
+
+
+
+
+
 
 
 
@@ -9837,7 +19507,17 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
+
+
+
+
+
 // 或按点歌时间清理（超过设定天数没被点唱过的缓存自动清理），具体清理逻辑
+
+
+
+
+
 
 
 
@@ -9847,7 +19527,17 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
+
+
+
+
+
 // 手动触发一次清理这三个接口，全部要求管理员登录。
+
+
+
+
+
 
 
 
@@ -9857,12 +19547,32 @@ function validSongIds() {
 
 
 
+
+
+
+
+
   return db.prepare('SELECT id FROM songs').all().map(r => r.id);
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9877,12 +19587,32 @@ app.get('/api/admin/cache/settings', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, ...cacheCleaner.getSettings() });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9897,7 +19627,17 @@ app.post('/api/admin/cache/settings', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const { mode, sizeLimitMB, timeDays } = req.body || {};
+
+
+
+
+
 
 
 
@@ -9907,7 +19647,17 @@ app.post('/api/admin/cache/settings', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   if (mode === 'size' && !(Number(sizeLimitMB) > 0)) return res.status(400).json({ error: '请填写有效的存储空间限额(MB)' });
+
+
+
+
+
 
 
 
@@ -9917,7 +19667,17 @@ app.post('/api/admin/cache/settings', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const saved = cacheCleaner.saveSettings({ mode, sizeLimitMB: Number(sizeLimitMB), timeDays: Number(timeDays) });
+
+
+
+
+
 
 
 
@@ -9927,12 +19687,32 @@ app.post('/api/admin/cache/settings', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, ...saved });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9947,12 +19727,32 @@ app.get('/api/admin/cache/stats', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, ...cacheCleaner.getStats() });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9967,7 +19767,17 @@ app.post('/api/admin/cache/clean', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   try {
+
+
+
+
+
 
 
 
@@ -9977,7 +19787,17 @@ app.post('/api/admin/cache/clean', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     const totalRemoved = result.removed + result.orphan.removed;
+
+
+
+
+
 
 
 
@@ -9987,7 +19807,17 @@ app.post('/api/admin/cache/clean', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     log.info('ADMIN', `管理员手动触发缓存清理: 方式=${result.mode === 'size' ? '存储空间限额' : '点歌时间'}，共清理 ${totalRemoved} 个(含孤儿缓存 ${result.orphan.removed} 个)，释放约 ${(totalFreed / 1048576).toFixed(1)}MB`);
+
+
+
+
+
 
 
 
@@ -9997,7 +19827,17 @@ app.post('/api/admin/cache/clean', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   } catch (e) {
+
+
+
+
+
 
 
 
@@ -10007,12 +19847,32 @@ app.post('/api/admin/cache/clean', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   }
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10027,7 +19887,17 @@ app.post('/api/admin/cache/clean', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 时间策略，直接把 HLS 转码缓存清空(正在转码中的除外)。
+
+
+
+
+
 
 
 
@@ -10037,7 +19907,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   try {
+
+
+
+
+
 
 
 
@@ -10047,7 +19927,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     log.info('ADMIN', `管理员手动清理全部缓存: 共清理 ${result.removed} 个，释放约 ${(result.freed / 1048576).toFixed(1)}MB${result.skippedBuilding ? `（另有 ${result.skippedBuilding} 个正在转码中已跳过）` : ''}`);
+
+
+
+
+
 
 
 
@@ -10057,7 +19947,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   } catch (e) {
+
+
+
+
+
 
 
 
@@ -10067,12 +19967,32 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   }
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10087,7 +20007,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 需求(网盘等具体设置从 docker-compose.yml 移到曲库后台)：docker-compose.yml
+
+
+
+
+
 
 
 
@@ -10097,7 +20027,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // host 上准备好的目录(不管是普通本地文件夹，还是用 fnOS 自带的网盘挂载/
+
+
+
+
+
 
 
 
@@ -10107,7 +20047,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 目录下的哪些子文件夹要作为曲库根目录纳入扫描、是否按网络路径走本地缓存"，
+
+
+
+
+
 
 
 
@@ -10117,7 +20067,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 扫描——不管是定时的还是管理员手动点的——就会用上)，不需要重建容器、不需要
+
+
+
+
+
 
 
 
@@ -10127,7 +20087,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 而且重建时机可能早于新目录真正挂载好"这一整套老流程。
+
+
+
+
+
 
 
 
@@ -10137,7 +20107,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 库里有数据清不掉")：这4首差值就是"孤儿曲目"——它们的 source_root 指向的
+
+
+
+
+
 
 
 
@@ -10147,7 +20127,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 压根没有这一条了，比如管理员在 v1.2.1 这次修复之前就已经删掉过某个
+
+
+
+
+
 
 
 
@@ -10157,7 +20147,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 的历史注释)。scanLibrary() 的清理逻辑只会处理"当前配置里还在、但这一轮
+
+
+
+
+
 
 
 
@@ -10167,7 +20167,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 注释)，压根不知道"这个目录以前配置过、现在配置已经没了"这件事，所以这
+
+
+
+
+
 
 
 
@@ -10177,7 +20187,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 和这里 /api/stats 的 songCount(数据库里的总行数)就会对不上。
+
+
+
+
+
 
 
 
@@ -10187,7 +20207,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 已配置根目录(不管启用还是禁用)里的曲目——source_root 为空的老记录
+
+
+
+
+
 
 
 
@@ -10197,7 +20227,17 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 function findOrphanSongIds() {
+
+
+
+
+
 
 
 
@@ -10207,7 +20247,17 @@ function findOrphanSongIds() {
 
 
 
+
+
+
+
+
   const rows = db.prepare('SELECT id, source_root FROM songs WHERE source_root IS NOT NULL').all();
+
+
+
+
+
 
 
 
@@ -10217,7 +20267,22 @@ function findOrphanSongIds() {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10232,7 +20297,17 @@ function findOrphanSongIds() {
 
 
 
+
+
+
+
+
 // "所属根目录已经完全不在当前曲库来源配置里"——如果这次遇到的 4 首歌
+
+
+
+
+
 
 
 
@@ -10242,7 +20317,17 @@ function findOrphanSongIds() {
 
 
 
+
+
+
+
+
 // 挂载但配置本身没删)，就不会被上面 findOrphanSongIds() 识别出来，这是
+
+
+
+
+
 
 
 
@@ -10252,7 +20337,17 @@ function findOrphanSongIds() {
 
 
 
+
+
+
+
+
 // 避免网络盘偶尔掉线时被误删(见 scanner.js 顶部注释)。
+
+
+
+
+
 
 
 
@@ -10262,7 +20357,17 @@ function findOrphanSongIds() {
 
 
 
+
+
+
+
+
 // 多少首曲目"如实报给前端，管理员一眼就能看出问题出在哪一个来源上，
+
+
+
+
+
 
 
 
@@ -10272,7 +20377,17 @@ function findOrphanSongIds() {
 
 
 
+
+
+
+
+
 // 靠猜。
+
+
+
+
+
 
 
 
@@ -10282,7 +20397,17 @@ function getRootsWithStatus() {
 
 
 
+
+
+
+
+
   return getLibraryRoots().map(r => ({
+
+
+
+
+
 
 
 
@@ -10292,7 +20417,17 @@ function getRootsWithStatus() {
 
 
 
+
+
+
+
+
     accessible: fs.existsSync(r.dir),
+
+
+
+
+
 
 
 
@@ -10302,12 +20437,32 @@ function getRootsWithStatus() {
 
 
 
+
+
+
+
+
   }));
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10322,7 +20477,17 @@ app.get('/api/admin/library-sources', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   res.json({
+
+
+
+
+
 
 
 
@@ -10332,7 +20497,17 @@ app.get('/api/admin/library-sources', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     baseMounts: BASE_MOUNTS,
+
+
+
+
+
 
 
 
@@ -10342,7 +20517,17 @@ app.get('/api/admin/library-sources', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     cacheSettings: sourceCache.getCacheSettings(),
+
+
+
+
+
 
 
 
@@ -10352,12 +20537,32 @@ app.get('/api/admin/library-sources', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10372,7 +20577,17 @@ app.get('/api/admin/library-sources', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 跟"移除来源"(会连带删掉这条配置)是两件独立的事：管理员可能只是想清掉
+
+
+
+
+
 
 
 
@@ -10382,7 +20597,17 @@ app.get('/api/admin/library-sources', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 // 还想继续用，不想再重新添加一遍。
+
+
+
+
+
 
 
 
@@ -10392,7 +20617,17 @@ app.post('/api/admin/library-sources/roots/:idx/purge-songs', requireAdminAuth, 
 
 
 
+
+
+
+
+
   const idx = Number(req.params.idx);
+
+
+
+
+
 
 
 
@@ -10402,7 +20637,17 @@ app.post('/api/admin/library-sources/roots/:idx/purge-songs', requireAdminAuth, 
 
 
 
+
+
+
+
+
   if (!(idx >= 0 && idx < roots.length)) return res.status(404).json({ error: '找不到这个曲库来源' });
+
+
+
+
+
 
 
 
@@ -10412,7 +20657,17 @@ app.post('/api/admin/library-sources/roots/:idx/purge-songs', requireAdminAuth, 
 
 
 
+
+
+
+
+
   const rows = db.prepare('SELECT id FROM songs WHERE source_root = ?').all(root.dir);
+
+
+
+
+
 
 
 
@@ -10422,7 +20677,17 @@ app.post('/api/admin/library-sources/roots/:idx/purge-songs', requireAdminAuth, 
 
 
 
+
+
+
+
+
   for (const row of rows) {
+
+
+
+
+
 
 
 
@@ -10432,7 +20697,17 @@ app.post('/api/admin/library-sources/roots/:idx/purge-songs', requireAdminAuth, 
 
 
 
+
+
+
+
+
     catch (e) { log.error('ADMIN', `清理曲库来源曲目失败(id=${row.id}): ${e.message}`); }
+
+
+
+
+
 
 
 
@@ -10442,7 +20717,17 @@ app.post('/api/admin/library-sources/roots/:idx/purge-songs', requireAdminAuth, 
 
 
 
+
+
+
+
+
   log.info('ADMIN', `曲库来源: 手动清理「${root.label || root.dir}」名下曲目 ${purgedCount} 首(来源配置本身保留)`);
+
+
+
+
+
 
 
 
@@ -10452,7 +20737,22 @@ app.post('/api/admin/library-sources/roots/:idx/purge-songs', requireAdminAuth, 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10467,7 +20767,17 @@ app.post('/api/admin/library-sources/cleanup-orphans', requireAdminAuth, (req, r
 
 
 
+
+
+
+
+
   const ids = findOrphanSongIds();
+
+
+
+
+
 
 
 
@@ -10477,7 +20787,17 @@ app.post('/api/admin/library-sources/cleanup-orphans', requireAdminAuth, (req, r
 
 
 
+
+
+
+
+
   for (const id of ids) {
+
+
+
+
+
 
 
 
@@ -10487,7 +20807,17 @@ app.post('/api/admin/library-sources/cleanup-orphans', requireAdminAuth, (req, r
 
 
 
+
+
+
+
+
     catch (e) { log.error('ADMIN', `清理孤儿曲目失败(id=${id}): ${e.message}`); }
+
+
+
+
+
 
 
 
@@ -10497,7 +20827,17 @@ app.post('/api/admin/library-sources/cleanup-orphans', requireAdminAuth, (req, r
 
 
 
+
+
+
+
+
   log.info('ADMIN', `曲库来源: 手动清理孤儿曲目 ${purgedCount} 首(所属根目录已不在当前曲库来源配置里)`);
+
+
+
+
+
 
 
 
@@ -10507,7 +20847,22 @@ app.post('/api/admin/library-sources/cleanup-orphans', requireAdminAuth, (req, r
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10522,7 +20877,17 @@ app.post('/api/admin/library-sources/cleanup-orphans', requireAdminAuth, (req, r
 
 
 
+
+
+
+
+
 // 后台"添加曲库来源"时可视化选择子文件夹，不需要用户手动输入路径。
+
+
+
+
+
 
 
 
@@ -10532,7 +20897,17 @@ app.get('/api/admin/browse-folder', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const dir = resolveLibraryRootPath(req.query.path || '/mv');
+
+
+
+
+
 
 
 
@@ -10542,7 +20917,17 @@ app.get('/api/admin/browse-folder', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   if (!fs.existsSync(dir)) return res.status(404).json({ error: `目录不存在，请确认已经把 host 上的文件夹正确挂载到 ${dir}` });
+
+
+
+
+
 
 
 
@@ -10552,7 +20937,17 @@ app.get('/api/admin/browse-folder', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     const entries = fs.readdirSync(dir, { withFileTypes: true })
+
+
+
+
+
 
 
 
@@ -10562,7 +20957,17 @@ app.get('/api/admin/browse-folder', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
       .map(e => e.name)
+
+
+
+
+
 
 
 
@@ -10572,7 +20977,17 @@ app.get('/api/admin/browse-folder', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     res.json({ ok: true, path: dir, folders: entries });
+
+
+
+
+
 
 
 
@@ -10582,7 +20997,17 @@ app.get('/api/admin/browse-folder', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
     res.status(500).json({ error: '读取目录失败: ' + e.message });
+
+
+
+
+
 
 
 
@@ -10592,7 +21017,22 @@ app.get('/api/admin/browse-folder', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10607,7 +21047,17 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const { dir, label, isNetwork } = req.body || {};
+
+
+
+
+
 
 
 
@@ -10617,7 +21067,17 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   if (!resolved) return res.status(400).json({ error: '路径必须位于 /mv 或 /mv-net 之下' });
+
+
+
+
+
 
 
 
@@ -10627,7 +21087,17 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   const roots = getLibraryRoots();
+
+
+
+
+
 
 
 
@@ -10637,7 +21107,17 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   roots.push({ dir: resolved, label: (label || resolved).trim() || resolved, isNetwork: !!isNetwork, enabled: true });
+
+
+
+
+
 
 
 
@@ -10647,7 +21127,17 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
   log.info('ADMIN', `曲库来源: 新增根目录 ${resolved}${isNetwork ? '(网络路径，将走本地缓存)' : '(本地路径)'}`);
+
+
+
+
+
 
 
 
@@ -10657,7 +21147,22 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10672,7 +21177,17 @@ app.patch('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res) 
 
 
 
+
+
+
+
+
   const idx = Number(req.params.idx);
+
+
+
+
+
 
 
 
@@ -10682,7 +21197,17 @@ app.patch('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res) 
 
 
 
+
+
+
+
+
   if (!(idx >= 0 && idx < roots.length)) return res.status(404).json({ error: '找不到这个曲库来源' });
+
+
+
+
+
 
 
 
@@ -10692,7 +21217,17 @@ app.patch('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res) 
 
 
 
+
+
+
+
+
   if (typeof label === 'string' && label.trim()) roots[idx].label = label.trim();
+
+
+
+
+
 
 
 
@@ -10702,7 +21237,17 @@ app.patch('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res) 
 
 
 
+
+
+
+
+
   if (typeof enabled === 'boolean') roots[idx].enabled = enabled;
+
+
+
+
+
 
 
 
@@ -10712,7 +21257,17 @@ app.patch('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res) 
 
 
 
+
+
+
+
+
   log.info('ADMIN', `曲库来源: 更新 ${roots[idx].dir} -> ${JSON.stringify(roots[idx])}`);
+
+
+
+
+
 
 
 
@@ -10722,7 +21277,22 @@ app.patch('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res) 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10737,7 +21307,17 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
+
+
+
+
+
   const idx = Number(req.params.idx);
+
+
+
+
+
 
 
 
@@ -10747,7 +21327,17 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
+
+
+
+
+
   if (!(idx >= 0 && idx < roots.length)) return res.status(404).json({ error: '找不到这个曲库来源' });
+
+
+
+
+
 
 
 
@@ -10757,7 +21347,17 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
+
+
+
+
+
   saveLibraryRoots(roots);
+
+
+
+
+
 
 
 
@@ -10767,7 +21367,17 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
+
+
+
+
+
   // 目录从配置里摘掉，故意不动对应的歌曲记录，理由是"目录暂时访问不了不代表
+
+
+
+
+
 
 
 
@@ -10777,7 +21387,17 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
+
+
+
+
+
   // 不可访问(scanLibrary() 那边已经有专门的保护，不会因为这个自动清理，见
+
+
+
+
+
 
 
 
@@ -10787,7 +21407,17 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
+
+
+
+
+
   // 的意思，不应该让它名下的曲目继续占着「曲库管理」列表却又扫不到、播不了。
+
+
+
+
+
 
 
 
@@ -10797,7 +21427,17 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
+
+
+
+
+
   // 可能重新添加回来，不想动已入库的曲目/播放历史/收藏）。
+
+
+
+
+
 
 
 
@@ -10807,7 +21447,17 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
+
+
+
+
+
   let purgedCount = 0;
+
+
+
+
+
 
 
 
@@ -10817,7 +21467,17 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
+
+
+
+
+
     const rows = db.prepare('SELECT id FROM songs WHERE source_root = ?').all(removed.dir);
+
+
+
+
+
 
 
 
@@ -10827,7 +21487,17 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
+
+
+
+
+
       try { deleteSongCascade(row.id); purgedCount++; }
+
+
+
+
+
 
 
 
@@ -10837,7 +21507,17 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
+
+
+
+
+
     }
+
+
+
+
+
 
 
 
@@ -10847,7 +21527,17 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
+
+
+
+
+
   log.info('ADMIN', `曲库来源: 移除根目录 ${removed.dir}${purge ? `，已连带清理其名下 ${purgedCount} 首曲目及播放历史/收藏记录` : '(保留已入库的歌曲记录，未清理)'}`);
+
+
+
+
+
 
 
 
@@ -10857,7 +21547,22 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10872,12 +21577,32 @@ app.get('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, res
 
 
 
+
+
+
+
+
   res.json({ ok: true, ...sourceCache.getCacheSettings() });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10892,7 +21617,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
   const { maxMB, maxAgeDays, concurrency } = req.body || {};
+
+
+
+
+
 
 
 
@@ -10902,7 +21637,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
   if (!(Number(maxAgeDays) > 0)) return res.status(400).json({ error: '请填写有效的缓存保留天数' });
+
+
+
+
+
 
 
 
@@ -10912,7 +21657,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
   const saved = sourceCache.saveCacheSettings({ maxMB: Number(maxMB), maxAgeDays: Number(maxAgeDays), concurrency: Number(concurrency) });
+
+
+
+
+
 
 
 
@@ -10922,12 +21677,32 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
   res.json({ ok: true, ...saved });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10942,7 +21717,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
 // resetAudioTracks：修复"探测失败被永久当成真实单音轨结果缓存"的历史遗留
+
+
+
+
+
 
 
 
@@ -10952,7 +21737,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
 // 确认就是单音轨"完全没法区分，正常扫描不会重新碰它。这里给管理员一个
+
+
+
+
+
 
 
 
@@ -10962,7 +21757,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
 // 扫描里"补全老曲目音轨数"那段逻辑就会把每一首都重新探测一遍。这是相对
+
+
+
+
+
 
 
 
@@ -10972,7 +21777,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
 // 要求管理员登录才能触发，避免被随手误触或被恶意请求反复触发。
+
+
+
+
+
 
 
 
@@ -10982,7 +21797,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
 // 曲目)的 audio_tracks 清空成 NULL——这一步本身只是清空数据库字段，不碰任何
+
+
+
+
+
 
 
 
@@ -10992,7 +21817,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
 // 是 scanner.js scanLibrary() 里紧跟着的两段补全逻辑：本地曲目照常全部重新
+
+
+
+
+
 
 
 
@@ -11002,7 +21837,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
 // 现成的缓存文件，不触发下载)，没有缓存的网络/STRM 曲目保持 NULL，不会为了
+
+
+
+
+
 
 
 
@@ -11012,7 +21857,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
 // 路径自然缓存+探测，不需要这里额外处理。也就是说管理员触发这个入口不会再
+
+
+
+
+
 
 
 
@@ -11022,7 +21877,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
 // 需求(扫描方式拆分)：新增 mode 参数，三种取值见 scanner.js scanLibrary()
+
+
+
+
+
 
 
 
@@ -11032,7 +21897,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
 // 'incremental'(只新增更新，不删，不管这轮扫描少看到多少文件都不会删任何
+
+
+
+
+
 
 
 
@@ -11042,7 +21917,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
 // 歌")。延续上面注释里的设计：/api/scan 本来就是电视端"扫描曲库"按钮也在
+
+
+
+
+
 
 
 
@@ -11052,7 +21937,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
 // 不额外收紧权限，删除这件事本身现在已经由 scanLibrary() 内部的"骤减熔断"
+
+
+
+
+
 
 
 
@@ -11062,7 +21957,17 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+
+
+
+
+
 app.post('/api/scan', async (req, res) => {
+
+
+
+
+
 
 
 
@@ -11072,7 +21977,17 @@ app.post('/api/scan', async (req, res) => {
 
 
 
+
+
+
+
+
     const mode = (req.body && ['full', 'incremental', 'diff'].includes(req.body.mode)) ? req.body.mode : 'full';
+
+
+
+
+
 
 
 
@@ -11082,7 +21997,17 @@ app.post('/api/scan', async (req, res) => {
 
 
 
+
+
+
+
+
       if (!isAdminAuthed(req)) return res.status(401).json({ error: '请先登录管理员账号' });
+
+
+
+
+
 
 
 
@@ -11092,7 +22017,17 @@ app.post('/api/scan', async (req, res) => {
 
 
 
+
+
+
+
+
       log.info('SCAN', '管理员触发：已清空全部歌曲的音轨探测结果，本次扫描将重新探测本地曲目及已缓存的网络/STRM曲目，未缓存的网络曲目保持待探测状态，不会被强制下载');
+
+
+
+
+
 
 
 
@@ -11102,7 +22037,17 @@ app.post('/api/scan', async (req, res) => {
 
 
 
+
+
+
+
+
     res.json({ ok: true, ...(await scanLibrary(mode)) });
+
+
+
+
+
 
 
 
@@ -11112,12 +22057,32 @@ app.post('/api/scan', async (req, res) => {
 
 
 
+
+
+
+
+
   catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11132,7 +22097,17 @@ app.get('/api/stats', (req, res) => {
 
 
 
+
+
+
+
+
   const songCount  = db.prepare('SELECT COUNT(*) c FROM songs').get().c;
+
+
+
+
+
 
 
 
@@ -11142,7 +22117,17 @@ app.get('/api/stats', (req, res) => {
 
 
 
+
+
+
+
+
   // 数字，供「曲库管理」页面顶部的统计卡片和"本地/网络"切换按钮上的角标
+
+
+
+
+
 
 
 
@@ -11152,7 +22137,17 @@ app.get('/api/stats', (req, res) => {
 
 
 
+
+
+
+
+
   // 1 的脏数据(理论上不会，字段是 INTEGER DEFAULT 0，这里不额外做兜底)。
+
+
+
+
+
 
 
 
@@ -11162,7 +22157,17 @@ app.get('/api/stats', (req, res) => {
 
 
 
+
+
+
+
+
   const songCountNetwork = db.prepare('SELECT COUNT(*) c FROM songs WHERE is_network = 1').get().c;
+
+
+
+
+
 
 
 
@@ -11172,7 +22177,17 @@ app.get('/api/stats', (req, res) => {
 
 
 
+
+
+
+
+
   // 「曲库管理」分好页后，页面上一次只能看到 50 首歌，不能再靠"把当前这
+
+
+
+
+
 
 
 
@@ -11182,7 +22197,17 @@ app.get('/api/stats', (req, res) => {
 
 
 
+
+
+
+
+
   // 改成这里直接在全表上聚合，跟分页无关，数字始终准确。
+
+
+
+
+
 
 
 
@@ -11192,7 +22217,17 @@ app.get('/api/stats', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({
+
+
+
+
+
 
 
 
@@ -11202,7 +22237,17 @@ app.get('/api/stats', (req, res) => {
 
 
 
+
+
+
+
+
     queueCount, totalPlays, mvDir: getMVDir(), appVersion: APP_VERSION,
+
+
+
+
+
 
 
 
@@ -11212,7 +22257,17 @@ app.get('/api/stats', (req, res) => {
 
 
 
+
+
+
+
+
     // 第一个本地目录)，多路径的完整配置通过 mvRoots 一起给出，新版管理页面
+
+
+
+
+
 
 
 
@@ -11222,7 +22277,17 @@ app.get('/api/stats', (req, res) => {
 
 
 
+
+
+
+
+
     mvRoots: getMVRoots().map(r => ({ dir: r.dir, isNetwork: r.isNetwork })),
+
+
+
+
+
 
 
 
@@ -11232,12 +22297,32 @@ app.get('/api/stats', (req, res) => {
 
 
 
+
+
+
+
+
   });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11252,7 +22337,17 @@ app.get('/api/stats', (req, res) => {
 
 
 
+
+
+
+
+
 // 队列内存缓存：getQueueWithSongs() 每次都执行 JOIN 查询，队列不变时直接返回缓存，
+
+
+
+
+
 
 
 
@@ -11262,12 +22357,27 @@ app.get('/api/stats', (req, res) => {
 
 
 
+
+
+
+
+
 let _queueCache = { data: null, time: 0 };
 
 
 
 
+
+
+
+
+
 const QUEUE_CACHE_TTL = 2000;  // 2秒TTL，兜底防止漏失效
+
+
+
+
+
 
 
 
@@ -11282,7 +22392,22 @@ function invalidateQueueCache() { _queueCache.data = null; _queueCache.time = 0;
 
 
 
+
+
+
+
+
+
+
+
+
+
 function getQueueWithSongs() {
+
+
+
+
+
 
 
 
@@ -11292,7 +22417,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
   if (_queueCache.data && (now - _queueCache.time) < QUEUE_CACHE_TTL) {
+
+
+
+
+
 
 
 
@@ -11302,7 +22437,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -11312,7 +22457,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
     SELECT q.id as queue_id, q.nickname, q.is_top, q.top_order, q.status, q.created_at, q.is_autoplay,
+
+
+
+
+
 
 
 
@@ -11322,7 +22477,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
            s.audio_tracks, s.audio_needs_soft, s.video_needs_soft, s.is_network, s.is_strm
+
+
+
+
+
 
 
 
@@ -11332,7 +22497,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
     WHERE q.status != 'done'
+
+
+
+
+
 
 
 
@@ -11342,7 +22517,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
     -- 不能盖过正在播放的那首。旧排序 'is_top DESC, id ASC' 只按置顶标记排，
+
+
+
+
+
 
 
 
@@ -11352,7 +22537,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
     -- 的候选歌都会因为 is_top=1 排到它前面，等于把"正在播放"从队首挤下去，
+
+
+
+
+
 
 
 
@@ -11362,7 +22557,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
     -- 现在最优先按 status='playing' 排（true=1 排最前），保证正在播放的
+
+
+
+
+
 
 
 
@@ -11372,7 +22577,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
     -- Bug修复(连续置顶时，先前置顶的歌被打回原始排序位置)：其次按
+
+
+
+
+
 
 
 
@@ -11382,7 +22597,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
     -- 置顶操作选中"的递增序号，NULL 表示从没被置顶过。(top_order IS NULL)
+
+
+
+
+
 
 
 
@@ -11392,7 +22617,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
     -- 按 top_order DESC 排，值越大说明置顶得越晚，排最前——也就是最近一次
+
+
+
+
+
 
 
 
@@ -11402,7 +22637,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
     -- 还没轮到播放的那些依次顺延到第 3、4...位，而不是像旧逻辑那样被清空
+
+
+
+
+
 
 
 
@@ -11412,7 +22657,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
     -- (点歌顺序)排列。
+
+
+
+
+
 
 
 
@@ -11422,7 +22677,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
   `).all();
+
+
+
+
+
 
 
 
@@ -11432,7 +22697,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
   _queueCache.time = now;
+
+
+
+
+
 
 
 
@@ -11442,7 +22717,22 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11457,7 +22747,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
 // 需求："已点队列播完后是否自动从曲库随机播放，以及是否仅从本地曲库随机
+
+
+
+
+
 
 
 
@@ -11467,7 +22767,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
 // 件事——而"接下来播什么"完全由服务端 /api/queue/next 决定，是所有已连接
+
+
+
+
+
 
 
 
@@ -11477,7 +22787,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
 // 长什么样"那种每台设备各自记一份的本地偏好(对比：解码模式/主题/默认全屏
+
+
+
+
+
 
 
 
@@ -11487,7 +22807,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
 // 怎么渲染)。所以这里持久化在服务端 settings 表(跟语种/风格预设同一张表，
+
+
+
+
+
 
 
 
@@ -11497,7 +22827,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
 // 面板里改了，其它设备下次打开设置面板重新拉取到的都是同一份结果，不会出现
+
+
+
+
+
 
 
 
@@ -11507,7 +22847,17 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
 // 不要求管理员登录：跟同一个"设置"面板里解码模式/主题/默认全屏一样，是
+
+
+
+
+
 
 
 
@@ -11517,12 +22867,27 @@ function getQueueWithSongs() {
 
 
 
+
+
+
+
+
 // 密码才能改的配置(曲库来源目录、缓存清理策略等)不是一回事。
 
 
 
 
+
+
+
+
+
 const AUTOPLAY_SETTINGS_KEY = 'autoplay_settings';
+
+
+
+
+
 
 
 
@@ -11537,7 +22902,22 @@ const DEFAULT_AUTOPLAY_SETTINGS = { enabled: false, localOnly: false };
 
 
 
+
+
+
+
+
+
+
+
+
+
 function getAutoplaySettings() {
+
+
+
+
+
 
 
 
@@ -11547,7 +22927,17 @@ function getAutoplaySettings() {
 
 
 
+
+
+
+
+
   if (!row) return { ...DEFAULT_AUTOPLAY_SETTINGS };
+
+
+
+
+
 
 
 
@@ -11557,7 +22947,17 @@ function getAutoplaySettings() {
 
 
 
+
+
+
+
+
     const v = JSON.parse(row.value);
+
+
+
+
+
 
 
 
@@ -11567,7 +22967,17 @@ function getAutoplaySettings() {
 
 
 
+
+
+
+
+
   } catch (e) {
+
+
+
+
+
 
 
 
@@ -11577,12 +22987,27 @@ function getAutoplaySettings() {
 
 
 
+
+
+
+
+
   }
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
 
 
 
@@ -11592,7 +23017,17 @@ function setAutoplaySettings(settings) {
 
 
 
+
+
+
+
+
   db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+
+
+
+
+
 
 
 
@@ -11602,7 +23037,22 @@ function setAutoplaySettings(settings) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11617,12 +23067,32 @@ app.get('/api/settings/autoplay', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, ...getAutoplaySettings() });
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11637,7 +23107,17 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
+
+
+
+
+
   const { enabled, localOnly } = req.body || {};
+
+
+
+
+
 
 
 
@@ -11647,7 +23127,17 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
+
+
+
+
+
   setAutoplaySettings(saved);
+
+
+
+
+
 
 
 
@@ -11657,7 +23147,17 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
+
+
+
+
+
   res.json({ ok: true, ...saved });
+
+
+
+
+
 
 
 
@@ -11672,7 +23172,22 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 从曲库随机挑一首。localOnly=true 时只从 is_network=0(本地 /mv 目录，见
+
+
+
+
+
 
 
 
@@ -11682,7 +23197,17 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
+
+
+
+
+
 // STRM)曲目一律不会被随机到——这正是这个选项存在的意义：家里/包间网络不稳、
+
+
+
+
+
 
 
 
@@ -11692,7 +23217,17 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
+
+
+
+
+
 // 是刚播完的那首(如果有)，曲库歌曲数大于 1 时尽量不让随机结果紧接着重复
+
+
+
+
+
 
 
 
@@ -11702,7 +23237,17 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
+
+
+
+
+
 // 本来就只有这一首时不再强求，直接采用最后一次抽到的结果，不做成死循环。
+
+
+
+
+
 
 
 
@@ -11712,7 +23257,17 @@ function pickAutoplaySong(localOnly, avoidSongId) {
 
 
 
+
+
+
+
+
   const where = localOnly ? 'WHERE is_network = 0' : '';
+
+
+
+
+
 
 
 
@@ -11722,7 +23277,17 @@ function pickAutoplaySong(localOnly, avoidSongId) {
 
 
 
+
+
+
+
+
   let song = stmt.get();
+
+
+
+
+
 
 
 
@@ -11732,7 +23297,17 @@ function pickAutoplaySong(localOnly, avoidSongId) {
 
 
 
+
+
+
+
+
   for (let i = 0; i < 5 && avoidSongId != null && song && song.id === avoidSongId; i++) {
+
+
+
+
+
 
 
 
@@ -11742,7 +23317,17 @@ function pickAutoplaySong(localOnly, avoidSongId) {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -11752,7 +23337,22 @@ function pickAutoplaySong(localOnly, avoidSongId) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11767,7 +23367,17 @@ function pickAutoplaySong(localOnly, avoidSongId) {
 
 
 
+
+
+
+
+
 // NULL)，第一次真的要播放它才第一次去读 .strm 内容/下载缓存/探测音轨。
+
+
+
+
+
 
 
 
@@ -11777,7 +23387,17 @@ function pickAutoplaySong(localOnly, avoidSongId) {
 
 
 
+
+
+
+
+
 // 曲目，抽成公共函数避免两处各写一份、以后改探测逻辑漏改一处。异步触发、
+
+
+
+
+
 
 
 
@@ -11787,7 +23407,17 @@ function pickAutoplaySong(localOnly, avoidSongId) {
 
 
 
+
+
+
+
+
 // 去重保证同一首歌并发触发多次也只会真正下载一次。
+
+
+
+
+
 
 
 
@@ -11797,7 +23427,17 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
+
+
+
+
+
   if (song.is_strm && song.audio_tracks == null) {
+
+
+
+
+
 
 
 
@@ -11807,7 +23447,17 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
+
+
+
+
+
       .then((audio_tracks) => {
+
+
+
+
+
 
 
 
@@ -11817,7 +23467,17 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
+
+
+
+
+
         broadcastQueue();
+
+
+
+
+
 
 
 
@@ -11827,7 +23487,17 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
+
+
+
+
+
       .catch(e => log.warn('STRM', `[歌曲 id=${song.id}] 触发按需探测失败: ${e.message}`));
+
+
+
+
+
 
 
 
@@ -11837,7 +23507,22 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11852,7 +23537,17 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
+
+
+
+
+
 // 自动随机播放"开着，就从曲库随机挑一首直接插入队列标记为播放中，不再回到
+
+
+
+
+
 
 
 
@@ -11862,7 +23557,17 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
+
+
+
+
+
 // 是那首歌(供调用方决定要不要触发 STRM 按需探测)，正常顶上等待中的歌、或者
+
+
+
+
+
 
 
 
@@ -11872,7 +23577,17 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
+
+
+
+
+
 function promoteNextWaitingOrAutoplay(justFinishedSongId) {
+
+
+
+
+
 
 
 
@@ -11882,7 +23597,17 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
+
+
+
+
+
   // 越大越优先），其次没被置顶过的按点歌顺序(id ASC)，见上面 top_order 的
+
+
+
+
+
 
 
 
@@ -11892,7 +23617,17 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
+
+
+
+
+
   const nxt = db.prepare("SELECT * FROM queue WHERE status='waiting' ORDER BY (top_order IS NULL) ASC, top_order DESC, id ASC LIMIT 1").get();
+
+
+
+
+
 
 
 
@@ -11902,7 +23637,17 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
+
+
+
+
+
     db.prepare("UPDATE queue SET status='playing' WHERE id=?").run(nxt.id);
+
+
+
+
+
 
 
 
@@ -11912,7 +23657,17 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -11922,7 +23677,17 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
+
+
+
+
+
   if (!settings.enabled) return null;
+
+
+
+
+
 
 
 
@@ -11932,7 +23697,17 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
+
+
+
+
+
   if (!song) return null; // 曲库为空，或"仅本地"开着但本地曲库没有歌，没有可播的
+
+
+
+
+
 
 
 
@@ -11942,7 +23717,17 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
+
+
+
+
+
   db.prepare('UPDATE songs SET play_count=play_count+1 WHERE id=?').run(song.id);
+
+
+
+
+
 
 
 
@@ -11952,12 +23737,32 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
+
+
+
+
+
   return song;
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -11977,7 +23782,22 @@ app.get('/api/queue', (req, res) => res.json(getQueueWithSongs()));
 
 
 
+
+
+
+
+
+
+
+
+
+
 app.post('/api/queue', (req, res) => {
+
+
+
+
+
 
 
 
@@ -11987,7 +23807,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
   const song = db.prepare('SELECT * FROM songs WHERE id=?').get(song_id);
+
+
+
+
+
 
 
 
@@ -11997,7 +23827,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
   const info = db.prepare('INSERT INTO queue (song_id,nickname) VALUES (?,?)').run(song_id, nickname || '匿名歌手');
+
+
+
+
+
 
 
 
@@ -12007,7 +23847,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
   const playing = db.prepare("SELECT * FROM queue WHERE status='playing'").get();
+
+
+
+
+
 
 
 
@@ -12017,7 +23867,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
     db.prepare("UPDATE queue SET status='playing' WHERE id=?").run(info.lastInsertRowid);
+
+
+
+
+
 
 
 
@@ -12027,7 +23887,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
     // 需求(随机播放时点歌直接切歌)：正在播的这一首是"已点队列播完后自动
+
+
+
+
+
 
 
 
@@ -12037,7 +23907,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
     // 意图很明确是"不想再听随机播放这首了，马上放我点的"，不应该按照
+
+
+
+
+
 
 
 
@@ -12047,7 +23927,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
     // 成 done(不写入 history，理由见 promoteNextWaitingOrAutoplay() 和
+
+
+
+
+
 
 
 
@@ -12057,7 +23947,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
     // 不该出现在"最近唱过"里)，让刚点的这首立刻顶上变成 playing，广播出去
+
+
+
+
+
 
 
 
@@ -12067,7 +23967,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
     // 额外的前端改动。
+
+
+
+
+
 
 
 
@@ -12077,7 +23987,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
     db.prepare("UPDATE queue SET status='playing' WHERE id=?").run(info.lastInsertRowid);
+
+
+
+
+
 
 
 
@@ -12087,7 +24007,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
   broadcastQueue();
+
+
+
+
+
 
 
 
@@ -12097,7 +24027,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
   // 窗口可能发生变化(比如队列本来是空的，这首歌直接变成"正在播放")，
+
+
+
+
+
 
 
 
@@ -12107,7 +24047,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
   schedulePreload();
+
+
+
+
+
 
 
 
@@ -12122,7 +24072,22 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
+
+
   // 需求(网盘STRM支持)：STRM 曲目在扫描阶段完全没有被探测过(audio_tracks
+
+
+
+
+
 
 
 
@@ -12132,7 +24097,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
   // 这里才第一次去读 .strm 内容、下载缓存、探测音轨。异步触发、不等待，
+
+
+
+
+
 
 
 
@@ -12142,7 +24117,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
   // 也会通过 resolvePlaybackPath() 走同一份 sourceCache 缓存，两者对同一个
+
+
+
+
+
 
 
 
@@ -12152,7 +24137,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
   // 只下载一次。探测成功后广播一次队列更新，前端原/伴唱切换按钮才能拿到
+
+
+
+
+
 
 
 
@@ -12162,7 +24157,17 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
   // 的兜底逻辑处理，不影响正常点歌/排队)。
+
+
+
+
+
 
 
 
@@ -12172,7 +24177,22 @@ app.post('/api/queue', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -12187,7 +24207,17 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
+
+
+
+
+
   // Bug修复(连续置顶时，先前置顶的歌被打回原始排序位置)：这里原来的做法
+
+
+
+
+
 
 
 
@@ -12197,7 +24227,17 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
+
+
+
+
+
   // "同一时刻只有一首歌处于置顶状态"。这个写法本身解决了更早之前"多条
+
+
+
+
+
 
 
 
@@ -12207,7 +24247,17 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
+
+
+
+
+
   // 第 2 位后，接着置顶另一首歌时，第 5 首的 is_top 标记被清零，它就完全
+
+
+
+
+
 
 
 
@@ -12217,7 +24267,17 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
+
+
+
+
+
   // 第 2 位直接弹回最初排队的第 5 位，而不是预期的"顺位顺延到第 3 位"。
+
+
+
+
+
 
 
 
@@ -12227,7 +24287,17 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
+
+
+
+
+
   // (取当前队列里出现过的最大 top_order 加一)，不动其它行的 top_order。
+
+
+
+
+
 
 
 
@@ -12237,7 +24307,17 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
+
+
+
+
+
   // 效果是：这首歌顶到紧跟"正在播放"之后的第 2 位，而之前被置顶过、还没
+
+
+
+
+
 
 
 
@@ -12247,7 +24327,17 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
+
+
+
+
+
   // 不会被打回它们各自最初的点歌顺序位置。
+
+
+
+
+
 
 
 
@@ -12257,7 +24347,17 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
+
+
+
+
+
     const row = db.prepare('SELECT MAX(top_order) m FROM queue').get();
+
+
+
+
+
 
 
 
@@ -12267,7 +24367,17 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
+
+
+
+
+
     db.prepare('UPDATE queue SET top_order=?, is_top=1 WHERE id=?').run(nextOrder, id);
+
+
+
+
+
 
 
 
@@ -12277,7 +24387,17 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
+
+
+
+
+
   tx(req.params.id);
+
+
+
+
+
 
 
 
@@ -12287,7 +24407,17 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
+
+
+
+
+
   // 置顶会改变"接下来紧跟在正在播放之后的第一首"，预热窗口跟着变，
+
+
+
+
+
 
 
 
@@ -12297,7 +24427,17 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
+
+
+
+
+
   schedulePreload();
+
+
+
+
+
 
 
 
@@ -12307,7 +24447,22 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -12322,7 +24477,17 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
   // Bug修复：删除的如果正好是"正在播放"这一首，队列里就没有任何一条
+
+
+
+
+
 
 
 
@@ -12332,7 +24497,17 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
   // 进入空闲分支（MV框回到品牌欢迎画面、<video> 清空 src），不会自动开始播放
+
+
+
+
+
 
 
 
@@ -12342,7 +24517,17 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
   // 按钮也没用（<video> 根本没有 src 可播），必须再手动点一次"切歌"（对应下面
+
+
+
+
+
 
 
 
@@ -12352,7 +24537,17 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
   // 记录当时的状态，删除后如果它正好是 playing，就照抄"切歌"里挑下一首的
+
+
+
+
+
 
 
 
@@ -12362,7 +24557,17 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
   // 注意这里不写 history——history 表语义是"完整播放过的歌"，这首歌是被中途
+
+
+
+
+
 
 
 
@@ -12372,7 +24577,17 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
   // /api/queue/next 不同，不能直接复用那段逻辑。
+
+
+
+
+
 
 
 
@@ -12382,7 +24597,17 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
   db.prepare('DELETE FROM queue WHERE id=?').run(req.params.id);
+
+
+
+
+
 
 
 
@@ -12392,7 +24617,17 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
   if (row && row.status === 'playing') {
+
+
+
+
+
 
 
 
@@ -12402,7 +24637,17 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -12412,7 +24657,17 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
   // 删歌(尤其是删掉正在播放的那首、顶上来一首新的)也会改变预热窗口，
+
+
+
+
+
 
 
 
@@ -12422,7 +24677,17 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
   schedulePreload();
+
+
+
+
+
 
 
 
@@ -12432,7 +24697,17 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
   // 需求(播完自动随机播放)：删掉的正好是正在播放的歌、且队列因此空了、又
+
+
+
+
+
 
 
 
@@ -12442,7 +24717,17 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
   // 触发一次按需探测，理由同 triggerStrmProbeIfNeeded() 的注释。
+
+
+
+
+
 
 
 
@@ -12452,7 +24737,22 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -12467,7 +24767,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
   const cur = db.prepare("SELECT * FROM queue WHERE status='playing' ORDER BY id LIMIT 1").get();
+
+
+
+
+
 
 
 
@@ -12477,7 +24787,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
     db.prepare("UPDATE queue SET status='done' WHERE id=?").run(cur.id);
+
+
+
+
+
 
 
 
@@ -12487,7 +24807,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
     // 不是真人点的歌，不写入 history——跟上面 POST /api/queue 里"点歌直接
+
+
+
+
+
 
 
 
@@ -12497,7 +24827,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
     if (!cur.is_autoplay) {
+
+
+
+
+
 
 
 
@@ -12507,7 +24847,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
     }
+
+
+
+
+
 
 
 
@@ -12517,7 +24867,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
   // 需求(播完自动随机播放)：以前这里只顶"等待中"的下一首，队列真的空了就
+
+
+
+
+
 
 
 
@@ -12527,7 +24887,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
   // promoteNextWaitingOrAutoplay()——它内部会在确实没有等待中的歌时，按
+
+
+
+
+
 
 
 
@@ -12537,7 +24907,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
   // 这条判断同时也在下面 DELETE /api/queue/:id 里删掉正在播放的歌时复用，
+
+
+
+
+
 
 
 
@@ -12547,7 +24927,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
   const autoSong = promoteNextWaitingOrAutoplay(cur ? cur.song_id : null);
+
+
+
+
+
 
 
 
@@ -12557,7 +24947,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
   // 切歌之后"正在播放"整体往后挪了一位，预热窗口也要跟着往后滚动一格，
+
+
+
+
+
 
 
 
@@ -12567,7 +24967,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
   schedulePreload();
+
+
+
+
+
 
 
 
@@ -12577,12 +24987,32 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
   if (autoSong) triggerStrmProbeIfNeeded(autoSong);
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -12597,7 +25027,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
 // 需求：电视作为主屏解码播放音视频，手机遥控端、"闺蜜机"点歌屏这类副屏
+
+
+
+
+
 
 
 
@@ -12607,7 +25047,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
 // 解码播放——不仅白白多占局域网带宽，几路播放各自独立走时间久了进度还
+
+
+
+
+
 
 
 
@@ -12617,7 +25067,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
 // 只允许一个 deviceId 是播放端，真正负责解码播放并周期上报进度(见下面
+
+
+
+
+
 
 
 
@@ -12627,7 +25087,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
 // 走已有的 'control' 广播，由播放端设备收到后代为执行，控制端自己不碰
+
+
+
+
+
 
 
 
@@ -12637,7 +25107,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
 //
+
+
+
+
+
 
 
 
@@ -12647,7 +25127,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
 // "锁"本质上是"防止别人手滑/瞎点把正在播的电视顶替掉"的一道门槛，要防
+
+
+
+
+
 
 
 
@@ -12657,7 +25147,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
 //
+
+
+
+
+
 
 
 
@@ -12667,7 +25167,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
 // 播放端"，第一个上线声明角色的设备直接拿到播放端身份，不需要走解锁
+
+
+
+
+
 
 
 
@@ -12677,7 +25187,17 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
+
+
+
+
+
 // 已经在播的播放端"这个动作，这时候无对象可锁。
+
+
+
+
+
 
 
 
@@ -12692,7 +25212,22 @@ let playerState = { activeDeviceId: null, activeDeviceName: '', locked: false };
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 播放端设备周期上报的最新播放进度，供控制端做本地插值展示："现在应该
+
+
+
+
+
 
 
 
@@ -12702,12 +25237,27 @@ let playerState = { activeDeviceId: null, activeDeviceName: '', locked: false };
 
 
 
+
+
+
+
+
 // 播放端每帧上报、也不需要控制端建立媒体流。paused 为 true 时控制端不
 
 
 
 
+
+
+
+
+
 // 应该继续按时间流逝推进这个估算值。
+
+
+
+
+
 
 
 
@@ -12722,7 +25272,22 @@ let lastProgress = { queueId: null, currentTime: 0, updatedAt: Date.now(), pause
 
 
 
+
+
+
+
+
+
+
+
+
+
 function broadcastPlayerState() {
+
+
+
+
+
 
 
 
@@ -12732,12 +25297,32 @@ function broadcastPlayerState() {
 
 
 
+
+
+
+
+
   wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(payload); });
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -12752,7 +25337,17 @@ function broadcastPlayerState() {
 
 
 
+
+
+
+
+
 // (player_claim)最终都走这同一份互斥判定，避免两处各写一份、以后改判定
+
+
+
+
+
 
 
 
@@ -12762,7 +25357,17 @@ function broadcastPlayerState() {
 
 
 
+
+
+
+
+
 // 有意义，供前端区分"密码错误/未上锁但仍失败"等提示文案。
+
+
+
+
+
 
 
 
@@ -12772,7 +25377,17 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
+
+
+
+
+
   if (!deviceId) return { granted: false, reason: 'invalid' };
+
+
+
+
+
 
 
 
@@ -12782,7 +25397,17 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
+
+
+
+
+
     // 无播放端 或 就是自己重复声明：直接(继续)持有，顺带刷新一下显示名。
+
+
+
+
+
 
 
 
@@ -12792,7 +25417,17 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
+
+
+
+
+
     playerState.activeDeviceName = deviceName || playerState.activeDeviceName;
+
+
+
+
+
 
 
 
@@ -12802,7 +25437,17 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -12812,7 +25457,17 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
+
+
+
+
+
     const inputHash = password ? sha256Hex(password) : '';
+
+
+
+
+
 
 
 
@@ -12822,7 +25477,17 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
+
+
+
+
+
       return { granted: false, reason: 'locked' };
+
+
+
+
+
 
 
 
@@ -12832,7 +25497,17 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -12842,7 +25517,17 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
+
+
+
+
+
   // 连接，只是随后的 broadcastPlayerState() 会让它发现自己不再是
+
+
+
+
+
 
 
 
@@ -12852,7 +25537,17 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
+
+
+
+
+
   // 自动切回控制端UI、停止解码播放。
+
+
+
+
+
 
 
 
@@ -12862,7 +25557,17 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
+
+
+
+
+
   playerState.activeDeviceId = deviceId;
+
+
+
+
+
 
 
 
@@ -12872,12 +25577,32 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
+
+
+
+
+
   return { granted: true };
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -12892,7 +25617,17 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
+
+
+
+
+
 const server = http.createServer(app);
+
+
+
+
+
 
 
 
@@ -12907,7 +25642,22 @@ const wss = new WebSocketServer({ server });
 
 
 
+
+
+
+
+
+
+
+
+
+
 // ===== 手机麦克风实时音频通道（/mic）：role=mic 手机上行 PCM，role=tv 电视接收播放 =====
+
+
+
+
+
 
 
 
@@ -12917,7 +25667,17 @@ const wss = new WebSocketServer({ server });
 
 
 
+
+
+
+
+
 // 带 path 的实例互相 abortHandshake。手机经 https 域名(wss)接入满足浏览器安全上下文，
+
+
+
+
+
 
 
 
@@ -12927,7 +25687,17 @@ const wss = new WebSocketServer({ server });
 
 
 
+
+
+
+
+
 let activeMic = null;
+
+
+
+
+
 
 
 
@@ -12937,12 +25707,27 @@ function micSendJSON(ws, obj) {
 
 
 
+
+
+
+
+
   if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(obj)); } catch (e) {} }
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
 
 
 
@@ -12952,7 +25737,17 @@ function micPresence() {
 
 
 
+
+
+
+
+
   let tvs = 0;
+
+
+
+
+
 
 
 
@@ -12962,7 +25757,17 @@ function micPresence() {
 
 
 
+
+
+
+
+
   const payload = JSON.stringify({ type: 'presence', phones: activeMic ? 1 : 0, tvs });
+
+
+
+
+
 
 
 
@@ -12972,7 +25777,17 @@ function micPresence() {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
 
 
 
@@ -12982,7 +25797,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
   ws._channel = 'mic';
+
+
+
+
+
 
 
 
@@ -12992,7 +25817,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
   try {
+
+
+
+
+
 
 
 
@@ -13002,7 +25837,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
     if (u.searchParams.get('role') === 'tv') role = 'tv';
+
+
+
+
+
 
 
 
@@ -13012,12 +25857,27 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
   ws._role = role;
 
 
 
 
+
+
+
+
+
   ws.isAlive = true;
+
+
+
+
+
 
 
 
@@ -13032,7 +25892,22 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
+
+
+
+
+
   if (role === 'mic') {
+
+
+
+
+
 
 
 
@@ -13042,7 +25917,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
       micSendJSON(ws, { type: 'busy', message: '已有一部手机正在使用麦克风' });
+
+
+
+
+
 
 
 
@@ -13052,7 +25937,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
       activeMic = ws;
+
+
+
+
+
 
 
 
@@ -13062,12 +25957,27 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
   }
 
 
 
 
+
+
+
+
+
   micSendJSON(ws, { type: 'hello', role, phones: activeMic ? 1 : 0 });
+
+
+
+
+
 
 
 
@@ -13082,7 +25992,22 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
+
+
+
+
+
   ws.on('message', (data, isBinary) => {
+
+
+
+
+
 
 
 
@@ -13092,7 +26017,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
     if (isBinary) {
+
+
+
+
+
 
 
 
@@ -13102,7 +26037,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
         if (c._channel === 'mic' && c._role === 'tv' && c.readyState === 1) { try { c.send(data); } catch (e) {} }
+
+
+
+
+
 
 
 
@@ -13112,7 +26057,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
     } else {
+
+
+
+
+
 
 
 
@@ -13122,7 +26077,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
         const p = JSON.parse(data.toString());
+
+
+
+
+
 
 
 
@@ -13132,7 +26097,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
         wss.clients.forEach(c => {
+
+
+
+
+
 
 
 
@@ -13142,7 +26117,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
         });
+
+
+
+
+
 
 
 
@@ -13152,12 +26137,27 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
     }
 
 
 
 
+
+
+
+
+
   });
+
+
+
+
+
 
 
 
@@ -13167,7 +26167,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
     if (activeMic === ws) activeMic = null;
+
+
+
+
+
 
 
 
@@ -13177,7 +26187,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
   });
+
+
+
+
+
 
 
 
@@ -13187,7 +26207,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
 
 
 
@@ -13197,7 +26227,17 @@ function handleMicConnection(ws, req) {
 
 
 
+
+
+
+
+
 const micPing = setInterval(() => {
+
+
+
+
+
 
 
 
@@ -13207,7 +26247,17 @@ const micPing = setInterval(() => {
 
 
 
+
+
+
+
+
     if (ws._channel !== 'mic') return;
+
+
+
+
+
 
 
 
@@ -13217,7 +26267,17 @@ const micPing = setInterval(() => {
 
 
 
+
+
+
+
+
     ws.isAlive = false;
+
+
+
+
+
 
 
 
@@ -13227,7 +26287,17 @@ const micPing = setInterval(() => {
 
 
 
+
+
+
+
+
   });
+
+
+
+
+
 
 
 
@@ -13242,7 +26312,22 @@ const micPing = setInterval(() => {
 
 
 
+
+
+
+
+
+
+
+
+
+
 function broadcastQueue() {
+
+
+
+
+
 
 
 
@@ -13252,12 +26337,27 @@ function broadcastQueue() {
 
 
 
+
+
+
+
+
   const payload = JSON.stringify({ type: 'queue', data: getQueueWithSongs() });
 
 
 
 
+
+
+
+
+
   wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(payload); });
+
+
+
+
+
 
 
 
@@ -13272,12 +26372,32 @@ function broadcastQueue() {
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 已点队列后台预加载(queuePreload.js)探测到时长后，需要用同一份广播把最新的
 
 
 
 
+
+
+
+
+
 // duration 推给所有已连接的客户端(TV/手机)，不用等下一次队列增删改才刷新。
+
+
+
+
+
 
 
 
@@ -13292,7 +26412,22 @@ setPreloadUpdateNotifier(broadcastQueue);
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 播放/原伴唱状态：以前手机遥控端的"暂停/播放"图标、"原/伴唱"按钮高亮都是
+
+
+
+
+
 
 
 
@@ -13302,7 +26437,17 @@ setPreloadUpdateNotifier(broadcastQueue);
 
 
 
+
+
+
+
+
 // 手机上按钮还是老样子，看起来像没生效。真实状态(是否暂停、原唱/伴唱)只有
+
+
+
+
+
 
 
 
@@ -13312,7 +26457,17 @@ setPreloadUpdateNotifier(broadcastQueue);
 
 
 
+
+
+
+
+
 // "最近一次 TV 端上报的状态"：TV 端状态变化时通过一条新的 'state' 消息上报，
+
+
+
+
+
 
 
 
@@ -13322,12 +26477,27 @@ setPreloadUpdateNotifier(broadcastQueue);
 
 
 
+
+
+
+
+
 // 图标/高亮。新连接进来时(比如手机端刚打开遥控页)也立刻把这份"最近状态"发
 
 
 
 
+
+
+
+
+
 // 一遍，不用等 TV 端下一次状态变化才能同步上。
+
+
+
+
+
 
 
 
@@ -13342,7 +26512,22 @@ let lastPlaybackState = { paused: false, voice: 'original' };
 
 
 
+
+
+
+
+
+
+
+
+
+
 wss.on('connection', (ws, req) => {
+
+
+
+
+
 
 
 
@@ -13352,7 +26537,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
   try { pathname = new URL(req.url, 'http://localhost').pathname; } catch (e) {}
+
+
+
+
+
 
 
 
@@ -13362,7 +26557,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
   if (pathname !== '/ws') { try { ws.close(); } catch (e) {} return; }
+
+
+
+
+
 
 
 
@@ -13372,7 +26577,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
   ws.send(JSON.stringify({ type: 'queue', data: getQueueWithSongs() }));
+
+
+
+
+
 
 
 
@@ -13382,7 +26597,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
   // 新连接(网页刚打开/刚重连)立刻拿到一份当前的播放端归属+最近一次进度，
+
+
+
+
+
 
 
 
@@ -13392,7 +26617,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
   // 首连接即推送同一套模式。
+
+
+
+
+
 
 
 
@@ -13402,7 +26637,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
   ws.send(JSON.stringify({ type: 'progress', ...lastProgress }));
+
+
+
+
+
 
 
 
@@ -13412,7 +26657,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
     try {
+
+
+
+
+
 
 
 
@@ -13422,7 +26677,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
       if (p.type === 'control') {
+
+
+
+
+
 
 
 
@@ -13432,7 +26697,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         // 原来一律广播给所有在线客户端(含发送者自己)，由接收端各自判断"我是
+
+
+
+
+
 
 
 
@@ -13442,7 +26717,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         // 完全没问题，客户端本来就有 isActivePlayer 判断。但 fullscreen 比较
+
+
+
+
+
 
 
 
@@ -13452,7 +26737,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         // 本地 UI 状态，如果控制端自己也照单全收，点一下预览框发指令、紧接着
+
+
+
+
+
 
 
 
@@ -13462,7 +26757,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         // 客户端那边虽然也加了 isActivePlayer 判断兜底(双保险，见 tv/index.html
+
+
+
+
+
 
 
 
@@ -13472,7 +26777,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         // 分支)，但从根上只把这条指令发给真正的播放端，能省掉一次没有意义的
+
+
+
+
+
 
 
 
@@ -13482,7 +26797,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         // (还没人声明播放端角色，或者播放端刚断线)时静默丢弃，不广播给任何人。
+
+
+
+
+
 
 
 
@@ -13492,7 +26817,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           if (playerState.activeDeviceId) {
+
+
+
+
+
 
 
 
@@ -13502,7 +26837,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
               if (c._channel === 'ws' && c.readyState === 1 && c._deviceId === playerState.activeDeviceId) c.send(JSON.stringify(p));
+
+
+
+
+
 
 
 
@@ -13512,7 +26857,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           }
+
+
+
+
+
 
 
 
@@ -13522,7 +26877,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(JSON.stringify(p)); });
+
+
+
+
+
 
 
 
@@ -13532,7 +26897,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
       }
+
+
+
+
+
 
 
 
@@ -13542,7 +26917,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         lastPlaybackState = { paused: !!p.paused, voice: p.voice === 'accompaniment' ? 'accompaniment' : 'original' };
+
+
+
+
+
 
 
 
@@ -13552,7 +26937,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(payload); });
+
+
+
+
+
 
 
 
@@ -13562,7 +26957,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         // 设备声明自己想要的角色。记一下这条 ws 连接对应的 deviceId，供
+
+
+
+
+
 
 
 
@@ -13572,7 +26977,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         // 不需要走互斥判定——控制端可以同时有任意多个；role==='player'
+
+
+
+
+
 
 
 
@@ -13582,7 +26997,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         ws._deviceId = p.deviceId;
+
+
+
+
+
 
 
 
@@ -13592,7 +27017,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           const result = tryClaimPlayer(p.deviceId, p.deviceName, p.password);
+
+
+
+
+
 
 
 
@@ -13602,7 +27037,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           if (result.granted) broadcastPlayerState();
+
+
+
+
+
 
 
 
@@ -13612,7 +27057,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           // 原本是播放端的这台设备主动切回控制端(比如用户在设置里手动
+
+
+
+
+
 
 
 
@@ -13622,7 +27077,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           // 继续保留一把锁在一个已经不解码播放的设备名下没有意义。
+
+
+
+
+
 
 
 
@@ -13632,12 +27097,27 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           broadcastPlayerState();
 
 
 
 
+
+
+
+
+
         }
+
+
+
+
+
 
 
 
@@ -13647,7 +27127,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         ws._deviceId = p.deviceId;
+
+
+
+
+
 
 
 
@@ -13657,7 +27147,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         ws.send(JSON.stringify({ type: 'role_ack', ...result }));
+
+
+
+
+
 
 
 
@@ -13667,7 +27167,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
       } else if (p.type === 'player_lock') {
+
+
+
+
+
 
 
 
@@ -13677,7 +27187,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         if (playerState.activeDeviceId && playerState.activeDeviceId === p.deviceId) {
+
+
+
+
+
 
 
 
@@ -13687,7 +27207,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           // 上锁不设门槛(播放端自己想锁随时能锁)；但解锁(把已有的锁关掉)要
+
+
+
+
+
 
 
 
@@ -13697,7 +27227,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           // 这台设备上随手点一下解锁按钮，就能让任何设备无密码抢走播放端，
+
+
+
+
+
 
 
 
@@ -13707,7 +27247,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           if (!wantLock && playerState.locked) {
+
+
+
+
+
 
 
 
@@ -13717,7 +27267,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
             if (!hashesMatch(inputHash, sha256Hex(ADMIN_PASSWORD))) {
+
+
+
+
+
 
 
 
@@ -13727,7 +27287,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
               return;
+
+
+
+
+
 
 
 
@@ -13737,7 +27307,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           }
+
+
+
+
+
 
 
 
@@ -13747,7 +27327,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           log.info('PLAYER', `播放端「${playerState.activeDeviceName || playerState.activeDeviceId}」${playerState.locked ? '已上锁' : '已解锁'}`);
+
+
+
+
+
 
 
 
@@ -13757,12 +27347,27 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           ws.send(JSON.stringify({ type: 'lock_ack', granted: true }));
 
 
 
 
+
+
+
+
+
         }
+
+
+
+
+
 
 
 
@@ -13772,7 +27377,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         // 只采纳当前播放端自己上报的进度，过滤掉旧连接/非当前播放端可能
+
+
+
+
+
 
 
 
@@ -13782,7 +27397,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         if (playerState.activeDeviceId && playerState.activeDeviceId === p.deviceId) {
+
+
+
+
+
 
 
 
@@ -13792,7 +27417,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
             queueId: p.queueId != null ? p.queueId : null,
+
+
+
+
+
 
 
 
@@ -13802,7 +27437,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
             updatedAt: Date.now(),
+
+
+
+
+
 
 
 
@@ -13812,7 +27457,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
             voice: p.voice === 'accompaniment' ? 'accompaniment' : 'original',
+
+
+
+
+
 
 
 
@@ -13822,7 +27477,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           const payload = JSON.stringify({ type: 'progress', ...lastProgress });
+
+
+
+
+
 
 
 
@@ -13832,12 +27497,27 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         }
 
 
 
 
+
+
+
+
+
       }
+
+
+
+
+
 
 
 
@@ -13847,7 +27527,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
       else if (p.type === 'atmosphere') {
+
+
+
+
+
 
 
 
@@ -13857,7 +27547,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         if (kind) {
+
+
+
+
+
 
 
 
@@ -13867,7 +27567,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(out); });
+
+
+
+
+
 
 
 
@@ -13877,7 +27587,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
       }
+
+
+
+
+
 
 
 
@@ -13887,7 +27607,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
       else if (p.type === 'blessing') {
+
+
+
+
+
 
 
 
@@ -13897,7 +27627,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         if (text) {
+
+
+
+
+
 
 
 
@@ -13907,7 +27647,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           wss.clients.forEach(c => { if (c._channel === 'ws' && c.readyState === 1) c.send(out); });
+
+
+
+
+
 
 
 
@@ -13917,7 +27667,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
       }
+
+
+
+
+
 
 
 
@@ -13927,7 +27687,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
       else if (p.type === 'lyrics_style') {
+
+
+
+
+
 
 
 
@@ -13937,7 +27707,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         if (typeof p.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(p.color)) msg.color = p.color;
+
+
+
+
+
 
 
 
@@ -13947,7 +27727,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         if (typeof p.width === 'number' && p.width >= 0 && p.width <= 12) msg.width = p.width;
+
+
+
+
+
 
 
 
@@ -13957,7 +27747,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         if (typeof p.posV === 'number' && p.posV >= 0 && p.posV <= 60) msg.posV = p.posV;
+
+
+
+
+
 
 
 
@@ -13967,7 +27767,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
           const out = JSON.stringify(msg);
+
+
+
+
+
 
 
 
@@ -13977,7 +27787,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
         }
+
+
+
+
+
 
 
 
@@ -13987,12 +27807,27 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
     } catch(e) {}
 
 
 
 
+
+
+
+
+
   });
+
+
+
+
+
 
 
 
@@ -14002,7 +27837,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
     // 播放端设备断线(网页刷新/关闭/断网)：清空播放端归属和锁，让其它设备
+
+
+
+
+
 
 
 
@@ -14012,7 +27857,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
     // 不在线的"幽灵播放端"卡住——否则要么没人能顶替(如果之前上了锁)，
+
+
+
+
+
 
 
 
@@ -14022,7 +27877,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
     if (ws._deviceId && playerState.activeDeviceId === ws._deviceId) {
+
+
+
+
+
 
 
 
@@ -14032,7 +27897,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
       playerState = { activeDeviceId: null, activeDeviceName: '', locked: false };
+
+
+
+
+
 
 
 
@@ -14042,7 +27917,17 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
     }
+
+
+
+
+
 
 
 
@@ -14052,7 +27937,22 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -14067,7 +27967,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
   log.info('SERVER', `KTV 服务已启动: http://0.0.0.0:${PORT}`);
+
+
+
+
+
 
 
 
@@ -14077,7 +27987,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
   // 还没播完的记录(容器重建/升级重启不会清空 /data 下的数据库)，这里补一次
+
+
+
+
+
 
 
 
@@ -14087,12 +28007,27 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
   // 用户再次操作队列(点歌/删歌/切歌/置顶)才被动触发。
 
 
 
 
+
+
+
+
+
   schedulePreload();
+
+
+
+
+
 
 
 
@@ -14107,7 +28042,22 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
+
+
+
+
+
 // Bug修复：原来这行代码写在 server.listen 之前、且同步调用 scanLibrary()，
+
+
+
+
+
 
 
 
@@ -14117,7 +28067,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 // 这一点上——MV 目录下堆的曲目越多（尤其首次安装、批量导入曲库的场景），
+
+
+
+
+
 
 
 
@@ -14127,7 +28087,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 // 长时间白屏/连不上。
+
+
+
+
+
 
 
 
@@ -14137,7 +28107,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 // 转为后台任务执行；配合 scanner.js 里改成的"逐个文件探测、逐个立即入库"，
+
+
+
+
+
 
 
 
@@ -14147,7 +28127,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 // 扫描全部跑完才第一次看到歌曲。
+
+
+
+
+
 
 
 
@@ -14157,7 +28147,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 // Bug修复("容器一启动挂载还没生效，扫描把数据库归零")：fnOS/群晖这类平台上，
+
+
+
+
+
 
 
 
@@ -14167,7 +28167,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 // 目录"，但如果这个挂载点在 host 侧对应的是网盘/云盘客户端的挂载(rclone、
+
+
+
+
+
 
 
 
@@ -14177,7 +28187,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 // 时间线——容器可能先起来，这时候 /mv-net 在容器里"看起来"是一个存在但空的
+
+
+
+
+
 
 
 
@@ -14187,7 +28207,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 // 会执行删除的扫描，会把网络曲库这些歌当成"全部被删除了"直接清空数据库
+
+
+
+
+
 
 
 
@@ -14197,7 +28227,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 // 一道防线，但更好的做法是从源头上避免触发它：
+
+
+
+
+
 
 
 
@@ -14207,7 +28247,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 //      给 host 侧网盘挂载一点先起来的时间；
+
+
+
+
+
 
 
 
@@ -14217,7 +28267,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 //      顶层条目数量一致，才认为"这个目录这会儿状态稳定了"，最长总共等
+
+
+
+
+
 
 
 
@@ -14227,7 +28287,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 //      进入第 3 步(反正下一步本身就是安全的，等太久没意义)；
+
+
+
+
+
 
 
 
@@ -14237,7 +28307,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 //      mode='incremental'(只增不删，见 scanner.js)，这一轮无论如何都不会
+
+
+
+
+
 
 
 
@@ -14247,7 +28327,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 //      最多是"这一轮扫描少扫到几首新歌"，不会有任何不可逆的数据丢失。
+
+
+
+
+
 
 
 
@@ -14257,7 +28347,17 @@ server.listen(PORT, () => {
 
 
 
+
+
+
+
+
 //      删除(且仍然受"骤减熔断"保护)。
+
+
+
+
+
 
 
 
@@ -14267,12 +28367,32 @@ const STARTUP_SCAN_DELAY_MS = Number(process.env.STARTUP_SCAN_DELAY_MS) || 20000
 
 
 
+
+
+
+
+
 const STARTUP_SCAN_MAX_WAIT_MS = Number(process.env.STARTUP_SCAN_MAX_WAIT_MS) || 60000;
 
 
 
 
+
+
+
+
+
 const STARTUP_SCAN_POLL_INTERVAL_MS = 3000;
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -14292,7 +28412,22 @@ function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms).unref
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 只读一层目录条目数量(不递归)当"这个目录是否还在变化"的轻量信号，避免在
+
+
+
+
+
 
 
 
@@ -14302,7 +28437,17 @@ function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms).unref
 
 
 
+
+
+
+
+
 // 扫描留给后面 scanLibrary() 自己做，这里只是"判断值不值得现在开始扫"。
+
+
+
+
+
 
 
 
@@ -14312,7 +28457,17 @@ function shallowEntryCount(dir) {
 
 
 
+
+
+
+
+
   try {
+
+
+
+
+
 
 
 
@@ -14322,7 +28477,17 @@ function shallowEntryCount(dir) {
 
 
 
+
+
+
+
+
   } catch (e) {
+
+
+
+
+
 
 
 
@@ -14332,12 +28497,32 @@ function shallowEntryCount(dir) {
 
 
 
+
+
+
+
+
   }
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -14352,7 +28537,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
   const netRoots = getMVRoots().filter(r => r.isNetwork);
+
+
+
+
+
 
 
 
@@ -14367,7 +28562,22 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
+
+
+
+
+
   log.info('SCAN', `检测到 ${netRoots.length} 个网络曲库来源，启动扫描前先等待 ${STARTUP_SCAN_DELAY_MS / 1000}s 让网盘挂载有机会先就绪`);
+
+
+
+
+
 
 
 
@@ -14382,7 +28592,22 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
+
+
+
+
+
   let prevCounts = new Map(netRoots.map(r => [r.dir, shallowEntryCount(r.dir)]));
+
+
+
+
+
 
 
 
@@ -14392,7 +28617,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
   while (Date.now() - start < STARTUP_SCAN_MAX_WAIT_MS) {
+
+
+
+
+
 
 
 
@@ -14402,7 +28637,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
     const curCounts = new Map(netRoots.map(r => [r.dir, shallowEntryCount(r.dir)]));
+
+
+
+
+
 
 
 
@@ -14412,7 +28657,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
     if (allStable) {
+
+
+
+
+
 
 
 
@@ -14422,7 +28677,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
       return;
+
+
+
+
+
 
 
 
@@ -14432,7 +28697,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
     prevCounts = curCounts;
+
+
+
+
+
 
 
 
@@ -14442,12 +28717,32 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
   log.warn('SCAN', `等待网络曲库挂载就绪超时(${STARTUP_SCAN_MAX_WAIT_MS / 1000}s)，仍会继续启动，但首次扫描固定用"增量模式"(只增不删)，不会有数据丢失风险`);
 
 
 
 
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -14462,7 +28757,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
   // 应急开关：STARTUP_SCAN_DISABLED=1 时完全跳过"容器启动后的首次自动扫描"。
+
+
+
+
+
 
 
 
@@ -14472,7 +28777,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
   // 异常、需要容器先以最快速度对外可用、之后再去后台手动点"扫描曲库"时使用。
+
+
+
+
+
 
 
 
@@ -14482,7 +28797,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
     log.warn('SCAN', '已通过环境变量 STARTUP_SCAN_DISABLED=1 跳过启动自动扫描，需要时请到后台手动扫描曲库');
+
+
+
+
+
 
 
 
@@ -14492,7 +28817,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
   }
+
+
+
+
+
 
 
 
@@ -14502,7 +28837,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
     await waitForNetworkMountsStable();
+
+
+
+
+
 
 
 
@@ -14512,7 +28857,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
     log.warn('SCAN', `等待网络曲库挂载就绪阶段出错(不影响后续启动): ${e.message}`);
+
+
+
+
+
 
 
 
@@ -14522,7 +28877,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
   // 首次扫描固定用 incremental：不管上面等到没等到"稳定"，这一轮都绝不会
+
+
+
+
+
 
 
 
@@ -14532,12 +28897,27 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
   // 手动触发，那时候网盘大概率已经完全就绪了。
 
 
 
 
+
+
+
+
+
   scanLibrary('incremental').catch(e => log.error('SCAN', `初始扫描失败: ${e.message}`));
+
+
+
+
+
 
 
 
@@ -14552,7 +28932,22 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 需求(新歌放进目录自动入库)：除启动那次外，每隔一段时间自动跑一轮增量扫描，
+
+
+
+
+
 
 
 
@@ -14562,7 +28957,17 @@ async function waitForNetworkMountsStable() {
 
 
 
+
+
+
+
+
 // 间隔可用环境变量 AUTO_SCAN_MIN 调整，默认 5 分钟；加锁避免上一轮没跑完又起一轮。
+
+
+
+
+
 
 
 
@@ -14572,7 +28977,17 @@ let autoScanBusy = false;
 
 
 
+
+
+
+
+
 const AUTO_SCAN_MS = Math.max(1, parseInt(process.env.AUTO_SCAN_MIN || '5', 10) || 5) * 60 * 1000;
+
+
+
+
+
 
 
 
@@ -14582,7 +28997,17 @@ const AUTO_SCAN_MS = Math.max(1, parseInt(process.env.AUTO_SCAN_MIN || '5', 10) 
 
 
 
+
+
+
+
+
 // STARTUP_SCAN_DISABLED 单独控制）。正常使用不要设置，否则丢进目录的新歌不会自动入库。
+
+
+
+
+
 
 
 
@@ -14592,7 +29017,17 @@ if (process.env.AUTO_SCAN_DISABLED === '1') {
 
 
 
+
+
+
+
+
   log.warn('SCAN', '已通过环境变量 AUTO_SCAN_DISABLED=1 关闭定时增量扫描，新歌需手动扫描入库');
+
+
+
+
+
 
 
 
@@ -14602,7 +29037,17 @@ if (process.env.AUTO_SCAN_DISABLED === '1') {
 
 
 
+
+
+
+
+
 setInterval(() => {
+
+
+
+
+
 
 
 
@@ -14612,7 +29057,17 @@ setInterval(() => {
 
 
 
+
+
+
+
+
   autoScanBusy = true;
+
+
+
+
+
 
 
 
@@ -14622,7 +29077,17 @@ setInterval(() => {
 
 
 
+
+
+
+
+
     .then(r => { if (r && r.added > 0) log.info('SCAN', `自动增量扫描：新增 ${r.added} 首`); })
+
+
+
+
+
 
 
 
@@ -14632,12 +29097,27 @@ setInterval(() => {
 
 
 
+
+
+
+
+
     .finally(() => { autoScanBusy = false; });
 
 
 
 
+
+
+
+
+
 }, AUTO_SCAN_MS).unref();
+
+
+
+
+
 
 
 
@@ -14652,7 +29132,22 @@ setInterval(() => {
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 曲库缓存清理：取代原来写死在环境变量里的"每日按固定天数清理"，改由
+
+
+
+
+
 
 
 
@@ -14662,7 +29157,17 @@ setInterval(() => {
 
 
 
+
+
+
+
+
 // 具体见该文件顶部注释。这里只负责两个定时触发点：
+
+
+
+
+
 
 
 
@@ -14672,7 +29177,17 @@ setInterval(() => {
 
 
 
+
+
+
+
+
 //      按钮时也不会让缓存无限增长；
+
+
+
+
+
 
 
 
@@ -14682,7 +29197,17 @@ setInterval(() => {
 
 
 
+
+
+
+
+
 //      检查一次总量是否超限——不需要等到第二天的定时清理才生效，管理员设置
+
+
+
+
+
 
 
 
@@ -14692,7 +29217,17 @@ setInterval(() => {
 
 
 
+
+
+
+
+
 // 都用 getValidSongIds 的惰性取值（而不是启动时查一次存起来），保证每次
+
+
+
+
+
 
 
 
@@ -14702,7 +29237,17 @@ setInterval(() => {
 
 
 
+
+
+
+
+
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+
+
+
+
 
 
 
@@ -14712,7 +29257,17 @@ setTimeout(() => cacheCleaner.runCleanup(validSongIds), 5 * 60 * 1000).unref();
 
 
 
+
+
+
+
+
 setInterval(() => cacheCleaner.runCleanup(validSongIds), DAY_MS).unref();
+
+
+
+
+
 
 
 
@@ -14727,7 +29282,22 @@ log.info('CACHE_CLEAN', '曲库缓存清理任务已注册（每日兜底一次 
 
 
 
+
+
+
+
+
+
+
+
+
+
 // 需求(网盘先缓存到本地再探测)：网络挂载曲库的本地缓存副本(sourceCache.js)
+
+
+
+
+
 
 
 
@@ -14737,7 +29307,17 @@ log.info('CACHE_CLEAN', '曲库缓存清理任务已注册（每日兜底一次 
 
 
 
+
+
+
+
+
 // 兜底清理一次"节奏跟着跑，策略见 sourceCache.js 顶部注释(孤儿缓存随时清 +
+
+
+
+
+
 
 
 
@@ -14747,7 +29327,17 @@ log.info('CACHE_CLEAN', '曲库缓存清理任务已注册（每日兜底一次 
 
 
 
+
+
+
+
+
 // 变量可以覆盖默认限额(50GB / 14天)，不需要额外配置也能正常工作。
+
+
+
+
+
 
 
 
@@ -14757,7 +29347,17 @@ setTimeout(() => sourceCache.runCleanup(validSongIds), 6 * 60 * 1000).unref();
 
 
 
+
+
+
+
+
 setInterval(() => sourceCache.runCleanup(validSongIds), DAY_MS).unref();
+
+
+
+
+
 
 
 
@@ -14772,7 +29372,22 @@ log.info('CACHE_CLEAN', `网盘本地缓存清理任务已注册（目录: ${sou
 
 
 
+
+
+
+
+
+
+
+
+
+
 onBuildComplete(() => {
+
+
+
+
+
 
 
 
@@ -14782,7 +29397,17 @@ onBuildComplete(() => {
 
 
 
+
+
+
+
+
     if (cacheCleaner.getSettings().mode === 'size') {
+
+
+
+
+
 
 
 
@@ -14792,7 +29417,17 @@ onBuildComplete(() => {
 
 
 
+
+
+
+
+
       cacheCleaner.cleanupBySize(settings.sizeLimitMB);
+
+
+
+
+
 
 
 
@@ -14802,7 +29437,17 @@ onBuildComplete(() => {
 
 
 
+
+
+
+
+
   } catch (e) {
+
+
+
+
+
 
 
 
@@ -14812,12 +29457,27 @@ onBuildComplete(() => {
 
 
 
+
+
+
+
+
   }
 
 
 
 
+
+
+
+
+
 });
+
+
+
+
+
 
 
 
