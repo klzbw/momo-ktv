@@ -604,7 +604,10 @@ async function buildStereoSplitAudioRendition(filepath, dir, track, songTag, see
 // 就可以先生成并让播放器拿到。播放器随后请求 video.m3u8 / audioN.m3u8 时，
 // 如果对应分片还没转出来，由路由层(index.js)负责短暂等待，而不是在这里
 // 阻塞。
-function writeMasterPlaylist(dir, trackCount, names) {
+// hasVideo=false 时为纯音频播放列表（客户端 canvas 渲染动态背景）：
+// #EXT-X-STREAM-INF 直接指向 audio0.m3u8，不再引用 video.m3u8，服务端也不
+// 再为纯音频歌转码背景视频轨，彻底消除 gradients 滤镜导致的 CPU 占满问题。
+function writeMasterPlaylist(dir, trackCount, names, hasVideo = true) {
   const fallback = trackCount >= 5 ? ['原唱', '75%', '半消', '25%', '伴奏']
     : trackCount >= 3 ? ['原唱', '半消', '伴奏']
     : trackCount >= 2 ? ['原唱', '伴唱'] : ['原唱'];
@@ -615,7 +618,12 @@ function writeMasterPlaylist(dir, trackCount, names) {
     const isDefault = t === 0 ? 'YES' : 'NO';
     m3u8 += `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="${name}",DEFAULT=${isDefault},AUTOSELECT=${isDefault},URI="audio${t}.m3u8"\n`;
   }
-  m3u8 += '#EXT-X-STREAM-INF:BANDWIDTH=8000000,AUDIO="aud"\nvideo.m3u8\n';
+  if (hasVideo) {
+    m3u8 += '#EXT-X-STREAM-INF:BANDWIDTH=8000000,AUDIO="aud"\nvideo.m3u8\n';
+  } else {
+    // 纯音频：主播放列表直接指向默认音轨(audio0)，BANDWIDTH/CODECS 按音频填写
+    m3u8 += '#EXT-X-STREAM-INF:BANDWIDTH=192000,AUDIO="aud",CODECS="mp4a.40.2"\naudio0.m3u8\n';
+  }
   fs.writeFileSync(path.join(dir, 'master.m3u8'), m3u8);
 }
 
@@ -675,15 +683,18 @@ async function buildHLS(song, dir, effectiveTrackCount, filepath, durSec, separa
   const songTag = `[歌曲 id=${song.id} "${song.title || song.filename}"]`;
   const t0 = Date.now();
 
-  // 纯音频(mp3/flac/wav/ape)/CUE 分轨没有源视频轨：视频任务换成动态背景轨；
+  // 纯音频(mp3/flac/wav/ape)/CUE 分轨没有源视频轨：不再服务端转码背景视频，
+  // 改由客户端 canvas(BgStage) 渲染 14 种动态背景，彻底消除 gradients 滤镜 CPU 占满问题。
   // CUE 分轨还要给音频任务传截取区间(从整轨 start_offset 起、时长 durSec)。
   const isAudioOnly = song.media_type === 'audio' || song.media_type === 'cue';
   const seek = (isAudioOnly && song.media_type === 'cue' && Number.isFinite(Number(song.start_offset)))
     ? { ss: Number(song.start_offset) || 0, t: durSec } : null;
-  const videoTask = isAudioOnly
-    ? buildAudioBackgroundRendition(song, dir, durSec, songTag)
-    : buildVideoRendition(filepath, dir, songTag);
-  const tasks = [videoTask];
+  const tasks = [];
+  if (!isAudioOnly) {
+    tasks.push(buildVideoRendition(filepath, dir, songTag));
+  } else {
+    log.info('TRANSCODE', `${songTag} 纯音频歌曲，跳过服务端背景视频转码，由客户端 canvas 渲染动态背景`);
+  }
   if (separated) {
     // AI 人声分离已完成：track0=原唱(源混音)，track1..4 按 SEP_VOCAL_LEVELS
     // 出 75%/50%(半消)/25%/0%(纯伴奏)，复用 HLS 多音轨互斥切换；滑块在 5 档间吸附。
@@ -774,9 +785,9 @@ async function ensureHLS(song) {
     } else if (declaredTracks >= 2) effectiveTrackCount = declaredTracks;
     else if (isAudioSong) effectiveTrackCount = 1;
     else effectiveTrackCount = probeAudioChannels(filepath, songTag) >= 2 ? 2 : 1;
-    writeMasterPlaylist(dir, effectiveTrackCount, trackNames);
+    writeMasterPlaylist(dir, effectiveTrackCount, trackNames, !isAudioSong);
     buildErrors.delete(id);
-    // 纯音频/CUE：算出本次应转时长，供动态背景轨定长、CUE 截取区间使用
+    // 纯音频/CUE：算出本次应转时长，供 CUE 截取区间使用（背景视频已改客户端渲染，不再需要定长）
     const durSec = isAudioSong ? resolveDurationSec(song, filepath) : null;
 
     const p = buildHLS(song, dir, effectiveTrackCount, filepath, durSec, separated)
