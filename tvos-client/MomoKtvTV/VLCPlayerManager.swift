@@ -32,7 +32,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
     // MARK: - VLC实例
     #if canImport(TVVLCKit)
     private var library: VLCLibrary?
-    private var player: VLCMediaPlayer?
+    var player: VLCMediaPlayer?
     private var media: VLCMedia?
     /// 保存原始的direct-stream URL（restart时用，避免用过期的115 CDN直链）
     private var originalStreamURL: URL?
