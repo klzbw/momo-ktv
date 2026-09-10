@@ -126,17 +126,18 @@ struct FullPlayerView: View {
 
             Group {
                 if isUsingVLC {
-                    VLCVideoView(vlcManager: vlcManager)
+                    VLCVideoView(vlcManager: vlcManager, isFullscreen: true)
                         .ignoresSafeArea()
                         .id("fullscreen-video-vlc")
                         .onAppear {
                             setup()
-                            // VLC模式：先强制重置视频输出，再多次延迟刷新，解决大屏视频不显示的问题
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            // isFullscreen模式下VLCVideoView内部已调用promoteToFullscreen
+                            // 这里额外保留forceResetDrawable和多次refresh作为双重保障
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                 vlcManager.forceResetDrawable()
                             }
-                            let delays: [Double] = [0.5, 1.0, 1.8, 2.8, 4.0, 5.5]
-                            for (i, delay) in delays.enumerated() {
+                            let delays: [Double] = [0.6, 1.2, 2.0, 3.0, 4.5]
+                            for delay in delays {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                                     vlcManager.refreshDrawables()
                                 }
