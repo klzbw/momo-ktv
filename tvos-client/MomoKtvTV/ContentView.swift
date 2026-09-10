@@ -129,20 +129,16 @@ struct ContentView: View {
             if isPresented {
                 // Entering fullscreen: record state, shared player keeps playing
                 shouldResumePlaying = playerManager.isPlaying
-                // 延迟刷新VLC视频输出，确保全屏视图已创建
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    vlcManager.refreshDrawables()
-                }
             } else {
                 // Exiting fullscreen: shared player continues, just sync state
                 isPlaying = playerManager.isPlaying
-                // 延迟刷新VLC视频输出，确保小屏视图已重新创建
-                // 解决退出全屏后只有声音无视频的问题
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    vlcManager.refreshDrawables()
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    vlcManager.refreshDrawables()
+            }
+            // 大小屏互切时，TVVLCKit动态切换drawable不可靠（只有声音无视频）。
+            // 必须执行保留进度的软重启（stop+play+seek），强制VLC重建视频输出层。
+            // 延迟0.5秒确保新视图已创建并添加到窗口层级。
+            if isUsingVLC && vlcManager.isPlaying {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    vlcManager.restartPreservingPosition()
                 }
             }
         }
