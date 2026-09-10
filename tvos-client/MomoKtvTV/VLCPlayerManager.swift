@@ -34,6 +34,8 @@ class VLCPlayerManager: NSObject, ObservableObject {
     private var library: VLCLibrary?
     private var player: VLCMediaPlayer?
     private var media: VLCMedia?
+    /// 保存原始的direct-stream URL（restart时用，避免用过期的115 CDN直链）
+    private var originalStreamURL: URL?
     #endif
     private var drawableViews: NSHashTable<UIView> = NSHashTable.weakObjects()
     private var activeDrawable: UIView?
@@ -89,11 +91,25 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
     // MARK: - 302 重定向预解析
 
+    /// 用于捕获302重定向的URLSession代理（禁止自动跟随重定向）
+    private class RedirectCatcher: NSObject, URLSessionTaskDelegate {
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest,
+                        completionHandler: @escaping (URLRequest?) -> Void) {
+            // 返回nil禁止自动跟随重定向，保留原始302响应以便读取Location头
+            completionHandler(nil)
+        }
+    }
+    private let redirectCatcher = RedirectCatcher()
+    private lazy var noRedirectSession: URLSession = {
+        URLSession(configuration: .default, delegate: redirectCatcher, delegateQueue: nil)
+    }()
+
     /// 预解析 URL 的 302 重定向，返回最终 URL。
-    /// 对于 /api/direct-stream/ 端点，服务端会返回 302 到 115 CDN 直链。
-    /// 预解析后让 VLC 直接请求最终 URL，避免 VLC 跟随重定向时丢失自定义 UA。
+    /// 使用自定义URLSession禁止自动跟随重定向，确保能读取到302的Location头。
+    /// （URLSession.shared默认会自动跟随302，导致返回最终响应而非302）
     private func resolveRedirect(for url: URL, completion: @escaping (URL) -> Void) {
-        // 只对 direct-stream 端点做预解析，其他 URL 直接返回
         guard url.absoluteString.contains("direct-stream") else {
             completion(url)
             return
@@ -101,12 +117,12 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
         log("预解析302重定向: \(url.absoluteString)")
         var request = URLRequest(url: url)
-        request.httpMethod = "HEAD"
+        request.httpMethod = "GET"
         request.timeoutInterval = 15
-        // 用 115Browser UA 发起预解析，确保服务端返回有效直链
         request.setValue(VLCPlayerManager.cloud115UserAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue("bytes=0-0", forHTTPHeaderField: "Range")  // 只取1字节，快速获取302
 
-        let task = URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
+        let task = noRedirectSession.dataTask(with: request) { [weak self] _, response, error in
             if let error = error {
                 self?.log("预解析失败(\(error.localizedDescription))，使用原始URL")
                 DispatchQueue.main.async { completion(url) }
@@ -114,15 +130,19 @@ class VLCPlayerManager: NSObject, ObservableObject {
             }
             if let httpResp = response as? HTTPURLResponse {
                 self?.log("预解析状态: \(httpResp.statusCode)")
-                if let location = httpResp.allHeaderFields["Location"] as? String,
+                // 302/301重定向：从Location头获取最终URL
+                if (300...399).contains(httpResp.statusCode),
+                   let location = httpResp.allHeaderFields["Location"] as? String,
                    let finalURL = URL(string: location) {
-                    self?.log("预解析成功，最终URL: \(finalURL.absoluteString.prefix(80))...")
+                    self?.log("预解析成功(\(httpResp.statusCode))，最终URL: \(finalURL.absoluteString.prefix(80))...")
                     DispatchQueue.main.async { completion(finalURL) }
                     return
                 }
-                // 如果不是302/301，可能服务端直接返回了内容，用原始URL
+                // 200：可能服务端直接返回内容（非重定向模式），用原始URL让VLC处理
                 if httpResp.statusCode == 200 {
                     self?.log("预解析返回200（非重定向），使用原始URL")
+                } else {
+                    self?.log("预解析返回\(httpResp.statusCode)，使用原始URL")
                 }
             }
             DispatchQueue.main.async { completion(url) }
@@ -155,6 +175,8 @@ class VLCPlayerManager: NSObject, ObservableObject {
     #if canImport(TVVLCKit)
     private func startPlayback(player: VLCMediaPlayer, url: URL, originalURL: URL) {
         cleanup()
+        // 保存原始URL供restart使用（115 CDN直链有过期时间，restart时必须用原始URL重新获取）
+        self.originalStreamURL = originalURL
 
         log("▶️ 播放URL: \(url.absoluteString.prefix(120))")
         if url != originalURL {
@@ -205,16 +227,12 @@ class VLCPlayerManager: NSObject, ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             self?.refreshAudioTracks()
         }
-        // 延迟4秒再次检查（115 CDN首次连接可能较慢）
+        // 延迟4秒打印状态（仅日志，不自动重试，避免循环）
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
             guard let self = self, let p = self.player else { return }
-            log("4秒后状态: \(p.state.rawValue), 视频轨:\(p.videoTrackNames.count), 音频轨:\(p.audioTrackNames.count)")
-            if p.state == .error {
-                self.log("❌ VLC错误！尝试用原始URL重试...")
-                // 错误重试：用原始URL（不预解析）再试一次
-                if url != originalURL {
-                    self.startPlayback(player: p, url: originalURL, originalURL: originalURL)
-                }
+            self.log("4秒后状态: \(p.state.rawValue), 视频轨:\(p.videoTrackNames.count), 音频轨:\(p.audioTrackNames.count)")
+            if p.state == .error || p.videoTrackNames.count == 0 {
+                self.log("⚠️ VLC播放异常（视频轨0或错误状态），请检查网络和115登录状态")
             }
         }
         log("▶️ 开始播放: \(url.lastPathComponent)")
@@ -292,13 +310,17 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
     func restart() {
         #if canImport(TVVLCKit)
-        guard let p = player, let media = p.media, let url = media.url, !isRestarting else { return }
+        guard !isRestarting else { return }
+        // 优先使用保存的原始direct-stream URL（115 CDN直链会过期，不能用media.url）
+        let url = originalStreamURL ?? player?.media?.url
+        guard let url = url, let p = player else { return }
         isRestarting = true
-        log("restart: 停止并重新播放")
+        log("restart: 停止并重新播放 (URL: \(url.lastPathComponent))")
         p.stop()
         isPlaying = false
         onStateChange?(false)
         activeDrawable = nil
+        // 延迟0.5秒后重新播放（等待连接完全关闭）
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self else { return }
             self.play(url: url)
