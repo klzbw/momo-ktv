@@ -129,9 +129,21 @@ struct ContentView: View {
             if isPresented {
                 // Entering fullscreen: record state, shared player keeps playing
                 shouldResumePlaying = playerManager.isPlaying
+                // 延迟刷新VLC视频输出，确保全屏视图已创建
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    vlcManager.refreshDrawables()
+                }
             } else {
                 // Exiting fullscreen: shared player continues, just sync state
                 isPlaying = playerManager.isPlaying
+                // 延迟刷新VLC视频输出，确保小屏视图已重新创建
+                // 解决退出全屏后只有声音无视频的问题
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    vlcManager.refreshDrawables()
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    vlcManager.refreshDrawables()
+                }
             }
         }
         .fullScreenCover(isPresented: $showingPlayer) {
