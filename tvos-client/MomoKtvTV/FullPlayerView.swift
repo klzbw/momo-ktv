@@ -131,17 +131,8 @@ struct FullPlayerView: View {
                         .id("fullscreen-video-vlc")
                         .onAppear {
                             setup()
-                            // isFullscreen模式下VLCVideoView内部已调用promoteToFullscreen
-                            // 这里额外保留forceResetDrawable和多次refresh作为双重保障
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                vlcManager.forceResetDrawable()
-                            }
-                            let delays: [Double] = [0.6, 1.2, 2.0, 3.0, 4.5]
-                            for delay in delays {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                                    vlcManager.refreshDrawables()
-                                }
-                            }
+                            // VLC使用共享单例视图，makeUIView中已自动attach，
+                            // 无需forceResetDrawable/refreshDrawables
                         }
                         .onDisappear { cleanup() }
                 } else {
