@@ -133,14 +133,8 @@ struct ContentView: View {
                 // Exiting fullscreen: shared player continues, just sync state
                 isPlaying = playerManager.isPlaying
             }
-            // 大小屏互切时，TVVLCKit动态切换drawable不可靠（只有声音无视频）。
-            // 必须执行保留进度的软重启（stop+play+seek），强制VLC重建视频输出层。
-            // 延迟0.5秒确保新视图已创建并添加到窗口层级。
-            if isUsingVLC && vlcManager.isPlaying {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    vlcManager.restartPreservingPosition()
-                }
-            }
+            // VLC使用共享单例视图(VLCSharedVideoView)，大小屏切换时只是把
+            // 同一个UIView在容器间移动，视频输出完全不中断，无需软重启。
         }
         .fullScreenCover(isPresented: $showingPlayer) {
             if let playing = api.queue.first(where: { $0.isPlaying }) {
