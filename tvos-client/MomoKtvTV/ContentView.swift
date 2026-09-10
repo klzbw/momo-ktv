@@ -417,30 +417,36 @@ struct ContentView: View {
                 // Video preview using shared player (AVPlayer) or VLC player
                 // Use id to force rebuild when returning from fullscreen
                 if isUsingVLC {
-                    VLCVideoView(vlcManager: vlcManager)
-                        .id("preview-vlc-\(showingPlayer ? "fs" : "normal")")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .onAppear {
-                            // VLC模式：视频已在playSong中设置，这里只加载歌词
-                            if playing.isVideoFile { previewLyrics.lyrics = .empty }
-                            else if previewLyrics.lyrics.isEmpty { previewLyrics.load(server: api.serverAddress, songId: playing.song_id) }
-                        }
+                    // 全屏时不创建小屏VLC视图，避免与全屏VLCVideoView竞争drawable导致只有声音无视频
+                    if !showingPlayer {
+                        VLCVideoView(vlcManager: vlcManager)
+                            .id("preview-vlc")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .onAppear {
+                                // VLC模式：视频已在playSong中设置，这里只加载歌词
+                                if playing.isVideoFile { previewLyrics.lyrics = .empty }
+                                else if previewLyrics.lyrics.isEmpty { previewLyrics.load(server: api.serverAddress, songId: playing.song_id) }
+                            }
+                    }
 
                 } else if let hlsURL = hlsURL {
-                    SharedVideoView(playerManager: playerManager)
-                        .id("preview-\(showingPlayer ? "fs" : "normal")")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .onAppear {
-                            playerManager.vocalTrackCount = playing.audio_tracks ?? 1
-                            playerManager.setupPlayer(for: hlsURL)
-                            playerManager.setVolume(volume)
-                            prepareDualIfNeeded(playing)
-                            if playing.isVideoFile { previewLyrics.lyrics = .empty }
-                            else if previewLyrics.lyrics.isEmpty { previewLyrics.load(server: api.serverAddress, songId: playing.song_id) }
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                playerManager.attachLayerToCurrentHost()
+                    // 全屏时不创建小屏SharedVideoView，FullPlayerView已有自己的视频视图
+                    if !showingPlayer {
+                        SharedVideoView(playerManager: playerManager)
+                            .id("preview")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .onAppear {
+                                playerManager.vocalTrackCount = playing.audio_tracks ?? 1
+                                playerManager.setupPlayer(for: hlsURL)
+                                playerManager.setVolume(volume)
+                                prepareDualIfNeeded(playing)
+                                if playing.isVideoFile { previewLyrics.lyrics = .empty }
+                                else if previewLyrics.lyrics.isEmpty { previewLyrics.load(server: api.serverAddress, songId: playing.song_id) }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    playerManager.attachLayerToCurrentHost()
+                                }
                             }
-                        }
+                    }
                 }
 
                 // 纯音频歌：小窗也显示动态背景 + 逐字歌词，与全屏 FullPlayerView 一致
