@@ -586,7 +586,7 @@ app.use('/api/cloud', cloudDrive.init(db));
 
 
 
-app.use('/api/direct-stream', directStream);
+app.use('/api/direct-stream', directStream.init(db));
 
 app.use('/api/115', cloud115Login);
 
