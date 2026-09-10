@@ -432,7 +432,39 @@ class VLCPlayerManager: NSObject, ObservableObject {
         activeDrawable = view
         #if canImport(TVVLCKit)
         if let p = player, let v = view {
-            p.drawable = v
+            // 先清除再延迟设置，强制VLC重新创建视频输出层
+            // 直接设置p.drawable可能导致VLC复用旧渲染层，切换视图后只有声音无视频
+            p.drawable = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak p, weak v] in
+                guard let p = p, let v = v else { return }
+                p.drawable = v
+            }
+        } else if view == nil {
+            player?.drawable = nil
+        }
+        #endif
+    }
+
+    /// 全屏提升：将指定视图强制提升为活动drawable，并多次刷新确保视频显示
+    /// 用于从小屏切换到全屏时，确保VLC视频输出正确切换到全屏视图
+    func promoteToFullscreen(_ view: UIView) {
+        #if canImport(TVVLCKit)
+        log("promoteToFullscreen: 提升视图为全屏drawable")
+        activeDrawable = view
+        guard let p = player else { return }
+        // 强制重置：先清除所有，再设置
+        p.drawable = nil
+        let delays: [Double] = [0.1, 0.3, 0.6, 1.0, 1.5, 2.0]
+        for (i, delay) in delays.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak p, weak view] in
+                guard let p = p, let view = view else { return }
+                p.drawable = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak p, weak view] in
+                    guard let p = p, let view = view else { return }
+                    p.drawable = view
+                    self.log("promoteToFullscreen: 第\(i+1)次设置drawable")
+                }
+            }
         }
         #endif
     }
