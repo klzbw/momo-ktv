@@ -655,12 +655,13 @@ struct ContentView: View {
                                            icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
                 }
             case "repeat":
+                // 收到WebSocket广播的repeat消息，只执行本地restart，不再调用api.restartSong()
+                // 否则会形成回环：发送repeat -> 广播回来 -> 再发送 -> 无限循环
                 if isUsingVLC {
                     vlcManager.restart()
                 } else {
                     playerManager.restart()
                 }
-                api.restartSong()
                 FeedbackCenter.shared.show("重新演唱", icon: "gobackward")
             case "voice":
                 // Server broadcasts control messages back to ALL clients including
