@@ -493,7 +493,10 @@ class KTVAPIClient: ObservableObject {
             DispatchQueue.main.async { self.queue = (try? JSONDecoder().decode([QueueItem].self, from: qData)) ?? [] }
         } else if type == "control",
                   let action = json["action"] as? String {
-            let payload = json.filter { $0.key != "type" && $0.key != "action" } as? [String: Any] ?? [:]
+            // 过滤自己发送的消息，避免WebSocket回环导致无限restart/循环
+            let msgClientId = json["clientId"] as? String
+            guard msgClientId != self.clientId else { return }
+            let payload = json.filter { $0.key != "type" && $0.key != "action" && $0.key != "clientId" } as? [String: Any] ?? [:]
             DispatchQueue.main.async { self.onControlMessage?(action, payload) }
         } else if type == "atmosphere", let kind = json["kind"] as? String {
             DispatchQueue.main.async { self.onAtmosphere?(kind) }
