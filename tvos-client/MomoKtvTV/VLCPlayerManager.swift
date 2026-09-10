@@ -337,6 +337,48 @@ class VLCPlayerManager: NSObject, ObservableObject {
         #endif
     }
 
+    /// 保留播放进度的软重启：stop后重新play并seek回原位置。
+    /// 用于大小屏互切时强制VLC重新初始化视频输出层。
+    /// TVVLCKit在播放中动态切换drawable不可靠（只有声音无视频），
+    /// 必须stop+play重建视频输出。此方法保留进度，用户感知只是短暂缓冲。
+    func restartPreservingPosition() {
+        #if canImport(TVVLCKit)
+        guard !isRestarting else { return }
+        let url = originalStreamURL ?? player?.media?.url
+        guard let url = url, let p = player else { return }
+        // 保存当前播放时间
+        let savedTime = p.time
+        isRestarting = true
+        log("restartPreservingPosition: 保存时间=\(savedTime.intValue/1000)s, 停止并重新播放")
+        p.stop()
+        isPlaying = false
+        onStateChange?(false)
+        activeDrawable = nil
+        // 延迟0.5秒重新播放
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            self.play(url: url)
+            // 等待缓冲后多次seek到保存的时间
+            let seekDelays: [Double] = [0.8, 1.2, 1.8, 2.5]
+            for (i, delay) in seekDelays.enumerated() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard let self = self, let p = self.player else { return }
+                    if p.state == .playing || p.state == .buffering {
+                        p.time = savedTime
+                        if i == 0 {
+                            self.log("restartPreservingPosition: seek到\(savedTime.intValue/1000)s")
+                        }
+                    }
+                    if i == seekDelays.count - 1 {
+                        self.isRestarting = false
+                        self.log("restartPreservingPosition: 完成")
+                    }
+                }
+            }
+        }
+        #endif
+    }
+
     func forceResetDrawable() {
         #if canImport(TVVLCKit)
         guard let p = player else { return }
