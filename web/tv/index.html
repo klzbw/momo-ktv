@@ -269,6 +269,7 @@
 <title>墨墨爱K歌</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js" defer></script>
+<script src="mkv-player.js"></script>
 <style>
 :root{
   --bg:#07071a;--navy:#0d0d2b;
@@ -2346,7 +2347,7 @@ window.addEventListener('resize',repositionS3Qr);
 // 恢复 currentTime。
 // ═══════════════════════════════════════════════
 const VoiceManager = (() => {
-  const MODE = { UNKNOWN:'unknown', TRACKS:'tracks', STEREO:'stereo', MONO:'mono', NATIVE:'native', DUAL:'dual', DIRECT_MKV:'direct_mkv' };
+  const MODE = { UNKNOWN:'unknown', TRACKS:'tracks', STEREO:'stereo', MONO:'mono', NATIVE:'native', DUAL:'dual', DIRECT_MKV:'direct_mkv', MSE_MKV:'mse_mkv' };
   let mode = MODE.UNKNOWN;
   let _isOriginal = true;
   let _trackCount = 1;    // 服务端 audio_tracks 字段（声道型 MV 用）
@@ -2354,6 +2355,10 @@ const VoiceManager = (() => {
   let _trackIndex = 0;    // 当前演唱档位：AI分离歌为五档 0原唱/1=75%/2=半消/3=25%/4=伴奏
   // DIRECT_MKV：115网盘 MKV 302 直连播放，音轨切换走 video.audioTracks (track 0=原唱, 1=伴唱)
   let _directMkvActive = false;
+  // MSE_MKV：纯JS MSE MKV 解封装播放器，音轨切换走 msePlayer.setAudioTrack(i)
+  let _mseMkvActive = false;
+  let _mseMkvPlayer = null;
+  let _mseMkvTrackCount = 2;
   function directMkvTrackList() {
     try { return video.audioTracks || video.webkitAudioTracks || null; } catch(e) { return null; }
   }
@@ -2366,6 +2371,16 @@ const VoiceManager = (() => {
     }
     _loadedTrack = want;
     reportVoiceSwitch('direct_mkv');
+  }
+  // MSE_MKV：音轨切换直接调 msePlayer.setAudioTrack(i)
+  function applyMseMkv(v) {
+    if (!_mseMkvPlayer) return;
+    const total = _mseMkvTrackCount || 2;
+    const want = Math.max(0, Math.min(_trackIndex, total - 1));
+    if (want === _loadedTrack) return;
+    try { _mseMkvPlayer.setAudioTrack(want); } catch(e) { console.warn('[MSE-MKV] setAudioTrack', e); }
+    _loadedTrack = want;
+    reportVoiceSwitch('mse_mkv');
   }
   // ── DUAL 双轨连续滑块状态 ───────────────────────────────────────────
   // 分离完成的纯音频歌：hls.js 只负责出"动态背景画面"(其音轨静音)，另外用两个
@@ -2390,6 +2405,7 @@ const VoiceManager = (() => {
   function realTrackCount() {
     if (mode === MODE.NATIVE) return _nativeTracks || _trackCount || 1;
     if (mode === MODE.DIRECT_MKV) { const tl = directMkvTrackList(); return tl ? tl.length : 0; }
+    if (mode === MODE.MSE_MKV) return _mseMkvTrackCount || 2;
     const n = hlsInstance && hlsInstance.audioTracks ? hlsInstance.audioTracks.length : 0;
     return n >= 1 ? n : _trackCount;
   }
@@ -2529,6 +2545,7 @@ const VoiceManager = (() => {
   function detect(v) {
     if (dualActive) return MODE.DUAL; // DUAL 由异步探测启用，优先级最高，不允许被其它判定覆盖
     if (_directMkvActive) return MODE.DIRECT_MKV; // 115 MKV 直连：不允许被 HLS/声道判定覆盖
+    if (_mseMkvActive) return MODE.MSE_MKV; // MSE MKV 解封装：不允许被覆盖
     // 原生HLS：设备不支持 MSE（iPad iOS12/tvOS 等），根本没有 hls.js，多档只能换源切
     const mseOk = !!(window.Hls && window.Hls.isSupported && window.Hls.isSupported());
     if (!mseOk && _nativeTracks >= 2) return MODE.NATIVE;
@@ -2591,6 +2608,7 @@ const VoiceManager = (() => {
     if (mode === MODE.TRACKS)  { applyTracks(v); return; }
     if (mode === MODE.NATIVE)  { applyNative(v); return; }
     if (mode === MODE.DIRECT_MKV) { applyDirectMkv(v); return; }
+    if (mode === MODE.MSE_MKV)  { applyMseMkv(v); return; }
     if (mode === MODE.STEREO)  { applyStereo();  return; }
     // UNKNOWN/MONO：单音轨/无法判定声道类型，保持直通，不做声道选择，
     // 但一定要保证链路是通的（initWA 里已默认直通，这里换歌时兜底重连一次）
@@ -2685,7 +2703,7 @@ const VoiceManager = (() => {
         .catch(()=>{});
     },
     /** DUAL：换歌/停止时清理双轨并恢复背景音轨出声 */
-    dualReset(){ _dualReqId++; if(dualActive) dualStop(false); _directMkvActive=false; if(mode===MODE.DIRECT_MKV) mode=MODE.UNKNOWN; try{video.muted=false;}catch(e){} },
+    dualReset(){ _dualReqId++; if(dualActive) dualStop(false); _directMkvActive=false; _mseMkvActive=false; _mseMkvPlayer=null; if(mode===MODE.DIRECT_MKV||mode===MODE.MSE_MKV) mode=MODE.UNKNOWN; try{video.muted=false;}catch(e){} },
     /** DIRECT_MKV：进入 115 MKV 直连模式（由 loadSong 在拿到 sep-info.isNetKtvMkv=true 后调用） */
     enterDirectMkv() {
       _directMkvActive = true;
@@ -2705,6 +2723,22 @@ const VoiceManager = (() => {
     exitDirectMkv() {
       _directMkvActive = false;
       if (mode === MODE.DIRECT_MKV) mode = MODE.UNKNOWN;
+    },
+    /** MSE_MKV：进入纯JS MSE MKV 解封装模式（由 loadSong 调用）
+     *  msePlayer: MkvMsePlayer 实例；trackCount: MKV 里的音轨数 */
+    enterMseMkv(msePlayer, trackCount) {
+      _mseMkvActive = true;
+      _mseMkvPlayer = msePlayer;
+      _mseMkvTrackCount = trackCount || 2;
+      mode = MODE.MSE_MKV;
+      _trackIndex = 0; _isOriginal = true; _loadedTrack = 0;
+      console.log('[VoiceManager] MSE_MKV 已启用 tracks=' + _mseMkvTrackCount);
+    },
+    /** MSE_MKV：退出（切歌/回退时调用） */
+    exitMseMkv() {
+      _mseMkvActive = false;
+      _mseMkvPlayer = null;
+      if (mode === MODE.MSE_MKV) mode = MODE.UNKNOWN;
     },
     /** DUAL：连续设置人声音量 0(纯伴奏)..1(原唱)，滑块拖动时实时调用 */
     setVocal(v,x){ setVocalLevel(x); },
@@ -2734,6 +2768,9 @@ const VoiceManager = (() => {
         const tl = directMkvTrackList();
         if (!tl || tl.length < 2) { try{ showToast('当前浏览器不支持MKV多音轨切换'); }catch(e){} return this.trackLabel; }
         _trackIndex = _trackIndex === 0 ? 1 : 0;
+      } else if (mode === MODE.MSE_MKV) {
+        const total = realTrackCount();
+        _trackIndex = _trackIndex === 0 ? Math.min(1, total - 1) : 0;
       } else if (mode === MODE.STEREO) {
         _trackIndex = _trackIndex === 0 ? 1 : 0;
       } else {
@@ -2762,6 +2799,7 @@ const VoiceManager = (() => {
     get trackLabel() {
       if (mode === MODE.DUAL) return dualLevel>=1?'原唱':(dualLevel<=0?'伴奏':'人声'+Math.round(dualLevel*100)+'%');
       if (mode === MODE.DIRECT_MKV) return _trackIndex === 0 ? '原唱' : '伴唱';
+      if (mode === MODE.MSE_MKV) return _trackIndex === 0 ? '原唱' : '伴唱';
       if (mode === MODE.NATIVE && _nativeNames && _nativeNames[_trackIndex]) return _nativeNames[_trackIndex];
       const n = (mode === MODE.STEREO) ? 2 : realTrackCount();
       return labelForIndex(_trackIndex, n);
@@ -3222,6 +3260,7 @@ let ctrlProgress={queueId:null,currentTime:0,updatedAt:Date.now(),paused:true};
 let ctrlSongDuration=0;
 let hlsInstance=null;
 let _directMkv=false; // 当前歌曲是否走 115 MKV 302 直连播放（true 时不走 HLS）
+let _mseMkvPlayer=null; // MSE MKV 直连播放器实例（netktv-mkv 歌曲走 MSE 解封装，失败自动回退）
 function destroyHls(){if(hlsInstance){try{hlsInstance.destroy();}catch(e){}hlsInstance=null;}}
 // 加载一首新歌：优先用 hls.js 播放 HLS(master.m3u8 里声明的每条音轨都是独立分片，
 // 切音轨/拖进度条都不会打断视频)；hls.js 不可用但浏览器原生支持 HLS(如 Safari)则
@@ -3359,6 +3398,9 @@ async function loadSong(v,songId,needsDownload){
   if(_sepPollTimer){ clearInterval(_sepPollTimer); _sepPollTimer=null; _sepPollingSongId=null; }
   _directMkv=false;
   try{ VoiceManager.exitDirectMkv(); }catch(e){}
+  // 切歌：销毁上一首的 MSE MKV 播放器（释放 fetch/SourceBuffer/MediaSource）
+  if(_mseMkvPlayer){ try{ _mseMkvPlayer.destroy(); }catch(e){} _mseMkvPlayer=null; }
+  try{ VoiceManager.exitMseMkv(); }catch(e){}
   const url=`${BASE}/hls/${songId}/master.m3u8`;
   // 仅纯音频歌走双FLAC连续滑块；MKV/MP4 等带画面视频保持原 HLS 多档/声道方案不动
   const _dualIsVideo = BG_VIDEO_RE.test((curSong && (curSong.filename||curSong.filepath)) || '');
@@ -3371,10 +3413,53 @@ async function loadSong(v,songId,needsDownload){
       const sepJ=await sepR.json();
       if(!curSong||curSong.song_id!==songId) return; // await 期间已切歌，丢弃
       if(sepJ&&sepJ.isNetKtvMkv&&sepJ.videoUrl){
-        // 网页端浏览器原生不支持MKV容器，DIRECT_MKV直连会播放失败；
-        // 统一走HLS转码（服务端从115 CDN流式读取转码，不占NAS存储）。
-        // tvOS端用VLC可真正MKV直连，不受此限制。
-        console.log('[loadSong] 网盘MKV，网页端走HLS转码（浏览器不支持MKV直连）');
+        // 优先尝试纯JS MSE MKV 直连播放器：浏览器直接从115 CDN拉MKV，
+        // JS解封装→fMP4→MediaSource，不经过NAS转码。
+        if(window.MkvMsePlayer){
+          console.log('[loadSong] 网盘MKV，尝试 MSE 直连播放');
+          const msePlayer=new MkvMsePlayer();
+          try{
+            await msePlayer.load(BASE+sepJ.videoUrl,{audioTrackIndex:0});
+            if(!curSong||curSong.song_id!==songId){ msePlayer.destroy(); return; } // await 期间切歌
+            _mseMkvPlayer=msePlayer;
+            msePlayer.attachMedia(v);
+            try{ VoiceManager.enterMseMkv(msePlayer, sepJ.audioTracks||2); }catch(e){}
+            // MSE 播放中途出错（网络断/解码失败等）：回退到 HLS 转码，保证不黑屏
+            v.addEventListener('error',function onMseErr(){
+              if(!curSong||curSong.song_id!==songId) return;
+              v.removeEventListener('error',onMseErr);
+              console.warn('[MSE-MKV] 播放中出错，回退 HLS');
+              try{ msePlayer.destroy(); }catch(e){}
+              _mseMkvPlayer=null;
+              try{ VoiceManager.exitMseMkv(); }catch(e){}
+              // 直接走 HLS（不经 DIRECT_MKV 直连，省一次失败尝试）
+              destroyHls();
+              const hlsUrl=`${BASE}/hls/${songId}/master.m3u8`;
+              if(window.Hls&&Hls.isSupported()){
+                const hls=new Hls({startPosition:0});
+                hls.on(Hls.Events.MANIFEST_PARSED,()=>{ try{VoiceManager.onManifestParsed(video);}catch(e){} if(!isPaused)tryAutoplay(v,songId); });
+                hls.loadSource(hlsUrl); hls.attachMedia(v); hlsInstance=hls;
+              }else{
+                v.src=hlsUrl;
+                if(!isPaused)tryAutoplay(v,songId);
+              }
+            },{once:true});
+            if(!isPaused)tryAutoplay(v,songId);
+            return; // 不继续走 HLS
+          }catch(err){
+            console.warn('[MSE-MKV] 初始化失败，回退 DIRECT_MKV:',err);
+            try{ msePlayer.destroy(); }catch(e){}
+            _mseMkvPlayer=null;
+            try{ VoiceManager.exitMseMkv(); }catch(e){}
+            // 第二级回退：startDirectMkvPlayback（video.src 直连，Safari系可工作；Chrome必败再回HLS）
+            startDirectMkvPlayback(v,songId,sepJ.videoUrl);
+            return;
+          }
+        } else {
+          // 无 MSE 播放器模块：直接走 Safari 直连回退链
+          startDirectMkvPlayback(v,songId,sepJ.videoUrl);
+          return;
+        }
       }
     }
   }catch(e){ console.warn('[loadSong] sep-info 探测失败，回退 HLS:',e); }
@@ -3624,9 +3709,9 @@ function renderAll(){
       // 下来的、之前 curSong 里还留着旧的媒体资源，这里顺手清掉，避免残留
       // 的 HLS/video 对象继续占用资源。
       document.getElementById('now-idle').style.display='flex';video.style.display='none';
-      if(curSong){curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();try{VoiceManager.dualReset();}catch(e){}try{window.hideVocalPop&&window.hideVocalPop();}catch(x){}video.removeAttribute('src');video.load();document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();}
+      if(curSong){curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();if(_mseMkvPlayer){try{_mseMkvPlayer.destroy();}catch(e){}_mseMkvPlayer=null;}try{VoiceManager.dualReset();}catch(e){}try{window.hideVocalPop&&window.hideVocalPop();}catch(x){}video.removeAttribute('src');video.load();document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();}
     }
-  }else{document.getElementById('now-idle').style.display='flex';video.style.display='none';document.getElementById('now-info').classList.remove('show');document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();hideToast();curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();try{VoiceManager.dualReset();}catch(e){}try{window.hideVocalPop&&window.hideVocalPop();}catch(x){}video.removeAttribute('src');video.load();
+  }else{document.getElementById('now-idle').style.display='flex';video.style.display='none';document.getElementById('now-info').classList.remove('show');document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();hideToast();curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();if(_mseMkvPlayer){try{_mseMkvPlayer.destroy();}catch(e){}_mseMkvPlayer=null;}try{VoiceManager.dualReset();}catch(e){}try{window.hideVocalPop&&window.hideVocalPop();}catch(x){}video.removeAttribute('src');video.load();
     if(!queueData.length)singSessionStart=null; // 队列彻底清空，视为这一场欢唱结束，下次开唱重新计时
     curSongStartTime=null;clearTimeout(fsBannerTimer); // 没歌在播，全屏"每首歌2分钟后展示一次"的计时器也一并作废
     hideSongIntro();

@@ -13,6 +13,9 @@
 
 
 const express = require('express');
+const http = require('http');
+const https = require('https');
+const { URL } = require('url');
 
 const CloudDriveManager = require('./manager');
 
@@ -1136,5 +1139,131 @@ router.get('/stream-path/:accountId/*', requireManager, (req, res) => {
 
 
 
+
+// ==================== 原生 115 CDN 直链端点（单层 302，不经过内置 AList） ====================
+//
+// 背景：原来网页/Tv 端播放 netktv-mkv 歌曲走的是 /api/direct-stream -> 内置 AList /d/
+// -> 115 CDN，双重 302。下面这组端点直接用 pan115 驱动换取 115 CDN 真实直链，单层 302，
+// 减少一跳。/115-url 不做 302、直接返回 JSON，供前端 MSE 播放器调试 / CORS 检测用。
+
+/**
+ * 从 115 CDN 直链探测是否支持浏览器 CORS。
+ * 发一个带 Origin + Range: bytes=0-100 的 GET 请求，只读响应头、不拉 body，
+ * 检查响应里是否带 access-control-allow-origin。
+ * @param {string} cdnUrl - 115 CDN 直链
+ * @param {string} origin - 模拟的浏览器 Origin
+ * @returns {Promise<{statusCode:number|null, accessControlAllowOrigin:string|null, corsSupported:boolean, responseHeaders:object, error?:string}>}
+ */
+function probe115Cors(cdnUrl, origin) {
+  return new Promise((resolve) => {
+    let parsed;
+    try {
+      parsed = new URL(cdnUrl);
+    } catch (e) {
+      return resolve({ statusCode: null, accessControlAllowOrigin: null, corsSupported: false, responseHeaders: {}, error: 'URL 解析失败: ' + e.message });
+    }
+    const lib = parsed.protocol === 'https:' ? https : http;
+    const req = lib.request({
+      method: 'GET',
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      headers: {
+        'Origin': origin,
+        'Range': 'bytes=0-100',
+        'User-Agent': 'Mozilla/5.0',
+      },
+      timeout: 15000,
+    }, (resp) => {
+      const acao = resp.headers['access-control-allow-origin'] || null;
+      // 只关心响应头，立刻销毁连接，不拉 body
+      resp.destroy();
+      resolve({
+        statusCode: resp.statusCode,
+        accessControlAllowOrigin: acao,
+        corsSupported: !!acao,
+        responseHeaders: resp.headers,
+      });
+    });
+    req.on('error', (e) => resolve({ statusCode: null, accessControlAllowOrigin: null, corsSupported: false, responseHeaders: {}, error: e.message }));
+    req.on('timeout', () => { req.destroy(); resolve({ statusCode: null, accessControlAllowOrigin: null, corsSupported: false, responseHeaders: {}, error: '请求超时' }); });
+    req.end();
+  });
+}
+
+/**
+ * GET /api/cloud/115-direct/:accountId/*
+ * 用指定账号的 pan115 驱动换取 115 CDN 直链，直接 302（单层跳转）。
+ * 示例: /api/cloud/115-direct/1/ktv-output/xxx.mkv
+ */
+router.get('/115-direct/:accountId/*', requireManager, async (req, res) => {
+  try {
+    const accountId = parseInt(req.params.accountId, 10);
+    let filePath = req.params[0] || '';
+    try { filePath = decodeURIComponent(filePath); } catch (e) { /* 已是解码后 */ }
+    const driver = manager.getDriverById(accountId);
+    const { url } = await driver.getDownloadUrlByPath(filePath);
+    console.log('[115Direct] account=' + accountId + ' path=' + filePath + ' -> 单层302到CDN');
+    res.redirect(302, url);
+  } catch (e) {
+    console.error('[115Direct] 取直链失败:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/cloud/115-url/:accountId/*
+ * 返回 JSON { url, expiresAt }（不做 302），供前端调试 / MSE CORS 检测。
+ */
+router.get('/115-url/:accountId/*', requireManager, async (req, res) => {
+  try {
+    const accountId = parseInt(req.params.accountId, 10);
+    let filePath = req.params[0] || '';
+    try { filePath = decodeURIComponent(filePath); } catch (e) { /* 已是解码后 */ }
+    const driver = manager.getDriverById(accountId);
+    const { url, expiresAt } = await driver.getDownloadUrlByPath(filePath);
+    res.json({ url, expiresAt });
+  } catch (e) {
+    console.error('[115Url] 取直链失败:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/cloud/115-cors-check/:accountId/*
+ * 临时调试端点：换取直链后立即发带 Origin+Range 的探测请求，
+ * 判断 115 CDN 是否对网页端 MSE 开放 CORS。结果同时打日志。
+ * Query: ?origin=http://localhost:8080 （可改）
+ */
+router.get('/115-cors-check/:accountId/*', requireManager, async (req, res) => {
+  try {
+    const accountId = parseInt(req.params.accountId, 10);
+    let filePath = req.params[0] || '';
+    try { filePath = decodeURIComponent(filePath); } catch (e) { /* 已是解码后 */ }
+    const origin = req.query.origin || 'http://localhost:8080';
+    const driver = manager.getDriverById(accountId);
+    const { url, expiresAt } = await driver.getDownloadUrlByPath(filePath);
+    const result = await probe115Cors(url, origin);
+    // 关键日志：供服务端运维判断网页端能否直接 fetch 115 CDN
+    console.log('[CORS-CHECK] 115 CDN CORS: ' + (result.corsSupported ? 'supported' : 'not-supported')
+      + ', origin=' + origin
+      + ', status=' + result.statusCode
+      + ', ACAO=' + JSON.stringify(result.accessControlAllowOrigin)
+      + ', headers=' + JSON.stringify(result.responseHeaders));
+    res.json({
+      supported: result.corsSupported,
+      origin,
+      url,
+      expiresAt,
+      statusCode: result.statusCode,
+      accessControlAllowOrigin: result.accessControlAllowOrigin,
+      responseHeaders: result.responseHeaders,
+      error: result.error,
+    });
+  } catch (e) {
+    console.error('[CORS-CHECK] 失败:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 module.exports = { init, router };

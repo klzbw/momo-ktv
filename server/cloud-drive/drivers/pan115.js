@@ -311,10 +311,15 @@ class Pan115Driver extends CloudDriveBase {
   /**
    * 获取下载直链（使用加密 API）
    * @param {string} pickCode - 文件的 pickCode
+   * @param {string} [userAgent] - 自定义 UA。115 CDN 的下载 URL 签名与请求 API 时的 UA 绑定，
+   *   必须用客户端（VLC/浏览器）的 UA 调用 API，生成的 URL 客户端才能下载（否则 403 invalid signature）。
+   *   不传则用默认 115Browser UA。
    */
-  async getDownloadUrl(pickCode) {
+  async getDownloadUrl(pickCode, userAgent) {
+    // 缓存 key 必须包含 UA：不同 UA 生成的 URL 签名不同，混用会导致 403
+    const cacheKey = userAgent ? `${pickCode}|${userAgent}` : pickCode;
     // 检查缓存
-    const cached = this._getCache('urls', pickCode);
+    const cached = this._getCache('urls', cacheKey);
     if (cached) return cached;
 
     // 生成随机 key
@@ -326,12 +331,16 @@ class Pan115Driver extends CloudDriveBase {
     // 加密
     const encryptedData = crypto115.encode(params, key);
 
-    // 发送请求
+    // 发送请求（自定义 UA 通过 headers 覆盖默认 115Browser UA）
     const timestamp = Math.floor(Date.now() / 1000);
-    const res = await this._request('POST', `${API_URLS.getDownloadURL}?t=${timestamp}`, {
+    const reqOptions = {
       body: { data: encryptedData },
       contentType: 'application/x-www-form-urlencoded',
-    });
+    };
+    if (userAgent) {
+      reqOptions.headers = { 'User-Agent': userAgent };
+    }
+    const res = await this._request('POST', `${API_URLS.getDownloadURL}?t=${timestamp}`, reqOptions);
 
     if (!res.body || res.body.state !== true || !res.body.data) {
       throw new Error('115 获取下载直链失败: ' + JSON.stringify(res.body).slice(0, 200));
@@ -383,8 +392,8 @@ class Pan115Driver extends CloudDriveBase {
       expiresAt,
     };
 
-    // 写入缓存（使用智能TTL）
-    this._setCache('urls', pickCode, result, cacheTTL);
+    // 写入缓存（使用智能TTL，key含UA）
+    this._setCache('urls', cacheKey, result, cacheTTL);
 
     return result;
   }
@@ -392,8 +401,9 @@ class Pan115Driver extends CloudDriveBase {
   /**
    * 通过文件路径获取下载直链
    * @param {string} filePath - 文件的完整路径
+   * @param {string} [userAgent] - 自定义 UA（透传给 getDownloadUrl，使URL签名匹配客户端UA）
    */
-  async getDownloadUrlByPath(filePath) {
+  async getDownloadUrlByPath(filePath, userAgent) {
     filePath = this._normalizePath(filePath);
     const dir = this._dirname(filePath);
     const fileName = this._basename(filePath);
@@ -409,7 +419,7 @@ class Pan115Driver extends CloudDriveBase {
       throw new Error(`115 文件没有 pickCode: ${filePath}`);
     }
 
-    return this.getDownloadUrl(file.pickCode);
+    return this.getDownloadUrl(file.pickCode, userAgent);
   }
 
   // ==================== 上传/目录操作 ====================

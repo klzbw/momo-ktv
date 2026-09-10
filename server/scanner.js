@@ -318,6 +318,55 @@ async function probeAudioTracks(filepath) {
 // 调用方传 `root.isNetwork || isStrm`(或者曲目行的 `is_network || is_strm`)。
 // sourceCache.resolveSourceInput() 内部会识别 .strm 后缀并读取真实源地址，
 // 这里不需要重复判断文件是不是 .strm。
+// 需求(网络MKV不下载全文件探测音轨)：netktv-mkv 歌曲原来走
+// resolveProbePath -> sourceCache.ensureCached（把整个 MKV 全量下载到本地 source-cache）
+// 再 ffprobe 本地文件——一个几十 MB 到几 GB 的 MKV 只为读头部音轨信息就要全量下载，
+// 既浪费 115 下行带宽也拖慢点歌探测。这里改为：
+//   1) 用 pan115 驱动按歌曲 filepath 换取临时 115 CDN 直链；
+//   2) 直接把 HTTP URL 喂给 ffprobe（容器内 ffprobe 支持 http(s) 输入）。
+// ffprobe 对 HTTP 输入只会抓取文件头部（moov/tracks 元素），Range 读取几百字节到几 KB，
+// 不会下载整个文件——这是本优化的核心。
+// 返回结构与 probeAudioTracks 完全一致：{ tracks, audioNeedsSoft, videoNeedsSoft }。
+// 任何一步失败（manager 未初始化 / 没有 active pan115 / 取直链失败 / ffprobe 失败）都抛异常，
+// 由 ensureProbedOnDemand 捕获后回退到原 resolveProbePath 本地缓存探测路径，不破坏既有功能。
+async function probeNetktvMkvTracks(song) {
+  // 懒加载 cloud-drive：manager 要等 index.js 里 cloudDrive.init(db) 跑完才挂到 module.exports，
+  // 不能在模块顶层 require（否则会拿到未初始化的 manager）。cloud-drive 不依赖本模块，无循环依赖。
+  const cloudDriveMod = require('./cloud-drive');
+  const manager = cloudDriveMod.manager;
+  if (!manager) throw new Error('cloud-drive manager 未初始化');
+  const acct = (manager.listAccounts() || []).find(
+    (a) => a.driver === 'pan115' && a.status === 'active'
+  );
+  if (!acct) throw new Error('没有 status=active 的 pan115 账号');
+  const driver = manager.getDriverById(acct.id);
+  // 关键：115 CDN URL 签名与 UA 绑定。用 115Browser UA 调用 API 生成 URL，
+  // ffprobe 也必须用相同 UA 下载，否则 403 invalid signature。
+  const PROBE_UA = 'Mozilla/5.0 115Browser/23.9.3.2';
+  const { url } = await driver.getDownloadUrlByPath(song.filepath, PROBE_UA);
+  if (!url) throw new Error('115 直链为空');
+  // 直接对 HTTP URL 跑 ffprobe，参数与 probeAudioTracks 保持一致（按字段名解析，不依赖列顺序）
+  // -user_agent 必须与生成 URL 时的 UA 一致
+  const { stdout } = await execFileAsync('ffprobe', [
+    '-v', 'error',
+    '-user_agent', PROBE_UA,
+    '-show_entries', 'stream=index,codec_type,codec_name',
+    '-of', 'json',
+    url,
+  ], { timeout: 30000 });
+  const streams = JSON.parse(stdout).streams || [];
+  const audioRows = streams.filter(s => s.codec_type === 'audio');
+  const videoRows = streams.filter(s => s.codec_type === 'video');
+  const count = audioRows.length > 0 ? audioRows.length : 1;
+  const firstAudioCodec = audioRows.length > 0 ? audioRows[0].codec_name : null;
+  const firstVideoCodec = videoRows.length > 0 ? videoRows[0].codec_name : null;
+  return {
+    tracks: count,
+    audioNeedsSoft: isProblemAudioCodec(firstAudioCodec) ? 1 : 0,
+    videoNeedsSoft: isProblemVideoCodec(firstVideoCodec) ? 1 : 0,
+  };
+}
+
 async function resolveProbePath(songId, filepath, needsCache) {
   if (!needsCache) return filepath;
   return sourceCache.ensureCached(songId, sourceCache.resolveSourceInput(filepath));
@@ -1225,6 +1274,19 @@ async function ensureProbedOnDemand(song, force = false) {
   if (!force && song.audio_tracks != null) return song.audio_tracks;
   if (probingInflight.has(song.id)) return probingInflight.get(song.id);
   const p = (async () => {
+    // netktv-mkv：优先走 115 CDN 直链 + ffprobe HTTP，不把整个 MKV 下载到本地
+    // （原来的 resolveProbePath -> sourceCache.ensureCached 会全量下载，浪费带宽）。
+    // 这是唯一 source_root 固定为 'netktv-mkv' 的曲目类型；其它网络/STRM 歌曲保持原逻辑不变。
+    // 任何失败都回落到下面原有的本地缓存探测路径，保证不破坏已有功能。
+    if (song.source_root === 'netktv-mkv') {
+      try {
+        const r = await probeNetktvMkvTracks(song);
+        db.prepare('UPDATE songs SET audio_tracks = ?, audio_needs_soft = ?, video_needs_soft = ? WHERE id = ?').run(r.tracks, r.audioNeedsSoft, r.videoNeedsSoft, song.id);
+        return r.tracks;
+      } catch (e) {
+        console.warn('[Probe] netktv-mkv 直链探测失败，回退本地缓存探测:', e.message);
+      }
+    }
     const needsCache = !!(song.is_network || song.is_strm);
     const probePath = await resolveProbePath(song.id, song.filepath, needsCache);
     const { tracks: audio_tracks, audioNeedsSoft, videoNeedsSoft } = await probeAudioTracks(probePath);
@@ -1274,7 +1336,7 @@ function deleteSongCascade(id) {
 }
 
 module.exports = {
-  scanLibrary, probeAudioTracks, probeDurationAsync, ensureProbedOnDemand, deleteSongCascade,
+  scanLibrary, probeAudioTracks, probeNetktvMkvTracks, probeDurationAsync, ensureProbedOnDemand, deleteSongCascade,
   parseFilename, splitArtists, syncSongArtists, isProblemAudioCodec, isProblemVideoCodec,
   getMVDir, getMVRoots, getLibraryRoots, saveLibraryRoots, resolveLibraryRootPath, BASE_MOUNTS,
 };

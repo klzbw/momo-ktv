@@ -14,6 +14,10 @@
  *   然后 302 重定向，媒体数据直接从 115 CDN 到客户端，NAS 零转发。
  *
  * 数据流：客户端 → /api/direct-stream (302) → 115 CDN 直链
+ *
+ * UA 透传（关键）：115 CDN 下载 URL 的签名与调用 downurl API 时的 User-Agent 绑定。
+ * 必须用客户端（VLC/tvOS/浏览器）的 UA 调用 API，生成的 URL 客户端才能下载，
+ * 否则 CDN 返回 403 invalid signature。这里把 req.get('User-Agent') 透传给驱动。
  */
 
 const express = require('express');
@@ -129,13 +133,15 @@ router.get('/*', async (req, res) => {
     let source = 'pan115';
 
     // 方案1: pan115 driver 获取直链（首选，签名有效）
+    // 关键：透传客户端 UA——115 CDN URL 签名与 UA 绑定，必须用客户端 UA 调用 API
+    const clientUA = req.get('User-Agent') || '';
     try {
       const driver = getDriver();
       if (driver) {
-        const result = await driver.getDownloadUrlByPath(filePath);
+        const result = await driver.getDownloadUrlByPath(filePath, clientUA);
         if (result && result.url) {
           directUrl = result.url;
-          console.log('[DirectStream] pan115直链获取成功');
+          console.log('[DirectStream] pan115直链获取成功 (UA:', clientUA.substring(0, 40) + ')');
         }
       } else {
         console.warn('[DirectStream] 无活跃115账号，跳过pan115');
