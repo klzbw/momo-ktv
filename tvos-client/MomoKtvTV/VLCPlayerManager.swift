@@ -450,41 +450,48 @@ class VLCPlayerManager: NSObject, ObservableObject {
         }
     }
 
+    /// 设置活动drawable并强制刷新视频输出（统一入口，全屏和小屏都用这个）
+    /// 先设nil再多次延迟设置，强制VLC重新创建视频输出层，
+    /// 解决大小屏互切时只有声音无视频的问题。
     func setActiveDrawable(_ view: UIView?) {
         activeDrawable = view
         #if canImport(TVVLCKit)
-        if let p = player, let v = view {
-            // 先清除再延迟设置，强制VLC重新创建视频输出层
-            // 直接设置p.drawable可能导致VLC复用旧渲染层，切换视图后只有声音无视频
-            p.drawable = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak p, weak v] in
-                guard let p = p, let v = v else { return }
-                p.drawable = v
-            }
-        } else if view == nil {
+        if let v = view {
+            ensureVideoOutput(for: v)
+        } else {
             player?.drawable = nil
         }
         #endif
     }
 
-    /// 全屏提升：将指定视图强制提升为活动drawable，并多次刷新确保视频显示
-    /// 用于从小屏切换到全屏时，确保VLC视频输出正确切换到全屏视图
+    /// 兼容旧接口：全屏提升，内部调用ensureVideoOutput
     func promoteToFullscreen(_ view: UIView) {
+        log("promoteToFullscreen: 提升视图为活动drawable")
+        setActiveDrawable(view)
+    }
+
+    /// 强制确保视频输出到指定视图：先清除，再在多个时间点重新设置，
+    /// 每次都是nil→设置，强制VLC销毁并重建视频渲染层。
+    /// 这是解决"切换视图后只有声音无视频"的核心方法。
+    private func ensureVideoOutput(for view: UIView) {
         #if canImport(TVVLCKit)
-        log("promoteToFullscreen: 提升视图为全屏drawable")
-        activeDrawable = view
         guard let p = player else { return }
-        // 强制重置：先清除所有，再设置
+        // 立即清除
         p.drawable = nil
-        let delays: [Double] = [0.1, 0.3, 0.6, 1.0, 1.5, 2.0]
+        // 多个时间点重新设置，覆盖VLC异步初始化的各个阶段
+        let delays: [Double] = [0.05, 0.15, 0.3, 0.5, 0.8, 1.2, 1.8]
         for (i, delay) in delays.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak p, weak view] in
-                guard let p = p, let view = view else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak p, weak view, weak self] in
+                guard let p = p, let view = view, let self = self else { return }
+                // 只在这个视图仍然是活动drawable时才设置
+                guard self.activeDrawable === view else { return }
                 p.drawable = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak p, weak view] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak p, weak view] in
                     guard let p = p, let view = view else { return }
                     p.drawable = view
-                    self.log("promoteToFullscreen: 第\(i+1)次设置drawable")
+                    if i < 3 {  // 前3次打日志，避免刷屏
+                        self.log("ensureVideoOutput: 第\(i+1)/\(delays.count)次刷新drawable")
+                    }
                 }
             }
         }
@@ -492,24 +499,25 @@ class VLCPlayerManager: NSObject, ObservableObject {
     }
 
     func clearActiveDrawable(_ view: UIView) {
-        if activeDrawable === view {
+        let wasActive = activeDrawable === view
+        drawableViews.remove(view)
+        if wasActive {
             activeDrawable = nil
+            // 清除后，如果还有其他视图，主动确保视频输出切换到下一个
             if let next = drawableViews.allObjects.first(where: { $0 !== view }) as? UIView {
+                log("clearActiveDrawable: 切换到下一个视图")
                 setActiveDrawable(next)
+            } else {
+                player?.drawable = nil
+                log("clearActiveDrawable: 无可用视图，清除drawable")
             }
         }
-        drawableViews.remove(view)
     }
 
     func refreshDrawables() {
         #if canImport(TVVLCKit)
-        guard let p = player else { return }
         if let active = activeDrawable {
-            p.drawable = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak p, weak active] in
-                guard let p = p, let active = active else { return }
-                p.drawable = active
-            }
+            ensureVideoOutput(for: active)
         } else if let first = drawableViews.allObjects.first as? UIView {
             setActiveDrawable(first)
         }
