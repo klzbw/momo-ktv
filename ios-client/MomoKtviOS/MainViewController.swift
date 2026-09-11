@@ -21,6 +21,7 @@ class MainViewController: UIViewController {
     private var queueItems: [QueueItem] = []
     private var currentQueueId: Int?
     private var progressTimer: Timer?
+    private let debugLabel = UILabel()
 
     private let prefsKey = "momo_ktv_server_url"
 
@@ -36,6 +37,7 @@ class MainViewController: UIViewController {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
         VLCSharedVideoView.shared.attach(to: videoContainer)
+        debugLog("viewWillAppear, 队列\(queueItems.count)首")
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -60,6 +62,14 @@ class MainViewController: UIViewController {
         songInfoLabel.font = .systemFont(ofSize: 16, weight: .medium)
         songInfoLabel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(songInfoLabel)
+
+        // 调试标签
+        debugLabel.text = "DEBUG: 初始化中..."
+        debugLabel.textColor = UIColor(red: 0.5, green: 1.0, blue: 0.5, alpha: 1.0)
+        debugLabel.font = .systemFont(ofSize: 10)
+        debugLabel.numberOfLines = 0
+        debugLabel.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(debugLabel)
 
         // 声道
         voiceLabel.text = "声道: 原唱"
@@ -128,6 +138,10 @@ class MainViewController: UIViewController {
             songInfoLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
             songInfoLabel.leadingAnchor.constraint(equalTo: videoContainer.leadingAnchor, constant: 16),
 
+            debugLabel.topAnchor.constraint(equalTo: songInfoLabel.bottomAnchor, constant: 4),
+            debugLabel.leadingAnchor.constraint(equalTo: videoContainer.leadingAnchor, constant: 16),
+            debugLabel.trailingAnchor.constraint(equalTo: queuePanel.leadingAnchor, constant: -16),
+
             voiceLabel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
             voiceLabel.trailingAnchor.constraint(equalTo: queuePanel.leadingAnchor, constant: -16),
 
@@ -179,11 +193,12 @@ class MainViewController: UIViewController {
                 self?.playPauseButton.setTitle(playing ? "暂停" : "播放", for: .normal)
             }
         }
-        VLCPlayerManager.shared.onError = { err in
+        VLCPlayerManager.shared.onError = { [weak self] err in
             DispatchQueue.main.async {
+                self?.debugLog("VLC错误: \(err)")
                 let alert = UIAlertController(title: "播放错误", message: err, preferredStyle: .alert)
                 alert.addAction(UIAlertAction(title: "OK", style: .default))
-                // self?.present(alert, animated: true)
+                self?.present(alert, animated: true)
             }
         }
         VLCPlayerManager.shared.onEnded = { [weak self] in
@@ -193,11 +208,14 @@ class MainViewController: UIViewController {
 
     private func connectServer() {
         guard let url = UserDefaults.standard.string(forKey: prefsKey), !url.isEmpty else {
+            debugLog("无服务器地址，跳转到配置页")
             navigationController?.setViewControllers([ServerConfigViewController()], animated: false)
             return
         }
+        debugLog("连接服务器: \(url)")
         let api = KTVAPIClient(baseURL: url)
         KTVAPIClient.shared.updateBaseURL(url)
+        debugLog("shared.baseURL=\(KTVAPIClient.shared.baseURL)")
 
         KTVWebSocketClient.shared.onQueueUpdate = { [weak self] queue in
             DispatchQueue.main.async { self?.updateQueue(queue) }
@@ -216,20 +234,33 @@ class MainViewController: UIViewController {
         queueItems = items
         queueTitleLabel.text = "点歌队列 (\(items.count))"
         tableView.reloadData()
+        debugLog("队列更新: \(items.count)首, 当前播放ID=\(currentQueueId ?? -1)")
         let playing = items.first { $0.isPlaying }
         if let playing = playing, playing.queue_id != currentQueueId {
+            debugLog("自动播放: \(playing.displayTitle)")
             playQueueItem(playing)
+        } else if playing == nil {
+            debugLog("队列中无正在播放的歌曲")
         }
     }
 
     private func playQueueItem(_ item: QueueItem) {
-        guard let filepath = item.filepath,
-              let url = KTVAPIClient.shared.directStreamURL(filepath: filepath) else { return }
+        debugLog("playQueueItem: \(item.displayTitle), filepath=\(item.filepath ?? "nil")")
+        guard let filepath = item.filepath else {
+            debugLog("ERROR: filepath 为 nil，无法播放")
+            return
+        }
+        guard let url = KTVAPIClient.shared.directStreamURL(filepath: filepath) else {
+            debugLog("ERROR: directStreamURL 返回 nil, baseURL=\(KTVAPIClient.shared.baseURL)")
+            return
+        }
+        debugLog("播放URL: \(url.absoluteString.prefix(80))...")
         currentQueueId = item.queue_id
         songInfoLabel.text = "\(item.displayTitle) - \(item.displayArtist)"
         lyricsView.clear()
         VLCPlayerManager.shared.setActiveDrawable(videoContainer)
         VLCPlayerManager.shared.play(url: url)
+        debugLog("已调用 VLCPlayerManager.play()")
 
         // 获取分离信息（音轨）
         KTVAPIClient.shared.fetchSepInfo(songId: item.song_id) { info in
@@ -243,6 +274,15 @@ class MainViewController: UIViewController {
 
     // MARK: - 控制
     @objc private func togglePlayPause() {
+        debugLog("点击播放/暂停, isPlaying=\(VLCPlayerManager.shared.isPlaying), currentQueueId=\(currentQueueId ?? -1)")
+        if currentQueueId == nil {
+            debugLog("警告: 当前无播放歌曲，队列\(queueItems.count)首")
+            if let first = queueItems.first {
+                debugLog("自动播放第一首")
+                playQueueItem(first)
+                return
+            }
+        }
         VLCPlayerManager.shared.togglePlayPause()
         KTVWebSocketClient.shared.sendPlaybackState(paused: !VLCPlayerManager.shared.isPlaying,
                                                   voice: VLCPlayerManager.shared.voiceLabel)
@@ -292,6 +332,14 @@ class MainViewController: UIViewController {
                 KTVAPIClient.shared.addToQueue(songId: songId)
             }
         default: break
+        }
+    }
+
+    // MARK: - 调试
+    private func debugLog(_ msg: String) {
+        print("[DEBUG] \(msg)")
+        DispatchQueue.main.async {
+            self.debugLabel.text = "DEBUG: \(msg)"
         }
     }
 
