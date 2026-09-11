@@ -44,8 +44,9 @@ class WebSocketClient(
     fun connect() {
         val url = apiClient.wsURL()
         Log.d(TAG, "Connecting to $url")
-        val request = Request.Builder().url(url).build()
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+        try {
+            val request = Request.Builder().url(url).build()
+            webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
                 Log.d(TAG, "WebSocket connected")
                 onConnected?.invoke()
@@ -76,6 +77,11 @@ class WebSocketClient(
                 scheduleReconnect()
             }
         })
+        } catch (e: Exception) {
+            Log.e(TAG, "WebSocket connect error: ${e.message}")
+            onDisconnected?.invoke()
+            scheduleReconnect()
+        }
     }
 
     fun disconnect() {
