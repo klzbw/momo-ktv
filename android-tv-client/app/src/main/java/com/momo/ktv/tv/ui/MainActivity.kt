@@ -54,21 +54,33 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val serverURL = prefs.getString(KEY_SERVER_URL, "") ?: ""
 
+        // 先检查服务器地址，避免加载不必要的布局
         if (serverURL.isEmpty()) {
             startActivity(Intent(this, ServerConfigActivity::class.java))
             finish()
             return
         }
 
-        initClients(serverURL)
-        initViews()
-        initPlayer()
-        connect()
+        try {
+            setContentView(R.layout.activity_main)
+            initClients(serverURL)
+            initViews()
+            initPlayer()
+            connect()
+        } catch (e: Throwable) {
+            android.util.Log.e("MainActivity", "init crash", e)
+            val tv = android.widget.TextView(this).apply {
+                text = "初始化失败:\n${e.javaClass.simpleName}: ${e.message}\n\n${e.stackTraceToString().take(500)}"
+                setTextColor(0xFFFF0000.toInt())
+                setPadding(32, 32, 32, 32)
+                textSize = 14f
+            }
+            setContentView(tv)
+        }
     }
 
     private fun initClients(serverURL: String) {
