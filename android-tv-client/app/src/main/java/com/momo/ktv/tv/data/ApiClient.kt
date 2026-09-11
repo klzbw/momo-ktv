@@ -11,12 +11,23 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
-class ApiClient(private var baseURL: String) {
+class ApiClient(baseURL: String) {
     companion object {
         private const val TAG = "ApiClient"
         const val CLOUD115_UA = "Mozilla/5.0 115Browser/23.9.3.2"
+
+        /** 规范化服务器地址：确保有 http:// 前缀，去除末尾斜杠 */
+        fun normalizeURL(url: String): String {
+            var result = url.trim()
+            if (result.isEmpty()) return result
+            if (!result.startsWith("http://") && !result.startsWith("https://")) {
+                result = "http://$result"
+            }
+            return result.trimEnd('/')
+        }
     }
 
+    private var baseURL: String = normalizeURL(baseURL)
     private val gson = Gson()
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -149,7 +160,10 @@ class ApiClient(private var baseURL: String) {
         return apiURL("/cover/$filename")
     }
 
-    fun wsURL(): String = baseURL.replace("http", "ws") + "/ws"
+    fun wsURL(): String {
+        if (baseURL.startsWith("https://")) return baseURL.replace("https://", "wss://") + "/ws"
+        return baseURL.replace("http://", "ws://") + "/ws"
+    }
 
     // ==================== 统计 ====================
     suspend fun fetchStats(): Stats? = withContext(Dispatchers.IO) {
