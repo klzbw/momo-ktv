@@ -144,29 +144,27 @@ class KTVWebSocketClient {
 
 #if canImport(Starscream)
 extension KTVWebSocketClient: WebSocketDelegate {
-    func didReceive(event: WebSocketEvent, client: WebSocket) {
-        switch event {
-        case .connected:
-            isConnected = true
-            DispatchQueue.main.async { self.onConnected?() }
-            sendRoleAnnounce()
-        case .disconnected:
-            isConnected = false
-            DispatchQueue.main.async { self.onDisconnected?() }
-            scheduleReconnect()
-        case .text(let text):
-            handleMessage(text)
-        case .binary(let data):
-            if let text = String(data: data, encoding: .utf8) { handleMessage(text) }
-        case .error:
-            isConnected = false
-            DispatchQueue.main.async { self.onDisconnected?() }
-            scheduleReconnect()
-        case .cancelled:
-            isConnected = false
-        default:
-            break
+    func websocketDidConnect(socket: WebSocketClient) {
+        isConnected = true
+        DispatchQueue.main.async { self.onConnected?() }
+        sendRoleAnnounce()
+    }
+
+    func websocketDidDisconnect(socket: WebSocketClient, error: Error?) {
+        isConnected = false
+        DispatchQueue.main.async { self.onDisconnected?() }
+        if let err = error {
+            print("[WS] disconnected: \(err.localizedDescription)")
         }
+        scheduleReconnect()
+    }
+
+    func websocketDidReceiveMessage(socket: WebSocketClient, text: String) {
+        handleMessage(text)
+    }
+
+    func websocketDidReceiveData(socket: WebSocketClient, data: Data) {
+        if let text = String(data: data, encoding: .utf8) { handleMessage(text) }
     }
 }
 #endif
