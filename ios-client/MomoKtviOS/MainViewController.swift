@@ -199,13 +199,13 @@ class MainViewController: UIViewController {
         let api = KTVAPIClient(baseURL: url)
         KTVAPIClient.shared.updateBaseURL(url)
 
-        WebSocketClient.shared.onQueueUpdate = { [weak self] queue in
+        KTVWebSocketClient.shared.onQueueUpdate = { [weak self] queue in
             DispatchQueue.main.async { self?.updateQueue(queue) }
         }
-        WebSocketClient.shared.onControl = { [weak self] action, payload in
+        KTVWebSocketClient.shared.onControl = { [weak self] action, payload in
             DispatchQueue.main.async { self?.handleControl(action, payload) }
         }
-        WebSocketClient.shared.connect(apiClient: api)
+        KTVWebSocketClient.shared.connect(apiClient: api)
 
         api.fetchQueue { [weak self] queue in
             DispatchQueue.main.async { self?.updateQueue(queue) }
@@ -244,14 +244,14 @@ class MainViewController: UIViewController {
     // MARK: - 控制
     @objc private func togglePlayPause() {
         VLCPlayerManager.shared.togglePlayPause()
-        WebSocketClient.shared.sendPlaybackState(paused: !VLCPlayerManager.shared.isPlaying,
+        KTVWebSocketClient.shared.sendPlaybackState(paused: !VLCPlayerManager.shared.isPlaying,
                                                   voice: VLCPlayerManager.shared.voiceLabel)
     }
 
     @objc private func toggleVoice() {
         VLCPlayerManager.shared.toggleVoice()
         voiceLabel.text = "声道: \(VLCPlayerManager.shared.voiceLabel)"
-        WebSocketClient.shared.sendPlaybackState(paused: !VLCPlayerManager.shared.isPlaying,
+        KTVWebSocketClient.shared.sendPlaybackState(paused: !VLCPlayerManager.shared.isPlaying,
                                                   voice: VLCPlayerManager.shared.voiceLabel)
     }
 
@@ -297,7 +297,7 @@ class MainViewController: UIViewController {
 
     deinit {
         VLCPlayerManager.shared.stop()
-        WebSocketClient.shared.disconnect()
+        KTVWebSocketClient.shared.disconnect()
     }
 }
 
