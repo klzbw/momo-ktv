@@ -144,7 +144,7 @@ class WebSocketClient {
 
 #if canImport(Starscream)
 extension WebSocketClient: WebSocketDelegate {
-    func didReceive(event: WebSocketEvent, client: WebSocketClient) {
+    func didReceive(event: WebSocketEvent, client: WebSocket) {
         switch event {
         case .connected:
             isConnected = true
