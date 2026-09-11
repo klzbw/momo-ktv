@@ -124,6 +124,90 @@ function saveLibraryRoots(roots) {
   return roots;
 }
 
+// ============================================================
+// 115网盘"网络曲库来源"支持
+// ------------------------------------------------------------
+// 现有 netktv-mkv-scan / netktv-scan 模块已经能直接扫描115网盘、
+// 把曲目入库(source_root 固定为 'netktv-mkv' / 'netktv')，但这些曲目
+// 之前不出现在「曲库来源」后台列表里，管理员没法在一处统一看到/管理。
+// 这里把这两个内置来源也登记进 library_roots(标记 isNetwork=true、
+// 附带 cloud 元数据 {accountId, cloudPath, mediaType})，它们就会出现在
+// 曲库来源列表中，歌名计数也直接复用 getRootsWithStatus 里按 source_root
+// 统计的现成逻辑。播放链路完全不动——歌曲行里的 source_root 仍是
+// 'netktv-mkv'/'netktv'，/api/songs/:id/sep-info 那段路由判断不受影响。
+//
+// 内置网络来源的 dir 就是它对应的 source_root(字符串)，不是真实文件系统
+// 路径：
+//   'netktv-mkv' -> 115 上的 MKV 视频目录(ktv-output)
+//   'netktv'     -> 115 上的分离双FLAC目录(separated)
+// 这两个 dir 永远不会出现在容器本地文件系统上，所以 getRootsWithStatus /
+// listAllFiles 对它们不能用 fs.existsSync 判活(详见 index.js 里的适配)。
+const BUILTIN_CLOUD_ROOTS = {
+  'netktv-mkv': { mediaType: 'mkv',   defaultCloudPath: '/momo-ktv/ktv-output', label: '115网盘 MKV视频 (ktv-output)' },
+  'netktv':     { mediaType: 'flac',  defaultCloudPath: '/momo-ktv/separated',  label: '115网盘 分离FLAC (separated)' },
+};
+
+// 判断一个根目录条目是不是"内置115网络来源"。cloud 元数据齐全 或 dir 命中
+// 上面两个内置 key 都算——兼容老数据(以前可能只写了 dir='netktv-mkv' 没
+// 带 cloud 字段)。
+function isCloudRoot(root) {
+  if (!root) return false;
+  if (root.cloud && root.cloud.cloudPath) return true;
+  return Object.prototype.hasOwnProperty.call(BUILTIN_CLOUD_ROOTS, root.dir);
+}
+
+// 取当前 status=active 的 pan115 账号 id。cloud-drive manager 在 index.js
+// 里 cloudDrive.init(db) 之后才挂到 module.exports，这里懒加载，不能模块顶层 require。
+function getActivePan115AccountId() {
+  try {
+    const cloudDriveMod = require('./cloud-drive');
+    const manager = cloudDriveMod.manager;
+    if (!manager) return null;
+    const acct = (manager.listAccounts() || []).find(a => a.driver === 'pan115' && a.status === 'active');
+    return acct ? acct.id : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 启动时调用一次：把两个内置115网络来源补进 library_roots(如果还没有)。
+// 幂等——已存在就不动(保留管理员改过的 label/启用状态)。accountId 在运行
+// 时动态取(不写死，避免账号重建后 id 变了还指向旧 id)。
+function ensureDefaultCloudRoots() {
+  try {
+    const roots = getLibraryRoots();
+    let changed = false;
+    const accountId = getActivePan115AccountId();
+    for (const [dir, meta] of Object.entries(BUILTIN_CLOUD_ROOTS)) {
+      const existing = roots.find(r => r.dir === dir);
+      if (existing) {
+        // 老数据可能没带 cloud 元数据，补上(不动 label/enabled)
+        if (!existing.cloud && accountId) {
+          existing.cloud = { accountId, cloudPath: meta.defaultCloudPath, mediaType: meta.mediaType };
+          existing.isNetwork = true;
+          changed = true;
+        }
+        continue;
+      }
+      roots.push({
+        dir,
+        label: meta.label,
+        isNetwork: true,
+        enabled: true,
+        cloud: { accountId: accountId || 0, cloudPath: meta.defaultCloudPath, mediaType: meta.mediaType },
+      });
+      changed = true;
+      console.log(`曲库来源: 已登记内置115网络来源 ${dir} -> ${meta.defaultCloudPath}`);
+    }
+    if (changed) saveLibraryRoots(roots);
+    return roots;
+  } catch (e) {
+    console.error('曲库来源: ensureDefaultCloudRoots 失败: ' + e.message);
+    return getLibraryRoots();
+  }
+}
+
+
 // 校验一个"要新增为曲库根目录"的路径必须落在 BASE_MOUNTS 之一(允许就是
 // 挂载点本身，也允许是它的子目录)，防止通过接口传入 "/etc" "../../" 之类
 // 路径读到曲库目录以外的容器文件系统内容。返回校验通过后的规范化绝对路径，
@@ -1339,6 +1423,7 @@ module.exports = {
   scanLibrary, probeAudioTracks, probeNetktvMkvTracks, probeDurationAsync, ensureProbedOnDemand, deleteSongCascade,
   parseFilename, splitArtists, syncSongArtists, isProblemAudioCodec, isProblemVideoCodec,
   getMVDir, getMVRoots, getLibraryRoots, saveLibraryRoots, resolveLibraryRootPath, BASE_MOUNTS,
+  isCloudRoot, ensureDefaultCloudRoots, getActivePan115AccountId, BUILTIN_CLOUD_ROOTS,
 };
 
 
