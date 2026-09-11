@@ -1,12 +1,12 @@
 package com.momo.ktv.tv.player
 
 import android.content.Context
-import android.net.Uri
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -22,10 +22,9 @@ import kotlinx.coroutines.launch
 
 /**
  * ExoPlayer 封装：
- * - 使用 Custom115DataSource 播放 115 网盘直连 MKV（UA + 302 + Range）
+ * - 使用 DefaultHttpDataSource 播放 115 网盘直连 MKV（自定义 UA + Referer + 302跟随）
  * - 多音轨切换（原唱/伴唱）通过 DefaultTrackSelector
  * - 播放进度定时上报 WebSocket
- * - 播放状态变化回调
  */
 class PlayerManager(
     private val context: Context,
@@ -35,10 +34,16 @@ class PlayerManager(
 ) {
     companion object {
         private const val TAG = "PlayerManager"
+        const val CLOUD115_UA = "Mozilla/5.0 115Browser/23.9.3.2"
     }
 
     private val trackSelector = DefaultTrackSelector(context)
-    private val dataSourceFactory = Custom115DataSource.Factory()
+    private val dataSourceFactory = DefaultHttpDataSource.Factory()
+        .setUserAgent(CLOUD115_UA)
+        .setDefaultRequestProperties(mapOf("Referer" to "https://115.com/"))
+        .setAllowCrossProtocolRedirects(true)
+        .setConnectTimeoutMs(15000)
+        .setReadTimeoutMs(30000)
     private val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
     val player: ExoPlayer = ExoPlayer.Builder(context)
@@ -51,7 +56,6 @@ class PlayerManager(
     private var currentVoice = "原唱"
     private var audioTrackCount = 0
 
-    // 回调
     var onPlaybackStateChanged: ((Boolean) -> Unit)? = null
     var onProgressChanged: ((Long, Long) -> Unit)? = null
     var onError: ((String) -> Unit)? = null
@@ -72,10 +76,8 @@ class PlayerManager(
                         onPlaybackStateChanged?.invoke(false)
                         onPlaybackEnded?.invoke()
                     }
-                    Player.STATE_BUFFERING -> {
-                        Log.d(TAG, "STATE_BUFFERING")
-                    }
-                    Player.STATE_IDLE -> {}
+                    Player.STATE_BUFFERING -> Log.d(TAG, "STATE_BUFFERING")
+                    else -> {}
                 }
             }
 
@@ -90,10 +92,6 @@ class PlayerManager(
         })
     }
 
-    /**
-     * 播放指定队列项。
-     * filepath 用于拼接 direct-stream URL，ExoPlayer 通过 Custom115DataSource 跟随 302。
-     */
     fun playQueueItem(item: QueueItem) {
         currentQueueId = item.queueId
         currentVoice = "原唱"
@@ -105,7 +103,7 @@ class PlayerManager(
 
     fun playURL(url: String) {
         stopProgressReporting()
-        val mediaItem = MediaItem.fromUri(Uri.parse(url))
+        val mediaItem = MediaItem.fromUri(url)
         player.setMediaItem(mediaItem)
         player.prepare()
         player.playWhenReady = true
@@ -141,7 +139,7 @@ class PlayerManager(
         player.release()
     }
 
-    // ==================== 多音轨切换（原唱/伴唱） ====================
+    // ==================== 多音轨切换 ====================
 
     private fun refreshAudioTracks() {
         val tracks = player.currentTracks
@@ -157,38 +155,39 @@ class PlayerManager(
     }
 
     /**
-     * 切换音轨。index 0 = 原唱，index 1 = 伴唱（MKV 约定音轨顺序）。
+     * 切换音轨。index 0 = 原唱，index 1 = 伴唱。
+     * 使用 DefaultTrackSelector.SelectionOverride 兼容 Media3 各版本。
      */
     fun setAudioTrack(index: Int) {
         if (index < 0 || index >= audioTrackCount) {
             Log.w(TAG, "Invalid audio track index: $index (count=$audioTrackCount)")
             return
         }
-        val builder = trackSelector.buildUponParameters()
-        var audioIndex = 0
-        val tracks = player.currentTracks
-        for (group in tracks.groups) {
-            if (group.type == androidx.media3.common.C.TRACK_TYPE_AUDIO) {
-                for (i in 0 until group.length) {
-                    if (audioIndex == index) {
-                        val override = androidx.media3.exoplayer.trackselection.TrackSelectionOverride(
-                            group.mediaTrackGroup,
-                            listOf(i)
-                        )
-                        builder.setSelectionOverride(
-                            androidx.media3.common.C.TRACK_TYPE_AUDIO,
-                            group.mediaTrackGroup,
-                            override
-                        )
-                        currentVoice = if (index == 0) "原唱" else "伴唱"
-                        Log.d(TAG, "Set audio track: $index ($currentVoice)")
-                        wsClient.sendPlaybackState(paused = !player.playWhenReady, voice = currentVoice)
-                        trackSelector.setParameters(builder)
-                        return
-                    }
-                    audioIndex++
+        try {
+            // 找到音频 renderer
+            var audioRendererIndex = -1
+            for (i in 0 until player.rendererCount) {
+                if (player.getRendererType(i) == androidx.media3.common.C.TRACK_TYPE_AUDIO) {
+                    audioRendererIndex = i
+                    break
                 }
             }
+            if (audioRendererIndex < 0) return
+
+            val mappedInfo = trackSelector.currentMappedTrackInfo ?: return
+            val trackGroups = mappedInfo.getTrackGroups(audioRendererIndex)
+            if (trackGroups.length == 0) return
+
+            val override = DefaultTrackSelector.SelectionOverride(0, index)
+            trackSelector.setParameters(
+                trackSelector.buildUponParameters()
+                    .setSelectionOverride(audioRendererIndex, trackGroups.get(0), override)
+            )
+            currentVoice = if (index == 0) "原唱" else "伴唱"
+            Log.d(TAG, "Set audio track: $index ($currentVoice)")
+            wsClient.sendPlaybackState(paused = !player.playWhenReady, voice = currentVoice)
+        } catch (e: Exception) {
+            Log.e(TAG, "setAudioTrack error: ${e.message}")
         }
     }
 
