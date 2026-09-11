@@ -105,7 +105,7 @@ class ServerConfigViewController: UIViewController {
         api.fetchStats { [weak self] stats in
             DispatchQueue.main.async {
                 if let stats = stats {
-                    self?.statusLabel.text = "✓ 连接成功！歌曲: \(stats.total_songs ?? 0)"
+                    self?.statusLabel.text = "✓ 连接成功！歌曲: \(stats.songCount ?? 0)"
                     self?.statusLabel.textColor = .green
                 } else {
                     self?.statusLabel.text = "✗ 连接失败，请检查地址"
