@@ -98,7 +98,7 @@ const db = require('./db');
 
 
 
-const { scanLibrary, syncSongArtists, ensureProbedOnDemand, deleteSongCascade, isProblemAudioCodec, isProblemVideoCodec, getMVDir, getMVRoots, getLibraryRoots, saveLibraryRoots, resolveLibraryRootPath, BASE_MOUNTS } = require('./scanner');
+const { scanLibrary, syncSongArtists, ensureProbedOnDemand, deleteSongCascade, isProblemAudioCodec, isProblemVideoCodec, getMVDir, getMVRoots, getLibraryRoots, saveLibraryRoots, resolveLibraryRootPath, BASE_MOUNTS, isCloudRoot, ensureDefaultCloudRoots, getActivePan115AccountId, BUILTIN_CLOUD_ROOTS } = require('./scanner');
 
 
 
@@ -20422,7 +20422,14 @@ function getRootsWithStatus() {
 
 
 
-    accessible: fs.existsSync(r.dir),
+    // 内置115网络来源(dir='netktv-mkv'/'netktv'，或带 cloud 元数据)不在本地
+    // 文件系统上，fs.existsSync 必然为 false——这里对它们直接判为"可访问"
+    // (实际能否列出文件由"扫描"按钮触发时才知道)。本地来源仍走 fs.existsSync。
+    accessible: isCloudRoot(r) ? true : fs.existsSync(r.dir),
+
+    // 网络来源附带 cloud 元数据(账号/网盘路径/类型)，供前端展示与触发扫描
+    cloud: r.cloud || (isCloudRoot(r) ? { accountId: getActivePan115AccountId(), cloudPath: (BUILTIN_CLOUD_ROOTS[r.dir]||{}).defaultCloudPath, mediaType: (BUILTIN_CLOUD_ROOTS[r.dir]||{}).mediaType } : undefined),
+
 
 
 
@@ -21042,6 +21049,65 @@ app.get('/api/admin/browse-folder', requireAdminAuth, (req, res) => {
 
 
 
+// ---- 115网盘网络曲库：列出可用账号(供前端下拉选择) ----
+app.get('/api/admin/cloud-accounts', requireAdminAuth, (req, res) => {
+  try {
+    const cd = require('./cloud-drive');
+    const accounts = (cd.manager ? cd.manager.listAccounts() : [])
+      .filter(a => a.driver === 'pan115')
+      .map(a => ({ id: a.id, name: a.name, status: a.status }));
+    res.json({ ok: true, accounts });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- 115网盘文件夹浏览：通过 pan115 driver 列出指定账号某路径下的子目录 ----
+app.get('/api/admin/browse-cloud', requireAdminAuth, async (req, res) => {
+  try {
+    const accountId = Number(req.query.accountId);
+    const remotePath = req.query.path || '/';
+    const cd = require('./cloud-drive');
+    if (!cd.manager) return res.status(500).json({ error: 'cloud-drive 未初始化' });
+    const driver = cd.manager.getDriverById(accountId);
+    const files = await driver.listFiles(remotePath);
+    // 只返回目录(网盘路径选择器用)，保留 name/pickCode/size 供前端展示
+    // pan115 driver isDir 对部分目录误报 false，这里不过滤——网盘选择器需要能进入每个条目
+    const folders = files.map(f => ({ name: f.name, isDir: true }));
+    res.json({ ok: true, path: remotePath, folders });
+  } catch (e) {
+    res.status(500).json({ error: '浏览115目录失败: ' + e.message });
+  }
+});
+
+// ---- 触发某个网络曲库来源的扫描(复用 netktv-mkv-scan / netktv-scan 逻辑) ----
+app.post('/api/admin/library-sources/roots/:idx/scan', requireAdminAuth, async (req, res) => {
+  const idx = Number(req.params.idx);
+  const roots = getLibraryRoots();
+  if (!(idx >= 0 && idx < roots.length)) return res.status(404).json({ error: '找不到这个曲库来源' });
+  const root = roots[idx];
+  if (!isCloudRoot(root)) return res.status(400).json({ error: '这是本地曲库来源，请用"立即扫描曲库"' });
+  const cloud = root.cloud || {};
+  const accountId = cloud.accountId || getActivePan115AccountId();
+  const cloudPath = cloud.cloudPath || (BUILTIN_CLOUD_ROOTS[root.dir] || {}).defaultCloudPath;
+  try {
+    const cd = require('./cloud-drive');
+    if (root.dir === 'netktv-mkv') {
+      const { scanMkvFiles } = require('./netktv-mkv-scan');
+      // 异步触发，立即返回状态(扫描可能很长，不阻塞 HTTP)
+      scanMkvFiles(cd, accountId, cloudPath, db, null, 0).catch(e => console.error('[ADMIN-SCAN-MKV]', e.message));
+      return res.json({ ok: true, message: 'MKV扫描已开始', sourceRoot: root.dir, accountId, cloudPath });
+    } else if (root.dir === 'netktv') {
+      const { scanSeparatedFiles } = require('./netktv-scan');
+      scanSeparatedFiles(cd, accountId, cloudPath, db, path.join(process.env.DATA_DIR || '/data', 'netktv-strm')).catch(e => console.error('[ADMIN-SCAN-FLAC]', e.message));
+      return res.json({ ok: true, message: '分离FLAC扫描已开始', sourceRoot: root.dir, accountId, cloudPath });
+    }
+    return res.status(400).json({ error: '未知的网络来源类型: ' + root.dir });
+  } catch (e) {
+    res.status(500).json({ error: '触发扫描失败: ' + e.message });
+  }
+});
+
 app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
 
@@ -21053,6 +21119,49 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
 
   const { dir, label, isNetwork } = req.body || {};
+
+
+  // ---- 新增：通过 cloud-drive 直接添加115网盘网络曲库来源 ----
+  // body: { cloud: true, accountId, cloudPath, mediaType, label }
+  // 这类来源的 dir 不是本地文件系统路径，而是固定的 source_root 标识
+  // (mediaType==='mkv' -> 'netktv-mkv'；'flac' -> 'netktv')，
+  // 与现有 netktv-mkv-scan / netktv-scan 入库时写的 source_root 完全对齐，
+  // 播放链路(/api/songs/:id/sep-info 按 source_root 路由)零改动。
+  if (req.body && (req.body.cloud === true || req.body.cloudPath)) {
+    const { accountId, cloudPath, mediaType, label: cloudLabel } = req.body;
+    if (!cloudPath || !String(cloudPath).trim()) {
+      return res.status(400).json({ error: '请填写115网盘路径(cloudPath)，如 /momo-ktv/ktv-output' });
+    }
+    // 校验账号存在
+    let acct = null;
+    try {
+      const cd = require('./cloud-drive');
+      acct = cd.manager ? cd.manager.getAccount(Number(accountId)) : null;
+    } catch (e) { acct = null; }
+    if (!acct || acct.driver !== 'pan115') {
+      return res.status(400).json({ error: '115账号不存在或不可用，请先在网盘设置里登录' });
+    }
+    // mediaType -> 内置 source_root dir
+    const dirForType = (String(mediaType || 'mkv').toLowerCase() === 'flac' || String(mediaType || '').toLowerCase() === 'separated')
+      ? 'netktv' : 'netktv-mkv';
+    const roots = getLibraryRoots();
+    if (roots.some(r => r.dir === dirForType)) {
+      return res.status(409).json({ error: '这个115网盘来源已经添加过了(每类只能有一个)，可直接在列表里点"扫描"' });
+    }
+    const cloud = { accountId: acct.id, cloudPath: String(cloudPath).trim(), mediaType: dirForType === 'netktv' ? 'flac' : 'mkv' };
+    const builtin = BUILTIN_CLOUD_ROOTS[dirForType] || {};
+    roots.push({
+      dir: dirForType,
+      label: (cloudLabel && String(cloudLabel).trim()) ? String(cloudLabel).trim() : builtin.label || ('115网盘 ' + cloudPath),
+      isNetwork: true,
+      enabled: true,
+      cloud,
+    });
+    saveLibraryRoots(roots);
+    log.info('ADMIN', `曲库来源: 新增115网络来源 ${dirForType} -> ${cloud.cloudPath} (账号=${cloud.accountId})`);
+    return res.json({ ok: true, roots });
+  }
+
 
 
 
@@ -27961,6 +28070,9 @@ wss.on('connection', (ws, req) => {
 
 
 
+
+// 启动时把两个内置115网络曲库来源补进 library_roots(幂等)
+try { ensureDefaultCloudRoots(); } catch (e) { console.error('ensureDefaultCloudRoots: ' + e.message); }
 
 server.listen(PORT, () => {
 
