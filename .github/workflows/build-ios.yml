@@ -52,7 +52,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             build \
-            | xcpretty
+
         timeout-minutes: 30
 
       - name: Build Release
@@ -67,8 +67,23 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             build \
-            | xcpretty
+
         timeout-minutes: 30
+
+      - name: Verify binary
+        run: |
+          APP_PATH="build/Build/Products/Release-iphoneos/MomoKtviOS.app"
+          echo "=== .app contents ==="
+          ls -la "$APP_PATH" || echo "APP NOT FOUND"
+          echo "=== Binary check ==="
+          if [ -f "$APP_PATH/MomoKtviOS" ]; then
+            file "$APP_PATH/MomoKtviOS"
+            echo "BINARY EXISTS"
+          else
+            echo "BINARY MISSING!"
+            find build -name "MomoKtviOS" -type f 2>/dev/null || true
+            exit 1
+          fi
 
       - name: Package IPA
         run: |
