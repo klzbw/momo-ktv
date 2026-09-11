@@ -144,13 +144,13 @@ class KTVWebSocketClient {
 
 #if canImport(Starscream)
 extension KTVWebSocketClient: WebSocketDelegate {
-    func websocketDidConnect(socket: WebSocketClient) {
+    func websocketDidConnect(socket: WebSocket) {
         isConnected = true
         DispatchQueue.main.async { self.onConnected?() }
         sendRoleAnnounce()
     }
 
-    func websocketDidDisconnect(socket: WebSocketClient, error: Error?) {
+    func websocketDidDisconnect(socket: WebSocket, error: Error?) {
         isConnected = false
         DispatchQueue.main.async { self.onDisconnected?() }
         if let err = error {
@@ -159,11 +159,11 @@ extension KTVWebSocketClient: WebSocketDelegate {
         scheduleReconnect()
     }
 
-    func websocketDidReceiveMessage(socket: WebSocketClient, text: String) {
+    func websocketDidReceiveMessage(socket: WebSocket, text: String) {
         handleMessage(text)
     }
 
-    func websocketDidReceiveData(socket: WebSocketClient, data: Data) {
+    func websocketDidReceiveData(socket: WebSocket, data: Data) {
         if let text = String(data: data, encoding: .utf8) { handleMessage(text) }
     }
 }
