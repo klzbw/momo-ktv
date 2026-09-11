@@ -27,14 +27,15 @@ class ServerConfigActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_server_config)
+        try {
+            setContentView(R.layout.activity_server_config)
 
-        prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        etServerURL = findViewById(R.id.etServerURL)
-        btnSave = findViewById(R.id.btnSave)
-        btnTest = findViewById(R.id.btnTest)
+            prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            etServerURL = findViewById(R.id.etServerURL)
+            btnSave = findViewById(R.id.btnSave)
+            btnTest = findViewById(R.id.btnTest)
 
-        etServerURL.setText(prefs.getString(KEY_SERVER_URL, "192.168.1.100:3000"))
+            etServerURL.setText(prefs.getString(KEY_SERVER_URL, "192.168.1.100:3000"))
 
         btnTest.setOnClickListener {
             val url = etServerURL.text.toString().trim()
@@ -55,6 +56,16 @@ class ServerConfigActivity : AppCompatActivity() {
             Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show()
             startActivity(Intent(this, MainActivity::class.java))
             finish()
+        }
+        } catch (e: Throwable) {
+            android.util.Log.e("ServerConfig", "init crash", e)
+            val tv = android.widget.TextView(this).apply {
+                text = "初始化失败:\n${e.javaClass.simpleName}: ${e.message}\n\n${e.stackTraceToString().take(500)}"
+                setTextColor(0xFFFF0000.toInt())
+                setPadding(32, 32, 32, 32)
+                textSize = 14f
+            }
+            setContentView(tv)
         }
     }
 
