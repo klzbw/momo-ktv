@@ -32,6 +32,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationWillTerminate(_ application: UIApplication) {
         VLCPlayerManager.shared.stop()
-        WebSocketClient.shared.disconnect()
+        KTVWebSocketClient.shared.disconnect()
     }
 }
