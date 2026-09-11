@@ -13,9 +13,41 @@ fnpack-*
 .vscode/
 .idea/
 
-# 运行时数据（本地测试容器落盘的数据库、封面、HLS缓存等，不应入库）
+# 运行时数据
 data/
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
+
+# ==================== Android ====================
+android-tv-client/build/
+android-tv-client/app/build/
+android-tv-client/.gradle/
+android-tv-client/local.properties
+android-tv-client/captures/
+android-tv-client/*.apk
+android-tv-client/app/*.apk
+android-tv-client/app/release/
+android-tv-client/gradle/wrapper/gradle-wrapper.jar
+*.keystore
+*.jks
+
+# ==================== iOS ====================
+ios-client/build/
+ios-client/Pods/
+ios-client/*.xcworkspace
+ios-client/*.xcodeproj
+!ios-client/project.yml
+ios-client/DerivedData/
+ios-client/*.xcarchive
+ios-client/*.ipa
+ios-client/Podfile.lock
+ios-client/MomoKtviOS.xcodeproj/
+ios-client/MomoKtviOS.xcworkspace/
+**/xcuserdata/
+**/xcshareddata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3

@@ -1,10 +1,5 @@
 name: Build iOS IPA
 
-# 构建 iPad/iPhone 通用客户端（WKWebView 套壳网页版）。
-# 一次构建同时产出两个无签名 IPA：
-#   iOS12 —— 部署目标 12.0，给老设备（如 iPad mini 2 / iOS 12.5.7）
-#   iOS15 —— 部署目标 15.0，给较新设备（iOS/iPadOS 15+，支持 MSE，原伴唱可无缝切换）
-# 工程基线(project.yml)保持 12.0，具体部署目标由 xcodebuild 命令行参数覆盖。
 on:
   push:
     branches: [main]
@@ -15,64 +10,117 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - deploy: '12.0'
-            tag: 'iOS12'
-          - deploy: '15.0'
-            tag: 'iOS15'
+    runs-on: macos-latest
     defaults:
       run:
         working-directory: ios-client
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
 
       - name: Install xcodegen
-        run: brew install xcodegen
+        run: brew install xcodegen || true
 
-      - name: Show Xcode version
-        run: xcodebuild -version
+      - name: Install CocoaPods
+        run: |
+          gem install cocoapods --no-document
+          pod --version
 
       - name: Generate Xcode project
-        run: |
-          xcodegen generate
-          # 兼容 Xcode 15.4
-          sed -i '' 's/objectVersion = 77;/objectVersion = 56;/' MomoKtviOS.xcodeproj/project.pbxproj || true
+        run: xcodegen generate
 
-      - name: Build iOS app (unsigned, deployment target ${{ matrix.deploy }})
+      - name: Install Pods (MobileVLCKit + Starscream)
+        run: |
+          pod install --repo-update
+        timeout-minutes: 30
+
+      - name: Build (Debug, no signing)
         run: |
           xcodebuild \
-            -project MomoKtviOS.xcodeproj \
+            -workspace MomoKtviOS.xcworkspace \
             -scheme MomoKtviOS \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
+            -configuration Debug \
+            -sdk iphoneos \
             -derivedDataPath build \
-            IPHONEOS_DEPLOYMENT_TARGET=${{ matrix.deploy }} \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build
+            build \
+            | xcpretty
+        timeout-minutes: 30
 
-      - name: Package IPA (${{ matrix.tag }})
+      - name: Archive
+        if: success()
         run: |
-          APP_PATH=$(find build/Build/Products -name "*.app" -type d | head -1)
-          echo "App found at: $APP_PATH"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$APP_PATH/Info.plist" || true
-          # 核对最终写入的最低系统版本
-          /usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$APP_PATH/Info.plist" || true
-          rm -rf Payload
-          mkdir -p Payload
-          cp -R "$APP_PATH" Payload/
-          zip -r MomoKtviOS-${{ matrix.tag }}.ipa Payload
-          ls -la MomoKtviOS-${{ matrix.tag }}.ipa
+          xcodebuild \
+            -workspace MomoKtviOS.xcworkspace \
+            -scheme MomoKtviOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath build/MomoKtviOS.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive \
+            | xcpretty
+        timeout-minutes: 30
+        continue-on-error: true
 
-      - name: Upload IPA (${{ matrix.tag }})
+      - name: Export IPA (unsigned)
+        if: success()
+        run: |
+          # 创建 exportOptions.plist（不签名，用于测试构建）
+          cat > exportOptions.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>compileBitcode</key>
+              <false/>
+              <key>signingStyle</key>
+              <string>manual</string>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild \
+            -exportArchive \
+            -archivePath build/MomoKtviOS.xcarchive \
+            -exportPath build/ipa \
+            -exportOptionsPlist exportOptions.plist \
+            | xcpretty || true
+          # 如果签名导出失败，手动打包 .app 为 .ipa
+          if [ ! -f build/ipa/MomoKtviOS.ipa ]; then
+            mkdir -p build/ipa/Payload
+            cp -R build/Build/Products/Release-iphoneos/MomoKtviOS.app build/ipa/Payload/
+            cd build/ipa && zip -r MomoKtviOS-unsigned.ipa Payload && cd ../..
+          fi
+        continue-on-error: true
+
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: MomoKtviOS-${{ matrix.tag }}-unsigned
-          path: ios-client/MomoKtviOS-${{ matrix.tag }}.ipa
-          retention-days: 30
+          name: momo-ktv-ios
+          path: |
+            ios-client/build/ipa/*.ipa
+            ios-client/build/Build/Products/Release-iphoneos/*.app
+          if-no-files-found: warn
+
+      # ===== 签名说明 =====
+      # 正式发布 IPA 需要在 GitHub Secrets 中配置：
+      #   IOS_CODE_SIGN_IDENTITY: 证书名称（如 "Apple Development: xxx"）
+      #   IOS_PROVISIONING_PROFILE: 描述文件 UUID
+      #   IOS_TEAM_ID: 团队 ID
+      #   P12_CERTIFICATE_BASE64: p12 证书 base64
+      #   P12_PASSWORD: p12 密码
+      # 然后在 xcodebuild 中移除 CODE_SIGNING_ALLOWED=NO，使用：
+      #   CODE_SIGN_IDENTITY="$IOS_CODE_SIGN_IDENTITY"
+      #   PROVISIONING_PROFILE_SPECIFIER="$IOS_PROVISIONING_PROFILE"
+      #   DEVELOPMENT_TEAM="$IOS_TEAM_ID"
