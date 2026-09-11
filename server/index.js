@@ -22472,7 +22472,7 @@ function getQueueWithSongs() {
 
 
 
-           s.id as song_id, s.title, s.artist, s.filename, s.cover, s.duration,
+           s.id as song_id, s.title, s.artist, s.filename, s.filepath, s.cover, s.duration,
 
 
 
@@ -22482,7 +22482,7 @@ function getQueueWithSongs() {
 
 
 
-           s.audio_tracks, s.audio_needs_soft, s.video_needs_soft, s.is_network, s.is_strm
+           s.audio_tracks, s.audio_needs_soft, s.video_needs_soft, s.is_network, s.is_strm, s.media_type, s.source_root
 
 
 
