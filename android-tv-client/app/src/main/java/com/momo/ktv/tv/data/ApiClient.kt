@@ -5,10 +5,11 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody
+
 import java.util.concurrent.TimeUnit
 
 class ApiClient(baseURL: String) {
@@ -104,7 +105,7 @@ class ApiClient(baseURL: String) {
             val json = gson.toJson(mapOf("song_id" to songId, "nickname" to nickname))
             val req = Request.Builder()
                 .url(apiURL("/api/queue"))
-                .post(json.toRequestBody("application/json".toMediaType()))
+                .post(RequestBody.create(MediaType.parse("application/json"), json))
                 .build()
             val resp = httpClient.newCall(req).execute()
             resp.isSuccessful
@@ -128,7 +129,7 @@ class ApiClient(baseURL: String) {
         try {
             val req = Request.Builder()
                 .url(apiURL("/api/queue/$queueId/top"))
-                .post("".toRequestBody(null))
+                .post(RequestBody.create(null, ""))
                 .build()
             val resp = httpClient.newCall(req).execute()
             resp.isSuccessful
