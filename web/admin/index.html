@@ -791,6 +791,31 @@ select option{color:#000}
       </div>
     </div>
 
+    <!-- 添加115网盘(cloud-drive)网络曲库：不走本地挂载，直接通过 pan115 driver 扫描 -->
+    <div class="src-section-divider">
+      <div class="src-col-title" style="margin-bottom:10px">☁️ 添加115网盘网络曲库</div>
+      <div class="cache-hint" style="margin-bottom:10px">通过 cloud-drive 的 pan115 驱动直接扫描115网盘上的歌曲目录，不需要把网盘挂载到本地。扫描结果出现在下方"已配置的曲库来源"里。</div>
+      <div class="cache-value-row" style="align-items:center">
+        <span style="min-width:90px">115账号：</span>
+        <select id="cloud-acct-sel" style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid #444;background:#222;color:#eee"></select>
+        <button class="hbtn" style="font-size:12px;padding:6px 10px" onclick="loadCloudAccounts()">刷新</button>
+      </div>
+      <div class="cache-value-row" style="align-items:center">
+        <span style="min-width:90px">网盘路径：</span>
+        <input id="cloud-path-input" type="text" placeholder="/momo-ktv/ktv-output" style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid #444;background:#222;color:#eee">
+        <button class="hbtn" style="font-size:12px;padding:6px 10px" onclick="browseCloudPath()">浏览</button>
+      </div>
+      <div id="cloud-folder-list" style="max-height:140px;overflow:auto;margin:6px 0"></div>
+      <div class="cache-value-row" style="align-items:center">
+        <span style="min-width:90px">类型：</span>
+        <select id="cloud-type-sel" style="padding:6px 8px;border-radius:8px;border:1px solid #444;background:#222;color:#eee">
+          <option value="mkv">MKV视频(多音轨)</option>
+          <option value="flac">分离FLAC(人声+伴奏)</option>
+        </select>
+        <button class="hbtn primary" style="font-size:12px;padding:6px 14px" onclick="addCloudRoot()">+ 添加网络曲库</button>
+      </div>
+    </div>
+
     <div class="src-section-divider">
       <div class="src-col-title" style="margin-bottom:10px">网盘本地缓存调优</div>
       <div class="cache-value-row">
@@ -1863,6 +1888,7 @@ async function loadLibrarySources(){
     document.getElementById('src-cache-concurrency').value = d.cacheSettings.concurrency;
     renderSrcRootsList();
     renderSrcOrphanBox(d.orphanCount || 0);
+    loadCloudAccounts();
     await loadSrcFolder(srcPath);
   }catch(e){ srcHint('加载曲库来源失败，请检查网络'); }
 }
@@ -1992,6 +2018,85 @@ async function addSrcRoot(dir){
 }
 
 let srcRootsCache = [];
+// ===== 115网盘网络曲库：账号下拉 / 网盘路径浏览 / 添加 / 触发扫描 =====
+let cloudAccountCache = [];
+async function loadCloudAccounts(){
+  try{
+    const r = await fetch('/api/admin/cloud-accounts');
+    const d = await r.json();
+    cloudAccountCache = d.accounts || [];
+    const sel = document.getElementById('cloud-acct-sel');
+    sel.innerHTML = '';
+    if(!cloudAccountCache.length){
+      sel.innerHTML = '<option value="">(无可用115账号)</option>';
+      return;
+    }
+    cloudAccountCache.forEach(a => {
+      const o = document.createElement('option');
+      o.value = a.id;
+      o.textContent = a.name + ' (id=' + a.id + ', ' + a.status + ')';
+      sel.appendChild(o);
+    });
+  }catch(e){ srcHint('加载115账号失败'); }
+}
+
+async function browseCloudPath(){
+  const acctId = document.getElementById('cloud-acct-sel').value;
+  const path = document.getElementById('cloud-path-input').value || '/';
+  if(!acctId){ srcHint('请先选择115账号'); return; }
+  try{
+    const r = await fetch('/api/admin/browse-cloud?accountId=' + encodeURIComponent(acctId) + '&path=' + encodeURIComponent(path));
+    const d = await r.json();
+    if(!r.ok){ srcHint(d.error || '浏览失败'); return; }
+    const el = document.getElementById('cloud-folder-list');
+    el.innerHTML = '';
+    (d.folders || []).forEach(f => {
+      const row = document.createElement('div');
+      row.style.cssText = 'cursor:pointer;padding:4px 8px;border-radius:6px';
+      row.textContent = '📁 ' + f.name;
+      row.onmouseenter = () => row.style.background = 'rgba(255,79,155,.15)';
+      row.onmouseleave = () => row.style.background = '';
+      row.onclick = () => {
+        const base = path.replace(/\/$/, '');
+        document.getElementById('cloud-path-input').value = base + '/' + f.name;
+        browseCloudPath();
+      };
+      el.appendChild(row);
+    });
+    if(!(d.folders||[]).length) el.innerHTML = '<div class="cache-hint">这一级没有子目录了</div>';
+  }catch(e){ srcHint('浏览网盘目录失败'); }
+}
+
+async function addCloudRoot(){
+  const accountId = document.getElementById('cloud-acct-sel').value;
+  const cloudPath = document.getElementById('cloud-path-input').value.trim();
+  const mediaType = document.getElementById('cloud-type-sel').value;
+  if(!accountId){ srcHint('请先选择115账号'); return; }
+  if(!cloudPath){ srcHint('请填写网盘路径'); return; }
+  try{
+    const res = await fetch('/api/admin/library-sources/roots', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cloud: true, accountId: Number(accountId), cloudPath, mediaType }),
+    });
+    const d = await res.json();
+    if(!res.ok){ srcHint(d.error || '添加失败'); return; }
+    toast('已添加115网络曲库 ✓ 点列表里的"扫描"按钮开始扫描');
+    loadLibrarySources();
+  }catch(e){ srcHint('请求失败，请检查网络'); }
+}
+
+async function scanCloudRoot(idx){
+  const r = srcRootsCache[idx];
+  if(!r) return;
+  if(!confirm('开始扫描115网盘曲库「' + (r.label||r.dir) + '」?\n\n扫描会分批请求115 API，避免触发风控。大批量扫描需要较长时间，可在日志中查看进度。')) return;
+  try{
+    const res = await fetch(`/api/admin/library-sources/roots/${idx}/scan`, { method: 'POST' });
+    const d = await res.json();
+    if(!res.ok){ srcHint(d.error || '触发扫描失败'); return; }
+    toast(d.message || '扫描已开始');
+  }catch(e){ srcHint('请求失败'); }
+}
+
 function renderSrcRootsList(){
   const el = document.getElementById('src-roots-list');
   el.innerHTML = '';
@@ -2019,9 +2124,11 @@ function renderSrcRootsList(){
         <input id="rr-remark-${idx}" placeholder="备注，如：115网盘 / 夸克网盘（会显示在主列表最后一列）" value="${(r.label || '').replace(/"/g,'&quot;')}">
         <button class="hbtn" onclick="saveSrcRootLabel(${idx})">保存备注</button>
       </div>
+      ${r.cloud ? `<div class="cache-hint" style="margin:2px 0 4px">☁️ 115网盘${r.cloud.mediaType==='flac'?' FLAC':' MKV'} · 账号#${r.cloud.accountId} · ${r.cloud.cloudPath}</div>` : ''}
       <div class="rr-btns">
         <label><input type="checkbox" ${r.enabled !== false ? 'checked' : ''} onchange="toggleSrcRoot(${idx},'enabled',this.checked)"> 启用</label>
         <label><input type="checkbox" ${r.isNetwork ? 'checked' : ''} onchange="toggleSrcRoot(${idx},'isNetwork',this.checked)"> 网络路径</label>
+        ${r.cloud ? `<span class="rr-del" style="color:var(--pink)" onclick="scanCloudRoot(${idx})">▶ 扫描网盘</span>` : ''}
         ${r.songCount ? `<span class="rr-del" style="color:var(--sub)" onclick="purgeSrcRootSongs(${idx})">仅清理曲目</span>` : ''}
         <span class="rr-del" onclick="deleteSrcRoot(${idx})">🗑️ 移除</span>
       </div>`;
