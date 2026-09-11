@@ -1,0 +1,45 @@
+# momo-ktv 通用 Docker Compose 部署文件
+# 使用方法：
+#   1. 将本文件保存为 docker-compose.yml
+#   2. 修改下方 volumes 中的曲库路径为你实际的音乐目录
+#   3. 执行: docker compose up -d
+#   4. 访问: http://<你的IP>:8080
+#
+# 目录说明：
+#   ./data         - 数据库、配置、缓存（自动创建）
+#   ./mv           - 本地曲库目录（需自行创建并放入音乐文件）
+#   ./alist-data   - AList 配置数据（自动创建，用于115网盘等）
+#   ./separated    - 人声/伴奏分离文件目录（可选，用于原唱/伴唱切换）
+
+services:
+  momo-ktv:
+    image: ghcr.io/klzbw/momo-ktv:latest
+    container_name: momo-ktv
+    restart: unless-stopped
+    ports:
+      - "8080:8080"      # Web 界面 / API
+      - "5234:5234"      # AList（115网盘等云存储管理）
+    environment:
+      - TZ=Asia/Shanghai
+      - PORT=8080
+      - DATA_DIR=/data
+      - MV_DIR=/mv
+      - ADMIN_PASSWORD=admin888       # 管理后台密码，请修改为你自己的密码
+      - AUTO_SCAN_MIN=5               # 自动扫描间隔（分钟），设为0禁用
+      - HLS_CACHE_MAX_AGE_DAYS=3      # HLS 缓存保留天数
+      # - VAAPI_DEVICE=/dev/dri/renderD128  # 硬件转码设备（Intel核显），取消注释启用
+    volumes:
+      # 数据目录（数据库、配置、缓存）
+      - ./data:/data
+      # 本地曲库目录（支持多个子目录，如 /mv/library1、/mv/library2）
+      - ./mv:/mv
+      # AList 数据目录（115网盘配置、缓存）
+      - ./alist-data:/opt/alist/data
+      # 人声/伴奏分离文件目录（可选，取消注释并修改为你的路径）
+      # - ./separated:/data/separated
+      # ===== 示例：挂载多个本地曲库目录 =====
+      # - /path/to/your/music1:/mv/library1
+      # - /path/to/your/music2:/mv/library2
+    # 硬件转码（可选，Intel核显用户取消注释）
+    # devices:
+    #   - /dev/dri:/dev/dri
