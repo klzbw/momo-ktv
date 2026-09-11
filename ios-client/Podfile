@@ -1,0 +1,9 @@
+platform :ios, '12.0'
+use_frameworks!
+
+target 'MomoKtviOS' do
+  # 原生播放器：MobileVLCKit 稳定版 3.3.x，支持 iOS 8.4+，iOS 12 完全兼容
+  pod 'MobileVLCKit', '~> 3.3.0'
+  # WebSocket：Starscream 支持 iOS 10+，兼容 iOS 12
+  pod 'Starscream', '~> 4.0.6'
+end
