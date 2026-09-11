@@ -33,7 +33,7 @@
         android:textColorHint="#666666"
         android:background="#333333"
         android:padding="12dp"
-        android:inputType="textUri"
+        android:inputType="text"
         android:layout_marginBottom="24dp" />
 
     <LinearLayout
