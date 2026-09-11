@@ -181,7 +181,7 @@ class PlayerManager(
             val override = DefaultTrackSelector.SelectionOverride(0, index)
             trackSelector.setParameters(
                 trackSelector.buildUponParameters()
-                    .setSelectionOverride(audioRendererIndex, trackGroups.get(0), override)
+                    .setSelectionOverride(audioRendererIndex, trackGroups, override)
             )
             currentVoice = if (index == 0) "原唱" else "伴唱"
             Log.d(TAG, "Set audio track: $index ($currentVoice)")
