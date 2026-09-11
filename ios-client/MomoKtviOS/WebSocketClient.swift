@@ -161,7 +161,7 @@ extension KTVWebSocketClient: WebSocketDelegate {
             if let text = String(data: data, encoding: .utf8) { handleMessage(text) }
         case .error(let error):
             isConnected = false
-            print("[WS] error: \(error.localizedDescription)")
+            print("[WS] error: \(error?.localizedDescription ?? "unknown")")
             DispatchQueue.main.async { self.onDisconnected?() }
             scheduleReconnect()
         case .cancelled:
