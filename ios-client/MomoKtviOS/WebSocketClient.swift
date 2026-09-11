@@ -5,8 +5,8 @@ import Starscream
 
 /// WebSocket 客户端：使用 Starscream 兼容 iOS 12+
 /// 消息类型：control / queue / state / progress / role_announce / player_changed
-class WebSocketClient {
-    static let shared = WebSocketClient()
+class KTVWebSocketClient {
+    static let shared = KTVWebSocketClient()
 
     #if canImport(Starscream)
     private var socket: WebSocket?
@@ -143,7 +143,7 @@ class WebSocketClient {
 }
 
 #if canImport(Starscream)
-extension WebSocketClient: WebSocketDelegate {
+extension KTVWebSocketClient: WebSocketDelegate {
     func didReceive(event: WebSocketEvent, client: WebSocket) {
         switch event {
         case .connected:
