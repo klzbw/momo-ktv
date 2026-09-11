@@ -78,9 +78,11 @@ struct Artist: Codable {
 
 // MARK: - 统计
 struct Stats: Codable {
-    let total_songs: Int?
-    let total_artists: Int?
-    let queue_length: Int?
+    let songCount: Int?
+    let songCountLocal: Int?
+    let songCountNetwork: Int?
+    let queueCount: Int?
+    let totalPlays: Int?
 }
 
 // MARK: - 分离信息
