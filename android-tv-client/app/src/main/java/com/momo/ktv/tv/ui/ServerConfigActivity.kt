@@ -28,6 +28,22 @@ class ServerConfigActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
+            // 检查上次崩溃日志
+            val crashLog = com.momo.ktv.tv.App.crashLog
+            if (!crashLog.isNullOrEmpty()) {
+                val tv = android.widget.ScrollView(this)
+                val inner = android.widget.TextView(this).apply {
+                    text = "上次崩溃日志:\n\n$crashLog"
+                    setTextColor(0xFFFF0000.toInt())
+                    setPadding(32, 32, 32, 32)
+                    textSize = 12f
+                }
+                tv.addView(inner)
+                setContentView(tv)
+                // 清除崩溃日志
+                try { deleteFile(com.momo.ktv.tv.App.CRASH_FILE) } catch (_: Exception) {}
+                return
+            }
             setContentView(R.layout.activity_server_config)
 
             prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
