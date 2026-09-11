@@ -17,10 +17,8 @@ import java.util.concurrent.TimeUnit
 /**
  * 自定义 HttpDataSource：
  * 1. 设置 User-Agent 为 115Browser/23.9.3.2（115 CDN 校验 UA）
- * 2. 支持 302 重定向（OkHttp 默认自动跟随，但保留自定义 UA）
- * 3. 支持 Range 请求（ExoPlayer  seek 时需要）
- *
- * 用于播放 115 网盘直连的 MKV 文件（H.264 + AAC 双音轨）。
+ * 2. 支持 302 重定向（OkHttp 默认自动跟随）
+ * 3. 支持 Range 请求（ExoPlayer seek 时需要）
  */
 class Custom115DataSource private constructor(
     private val client: OkHttpClient
@@ -48,6 +46,7 @@ class Custom115DataSource private constructor(
     private var bytesToRead: Long = 0
     private var bytesRead: Long = 0
     private var opened = false
+    private var responseCode = 0
 
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
@@ -60,7 +59,6 @@ class Custom115DataSource private constructor(
             .header("Referer", "https://115.com/")
             .get()
 
-        // Range 请求
         if (dataSpec.position > 0 || dataSpec.length != C.LENGTH_UNSET.toLong()) {
             var rangeHeader = "bytes=${dataSpec.position}-"
             if (dataSpec.length != C.LENGTH_UNSET.toLong()) {
@@ -69,7 +67,6 @@ class Custom115DataSource private constructor(
             requestBuilder.header("Range", rangeHeader)
         }
 
-        // 透传额外请求头
         dataSpec.httpRequestHeaders.forEach { (key, value) ->
             requestBuilder.header(key, value)
         }
@@ -86,13 +83,13 @@ class Custom115DataSource private constructor(
             IOException("Null response"), dataSpec, HttpDataSource.HttpDataSourceException.TYPE_OPEN
         )
 
+        responseCode = resp.code
         val code = resp.code
         if (code < 200 || code >= 300) {
-            val body = try { resp.body?.string() ?: "" } catch (_: Exception) { "" }
-            Log.e(TAG, "HTTP $code for $url, body: ${body.take(200)}")
+            val bodyBytes = try { resp.body?.bytes() ?: ByteArray(0) } catch (_: Exception) { ByteArray(0) }
+            Log.e(TAG, "HTTP $code for $url")
             throw HttpDataSource.InvalidResponseCodeException(
-                code, resp.message, HashMap(), dataSpec,
-                try { resp.body?.bytes() ?: ByteArray(0) } catch (_: Exception) { ByteArray(0) }
+                code, resp.message, HashMap(), dataSpec, bodyBytes
             )
         }
 
@@ -103,7 +100,6 @@ class Custom115DataSource private constructor(
             )
         }
 
-        // 跳过已请求的起始位置（如果服务端不支持 Range）
         if (dataSpec.position > 0 && code != 206) {
             try {
                 var skipped: Long = 0
@@ -119,7 +115,6 @@ class Custom115DataSource private constructor(
             }
         }
 
-        // 计算剩余可读字节
         val contentLength = resp.body?.contentLength() ?: -1L
         bytesToRead = if (dataSpec.length != C.LENGTH_UNSET.toLong()) {
             dataSpec.length
@@ -165,14 +160,12 @@ class Custom115DataSource private constructor(
 
     override fun getUri(): Uri? = uri
 
+    override fun getResponseCode(): Int = responseCode
+
     override fun close() {
         if (opened) {
-            try {
-                inputStream?.close()
-            } catch (_: Exception) {}
-            try {
-                response?.close()
-            } catch (_: Exception) {}
+            try { inputStream?.close() } catch (_: Exception) {}
+            try { response?.close() } catch (_: Exception) {}
             inputStream = null
             response = null
             opened = false
@@ -180,10 +173,7 @@ class Custom115DataSource private constructor(
         }
     }
 
-    override fun setRequestProperty(name: String, value: String) {
-        // 简化实现：请求头在 open 时直接构建
-    }
-
+    override fun setRequestProperty(name: String, value: String) {}
     override fun clearRequestProperty(name: String) {}
     override fun clearAllRequestProperties() {}
     override fun getResponseHeaders(): MutableMap<String, MutableList<String>> =

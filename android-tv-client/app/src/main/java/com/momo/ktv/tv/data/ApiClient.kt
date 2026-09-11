@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -92,7 +93,7 @@ class ApiClient(private var baseURL: String) {
             val json = gson.toJson(mapOf("song_id" to songId, "nickname" to nickname))
             val req = Request.Builder()
                 .url(apiURL("/api/queue"))
-                .post(json.toRequestBody("application/json".toMediaTypeOrNull()))
+                .post(json.toRequestBody("application/json".toMediaType()))
                 .build()
             val resp = httpClient.newCall(req).execute()
             resp.isSuccessful
@@ -162,6 +163,3 @@ class ApiClient(private var baseURL: String) {
         }
     }
 }
-
-private fun String.toMediaTypeOrNull(): okhttp3.MediaType? =
-    okhttp3.MediaType.parse(this)

@@ -135,7 +135,7 @@ class WebSocketClient(
     }
 
     fun sendControl(action: String, payload: Map<String, Any> = emptyMap()) {
-        val msg = mutableMapOf(
+        val msg: MutableMap<String, Any> = mutableMapOf(
             "type" to "control",
             "action" to action,
             "clientId" to clientId

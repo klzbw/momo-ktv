@@ -171,11 +171,14 @@ class PlayerManager(
             if (group.type == androidx.media3.common.C.TRACK_TYPE_AUDIO) {
                 for (i in 0 until group.length) {
                     if (audioIndex == index) {
-                        builder.setOverrideForType(
-                            androidx.media3.exoplayer.trackselection.TrackSelectionOverride(
-                                group.mediaTrackGroup,
-                                listOf(i)
-                            )
+                        val override = androidx.media3.exoplayer.trackselection.TrackSelectionOverride(
+                            group.mediaTrackGroup,
+                            listOf(i)
+                        )
+                        builder.setSelectionOverride(
+                            androidx.media3.common.C.TRACK_TYPE_AUDIO,
+                            group.mediaTrackGroup,
+                            override
                         )
                         currentVoice = if (index == 0) "原唱" else "伴唱"
                         Log.d(TAG, "Set audio track: $index ($currentVoice)")
