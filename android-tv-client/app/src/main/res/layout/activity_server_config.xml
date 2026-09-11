@@ -1,72 +1,60 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg_dark"
+    android:orientation="vertical"
+    android:padding="32dp"
+    android:background="#1A1A1A"
     android:gravity="center">
 
-    <LinearLayout
-        android:layout_width="360dp"
+    <TextView
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:background="@color/card_dark"
-        android:padding="36dp"
-        android:layout_centerInParent="true">
+        android:text="墨墨爱K歌 - 服务器配置"
+        android:textColor="#FFFFFF"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="32dp" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/server_config_title"
-            android:textColor="@color/text_white"
-            android:textSize="26sp"
-            android:textStyle="bold"
-            android:gravity="center"
-            android:layout_marginBottom="6dp" />
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="服务器地址 (IP:端口)"
+        android:textColor="#AAAAAA"
+        android:textSize="16sp"
+        android:layout_marginBottom="8dp" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/server_config_subtitle"
-            android:textColor="@color/text_sub"
-            android:textSize="14sp"
-            android:gravity="center"
-            android:layout_marginBottom="24dp" />
+    <EditText
+        android:id="@+id/etServerURL"
+        android:layout_width="480dp"
+        android:layout_height="wrap_content"
+        android:hint="例如: 192.168.1.100:3000"
+        android:textColor="#FFFFFF"
+        android:textColorHint="#666666"
+        android:background="#333333"
+        android:padding="12dp"
+        android:inputType="textUri"
+        android:layout_marginBottom="24dp" />
 
-        <EditText
-            android:id="@+id/serverInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="@string/server_hint"
-            android:textColor="@color/text_white"
-            android:textColorHint="@color/text_sub"
-            android:textSize="16sp"
-            android:background="#1A1A3A"
-            android:padding="14dp"
-            android:inputType="textUri"
-            android:importantForAutofill="no"
-            android:layout_marginBottom="20dp" />
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
 
         <Button
-            android:id="@+id/connectButton"
-            android:layout_width="match_parent"
+            android:id="@+id/btnTest"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/connect_button"
-            android:textColor="@color/bg_dark"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:background="@color/accent_cyan"
-            android:padding="14dp" />
+            android:text="测试连接"
+            android:minWidth="140dp" />
 
-        <TextView
-            android:id="@+id/statusText"
-            android:layout_width="match_parent"
+        <Button
+            android:id="@+id/btnSave"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="@color/accent_pink"
-            android:textSize="13sp"
-            android:gravity="center"
-            android:layout_marginTop="12dp"
-            android:minHeight="20dp" />
-
+            android:text="保存并进入"
+            android:minWidth="140dp"
+            android:layout_marginStart="16dp" />
     </LinearLayout>
 
-</RelativeLayout>
+</LinearLayout>
