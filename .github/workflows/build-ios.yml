@@ -55,63 +55,40 @@ jobs:
             | xcpretty
         timeout-minutes: 30
 
-      - name: Archive
-        if: success()
+      - name: Build Release
         run: |
           xcodebuild \
             -workspace MomoKtviOS.xcworkspace \
             -scheme MomoKtviOS \
             -configuration Release \
             -sdk iphoneos \
-            -archivePath build/MomoKtviOS.xcarchive \
+            -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            archive \
+            build \
             | xcpretty
         timeout-minutes: 30
-        continue-on-error: true
 
-      - name: Export IPA (unsigned)
-        if: success()
+      - name: Package IPA
         run: |
-          # 创建 exportOptions.plist（不签名，用于测试构建）
-          cat > exportOptions.plist << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>method</key>
-              <string>development</string>
-              <key>compileBitcode</key>
-              <false/>
-              <key>signingStyle</key>
-              <string>manual</string>
-          </dict>
-          </plist>
-          EOF
-          xcodebuild \
-            -exportArchive \
-            -archivePath build/MomoKtviOS.xcarchive \
-            -exportPath build/ipa \
-            -exportOptionsPlist exportOptions.plist \
-            | xcpretty || true
-          # 如果签名导出失败，手动打包 .app 为 .ipa
-          if [ ! -f build/ipa/MomoKtviOS.ipa ]; then
-            mkdir -p build/ipa/Payload
-            cp -R build/Build/Products/Release-iphoneos/MomoKtviOS.app build/ipa/Payload/
-            cd build/ipa && zip -r MomoKtviOS-unsigned.ipa Payload && cd ../..
+          APP_PATH="build/Build/Products/Release-iphoneos/MomoKtviOS.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: .app not found at $APP_PATH"
+            ls -la build/Build/Products/ || true
+            exit 1
           fi
-        continue-on-error: true
+          mkdir -p build/ipa/Payload
+          cp -R "$APP_PATH" build/ipa/Payload/
+          cd build/ipa && zip -r MomoKtviOS.ipa Payload && cd ../..
+          ls -la build/ipa/
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
           name: momo-ktv-ios
-          path: |
-            ios-client/build/ipa/*.ipa
-            ios-client/build/Build/Products/Release-iphoneos/*.app
-          if-no-files-found: warn
+          path: ios-client/build/ipa/MomoKtviOS.ipa
+          if-no-files-found: error
 
       # ===== 签名说明 =====
       # 正式发布 IPA 需要在 GitHub Secrets 中配置：
