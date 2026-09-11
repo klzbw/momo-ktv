@@ -56,6 +56,14 @@ jobs:
           echo "BUILD_EXIT_CODE=$?"
         timeout-minutes: 30
 
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ios-client/build.log
+          if-no-files-found: ignore
+
       - name: Verify binary
         run: |
           APP_PATH="build/Build/Products/Release-iphoneos/MomoKtviOS.app"
