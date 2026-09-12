@@ -136,10 +136,19 @@ class BaiduDriver extends CloudDriveBase {
     }
 
     let qrImage = imgurl;
-    if (qrImage && qrImage.startsWith('//')) {
-      qrImage = 'https:' + qrImage;
-    } else if (qrImage && !qrImage.startsWith('http')) {
-      qrImage = 'https://passport.baidu.com' + qrImage;
+    if (qrImage) {
+      // 处理各种 URL 格式
+      if (qrImage.startsWith('//')) {
+        qrImage = 'https:' + qrImage;
+      } else if (qrImage.startsWith('http://') || qrImage.startsWith('https://')) {
+        // 已经是完整 URL，不处理
+      } else if (qrImage.includes('passport.baidu.com')) {
+        // 包含域名但无协议，直接加 https://
+        qrImage = 'https://' + qrImage;
+      } else {
+        // 纯路径，加域名前缀
+        qrImage = 'https://passport.baidu.com/' + qrImage.replace(/^\/+/, '');
+      }
     }
 
     return {
