@@ -29,6 +29,9 @@ const API_URLS = {
   moveFile: 'https://webapi.115.com/files/move',
   renameFile: 'https://webapi.115.com/files/batch_rename',
   loginCheck: 'https://passportapi.115.com/app/1.0/web/1.0/check/sso',
+  // 分享链接相关
+  getShareSnap: 'https://webapi.115.com/share/snap',
+  getShareFileList: 'https://webapi.115.com/share/filelist',
 };
 
 // User-Agent（必须用 115 浏览器 UA）
@@ -52,6 +55,8 @@ class Pan115Driver extends CloudDriveBase {
       files: new Map(), // key: dir, value: { data, expireAt }
       urls: new Map(),  // key: pickCode, value: { url, expireAt }
       dirIds: new Map(), // key: path, value: { cid, expireAt }
+      shareSnaps: new Map(), // key: snap:pickcode, value: 分享快照
+      shareFiles: new Map(), // key: share:shareId:cid, value: 文件列表
     };
     this._cacheTTL = 2 * 60 * 1000; // 2 分钟
   }
@@ -521,6 +526,135 @@ class Pan115Driver extends CloudDriveBase {
     const parts = path.split('/').filter(Boolean);
     return parts[parts.length - 1];
   }
-}
+// ==================== 分享链接相关 ====================
 
+  /**
+   * 解析 115 分享链接，获取分享快照信息
+   * @param {string} pickcode - 分享链接的 pickcode
+   * @returns {Promise<{shareId: string, title: string, fileCount: number, size: number}>}
+   */
+  async getShareSnap(pickcode) {
+    const cacheKey = `snap:${pickcode}`;
+    const cached = this._getCache('shareSnaps', cacheKey);
+    if (cached) return cached;
+
+    const res = await this._request('GET', `${API_URLS.getShareSnap}?pickcode=${encodeURIComponent(pickcode)}`);
+    if (!res.body || res.body.state !== true || !res.body.data) {
+      throw new Error('115 分享链接解析失败: ' + JSON.stringify(res.body).slice(0, 200));
+    }
+
+    const data = res.body.data;
+    const result = {
+      shareId: String(data.share_id || data.id || ''),
+      title: data.title || data.name || '',
+      fileCount: parseInt(data.file_count || data.count || 0, 10),
+      size: parseInt(data.size || 0, 10),
+      pickcode,
+    };
+
+    this._setCache('shareSnaps', cacheKey, result, 30 * 60 * 1000); // 缓存30分钟
+    return result;
+  }
+
+  /**
+   * 获取分享链接中的文件列表
+   * @param {string} shareId - 分享ID
+   * @param {string} pickcode - 分享 pickcode
+   * @param {string} [cid] - 目录ID，默认根目录 '0'
+   * @returns {Promise<Array>} 文件列表
+   */
+  async listShareFiles(shareId, pickcode, cid = '0') {
+    const cacheKey = `share:${shareId}:${cid}`;
+    const cached = this._getCache('shareFiles', cacheKey);
+    if (cached) return cached;
+
+    const pageSize = 1000;
+    let offset = 0;
+    let allFiles = [];
+    let total = 0;
+
+    do {
+      const params = new URLSearchParams({
+        share_id: shareId,
+        pickcode: pickcode,
+        cid: cid,
+        offset: String(offset),
+        limit: String(pageSize),
+        show_dir: '1',
+      });
+
+      const res = await this._request('GET', `${API_URLS.getShareFileList}?${params.toString()}`);
+      if (!res.body || res.body.state !== true) {
+        throw new Error('115 分享文件列表获取失败: ' + JSON.stringify(res.body).slice(0, 200));
+      }
+
+      const files = res.body.data || [];
+      total = res.body.count || 0;
+      allFiles = allFiles.concat(files);
+      offset += pageSize;
+    } while (offset < total);
+
+    const result = allFiles.map((f) => ({
+      fileId: String(f.fid || f.cid || f.id),
+      name: f.n || f.name,
+      isDir: f.fid === 0 || f.ica === 1 || f.is_dir === 1,
+      size: parseInt(f.s || f.size || 0, 10),
+      pickCode: f.pc || f.pickcode,
+      cid: String(f.cid || f.id || '0'),
+      modifiedAt: f.te ? new Date(f.te * 1000) : new Date(),
+    }));
+
+    this._setCache('shareFiles', cacheKey, result, 10 * 60 * 1000); // 缓存10分钟
+    return result;
+  }
+
+  /**
+   * 递归获取分享链接中的所有视频文件
+   * @param {string} shareId - 分享ID
+   * @param {string} pickcode - 分享 pickcode
+   * @param {string} [cid] - 起始目录ID
+   * @param {string} [basePath] - 基础路径
+   * @returns {Promise<Array>} 所有视频文件
+   */
+  async listAllShareVideos(shareId, pickcode, cid = '0', basePath = '') {
+    const files = await this.listShareFiles(shareId, pickcode, cid);
+    const videos = [];
+    const videoExts = ['.mkv', '.mp4', '.avi', '.ts', '.flv', '.wmv', '.mov', '.m4v'];
+
+    for (const f of files) {
+      const fullPath = basePath ? `${basePath}/${f.name}` : f.name;
+      if (f.isDir) {
+        // 递归子目录
+        try {
+          const subVideos = await this.listAllShareVideos(shareId, pickcode, f.cid, fullPath);
+          videos.push(...subVideos);
+        } catch (e) {
+          console.warn(`[115Share] 跳过目录 ${fullPath}: ${e.message}`);
+        }
+      } else {
+        const ext = '.' + (f.name.split('.').pop() || '').toLowerCase();
+        if (videoExts.includes(ext)) {
+          videos.push({
+            ...f,
+            path: fullPath,
+            shareId,
+            pickcode,
+          });
+        }
+      }
+    }
+
+    return videos;
+  }
+
+  /**
+   * 获取分享文件的下载直链（复用 getDownloadUrl，分享文件也有 pickCode）
+   * @param {string} pickCode - 文件的 pickCode
+   * @param {string} [userAgent] - 自定义 UA
+   */
+  async getShareDownloadUrl(pickCode, userAgent) {
+    return this.getDownloadUrl(pickCode, userAgent);
+  }
+
+}
 module.exports = Pan115Driver;

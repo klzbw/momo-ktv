@@ -177,6 +177,7 @@ const cloudDrive = require('./cloud-drive');
 
 
 const directStream = require('./direct-stream');
+const shareImport = require('./share-import');
 
 const cloud115Login = require('./cloud-115-login');
 
@@ -587,6 +588,7 @@ app.use('/api/cloud', cloudDrive.init(db));
 
 
 app.use('/api/direct-stream', directStream.init(db));
+app.use('/api/share', shareImport.init(db, process.env.DATA_DIR || '/data'));
 
 app.use('/api/115', cloud115Login);
 
@@ -10237,6 +10239,34 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
   // 网络KTV MKV视频（115网盘单文件多音轨）：返回视频直链，走单文件播放+音轨切换
 
 
+
+  // 分享链接来源（115 分享，零风控）
+  if (song.source_root === 'share-115') {
+    // filepath 格式: share:<linkId>:<pickCode>
+    const parts = (song.filepath || '').split(':');
+    const linkId = parts[1] || '';
+    const pickCode = parts[2] || '';
+
+    if (pickCode) {
+      const videoUrl = '/api/share/stream/' + linkId + '/' + pickCode;
+      console.log('[SEP-INFO] 分享链接直链:', videoUrl);
+
+      return res.json({
+        dual: false,
+        hasVocal: true,
+        hasAccompaniment: true,
+        isNetworkMkv: true,
+        videoUrl: videoUrl,
+        vocalUrl: videoUrl,
+        accompUrl: videoUrl,
+        songId: song.id,
+        title: song.title,
+        artist: song.artist,
+        audioTracks: song.audio_tracks || 2,
+        source: 'share-115',
+      });
+    }
+  }
 
   if (song.source_root === 'netktv-mkv') {
 
