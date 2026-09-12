@@ -180,6 +180,7 @@ const directStream = require('./direct-stream');
 const shareImport = require('./share-import');
 
 const cloud115Login = require('./cloud-115-login');
+const cloudQuarkLogin = require('./cloud-quark-login');
 
 
 
@@ -591,6 +592,7 @@ app.use('/api/direct-stream', directStream.init(db));
 app.use('/api/share', shareImport.init(db, process.env.DATA_DIR || '/data'));
 
 app.use('/api/115', cloud115Login);
+app.use('/api/quark', cloudQuarkLogin.init(db, process.env.ALIST_URL || 'http://localhost:5234'));
 
 
 
