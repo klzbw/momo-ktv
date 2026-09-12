@@ -107,11 +107,11 @@ router.post('/accounts', requireManager, async (req, res) => {
  */
 router.post('/accounts/cookie', requireManager, (req, res) => {
   try {
-    const { driver, name, cookie } = req.body;
+    const { driver, name, cookie, refreshToken } = req.body;
     if (!driver || !cookie) {
       return res.status(400).json({ error: 'driver and cookie are required' });
     }
-    const account = manager.createAccountWithCookie(driver, name || '我的网盘', cookie);
+    const account = manager.createAccountWithCookie(driver, name || '我的网盘', cookie, refreshToken);
     res.json({ ok: true, account: {
       id: account.id,
       driver: account.driver,
