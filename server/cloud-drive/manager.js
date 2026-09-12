@@ -1,9 +1,12 @@
 /**
-
  * 网盘账号管理器
-
+ *
  * 负责：账号增删改查、token 刷新、驱动实例化、扫码会话管理
-
+ *
+ * 多账号支持：
+ *   - 同一驱动类型（如 pan115）可添加多个账号，按 name 区分
+ *   - createAccountWithCookie 按 "driver + name" 去重：同名更新，不同名新增
+ *   - listActiveAccounts() 返回所有 active 状态的账号，供扫描/串流遍历
  */
 
 
@@ -170,6 +173,13 @@ class CloudDriveManager {
 
     } catch (e) { /* 已存在 */ }
 
+    // 多账号支持：记录歌曲所属的云盘账号 ID
+    try {
+
+      this.db.exec("ALTER TABLE songs ADD COLUMN cloud_account_id INTEGER");
+
+    } catch (e) { /* 已存在 */ }
+
   }
 
 
@@ -218,6 +228,18 @@ class CloudDriveManager {
 
 
 
+  /**
+   * 列出所有 active 状态的账号（供扫描/串流遍历多账号使用）
+   * @returns {Array} active 账号列表
+   */
+  listActiveAccounts() {
+    return this.db.prepare(
+      "SELECT * FROM cloud_accounts WHERE status = 'active' ORDER BY created_at ASC"
+    ).all();
+  }
+
+
+
   getAccount(id) {
 
     return this.db.prepare('SELECT * FROM cloud_accounts WHERE id = ?').get(id);
@@ -247,19 +269,18 @@ class CloudDriveManager {
 
 
   /**
-
-   * 创建网盘账号
-
+   * 创建网盘账号（支持多账号）
    * 用户从浏览器复制 Cookie 粘贴到系统中
-
+   *
+   * 多账号去重规则：按 "driver + name" 去重
+   *   - 同一驱动 + 同一名称：更新已有账号
+   *   - 同一驱动 + 不同名称：新增账号
+   *   - 不同驱动：新增账号
+   *
    * @param {string} driver - 驱动类型
-
-   * @param {string} name - 账号名称
-
+   * @param {string} name - 账号名称（用于区分多账号）
    * @param {string} cookie - 浏览器中的 Cookie 字符串
-
    * @returns {object} 账号信息
-
    */
 
   createAccountWithCookie(driver, name, cookie) {
@@ -280,21 +301,27 @@ class CloudDriveManager {
 
     const cookieVal = cookie.trim();
     const expiresAt = new Date(Date.now() + 86400 * 30 * 1000).toISOString();
-    // 同一驱动只保留一个账号：已存在则更新，避免每次扫码/粘贴都新增重复记录
+
+    // 多账号去重：按 "driver + name" 查找是否已存在
+    // 同名同驱动则更新，否则新增
+    const accountName = (name && name.trim()) ? name.trim() : `我的${driver}`;
     const existing = this.db.prepare(
-      'SELECT id FROM cloud_accounts WHERE driver = ? ORDER BY id DESC LIMIT 1'
-    ).get(driver);
+      'SELECT id FROM cloud_accounts WHERE driver = ? AND name = ? ORDER BY id DESC LIMIT 1'
+    ).get(driver, accountName);
+
     let accountId;
     if (existing) {
       this.db.prepare(
-        'UPDATE cloud_accounts SET name = ?, access_token = ?, status = ?, token_expires_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-      ).run(name, cookieVal, 'active', expiresAt, existing.id);
+        'UPDATE cloud_accounts SET access_token = ?, status = ?, token_expires_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+      ).run(cookieVal, 'active', expiresAt, existing.id);
       accountId = existing.id;
+      console.log(`[CloudDrive] 更新已有账号: ${accountName} (ID=${accountId}, driver=${driver})`);
     } else {
       const info = this.db.prepare(
         'INSERT INTO cloud_accounts (driver, name, access_token, status, token_expires_at) VALUES (?, ?, ?, ?, ?)'
-      ).run(driver, name, cookieVal, 'active', expiresAt);
+      ).run(driver, accountName, cookieVal, 'active', expiresAt);
       accountId = info.lastInsertRowid;
+      console.log(`[CloudDrive] 新增账号: ${accountName} (ID=${accountId}, driver=${driver})`);
     }
     const account = this.getAccount(accountId);
 
@@ -381,11 +408,8 @@ class CloudDriveManager {
 
 
   /**
-
    * 开始扫码登录流程
-
    * @returns {Promise<{accountId: number, qrId: string, qrImage: string, expiresIn: number}>}
-
    */
 
   async startQRLogin(driver, name) {
@@ -431,9 +455,7 @@ class CloudDriveManager {
 
 
   /**
-
    * 轮询扫码状态
-
    */
 
   async checkQRLogin(qrId) {
@@ -503,11 +525,8 @@ class CloudDriveManager {
 
 
   /**
-
    * 刷新所有过期/即将过期的 token
-
    * 由定时任务调用
-
    */
 
   async refreshAllTokens() {
@@ -635,9 +654,7 @@ class CloudDriveManager {
 
 
   /**
-
    * 清理过期的扫码会话
-
    */
 
   cleanupExpiredSessions() {
@@ -659,9 +676,7 @@ class CloudDriveManager {
 
 
   /**
-
    * 获取支持的驱动列表
-
    */
 
   getSupportedDrivers() {
@@ -683,4 +698,3 @@ class CloudDriveManager {
 
 
 module.exports = CloudDriveManager;
-
