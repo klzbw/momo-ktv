@@ -640,7 +640,7 @@ const netktvRouter = netktvTest.init({
 
 
 
-  accountId: parseInt(process.env.NETKTV_CLOUD_ACCOUNT_ID || '2', 10),
+  accountId: parseInt(process.env.NETKTV_CLOUD_ACCOUNT_ID || '0', 10),
 
 
 
