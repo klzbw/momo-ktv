@@ -1,19 +1,25 @@
 /**
- * 网盘串流代理 - Gbox AList 版本
+ * 网盘串流代理
  *
- * 提供 /api/cloud/stream/:file_id 和 /api/cloud/stream-path/:accountId/* 端点
- * 自动获取网盘直链并返回 302 重定向（不占 NAS 带宽）
+ * 提供 /api/cloud/stream-path/:accountId/* 与 /api/cloud/direct/:accountId/* 端点。
  *
- * 修复历史：
- *   - 原硬编码 Alist token 会过期（401），改为启动时动态登录 + 自动刷新
- *   - 原硬编码 alistBasePath 写死 /🥝115网盘/115，改为可通过环境变量配置
+ * 核心策略（NAS 零转发）：
+ *   1. 优先按 accountId 找到对应网盘驱动实例（115/夸克/阿里云/百度/迅雷/移动），
+ *      调用驱动的 getDownloadUrlByPath(filePath, clientUA) 获取网盘 CDN 直链，302 重定向。
+ *      媒体数据从网盘 CDN 直连客户端，不经过 NAS。
+ *   2. 驱动取直链失败时，回退到内置 AList（getAlistDirectUrl）作为兜底。
+ *
+ * UA 透传：网盘 CDN 直链签名常与请求时的 User-Agent 绑定，必须把客户端 UA
+ *   （req.get('User-Agent')）透传给驱动，否则可能 403 invalid signature。
+ *
+ * 直链内存缓存：key = `${accountId}|${ua}|${filePath}`（含 UA，避免不同客户端 UA 串用导致 403）。
  */
 
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 
-// 直链内存缓存：filePath -> { url, expiresAt }
+// 直链内存缓存：key -> { url, expiresAt }
 const urlCache = new Map();
 const CACHE_TTL = 25 * 60 * 1000; // 25分钟缓存
 
@@ -122,7 +128,7 @@ class CloudDriveStreamer {
     try {
       const token = await this._getAlistToken();
       const fullPath = this.alistBasePath + '/' + filePath;
-      console.log('[Streamer] Getting direct URL for:', fullPath);
+      console.log('[Streamer] Getting direct URL from AList:', fullPath);
 
       const postData = JSON.stringify({
         path: fullPath,
@@ -154,7 +160,7 @@ class CloudDriveStreamer {
             try {
               const result = JSON.parse(data);
               if (result.code === 200 && result.data && result.data.raw_url) {
-                console.log('[Streamer] Got direct URL:', result.data.raw_url.substring(0, 100) + '...');
+                console.log('[Streamer] Got AList direct URL:', result.data.raw_url.substring(0, 100) + '...');
                 resolve(result.data.raw_url);
               } else if (result.code === 401) {
                 // token 过期，强制刷新后下次重试
@@ -163,17 +169,17 @@ class CloudDriveStreamer {
                 console.warn('[Streamer] AList token 失效(401)，已标记为待刷新');
                 resolve(null);
               } else {
-                console.error('[Streamer] Failed to get direct URL:', result.message || 'unknown');
+                console.error('[Streamer] AList failed to get direct URL:', result.message || 'unknown');
                 resolve(null);
               }
             } catch (e) {
-              console.error('[Streamer] Parse error:', e.message);
+              console.error('[Streamer] AList parse error:', e.message);
               resolve(null);
             }
           });
         });
         req.on('error', (e) => {
-          console.error('[Streamer] Request error:', e.message);
+          console.error('[Streamer] AList request error:', e.message);
           resolve(null);
         });
         req.on('timeout', () => {
@@ -184,24 +190,62 @@ class CloudDriveStreamer {
         req.end();
       });
     } catch (error) {
-      console.error('[Streamer] Error getting direct URL:', error.message);
+      console.error('[Streamer] AList error getting direct URL:', error.message);
       return null;
     }
   }
 
   /**
-   * 获取文件直链（带缓存）
+   * 通过网盘驱动实例获取直链（多驱动：115/quark/aliyun/baidu/xunlei/cmcc）
+   * @param {number} accountId
+   * @param {string} filePath
+   * @param {string} clientUA - 客户端 UA，透传给驱动做签名绑定
+   * @returns {Promise<string|null>}
    */
-  async getDirectUrl(filePath) {
-    const cacheKey = filePath;
+  async getDriverDirectUrl(accountId, filePath, clientUA) {
+    try {
+      const account = this.manager.getAccount(accountId);
+      if (!account) {
+        console.warn('[Streamer] 账号不存在:', accountId);
+        return null;
+      }
+      const driver = this.manager.getDriver(account);
+      if (typeof driver.getDownloadUrlByPath !== 'function') {
+        console.warn(`[Streamer] 驱动 ${account.driver} 不支持 getDownloadUrlByPath，回退 AList`);
+        return null;
+      }
+      const { url } = await driver.getDownloadUrlByPath(filePath, clientUA);
+      console.log(`[Streamer] 驱动直链成功: account=${accountId} driver=${account.driver} path=${filePath}`);
+      return url;
+    } catch (e) {
+      console.warn('[Streamer] 驱动取直链失败，将回退 AList:', e.message);
+      return null;
+    }
+  }
+
+  /**
+   * 获取文件直链（带缓存，优先驱动直连，失败回退 AList）
+   * @param {number} accountId
+   * @param {string} filePath
+   * @param {string} clientUA
+   */
+  async getDirectUrl(accountId, filePath, clientUA) {
+    // 缓存 key 含 UA：不同客户端 UA 生成的签名不同，混用会 403
+    const cacheKey = `${accountId}|${clientUA || 'none'}|${filePath}`;
     const cached = urlCache.get(cacheKey);
 
     if (cached && cached.expiresAt > Date.now()) {
-      console.log('[Streamer] Using cached URL for:', filePath);
+      console.log('[Streamer] Using cached URL for:', cacheKey);
       return cached.url;
     }
 
-    const directUrl = await this.getAlistDirectUrl(filePath);
+    // 1) 优先：对应网盘驱动直连（NAS 零转发）
+    let directUrl = await this.getDriverDirectUrl(accountId, filePath, clientUA);
+
+    // 2) 回退：内置 AList
+    if (!directUrl) {
+      directUrl = await this.getAlistDirectUrl(filePath);
+    }
 
     if (directUrl) {
       urlCache.set(cacheKey, {
@@ -215,12 +259,13 @@ class CloudDriveStreamer {
 
   /**
    * 通过文件路径串流（302 重定向到直链）
-   * 用于 /api/cloud/stream-path/:accountId/* 端点
+   * 用于 /api/cloud/stream-path/:accountId/* 与 /api/cloud/direct/:accountId/* 端点
    */
   async handleStreamByPath(req, res) {
     try {
-      const accountId = req.params.accountId;
-      const filePath = req.params[0] || '';
+      const accountId = parseInt(req.params.accountId, 10);
+      let filePath = req.params[0] || '';
+      try { filePath = decodeURIComponent(filePath); } catch (e) { /* 已是解码后 */ }
 
       console.log('[Streamer] handleStreamByPath:', accountId, filePath);
 
@@ -229,7 +274,9 @@ class CloudDriveStreamer {
         return;
       }
 
-      const directUrl = await this.getDirectUrl(filePath);
+      // UA 透传：客户端 UA 传给驱动，保证 CDN 签名有效
+      const clientUA = req.get('User-Agent') || '';
+      const directUrl = await this.getDirectUrl(accountId, filePath, clientUA);
 
       if (!directUrl) {
         res.status(500).json({ error: 'Failed to get direct URL' });

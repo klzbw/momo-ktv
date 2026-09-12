@@ -572,9 +572,10 @@ struct ContentView: View {
                         }
 
                         // 网络 MKV 视频：VLC 302 直连播放（不占 NAS 带宽和容量）
+                        // 支持三种来源：/api/direct-stream/*、/api/cloud/115-direct/*、cloud_url完整URL
                         if let info = info, info.isNetworkMkv,
-                           let videoPath = info.videoUrl,
-                           let videoURL = self.api.apiURL(videoPath) {
+                           let videoURL = self.api.cloudDirectURL(for: info) {
+                            let videoPath = info.videoUrl ?? info.cloud_url ?? videoURL.absoluteString
                             self.vlcManager.log("▶️ 走VLC直连分支: \(videoPath)")
                             self.isUsingVLC = true
                             self.playerManager.cleanup()

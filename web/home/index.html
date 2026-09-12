@@ -357,6 +357,7 @@ body{
                 <option value="baidu">百度网盘</option>
                 <option value="xunlei">迅雷云盘</option>
                 <option value="cmcc">移动云盘</option>
+                <option value="quark">夸克网盘</option>
               </select>
             </div>
             <input id="home-cloud-name" class="cloud-name-input" placeholder="账号名称" value="我的115">
@@ -419,7 +420,7 @@ body{
 
             <!-- Alist 统一入口：更多网盘可在 Alist 添加后同步 -->
             <div class="cloud-alist-row" style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)">
-              <div class="cloud-tip" style="text-align:center;margin-bottom:8px">夸克 / UC / 天翼 / 123 等更多网盘，可在 Alist 后台添加后一键同步</div>
+              <div class="cloud-tip" style="text-align:center;margin-bottom:8px">UC / 天翼 / 123 等更多网盘，可在 Alist 后台添加后一键同步</div>
               <div class="cloud-link-row">
                 <a class="cloud-link-btn" href="http://192.168.3.16:5236" target="_blank" rel="noopener">🔗 打开Alist后台</a>
                 <button type="button" class="cloud-link-btn" id="home-alist-sync-btn" onclick="syncHomeFromAlist()">🔄 从Alist同步</button>
@@ -560,9 +561,9 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
 }).catch(()=>{});
 
 // ========== 网盘管理 ==========
-const HOME_DRIVER_NAMES = { pan115:'115网盘', aliyun:'阿里云盘', baidu:'百度网盘', xunlei:'迅雷云盘', cmcc:'移动云盘', alist:'Alist' };
-const HOME_DRIVER_DEFAULT_NAMES = { pan115:'我的115', aliyun:'我的阿里云盘', baidu:'我的百度网盘', xunlei:'我的迅雷云盘', cmcc:'我的移动云盘', alist:'我的Alist' };
-const HOME_QR_DRIVERS = ['pan115','aliyun','baidu'];  // 支持扫码的网盘
+const HOME_DRIVER_NAMES = { pan115:'115网盘', aliyun:'阿里云盘', baidu:'百度网盘', xunlei:'迅雷云盘', cmcc:'移动云盘', quark:'夸克网盘', alist:'Alist' };
+const HOME_DRIVER_DEFAULT_NAMES = { pan115:'我的115', aliyun:'我的阿里云盘', baidu:'我的百度网盘', xunlei:'我的迅雷云盘', cmcc:'我的移动云盘', quark:'我的夸克网盘', alist:'我的Alist' };
+const HOME_QR_DRIVERS = ['pan115','aliyun','baidu','quark'];  // 支持扫码的网盘
 let cloudAccountsCache = [];
 let homeQrLoginData = null;
 let homeQrPollTimer = null;
@@ -651,6 +652,7 @@ function onHomeDriverChange(){
     baidu: '粘贴百度网盘 Cookie 或 access_token',
     xunlei: '粘贴迅雷 Bearer Token（Authorization 头，去掉 Bearer 前缀）',
     cmcc: '粘贴移动云盘 Cookie',
+    quark: '粘贴夸克网盘 Cookie（已登录浏览器中提取）',
   };
   if(cookieArea) cookieArea.placeholder = placeholders[driver] || '粘贴登录凭证';
 }

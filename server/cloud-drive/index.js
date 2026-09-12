@@ -2614,6 +2614,20 @@ router.get('/stream-path/:accountId/*', requireManager, (req, res) => {
 
 
 
+// ==================== 通用网盘直连端点（支持所有驱动：115/quark/cmcc/aliyun/baidu/xunlei） ====================
+//
+// 与 /115-direct 相同语义，但按 accountId 自动选择对应驱动实例：
+//   accountId -> 查账号 -> 取驱动 -> getDownloadUrlByPath(path, clientUA) -> 302 重定向到网盘 CDN。
+// UA 透传：把 req.get('User-Agent') 传给驱动，保证 CDN 直链签名有效。
+// 驱动失败时由 streamer 内部回退到内置 AList。
+//
+// 示例: /api/cloud/direct/2/ktv-output/xxx.mkv
+
+router.get('/direct/:accountId/*', requireManager, (req, res) => {
+  req.streamer.handleStreamByPath(req, res);
+});
+
+
 // ==================== 原生 115 CDN 直链端点（单层 302，不经过内置 AList） ====================
 
 //

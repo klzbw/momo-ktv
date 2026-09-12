@@ -381,10 +381,15 @@ class KTVAPIClient: ObservableObject {
         let isVideo: Bool?
         let audioTracks: Int?
         let source: String?
+        /// 来源类型：local / cloud（服务端可能不返回）
+        let source_type: String?
+        /// 网盘直连完整 URL（服务端可能直接返回）
+        let cloud_url: String?
 
         enum CodingKeys: String, CodingKey {
             case dual, hasVocal, hasAccomp, hasAccompaniment, sepStatus, vocalUrl, accompUrl
             case isNetKtv, videoUrl, isNetKtvMkv, isNetworkMkvRaw = "isNetworkMkv", isVideo, audioTracks, source
+            case source_type, cloud_url
         }
 
         /// 三者齐备才允许走双FLAC混合
@@ -393,7 +398,26 @@ class KTVAPIClient: ObservableObject {
         var isNetworkDual: Bool { isDual && isNetKtv == true }
         /// 网络KTV MKV视频：单文件多音轨，直接播放videoUrl
         /// 同时识别 isNetKtvMkv(标准) 和 isNetworkMkv(share-115旧字段) 两个字段
-        var isNetworkMkv: Bool { (isNetKtvMkv == true || isNetworkMkvRaw == true) && videoUrl != nil }
+        /// 也兼容 cloud_url 直接返回的完整URL
+        var isNetworkMkv: Bool {
+            if (isNetKtvMkv == true || isNetworkMkvRaw == true) && videoUrl != nil { return true }
+            if cloud_url != nil { return true }
+            return false
+        }
+    }
+
+    /// 获取网络MKV歌曲的完整播放URL（优先cloud_url，其次videoUrl拼接baseURL）
+    /// 返回 nil 表示该歌曲不走网盘直连
+    func cloudDirectURL(for info: SepInfo) -> URL? {
+        // 服务端直接返回完整URL
+        if let cu = info.cloud_url, cu.hasPrefix("http") {
+            return URL(string: cu)
+        }
+        // 相对路径拼接
+        if let vp = info.videoUrl {
+            return apiURL(vp)
+        }
+        return nil
     }
 
     /// 查询某首歌的 AI 分离状态与双轨相对路径（失败/未分离回 nil，调用方走 HLS 兜底）

@@ -36,7 +36,11 @@ struct Song: Codable, Identifiable, Hashable {
 
     let source_root: String?
 
+    /// 来源类型：local / cloud / strm（服务端可能不返回，用 source_root 兜底推断）
+    let source_type: String?
 
+    /// 网盘直连播放 URL（服务端可能直接返回完整 http URL）
+    let cloud_url: String?
 
     var displayTitle: String { title ?? filename ?? "未知歌曲" }
 
@@ -67,8 +71,20 @@ struct Song: Codable, Identifiable, Hashable {
     /// 是否网络歌曲（115网盘直连）。用于列表/播放界面显示"云"标识。
     /// netktv-* / share-115 均为115网盘来源，不走本地HLS。
     var isNetworkSong: Bool {
+        // 优先用 source_type 字段，兼容旧版用 source_root 推断
+        if let st = source_type {
+            if st == "cloud" || st == "strm" { return true }
+        }
         guard let sr = source_root else { return false }
-        return sr.hasPrefix("netktv") || sr == "share-115"
+        return sr.hasPrefix("netktv") || sr == "share-115" || sr.hasPrefix("cloud")
+    }
+
+    /// 是否网盘直连来源（需要走 VLC/MSE 直连播放，不走 NAS HLS 转码）
+    var isCloudDirectSource: Bool {
+        if let st = source_type, st == "cloud" { return true }
+        if let cu = cloud_url, cu.hasPrefix("http") { return true }
+        guard let sr = source_root else { return false }
+        return sr.hasPrefix("netktv") || sr == "share-115" || sr.hasPrefix("cloud")
     }
 
     /// 媒体类型标签：视频歌曲显示"MKV"，音频歌曲显示"FLAC"
@@ -116,7 +132,11 @@ struct QueueItem: Codable, Identifiable, Hashable {
 
     let source_root: String?
 
+    /// 来源类型：local / cloud / strm
+    let source_type: String?
 
+    /// 网盘直连播放 URL
+    let cloud_url: String?
 
     var id: Int { queue_id }
 
@@ -134,8 +154,19 @@ struct QueueItem: Codable, Identifiable, Hashable {
     /// 是否网络歌曲（115网盘直连）
     /// netktv-* / share-115 均为115网盘来源，不走本地HLS。
     var isNetworkSong: Bool {
+        if let st = source_type {
+            if st == "cloud" || st == "strm" { return true }
+        }
         guard let sr = source_root else { return false }
-        return sr.hasPrefix("netktv") || sr == "share-115"
+        return sr.hasPrefix("netktv") || sr == "share-115" || sr.hasPrefix("cloud")
+    }
+
+    /// 是否网盘直连来源
+    var isCloudDirectSource: Bool {
+        if let st = source_type, st == "cloud" { return true }
+        if let cu = cloud_url, cu.hasPrefix("http") { return true }
+        guard let sr = source_root else { return false }
+        return sr.hasPrefix("netktv") || sr == "share-115" || sr.hasPrefix("cloud")
     }
 
     var mediaTypeLabel: String { isVideoFile ? "MKV" : "FLAC" }

@@ -4072,38 +4072,6 @@ select option{color:#000}
 </div>
 
 
-<!-- 夸克网盘扫码登录 Modal -->
-<div id="quark-modal-overlay" onclick="if(event.target===this)closeQuarkModal()">
-  <div id="quark-modal" onclick="event.stopPropagation()" style="width:480px;max-width:94vw">
-    <h3>🍒 夸克网盘登录</h3>
-    <div style="font-size:12px;color:var(--sub);margin:-10px 0 16px;line-height:1.7">
-      请用夸克App扫描下方二维码登录，登录成功后自动添加到Alist并可在点歌系统中使用。
-    </div>
-
-    <!-- 二维码区域 -->
-    <div id="quark-qr-section" style="text-align:center;padding:20px 0">
-      <div id="quark-qr-container" style="display:inline-block;background:#fff;padding:16px;border-radius:12px">
-        <div id="quark-qr-placeholder" style="width:220px;height:220px;display:flex;align-items:center;justify-content:center;color:#666;font-size:14px">
-          点击下方按钮生成二维码
-        </div>
-        <canvas id="quark-qrcode" style="display:none"></canvas>
-      </div>
-      <div id="quark-login-status" style="margin-top:16px;font-size:14px;color:var(--sub)">等待生成二维码...</div>
-    </div>
-
-    <!-- 已登录账号列表 -->
-    <div id="quark-accounts-section" style="margin-top:16px;display:none">
-      <div style="font-size:13px;font-weight:600;margin-bottom:10px">已配置的夸克网盘</div>
-      <div id="quark-accounts-list"></div>
-    </div>
-
-    <div style="margin-top:20px;display:flex;gap:8px;justify-content:center">
-      <button id="quark-generate-btn" onclick="quarkGenerateQr()" class="hbtn primary">📱 生成登录二维码</button>
-      <button onclick="closeQuarkModal()" class="hbtn">关闭</button>
-    </div>
-  </div>
-</div>
-
 <div id="toast"></div>
 
 
@@ -8348,84 +8316,6 @@ let srcRootsCache = [];
 
 
 
-let cloudAccountCache = [];
-
-
-
-async function loadCloudAccounts(){
-
-
-
-  try{
-
-
-
-    const r = await fetch('/api/admin/cloud-accounts');
-
-
-
-    const d = await r.json();
-
-
-
-    cloudAccountCache = d.accounts || [];
-
-
-
-    const sel = document.getElementById('cloud-acct-sel');
-
-
-
-    sel.innerHTML = '';
-
-
-
-    if(!cloudAccountCache.length){
-
-
-
-      sel.innerHTML = '<option value="">(无可用115账号)</option>';
-
-
-
-      return;
-
-
-
-    }
-
-
-
-    cloudAccountCache.forEach(a => {
-
-
-
-      const o = document.createElement('option');
-
-
-
-      o.value = a.id;
-
-
-
-      o.textContent = a.name + ' (id=' + a.id + ', ' + a.status + ')';
-
-
-
-      sel.appendChild(o);
-
-
-
-    });
-
-
-
-  }catch(e){ srcHint('加载115账号失败'); }
-
-
-
-}
-
 
 
   // ========== Alist 集成 ==========
@@ -11597,6 +11487,22 @@ async function loadCloudAccounts(){
 
     cloudAccountsCache = d.accounts || [];
 
+    // 填充"添加115网盘网络曲库"下拉框（cloud-acct-sel），数据源与上方列表一致
+    const acctSel = document.getElementById('cloud-acct-sel');
+    if(acctSel){
+      acctSel.innerHTML = "";
+      if(cloudAccountsCache.length){
+        cloudAccountsCache.forEach(a => {
+          const o = document.createElement("option");
+          o.value = a.id;
+          o.textContent = a.name + " (id=" + a.id + ", " + a.status + ")";
+          acctSel.appendChild(o);
+        });
+      }else{
+        acctSel.innerHTML = '<option value="">(无可用115账号)</option>';
+      }
+    }
+
 
 
 
@@ -12398,20 +12304,6 @@ async function startQrLogin(){
 
 
 
-function startQrPolling(){
-
-
-
-  stopQrPolling();
-
-
-
-  qrPollTimer = setInterval(pollQrStatus, 2000);
-
-
-
-}
-
 
 
 
@@ -12948,156 +12840,6 @@ async function deleteCloudAccount(id, name){
 
 
 
-
-// ---------- 夸克网盘扫码登录 ----------
-let quarkPollTimer = null;
-
-function openQuarkModal(){
-  document.getElementById('quark-modal-overlay').classList.add('open');
-  loadQuarkAccounts();
-}
-function closeQuarkModal(){
-  document.getElementById('quark-modal-overlay').classList.remove('open');
-  if (quarkPollTimer) { clearInterval(quarkPollTimer); quarkPollTimer = null; }
-}
-
-async function quarkGenerateQr(){
-  const statusEl = document.getElementById('quark-login-status');
-  const placeholder = document.getElementById('quark-qr-placeholder');
-  const canvas = document.getElementById('quark-qrcode');
-  const btn = document.getElementById('quark-generate-btn');
-
-  btn.disabled = true;
-  btn.textContent = '生成中...';
-  statusEl.textContent = '正在生成二维码...';
-
-  try {
-    const r = await fetch('/api/quark/qrcode/generate');
-    const d = await r.json();
-    if (!d.success) throw new Error(d.error || '生成失败');
-
-    // 用 canvas 生成二维码
-    placeholder.style.display = 'none';
-    canvas.style.display = 'block';
-
-    // 加载 qrcode.js 库（如果还没加载）
-    if (typeof QRCode === 'undefined') {
-      await loadScript('https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js');
-    }
-
-    // 清空 canvas 并生成新二维码
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // 使用 QRCode 库生成
-    const qrContainer = document.createElement('div');
-    new QRCode(qrContainer, {
-      text: d.qrContent,
-      width: 220,
-      height: 220,
-      colorDark: '#000000',
-      colorLight: '#ffffff',
-      correctLevel: QRCode.CorrectLevel.M
-    });
-
-    // 把生成的 img 绘制到 canvas
-    setTimeout(() => {
-      const img = qrContainer.querySelector('img');
-      if (img) {
-        img.onload = () => {
-          canvas.width = 220;
-          canvas.height = 220;
-          ctx.drawImage(img, 0, 0);
-          canvas.style.display = 'block';
-          placeholder.style.display = 'none';
-        };
-        if (img.complete) img.onload();
-      }
-    }, 100);
-
-    statusEl.textContent = '请用夸克App扫码登录';
-    statusEl.style.color = 'var(--sub)';
-
-    // 开始轮询
-    if (quarkPollTimer) clearInterval(quarkPollTimer);
-    quarkPollTimer = setInterval(() => quarkPollStatus(d.sessionId), 2000);
-
-  } catch (e) {
-    statusEl.textContent = '生成失败: ' + e.message;
-    statusEl.style.color = 'var(--pink)';
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '📱 重新生成二维码';
-  }
-}
-
-async function quarkPollStatus(token){
-  const statusEl = document.getElementById('quark-login-status');
-  try {
-    const r = await fetch(`/api/quark/qrcode/status?token=${encodeURIComponent(token)}`);
-    const d = await r.json();
-
-    if (d.status === 'confirmed') {
-      // 扫码成功，自动应用到 Alist
-      clearInterval(quarkPollTimer);
-      quarkPollTimer = null;
-      statusEl.textContent = '扫码成功，正在添加到Alist...';
-      statusEl.style.color = '#4ade80';
-
-      // 调用 apply 接口
-      const applyR = await fetch('/api/quark/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cookie: d.cookie, nickname: d.nickname || '' })
-      });
-      const applyD = await applyR.json();
-
-      if (applyD.success) {
-        statusEl.textContent = '✅ ' + applyD.message;
-        loadQuarkAccounts();
-      } else {
-        statusEl.textContent = '❌ 添加失败: ' + (applyD.error || '未知错误');
-        statusEl.style.color = 'var(--pink)';
-      }
-
-    } else if (d.status === 'scanned') {
-      statusEl.textContent = '已扫码，请在手机上确认...';
-      statusEl.style.color = '#fbbf24';
-    } else if (d.status === 'expired') {
-      clearInterval(quarkPollTimer);
-      quarkPollTimer = null;
-      statusEl.textContent = '二维码已过期，请重新生成';
-      statusEl.style.color = 'var(--pink)';
-    }
-  } catch (e) {
-    console.warn('[QuarkLogin] poll error:', e.message);
-  }
-}
-
-async function loadQuarkAccounts(){
-  try {
-    const r = await fetch('/api/quark/status');
-    const d = await r.json();
-    const listEl = document.getElementById('quark-accounts-list');
-    const sectionEl = document.getElementById('quark-accounts-section');
-
-    if (d.data && d.data.length > 0) {
-      sectionEl.style.display = 'block';
-      listEl.innerHTML = d.data.map(a => `
-        <div style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:12px;margin-bottom:8px;display:flex;align-items:center">
-          <div style="flex:1">
-            <div style="font-size:13px;font-weight:600">${escapeHtml(a.mountPath)}</div>
-            <div style="font-size:11px;color:var(--sub);margin-top:2px">${a.driver} · ${a.status}</div>
-          </div>
-        </div>
-      `).join('');
-    } else {
-      sectionEl.style.display = 'none';
-    }
-  } catch (e) {
-    console.warn('[QuarkLogin] load accounts error:', e.message);
-  }
-}
 
 // 动态加载脚本
 function loadScript(src) {

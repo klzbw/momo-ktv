@@ -3262,6 +3262,14 @@ let hlsInstance=null;
 let _directMkv=false; // 当前歌曲是否走 115 MKV 302 直连播放（true 时不走 HLS）
 let _mseMkvPlayer=null; // MSE MKV 直连播放器实例（netktv-mkv 歌曲走 MSE 解封装，失败自动回退）
 function destroyHls(){if(hlsInstance){try{hlsInstance.destroy();}catch(e){}hlsInstance=null;}}
+// 解析媒体播放 URL：服务端可能返回相对路径(/api/...)或完整http(s) URL，统一处理为可直接使用的地址
+function resolveMediaUrl(urlOrPath){
+  if(!urlOrPath) return null;
+  // 已经是完整URL直接返回
+  if(/^https?:\/\//i.test(urlOrPath)) return urlOrPath;
+  // 相对路径拼接BASE
+  return BASE + urlOrPath;
+}
 // 加载一首新歌：优先用 hls.js 播放 HLS(master.m3u8 里声明的每条音轨都是独立分片，
 // 切音轨/拖进度条都不会打断视频)；hls.js 不可用但浏览器原生支持 HLS(如 Safari)则
 // 直接把 src 指过去；两者都不支持时兜底退回旧的整段直传接口(仅默认音轨，无法切换)。
@@ -3351,7 +3359,7 @@ document.addEventListener('keydown',resumePendingAutoplay,{passive:true});
 function startDirectMkvPlayback(v,songId,videoUrl){
   _directMkv=true;
   try{ VoiceManager.enterDirectMkv(); }catch(e){}
-  const fullUrl=BASE+videoUrl;
+  const fullUrl=resolveMediaUrl(videoUrl);
   v.crossOrigin='anonymous';
   v.removeAttribute('src');
   v.src=fullUrl;
@@ -3419,7 +3427,7 @@ async function loadSong(v,songId,needsDownload){
           console.log('[loadSong] 网盘MKV，尝试 MSE 直连播放');
           const msePlayer=new MkvMsePlayer();
           try{
-            await msePlayer.load(BASE+sepJ.videoUrl,{audioTrackIndex:0});
+            await msePlayer.load(resolveMediaUrl(sepJ.videoUrl),{audioTrackIndex:0});
             if(!curSong||curSong.song_id!==songId){ msePlayer.destroy(); return; } // await 期间切歌
             _mseMkvPlayer=msePlayer;
             msePlayer.attachMedia(v);

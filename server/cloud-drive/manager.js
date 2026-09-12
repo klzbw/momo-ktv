@@ -20,6 +20,7 @@ const AliyunDriver = require('./drivers/aliyun');
 const BaiduDriver = require('./drivers/baidu');
 const XunleiDriver = require('./drivers/xunlei');
 const CMCCDriver = require('./drivers/cmcc');
+const QuarkDriver = require('./drivers/quark');
 const AlistDriver = require('./drivers/alist');
 
 const DRIVERS = {
@@ -28,6 +29,7 @@ const DRIVERS = {
   baidu: BaiduDriver,
   xunlei: XunleiDriver,
   cmcc: CMCCDriver,
+  quark: QuarkDriver,
   alist: AlistDriver,
 };
 
@@ -703,6 +705,7 @@ class CloudDriveManager {
       { type: 'baidu', name: '百度网盘', authMethod: 'token', authHint: '填写 OAuth access_token（可选 refresh_token）' },
       { type: 'xunlei', name: '迅雷云盘', authMethod: 'token', authHint: '填写 Bearer Token（从浏览器 Authorization 头提取）' },
       { type: 'cmcc', name: '移动云盘', authMethod: 'cookie', authHint: '填写浏览器中的 Cookie（和彩云登录态）' },
+      { type: 'quark', name: '夸克网盘', authMethod: 'cookie', authHint: '支持扫码登录，或填写浏览器中的 Cookie（kpsdk_sid 等）' },
       { type: 'alist', name: 'Alist（统一网盘）', authMethod: 'token', authHint: '填写 Alist 地址和管理员账号（格式：URL|用户名|密码），可连接任意 Alist 实例（含 gbox）' },
     ];
   }

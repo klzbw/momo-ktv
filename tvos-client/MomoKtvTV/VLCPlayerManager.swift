@@ -36,7 +36,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
     private var library: VLCLibrary?
     var player: VLCMediaPlayer?
     private var media: VLCMedia?
-    /// 保存原始的 stream URL（direct-stream 或 share/stream，restart时用，避免用过期的115 CDN直链）
+    /// 保存原始的 stream URL（direct-stream / share/stream / cloud/115-direct，restart时用，避免用过期的CDN直链）
     private var originalStreamURL: URL?
     #endif
     private var drawableViews: NSHashTable<UIView> = NSHashTable.weakObjects()
@@ -113,14 +113,24 @@ class VLCPlayerManager: NSObject, ObservableObject {
     /// 使用自定义URLSession禁止自动跟随重定向，确保能读取到302的Location头。
     /// （URLSession.shared默认会自动跟随302，导致返回最终响应而非302）
     ///
-    /// 触发条件（两类 URL 都会 302 到 115 CDN 直链）：
-    /// - /api/direct-stream/...  （netktv-mkv，115 网盘直链）
-    /// - /api/share/stream/...   （share-115 分享链接，Alist /d/ 代理）
+    /// 触发条件（以下 URL 都会 302 到 CDN 直链）：
+    /// - /api/direct-stream/...     （netktv-mkv，115 网盘直链）
+    /// - /api/share/stream/...      （share-115 分享链接，Alist /d/ 代理）
+    /// - /api/cloud/115-direct/...  （通用115单层直链，pan115驱动）
+    /// - /api/cloud/stream-path/... （cloud-drive AList代理）
     /// 必须在客户端先解析，否则 VLC 自行跟随重定向时可能丢失自定义 UA，
     /// 导致 115 CDN 返回 403 invalid signature。
     private func resolveRedirect(for url: URL, completion: @escaping (URL) -> Void) {
         let urlStr = url.absoluteString
-        let needsResolve = urlStr.contains("direct-stream") || urlStr.contains("share/stream")
+        // 需要预解析302的端点：
+        // - /api/direct-stream/...  (netktv-mkv 115直链)
+        // - /api/share/stream/...   (share-115 分享链接)
+        // - /api/cloud/115-direct/... (通用115单层直链)
+        // - /api/cloud/stream-path/... (cloud-drive AList代理)
+        let needsResolve = urlStr.contains("direct-stream")
+            || urlStr.contains("share/stream")
+            || urlStr.contains("cloud/115-direct")
+            || urlStr.contains("cloud/stream-path")
         guard needsResolve else {
             completion(url)
             return
@@ -216,9 +226,13 @@ class VLCPlayerManager: NSObject, ObservableObject {
             log("⚠️ 警告：没有已注册的视频输出视图！")
         }
 
-        let is115Cloud = url.absoluteString.contains("115cdn") || url.absoluteString.contains("direct-stream") || url.absoluteString.contains("share/stream")
+        let is115Cloud = url.absoluteString.contains("115cdn")
+            || url.absoluteString.contains("direct-stream")
+            || url.absoluteString.contains("share/stream")
+            || url.absoluteString.contains("cloud/115-direct")
+            || url.absoluteString.contains("cloud/stream-path")
         if is115Cloud {
-            log("使用115网盘直连模式（不占NAS带宽，VLC直接访问115 CDN）")
+            log("使用网盘直连模式（不占NAS带宽，VLC直接访问CDN）")
         }
 
         player.play()
@@ -234,9 +248,17 @@ class VLCPlayerManager: NSObject, ObservableObject {
             }
         }
 
-        // 延迟刷新音轨
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            self?.refreshAudioTracks()
+        // 网络流音轨需要更长时间解析（HTTP缓冲+MKV demux），多次延迟刷新确保音轨列表就绪
+        let trackDelays: [Double] = [1.0, 2.0, 3.5, 5.0, 8.0, 12.0]
+        for delay in trackDelays {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self = self, let p = self.player else { return }
+                self.refreshAudioTracks()
+                let trackCount = p.audioTrackNames.count
+                if trackCount >= 2 {
+                    self.log("✅ 音轨已就绪(\(trackCount)条)，延迟\(delay)s")
+                }
+            }
         }
         // 延迟4秒打印状态（仅日志，不自动重试，避免循环）
         DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
@@ -478,6 +500,10 @@ class VLCPlayerManager: NSObject, ObservableObject {
     func toggleVoice() {
         #if canImport(TVVLCKit)
         guard let player = player else { return }
+        // 音轨未就绪时先刷新一次（网络流可能延迟解析）
+        if audioTrackNames.isEmpty {
+            refreshAudioTracks()
+        }
         let count = max(audioTrackNames.count, 1)
         let nextIndex = (currentAudioTrackIndex + 1) % count
         log("toggleVoice: \(currentAudioTrackIndex) -> \(nextIndex), 轨道数:\(count)")
