@@ -52,7 +52,7 @@ struct Song: Codable, Identifiable, Hashable {
 
         if media_type == "video" { return true }
 
-        if source_root == "netktv-mkv" { return true }
+        if source_root == "netktv-mkv" || source_root == "share-115" { return true }
 
         guard let fn = filename?.lowercased() else { return false }
 
@@ -65,9 +65,10 @@ struct Song: Codable, Identifiable, Hashable {
     }
 
     /// 是否网络歌曲（115网盘直连）。用于列表/播放界面显示"云"标识。
+    /// netktv-* / share-115 均为115网盘来源，不走本地HLS。
     var isNetworkSong: Bool {
-        if let sr = source_root, sr.hasPrefix("netktv") { return true }
-        return false
+        guard let sr = source_root else { return false }
+        return sr.hasPrefix("netktv") || sr == "share-115"
     }
 
     /// 媒体类型标签：视频歌曲显示"MKV"，音频歌曲显示"FLAC"
@@ -131,9 +132,10 @@ struct QueueItem: Codable, Identifiable, Hashable {
     /// 媒体类型标签：视频歌曲显示"MKV"，音频歌曲显示"FLAC"
 
     /// 是否网络歌曲（115网盘直连）
+    /// netktv-* / share-115 均为115网盘来源，不走本地HLS。
     var isNetworkSong: Bool {
-        if let sr = source_root, sr.hasPrefix("netktv") { return true }
-        return false
+        guard let sr = source_root else { return false }
+        return sr.hasPrefix("netktv") || sr == "share-115"
     }
 
     var mediaTypeLabel: String { isVideoFile ? "MKV" : "FLAC" }
@@ -152,7 +154,7 @@ struct QueueItem: Codable, Identifiable, Hashable {
 
         if media_type == "video" { return true }
 
-        if source_root == "netktv-mkv" { return true }
+        if source_root == "netktv-mkv" || source_root == "share-115" { return true }
 
         guard let fn = filename?.lowercased() else { return false }
 

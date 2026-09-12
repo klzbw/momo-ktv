@@ -559,12 +559,23 @@ struct ContentView: View {
                 api.fetchSepInfo(songId: sid) { info in
                     DispatchQueue.main.async {
                         // 快切歌保护：当前仍在播放同一首才继续
-                        guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
+                        guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else {
+                            self.vlcManager.log("sep-info: 快切歌保护，忽略 sid=\(sid)")
+                            return
+                        }
+
+                        // 打印 sep-info 诊断信息（定位 share-115 等链路问题）
+                        if let info = info {
+                            self.vlcManager.log("sep-info: isNetKtvMkv=\(info.isNetKtvMkv ?? false), isNetworkMkvRaw=\(info.isNetworkMkvRaw ?? false), isNetworkMkv=\(info.isNetworkMkv), videoUrl=\(info.videoUrl ?? "nil"), source=\(info.source ?? "nil"), isNetworkSong=\(playing.isNetworkSong), source_root=\(playing.source_root ?? "nil")")
+                        } else {
+                            self.vlcManager.log("sep-info: 返回 nil (sid=\(sid))")
+                        }
 
                         // 网络 MKV 视频：VLC 302 直连播放（不占 NAS 带宽和容量）
                         if let info = info, info.isNetworkMkv,
                            let videoPath = info.videoUrl,
                            let videoURL = self.api.apiURL(videoPath) {
+                            self.vlcManager.log("▶️ 走VLC直连分支: \(videoPath)")
                             self.isUsingVLC = true
                             self.playerManager.cleanup()
                             self.vlcManager.play(url: videoURL)
@@ -584,6 +595,7 @@ struct ContentView: View {
                         }
 
                         // 非 MKV：停止 VLC（防止两种声音同时存在）
+                        self.vlcManager.log("⏭️ 未走VLC分支: isNetworkMkv=\(info?.isNetworkMkv ?? false), videoUrl=\(info?.videoUrl ?? "nil")")
                         self.isUsingVLC = false
                         self.vlcManager.stop()
 
@@ -592,6 +604,7 @@ struct ContentView: View {
                            let vocalPath = info.vocalUrl, let accompPath = info.accompUrl,
                            let vURL = self.api.apiURL(vocalPath),
                            let aURL = self.api.apiURL(accompPath) {
+                            self.vlcManager.log("▶️ 走DUAL双FLAC分支: vocal=\(vocalPath)")
                             self.playerManager.vocalTrackCount = 2
                             self.playerManager.setupNetKtvPlayer(songId: String(sid), vocalURL: vURL, accompURL: aURL)
                             self.playerManager.setVolume(volume)
@@ -600,7 +613,10 @@ struct ContentView: View {
 
                         // 本地歌曲：已在上方立即 HLS 起播，这里检查是否需要升级 DUAL（AI分离歌）
                         if !playing.isNetworkSong {
+                            self.vlcManager.log("⏭️ 走本地HLS/prepareDual分支 (isNetworkSong=false)")
                             self.prepareDualIfNeeded(playing)
+                        } else {
+                            self.vlcManager.log("❌ 无匹配播放分支! isNetworkSong=true 但既非MKV也非DUAL")
                         }
                     }
                 }

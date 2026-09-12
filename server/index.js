@@ -10252,8 +10252,10 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
       return res.json({
         dual: false,
         hasVocal: true,
-        hasAccompaniment: true,
-        isNetworkMkv: true,
+        hasAccomp: true,
+        sepStatus: 'done',
+        isNetKtvMkv: true,
+        isVideo: true,
         videoUrl: videoUrl,
         vocalUrl: videoUrl,
         accompUrl: videoUrl,

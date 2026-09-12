@@ -77,7 +77,8 @@ class VLCPlayerManager: NSObject, ObservableObject {
     }
     #endif
 
-    private func log(_ message: String) {
+    /// 公共日志接口：供 ContentView 等外部模块输出播放链路诊断信息
+    func log(_ message: String) {
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         let line = "[\(timestamp)] \(message)"
         print(line)

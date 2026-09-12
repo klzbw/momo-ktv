@@ -370,20 +370,30 @@ class KTVAPIClient: ObservableObject {
         let dual: Bool?
         let hasVocal: Bool?
         let hasAccomp: Bool?
+        let hasAccompaniment: Bool?   // 兼容服务端旧字段名
         let sepStatus: String?
         let vocalUrl: String?
         let accompUrl: String?
         let isNetKtv: Bool?
         let videoUrl: String?
         let isNetKtvMkv: Bool?
+        let isNetworkMkvRaw: Bool?    // 兼容服务端旧字段名 isNetworkMkv（share-115 历史返回）
         let isVideo: Bool?
         let audioTracks: Int?
+        let source: String?
+
+        enum CodingKeys: String, CodingKey {
+            case dual, hasVocal, hasAccomp, hasAccompaniment, sepStatus, vocalUrl, accompUrl
+            case isNetKtv, videoUrl, isNetKtvMkv, isNetworkMkvRaw = "isNetworkMkv", isVideo, audioTracks, source
+        }
+
         /// 三者齐备才允许走双FLAC混合
-        var isDual: Bool { dual == true && hasVocal == true && hasAccomp == true }
+        var isDual: Bool { dual == true && hasVocal == true && (hasAccomp == true || hasAccompaniment == true) }
         /// 网络KTV歌曲：直接用网络URL，不下载到本地
         var isNetworkDual: Bool { isDual && isNetKtv == true }
         /// 网络KTV MKV视频：单文件多音轨，直接播放videoUrl
-        var isNetworkMkv: Bool { isNetKtvMkv == true && videoUrl != nil }
+        /// 同时识别 isNetKtvMkv(标准) 和 isNetworkMkv(share-115旧字段) 两个字段
+        var isNetworkMkv: Bool { (isNetKtvMkv == true || isNetworkMkvRaw == true) && videoUrl != nil }
     }
 
     /// 查询某首歌的 AI 分离状态与双轨相对路径（失败/未分离回 nil，调用方走 HLS 兜底）
