@@ -1808,6 +1808,21 @@ select option{color:#000}
 
         <div style="flex-shrink:0;text-align:center">
 
+          <!-- Alist 引导添加区域（迅雷/移动云盘等不支持直接扫码的网盘） -->
+          <div id="alist-guide-section" style="display:none;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:16px;margin:10px 0">
+            <div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:10px">📋 通过内置 Alist 添加 <span id="alist-guide-driver-name"></span></div>
+            <div style="font-size:12px;color:var(--sub);line-height:1.8;margin-bottom:12px">该网盘暂不支持直接扫码登录，请通过内置 Alist 完成添加：</div>
+            <div style="font-size:12px;line-height:2;margin-bottom:12px">
+              <div style="color:#4ade80">① 点击下方按钮打开 Alist 后台</div>
+              <div style="color:#fbbf24">② 在 Alist 中：存储 → 添加 → 选择对应驱动 → 完成登录</div>
+              <div style="color:#60a5fa">③ 回到本页点击「同步到点歌系统」自动导入</div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button onclick="openAlistAdmin()" style="flex:1;padding:8px 12px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🔗 打开 Alist 后台</button>
+              <button onclick="syncFromAlist()" style="flex:1;padding:8px 12px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🔄 同步到点歌系统</button>
+            </div>
+            <div style="font-size:11px;color:var(--sub);margin-top:8px;line-height:1.6">Alist 地址：http://192.168.3.16:5236（账号 admin / 密码 Dd112233）</div>
+          </div>
           <div id="qrcode-container" style="width:180px;height:180px;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden">
 
             <div style="color:#999;font-size:12px">点击下方按钮获取二维码</div>
@@ -5909,10 +5924,14 @@ function switchCloudTab(tab){
 function onQrDriverChange(){
   const driver = document.getElementById('cloud-qr-driver-select').value;
   const driverNames = { pan115:'115网盘', aliyun:'阿里云盘', baidu:'百度网盘', xunlei:'迅雷云盘', cmcc:'移动云盘', alist:'Alist' };
+  const alistDrivers = ['xunlei','cmcc']; // 需要通过 Alist 添加的网盘
+  const isAlistGuide = alistDrivers.includes(driver);
+
   // 更新标题
   const nameEl = document.getElementById('qr-driver-name');
   if(nameEl) nameEl.textContent = driverNames[driver] || driver;
-  // 更新账号名称默认值（只在用户未手动修改时）
+
+  // 更新账号名称默认值
   const nameInput = document.getElementById('cloud-qr-name-input');
   if(nameInput){
     const defaultNames = { pan115:'我的115', aliyun:'我的阿里云盘', baidu:'我的百度网盘', xunlei:'我的迅雷云盘', cmcc:'我的移动云盘', alist:'我的Alist' };
@@ -5922,6 +5941,7 @@ function onQrDriverChange(){
       nameInput.value = defaultNames[driver] || '我的网盘';
     }
   }
+
   // 隐藏非115的"登录设备类型"
   const appSelect = document.getElementById('cloud-qr-app-select');
   if(appSelect){
@@ -5934,21 +5954,41 @@ function onQrDriverChange(){
       if(appWrap) appWrap.style.display = 'none';
     }
   }
-  // 更新步骤提示
+
+  // 显示/隐藏 Alist 引导区域
+  const alistGuide = document.getElementById('alist-guide-section');
+  const qrContainer = document.getElementById('qrcode-container');
+  const qrBtn = document.getElementById('cloud-qr-start-btn');
   const stepsEl = document.querySelector('#cloud-qrcode-section div[style*="font-size:11px"]');
-  if(stepsEl){
-    const appName = driverNames[driver] || driver;
-    stepsEl.innerHTML = '1. 点击「获取二维码」<br>2. 用手机' + appName + 'App扫码<br>3. 手机上确认登录<br>4. 自动创建账号 ✓';
+
+  if(isAlistGuide){
+    // 显示 Alist 引导，隐藏扫码按钮和二维码
+    if(alistGuide) alistGuide.style.display = '';
+    if(qrContainer) qrContainer.parentElement.style.display = 'none';
+    if(qrBtn) qrBtn.style.display = 'none';
+    if(stepsEl) stepsEl.style.display = 'none';
+    // 更新引导内容
+    const guideTitle = document.getElementById('alist-guide-driver-name');
+    if(guideTitle) guideTitle.textContent = driverNames[driver] || driver;
+  } else {
+    // 显示扫码按钮和二维码，隐藏 Alist 引导
+    if(alistGuide) alistGuide.style.display = 'none';
+    if(qrContainer) qrContainer.parentElement.style.display = '';
+    if(qrBtn) qrBtn.style.display = '';
+    if(stepsEl){
+      stepsEl.style.display = '';
+      const appName = driverNames[driver] || driver;
+      stepsEl.innerHTML = '1. 点击「获取二维码」<br>2. 用手机' + appName + 'App扫码<br>3. 手机上确认登录<br>4. 自动创建账号 ✓';
+    }
   }
-  // 重置扫码区域
+
+  // 重置扫码状态
   if(qrLoginPolling){ clearInterval(qrLoginPolling); qrLoginPolling=null; }
   qrLoginData = null;
-  const container = document.getElementById('qrcode-container');
-  if(container) container.innerHTML = '<div style="color:#999;font-size:12px">点击下方按钮获取二维码</div>';
+  if(qrContainer) qrContainer.innerHTML = '<div style="color:#999;font-size:12px">点击下方按钮获取二维码</div>';
   const statusEl = document.getElementById('qrcode-status');
   if(statusEl){ statusEl.textContent = '等待扫码...'; statusEl.style.color = 'var(--sub)'; }
-  const btn = document.getElementById('cloud-qr-start-btn');
-  if(btn) btn.textContent = '获取二维码';
+  if(qrBtn) qrBtn.textContent = '获取二维码';
 }
 
 async function startQrLogin(){
