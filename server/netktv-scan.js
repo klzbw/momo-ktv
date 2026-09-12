@@ -254,7 +254,7 @@ async function scanAllAccounts(cloudDrive, basePath, db, strmDir) {
  */
 function init(db, cloudDrive) {
   const DATA_DIR = process.env.DATA_DIR || '/data';
-  const STRM_DIR = path.join(DATA_DIR, 'netktv-strm');
+  const STRM_DIR = path.join(DATA_DIR, 'netseparated-strm');
 
   // POST /api/netktv/scan — 触发扫描
   // body: { accountId, basePath }

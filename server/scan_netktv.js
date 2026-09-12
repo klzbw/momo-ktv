@@ -4,7 +4,7 @@ const path = require('path');
 
 const db = new Database('/data/ktv.db');
 const SEPARATED_DIR = '/data/cloud-115/separated';
-const STRM_DIR = '/data/netktv-strm';
+const STRM_DIR = '/data/netseparated-strm';
 const STREAM_BASE = 'http://127.0.0.1:8080/api/netktv/stream';
 
 // 创建 STRM 目录

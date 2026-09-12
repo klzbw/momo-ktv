@@ -21099,7 +21099,7 @@ app.post('/api/admin/library-sources/roots/:idx/scan', requireAdminAuth, async (
       return res.json({ ok: true, message: 'MKV扫描已开始', sourceRoot: root.dir, accountId, cloudPath });
     } else if (root.dir === 'netktv') {
       const { scanSeparatedFiles } = require('./netktv-scan');
-      scanSeparatedFiles(cd, accountId, cloudPath, db, path.join(process.env.DATA_DIR || '/data', 'netktv-strm')).catch(e => console.error('[ADMIN-SCAN-FLAC]', e.message));
+      scanSeparatedFiles(cd, accountId, cloudPath, db, path.join(process.env.DATA_DIR || '/data', 'netseparated-strm')).catch(e => console.error('[ADMIN-SCAN-FLAC]', e.message));
       return res.json({ ok: true, message: '分离FLAC扫描已开始', sourceRoot: root.dir, accountId, cloudPath });
     }
     return res.status(400).json({ error: '未知的网络来源类型: ' + root.dir });
