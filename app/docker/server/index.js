@@ -59,6 +59,7 @@ app.use('/api/cloud', cloudDrive.init(db));
 
 // 网络KTV模块（支持 cloud-drive 302 直链 + 挂载路径回退）
 const netktvRouter = netktvTest.init({
+  db: db,
   cloudDrive: cloudDrive,
   accountId: parseInt(process.env.NETKTV_CLOUD_ACCOUNT_ID || '2', 10),
   basePath: process.env.NETKTV_CLOUD_BASE_PATH || '/momo-ktv/separated',
