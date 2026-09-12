@@ -1809,20 +1809,61 @@ select option{color:#000}
         <div style="flex-shrink:0;text-align:center">
 
           <!-- Alist 引导添加区域（迅雷/移动云盘等不支持直接扫码的网盘） -->
+          <div>
+          <!-- Alist 引导 + G-Box 登录整合区域 -->
           <div id="alist-guide-section" style="display:none;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:16px;margin:10px 0">
-            <div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:10px">📋 通过内置 Alist 添加 <span id="alist-guide-driver-name"></span></div>
-            <div style="font-size:12px;color:var(--sub);line-height:1.8;margin-bottom:12px">该网盘暂不支持直接扫码登录，请通过内置 Alist 完成添加：</div>
-            <div style="font-size:12px;line-height:2;margin-bottom:12px">
-              <div style="color:#4ade80">① 点击下方按钮打开 Alist 后台</div>
-              <div style="color:#fbbf24">② 在 Alist 中：存储 → 添加 → 选择对应驱动 → 完成登录</div>
-              <div style="color:#60a5fa">③ 回到本页点击「同步到点歌系统」自动导入</div>
+
+            <!-- 移动云盘：跳转拿token/cookie -->
+            <div id="cmcc-login-panel" style="display:none">
+              <div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:10px">📋 获取移动云盘 Authorization</div>
+              <div style="font-size:12px;color:var(--sub);line-height:1.8;margin-bottom:12px">
+                点击下方按钮打开移动云盘官网，登录后按 F12 打开开发者工具，在 Application → Cookies → https://yun.139.com 中找到 <b>Authorization</b> 项，复制其值粘贴到下方：
+              </div>
+              <div style="display:flex;gap:8px;margin-bottom:12px">
+                <button onclick="window.open('https://yun.139.com','_blank')" style="flex:1;padding:8px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🔗 跳转拿token</button>
+                <button onclick="window.open('https://mail.139.com','_blank')" style="flex:1;padding:8px;background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">📧 跳转拿cookie</button>
+              </div>
+              <textarea id="cmcc-token-input" rows="3" placeholder="粘贴 Authorization 值（pc:手机号:token 格式的 Base64 编码，带不带 Basic 前缀都可以）" style="width:100%;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px;color:#fff;font-size:11px;resize:vertical;box-sizing:border-box"></textarea>
+              <button onclick="addCmccToken()" style="width:100%;margin-top:8px;padding:8px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">✓ 添加移动云盘账号</button>
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button onclick="openAlistAdmin()" style="flex:1;padding:8px 12px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🔗 打开 Alist 后台</button>
-              <button onclick="syncFromAlist()" style="flex:1;padding:8px 12px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🔄 同步到点歌系统</button>
+
+            <!-- 迅雷云盘：短信验证码登录 -->
+            <div id="xunlei-login-panel" style="display:none">
+              <div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:10px">📱 迅雷云盘短信登录</div>
+              <div style="font-size:12px;color:var(--sub);line-height:1.8;margin-bottom:12px">
+                输入迅雷绑定的手机号，通过短信验证码自动登录获取 token：
+              </div>
+              <div style="display:flex;gap:8px;margin-bottom:8px">
+                <input id="xl-phone-input" type="tel" placeholder="11位手机号" maxlength="11" style="flex:1;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px;color:#fff;font-size:12px;box-sizing:border-box">
+                <button id="xl-send-code-btn" onclick="sendXunleiSms()" style="padding:8px 14px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;white-space:nowrap">发送验证码</button>
+              </div>
+              <input id="xl-code-input" type="text" placeholder="4位短信验证码" maxlength="4" style="width:100%;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px;color:#fff;font-size:12px;box-sizing:border-box;margin-bottom:8px">
+              <input id="xl-session-key" type="hidden">
+              <button onclick="loginXunleiSms()" style="width:100%;padding:8px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">✓ 验证并添加迅雷账号</button>
+              <div id="xl-sms-status" style="font-size:11px;color:var(--sub);margin-top:6px"></div>
+              <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.1)">
+                <div style="font-size:11px;color:var(--sub);margin-bottom:6px">或通过 Alist 添加（支持更多登录方式）：</div>
+                <button onclick="openAlistAdmin()" style="width:100%;padding:6px;background:rgba(59,130,246,.15);color:#60a5fa;border:1px solid rgba(59,130,246,.3);border-radius:6px;cursor:pointer;font-size:11px">🔗 打开 Alist 后台添加</button>
+              </div>
             </div>
-            <div style="font-size:11px;color:var(--sub);margin-top:8px;line-height:1.6">Alist 地址：http://192.168.3.16:5236（账号 admin / 密码 Dd112233）</div>
+
+            <!-- 通用 Alist 引导（其他网盘） -->
+            <div id="generic-alist-panel" style="display:none">
+              <div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:10px">📋 通过内置 Alist 添加 <span id="alist-guide-driver-name"></span></div>
+              <div style="font-size:12px;line-height:2;margin-bottom:12px">
+                <div style="color:#4ade80">① 点击下方按钮打开 Alist 后台</div>
+                <div style="color:#fbbf24">② 在 Alist 中：存储 → 添加 → 选择对应驱动 → 完成登录</div>
+                <div style="color:#60a5fa">③ 回到本页点击「同步到点歌系统」自动导入</div>
+              </div>
+              <div style="display:flex;gap:8px">
+                <button onclick="openAlistAdmin()" style="flex:1;padding:8px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🔗 打开 Alist 后台</button>
+                <button onclick="syncFromAlist()" style="flex:1;padding:8px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🔄 同步到点歌系统</button>
+              </div>
+              <div style="font-size:11px;color:var(--sub);margin-top:8px">Alist：http://192.168.3.16:5236（admin / Dd112233）</div>
+            </div>
+
           </div>
+        </div>
           <div id="qrcode-container" style="width:180px;height:180px;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden">
 
             <div style="color:#999;font-size:12px">点击下方按钮获取二维码</div>
@@ -5924,65 +5965,61 @@ function switchCloudTab(tab){
 function onQrDriverChange(){
   const driver = document.getElementById('cloud-qr-driver-select').value;
   const driverNames = { pan115:'115网盘', aliyun:'阿里云盘', baidu:'百度网盘', xunlei:'迅雷云盘', cmcc:'移动云盘', alist:'Alist' };
-  const alistDrivers = ['xunlei','cmcc']; // 需要通过 Alist 添加的网盘
-  const isAlistGuide = alistDrivers.includes(driver);
-
-  // 更新标题
-  const nameEl = document.getElementById('qr-driver-name');
-  if(nameEl) nameEl.textContent = driverNames[driver] || driver;
-
-  // 更新账号名称默认值
-  const nameInput = document.getElementById('cloud-qr-name-input');
-  if(nameInput){
-    const defaultNames = { pan115:'我的115', aliyun:'我的阿里云盘', baidu:'我的百度网盘', xunlei:'我的迅雷云盘', cmcc:'我的移动云盘', alist:'我的Alist' };
-    const currentVal = nameInput.value.trim();
-    const allDefaults = Object.values(defaultNames);
-    if(!currentVal || allDefaults.includes(currentVal)){
-      nameInput.value = defaultNames[driver] || '我的网盘';
-    }
-  }
-
-  // 隐藏非115的"登录设备类型"
-  const appSelect = document.getElementById('cloud-qr-app-select');
-  if(appSelect){
-    const appWrap = appSelect.closest('.form-row') || appSelect.parentElement;
-    if(driver === 'pan115'){
-      appSelect.style.display = '';
-      if(appWrap) appWrap.style.display = '';
-    }else{
-      appSelect.style.display = 'none';
-      if(appWrap) appWrap.style.display = 'none';
-    }
-  }
-
-  // 显示/隐藏 Alist 引导区域
   const alistGuide = document.getElementById('alist-guide-section');
+  const cmccPanel = document.getElementById('cmcc-login-panel');
+  const xlPanel = document.getElementById('xunlei-login-panel');
+  const genericPanel = document.getElementById('generic-alist-panel');
   const qrContainer = document.getElementById('qrcode-container');
   const qrBtn = document.getElementById('cloud-qr-start-btn');
   const stepsEl = document.querySelector('#cloud-qrcode-section div[style*="font-size:11px"]');
 
-  if(isAlistGuide){
-    // 显示 Alist 引导，隐藏扫码按钮和二维码
+  // Update title
+  const nameEl = document.getElementById('qr-driver-name');
+  if(nameEl) nameEl.textContent = driverNames[driver] || driver;
+
+  // Update default account name
+  const nameInput = document.getElementById('cloud-qr-name-input');
+  if(nameInput){
+    const defaults = { pan115:'我的115', aliyun:'我的阿里云盘', baidu:'我的百度网盘', xunlei:'我的迅雷云盘', cmcc:'我的移动云盘', alist:'我的Alist' };
+    const cur = nameInput.value.trim();
+    if(!cur || Object.values(defaults).includes(cur)){
+      nameInput.value = defaults[driver] || '我的网盘';
+    }
+  }
+
+  // Hide 115 app select for non-115
+  const appSelect = document.getElementById('cloud-qr-app-select');
+  if(appSelect){
+    const wrap = appSelect.closest('.form-row') || appSelect.parentElement;
+    const show = driver === 'pan115';
+    appSelect.style.display = show ? '' : 'none';
+    if(wrap) wrap.style.display = show ? '' : 'none';
+  }
+
+  // Show/hide panels based on driver
+  const isCmcc = driver === 'cmcc';
+  const isXl = driver === 'xunlei';
+  const isGuide = isCmcc || isXl;
+
+  if(isGuide){
     if(alistGuide) alistGuide.style.display = '';
+    if(cmccPanel) cmccPanel.style.display = isCmcc ? '' : 'none';
+    if(xlPanel) xlPanel.style.display = isXl ? '' : 'none';
+    if(genericPanel) genericPanel.style.display = 'none';
     if(qrContainer) qrContainer.parentElement.style.display = 'none';
     if(qrBtn) qrBtn.style.display = 'none';
     if(stepsEl) stepsEl.style.display = 'none';
-    // 更新引导内容
-    const guideTitle = document.getElementById('alist-guide-driver-name');
-    if(guideTitle) guideTitle.textContent = driverNames[driver] || driver;
   } else {
-    // 显示扫码按钮和二维码，隐藏 Alist 引导
     if(alistGuide) alistGuide.style.display = 'none';
     if(qrContainer) qrContainer.parentElement.style.display = '';
     if(qrBtn) qrBtn.style.display = '';
     if(stepsEl){
       stepsEl.style.display = '';
-      const appName = driverNames[driver] || driver;
-      stepsEl.innerHTML = '1. 点击「获取二维码」<br>2. 用手机' + appName + 'App扫码<br>3. 手机上确认登录<br>4. 自动创建账号 ✓';
+      stepsEl.innerHTML = '1. 点击「获取二维码」<br>2. 用手机' + (driverNames[driver]||driver) + 'App扫码<br>3. 手机上确认登录<br>4. 自动创建账号 ✓';
     }
   }
 
-  // 重置扫码状态
+  // Reset
   if(qrLoginPolling){ clearInterval(qrLoginPolling); qrLoginPolling=null; }
   qrLoginData = null;
   if(qrContainer) qrContainer.innerHTML = '<div style="color:#999;font-size:12px">点击下方按钮获取二维码</div>';
@@ -6233,6 +6270,90 @@ async function deleteCloudAccount(id, name){
   }
 
 }
+
+
+  // ========== 移动云盘 Token 添加 ==========
+  async function addCmccToken(){
+    const token = document.getElementById('cmcc-token-input').value.trim();
+    const name = document.getElementById('cloud-qr-name-input').value.trim() || '我的移动云盘';
+    if(!token){ alert('请先粘贴 Authorization 值'); return; }
+    // Remove "Basic " prefix if present
+    let cleanToken = token.replace(/^Basic\s+/i, '').trim();
+    try{
+      const res = await fetch('/api/cloud/accounts', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ driver:'cmcc', name:name, access_token:cleanToken, refresh_token:'' })
+      });
+      const data = await res.json();
+      if(data.ok || data.id){
+        alert('移动云盘账号添加成功！');
+        document.getElementById('cmcc-token-input').value = '';
+        loadCloudAccounts();
+      } else {
+        alert('添加失败：' + (data.error || '未知错误'));
+      }
+    }catch(e){ alert('添加失败：' + e.message); }
+  }
+
+  // ========== 迅雷短信验证码登录 ==========
+  async function sendXunleiSms(){
+    const phone = document.getElementById('xl-phone-input').value.trim();
+    const btn = document.getElementById('xl-send-code-btn');
+    const status = document.getElementById('xl-sms-status');
+    if(!/^1\d{10}$/.test(phone)){ status.textContent='请输入有效的11位手机号'; status.style.color='#f87171'; return; }
+    btn.disabled = true; btn.textContent = '发送中...';
+    status.textContent = '正在发送验证码...'; status.style.color = 'var(--sub)';
+    try{
+      const res = await fetch('/api/cloud/xunlei/sms/send', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ mobile: phone })
+      });
+      const data = await res.json();
+      if(data.ok){
+        document.getElementById('xl-session-key').value = data.sessionKey || '';
+        status.textContent = '验证码已发送，请查看手机短信（有效期5分钟）';
+        status.style.color = '#4ade80';
+        // Countdown
+        let sec = 60;
+        const timer = setInterval(()=>{
+          sec--;
+          if(sec <= 0){ clearInterval(timer); btn.disabled=false; btn.textContent='重新发送'; }
+          else{ btn.textContent = sec+'s'; }
+        }, 1000);
+      } else {
+        status.textContent = '发送失败：' + (data.error || '未知错误');
+        status.style.color = '#f87171';
+        btn.disabled = false; btn.textContent = '发送验证码';
+      }
+    }catch(e){
+      status.textContent = '发送失败：' + e.message;
+      status.style.color = '#f87171';
+      btn.disabled = false; btn.textContent = '发送验证码';
+    }
+  }
+
+  async function loginXunleiSms(){
+    const phone = document.getElementById('xl-phone-input').value.trim();
+    const code = document.getElementById('xl-code-input').value.trim();
+    const sessionKey = document.getElementById('xl-session-key').value;
+    const name = document.getElementById('cloud-qr-name-input').value.trim() || '我的迅雷云盘';
+    if(!code || code.length !== 4){ alert('请输入4位短信验证码'); return; }
+    try{
+      const res = await fetch('/api/cloud/xunlei/sms/login', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ mobile: phone, smsCode: code, sessionKey: sessionKey, name: name })
+      });
+      const data = await res.json();
+      if(data.ok){
+        alert('迅雷云盘登录成功！账号已自动创建。');
+        document.getElementById('xl-code-input').value = '';
+        loadCloudAccounts();
+      } else {
+        alert('登录失败：' + (data.error || '未知错误'));
+      }
+    }catch(e){ alert('登录失败：' + e.message); }
+  }
 
 </script>
 
