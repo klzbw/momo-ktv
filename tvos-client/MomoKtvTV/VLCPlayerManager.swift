@@ -36,7 +36,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
     private var library: VLCLibrary?
     var player: VLCMediaPlayer?
     private var media: VLCMedia?
-    /// 保存原始的direct-stream URL（restart时用，避免用过期的115 CDN直链）
+    /// 保存原始的 stream URL（direct-stream 或 share/stream，restart时用，避免用过期的115 CDN直链）
     private var originalStreamURL: URL?
     #endif
     private var drawableViews: NSHashTable<UIView> = NSHashTable.weakObjects()
@@ -111,8 +111,16 @@ class VLCPlayerManager: NSObject, ObservableObject {
     /// 预解析 URL 的 302 重定向，返回最终 URL。
     /// 使用自定义URLSession禁止自动跟随重定向，确保能读取到302的Location头。
     /// （URLSession.shared默认会自动跟随302，导致返回最终响应而非302）
+    ///
+    /// 触发条件（两类 URL 都会 302 到 115 CDN 直链）：
+    /// - /api/direct-stream/...  （netktv-mkv，115 网盘直链）
+    /// - /api/share/stream/...   （share-115 分享链接，Alist /d/ 代理）
+    /// 必须在客户端先解析，否则 VLC 自行跟随重定向时可能丢失自定义 UA，
+    /// 导致 115 CDN 返回 403 invalid signature。
     private func resolveRedirect(for url: URL, completion: @escaping (URL) -> Void) {
-        guard url.absoluteString.contains("direct-stream") else {
+        let urlStr = url.absoluteString
+        let needsResolve = urlStr.contains("direct-stream") || urlStr.contains("share/stream")
+        guard needsResolve else {
             completion(url)
             return
         }
@@ -207,7 +215,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
             log("⚠️ 警告：没有已注册的视频输出视图！")
         }
 
-        let is115Cloud = url.absoluteString.contains("115cdn") || url.absoluteString.contains("direct-stream")
+        let is115Cloud = url.absoluteString.contains("115cdn") || url.absoluteString.contains("direct-stream") || url.absoluteString.contains("share/stream")
         if is115Cloud {
             log("使用115网盘直连模式（不占NAS带宽，VLC直接访问115 CDN）")
         }
@@ -315,7 +323,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
     func restart() {
         #if canImport(TVVLCKit)
         guard !isRestarting else { return }
-        // 优先使用保存的原始direct-stream URL（115 CDN直链会过期，不能用media.url）
+        // 优先使用保存的原始 stream URL（direct-stream 或 share/stream，115 CDN直链会过期，不能用media.url）
         let url = originalStreamURL ?? player?.media?.url
         guard let url = url, let p = player else { return }
         isRestarting = true
