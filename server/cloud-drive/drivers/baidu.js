@@ -108,127 +108,143 @@ class BaiduDriver extends CloudDriveBase {
    * 获取百度网盘扫码登录二维码
    * API: GET https://passport.baidu.com/v2/api/getqrcode
    */
-  async getQRCode() {
-    const result = await new Promise((resolve, reject) => {
+  // ==================== 百度网页扫码登录 ====================
+  // 正确流程（参考百度网页版）：
+  //  1) getqrcode -> { sign, imgurl }
+  //  2) channel/unicast?channel_id=sign&callback=cb （长轮询，必须带 callback）
+  //     返回 JSONP：cb({"errno":0,"channel_v":"{\"status\":..,\"v\":\"临时bduss\"}"})
+  //  3) v 非空表示手机已确认，用 v 作为 bduss 调
+  //     v3/login/main/qrbdusslogin?bduss=v -> set-cookie 头 / body.data.session 拿正式 BDUSS/STOKEN/PTOKEN
+
+  // 通用：请求 passport.baidu.com，返回原始文本与 set-cookie 数组
+  _passportRequest(hostname, path, timeoutMs = 8000) {
+    return new Promise((resolve, reject) => {
       const req = https.request({
-        hostname: 'passport.baidu.com',
+        hostname,
         port: 443,
-        path: '/v2/api/getqrcode?lp=pc&qrloginfrom=pc&apiver=v3&tpl=netdisk',
+        path,
         method: 'GET',
-        headers: { 'User-Agent': USER_AGENT },
+        headers: {
+          'User-Agent': USER_AGENT,
+          'Accept': '*/*',
+          'Referer': 'https://pan.baidu.com/',
+        },
       }, (res) => {
-        let data = '';
-        res.on('data', c => data += c);
-        res.on('end', () => {
-          try { resolve(JSON.parse(data)); } catch (e) { resolve(data); }
-        });
+        let body = '';
+        res.on('data', c => body += c);
+        res.on('end', () => resolve({
+          body,
+          setCookies: res.headers['set-cookie'] || [],
+        }));
       });
       req.on('error', reject);
-      req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
+      req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('timeout')); });
       req.end();
     });
-
-    const sign = result.sign || (result.data && result.data.sign);
-    const imgurl = result.imgurl || (result.data && result.data.imgurl);
-
-    if (!sign || !imgurl) {
-      throw new Error('百度网盘获取二维码失败: ' + JSON.stringify(result).substring(0, 200));
-    }
-
-    let qrImage = imgurl;
-    if (qrImage) {
-      // 处理各种 URL 格式
-      if (qrImage.startsWith('//')) {
-        qrImage = 'https:' + qrImage;
-      } else if (qrImage.startsWith('http://') || qrImage.startsWith('https://')) {
-        // 已经是完整 URL，不处理
-      } else if (qrImage.includes('passport.baidu.com')) {
-        // 包含域名但无协议，直接加 https://
-        qrImage = 'https://' + qrImage;
-      } else {
-        // 纯路径，加域名前缀
-        qrImage = 'https://passport.baidu.com/' + qrImage.replace(/^\/+/, '');
-      }
-    }
-
-    return {
-      qrId: sign,
-      qrImage,
-      expiresIn: 300,
-    };
   }
 
-  /**
-   * 轮询百度网盘扫码状态
-   * API: GET https://passport.baidu.com/channel/unicast
-   * 确认后获取 cookie 并作为 access_token 返回
-   */
+  // 解析 JSONP / JSON
+  _parseJSONP(text) {
+    if (!text) return null;
+    let s = String(text).trim();
+    const m = s.match(/^[\w$.]+\(([\s\S]*)\)\s*;?\s*$/);
+    if (m) s = m[1].trim();
+    try { return JSON.parse(s); } catch (e) { return null; }
+  }
+
+  async getQRCode() {
+    const tt = Date.now();
+    const { body } = await this._passportRequest(
+      'passport.baidu.com',
+      `/v2/api/getqrcode?lp=pc&qrloginfrom=pc&apiver=v3&tpl=netdisk&tt=${tt}&_=${tt}`,
+      15000
+    );
+    const result = this._parseJSONP(body) || {};
+    const sign = result.sign;
+    let imgurl = result.imgurl;
+    if (!sign || !imgurl) {
+      throw new Error('百度网盘获取二维码失败: ' + body.substring(0, 200));
+    }
+    if (imgurl.startsWith('//')) {
+      imgurl = 'https:' + imgurl;
+    } else if (!/^https?:\/\//.test(imgurl)) {
+      imgurl = 'https://' + imgurl.replace(/^\/+/, '');
+    }
+    return { qrId: sign, qrImage: imgurl, expiresIn: 300 };
+  }
+
+  // 用临时 bduss(v) 兑换正式登录 cookie
+  async _exchangeBduss(tempBduss) {
+    const tt = Date.now();
+    const path = `/v3/login/main/qrbdusslogin?v=${tt}&bduss=${encodeURIComponent(tempBduss)}`
+      + `&loginVersion=v4&qrcode=1&tpl=netdisk&apiver=v3&tt=${tt}&time=${tt}&alg=v3&callback=cb`;
+    const { body, setCookies } = await this._passportRequest('passport.baidu.com', path, 15000);
+
+    const cookieMap = {};
+    for (const c of setCookies) {
+      const mm = c.match(/^\s*([A-Za-z0-9_]+)\s*=\s*([^;]*)/);
+      if (mm && mm[2] !== '' && mm[2] != null) cookieMap[mm[1].toUpperCase()] = `${mm[1]}=${mm[2]}`;
+    }
+
+    // body（JSONP）的 data.session 里也带 bduss/stoken/ptoken，作为补充
+    try {
+      const outer = this._parseJSONP(body);
+      const sess = outer && outer.data && outer.data.session;
+      if (sess) {
+        if (sess.bduss && !cookieMap.BDUSS) cookieMap.BDUSS = 'BDUSS=' + sess.bduss;
+        if (sess.stoken && !cookieMap.STOKEN) cookieMap.STOKEN = 'STOKEN=' + sess.stoken;
+        if (sess.ptoken && !cookieMap.PTOKEN) cookieMap.PTOKEN = 'PTOKEN=' + sess.ptoken;
+      }
+    } catch (e) { /* ignore */ }
+
+    if (!cookieMap.BDUSS) return null;
+    const order = ['BDUSS', 'STOKEN', 'PTOKEN'];
+    const parts = order.filter(k => cookieMap[k]).map(k => cookieMap[k]);
+    for (const key of Object.keys(cookieMap)) {
+      if (!order.includes(key)) parts.push(cookieMap[key]);
+    }
+    return parts.join('; ');
+  }
+
   async checkQRStatus(qrId) {
     try {
-      const result = await new Promise((resolve, reject) => {
-        const req = https.request({
-          hostname: 'passport.baidu.com',
-          port: 443,
-          path: `/channel/unicast?channel_id=${qrId}&tpl=netdisk&apiver=v3`,
-          method: 'GET',
-          headers: { 'User-Agent': USER_AGENT },
-        }, (res) => {
-          let data = '';
-          res.on('data', c => data += c);
-          res.on('end', () => {
-            try { resolve(JSON.parse(data)); } catch (e) { resolve(data); }
-          });
-        });
-        req.on('error', reject);
-        req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
-        req.end();
-      });
+      const tt = Date.now();
+      // 长轮询：手机确认后服务端立即返回，未确认则挂起到超时
+      const { body } = await this._passportRequest(
+        'passport.baidu.com',
+        `/channel/unicast?channel_id=${encodeURIComponent(qrId)}&tpl=netdisk&apiver=v3`
+        + `&tt=${tt}&need_piece=1&callback=cb&_=${tt}`,
+        9000
+      );
+      const outer = this._parseJSONP(body);
+      if (!outer) return { status: 'waiting' };
+      let channelV = outer.channel_v;
+      if (typeof channelV === 'string') {
+        try { channelV = JSON.parse(channelV); } catch (e) { channelV = {}; }
+      }
+      if (!channelV || typeof channelV !== 'object') return { status: 'waiting' };
 
-      const status = result.status;
+      const v = (channelV.v || '').toString().trim();
+      const st = channelV.status;
 
-      if (status === 2 && result.v) {
-        // 已确认，用 v 换取 cookie
-        const cookieResult = await new Promise((resolve, reject) => {
-          const req = https.request({
-            hostname: 'passport.baidu.com',
-            port: 443,
-            path: `/v2/api/qrcodekey?key=${result.v}&tpl=netdisk`,
-            method: 'GET',
-            headers: { 'User-Agent': USER_AGENT },
-          }, (res) => {
-            let data = '';
-            const cookies = [];
-            if (res.headers['set-cookie']) {
-              for (const c of res.headers['set-cookie']) {
-                cookies.push(c.split(';')[0]);
-              }
-            }
-            res.on('data', c => data += c);
-            res.on('end', () => resolve({ body: data, cookies: cookies.join('; ') }));
-          });
-          req.on('error', reject);
-          req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
-          req.end();
-        });
-
-        const cookieStr = cookieResult.cookies;
-        if (cookieStr) {
+      if (v) {
+        // 手机已确认，兑换正式 cookie
+        const cookieStr = await this._exchangeBduss(v);
+        if (cookieStr && cookieStr.includes('BDUSS')) {
+          // 立即更新本实例，供随后 manager.getUserInfo() 使用
+          this.accessToken = cookieStr;
           return {
             status: 'confirmed',
-            tokens: {
-              access_token: cookieStr, // 扫码登录返回 cookie，作为 access_token 存储
-              refresh_token: '',
-              expires_in: 2592000,
-            },
+            tokens: { access_token: cookieStr, refresh_token: '', expires_in: 2592000 },
           };
         }
-        throw new Error('百度网盘获取 cookie 失败');
+        return { status: 'waiting' };
       }
-
-      if (status === 1) return { status: 'scanned' };
-      if (status === 0) return { status: 'waiting' };
+      // status: 1 通常表示已扫码待确认
+      if (st === 1 || st === '1' || st === '104') return { status: 'scanned' };
       return { status: 'waiting' };
     } catch (e) {
+      // 长轮询超时等情况：继续等待
       return { status: 'waiting' };
     }
   }
