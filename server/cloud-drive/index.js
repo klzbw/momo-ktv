@@ -800,6 +800,114 @@ router.delete('/accounts/:id', requireManager, (req, res) => {
 
 /**
 
+
+/**
+ * POST /api/cloud/accounts/qrcode/start
+ * 通用扫码登录 - 开始扫码（支持阿里云盘/百度网盘/迅雷云盘/移动云盘）
+ * Body: { driver, name }
+ */
+router.post('/accounts/qrcode/start', requireManager, async (req, res) => {
+  try {
+    const { driver, name } = req.body;
+    if (!driver) return res.status(400).json({ error: 'driver is required' });
+    const supported = manager.getSupportedDrivers().map(d => d.type);
+    if (!supported.includes(driver)) {
+      return res.status(400).json({ error: '不支持的网盘类型: ' + driver + '，支持: ' + supported.join(', ') });
+    }
+    const result = await manager.startQRLogin(driver, name || ('我的' + driver));
+    res.json({ ok: true, accountId: result.accountId, qrId: result.qrId, qrImage: result.qrImage, expiresIn: result.expiresIn });
+  } catch (e) {
+    console.error('[QR-Login] 开始扫码失败:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/cloud/accounts/qrcode/check?qrId=xxx
+ * 通用扫码登录 - 轮询扫码状态
+ */
+router.get('/accounts/qrcode/check', requireManager, async (req, res) => {
+  try {
+    const { qrId } = req.query;
+    if (!qrId) return res.status(400).json({ error: 'qrId is required' });
+    const result = await manager.checkQRLogin(qrId);
+    if (result.status === 'confirmed') {
+      const account = manager.getAccount(result.accountId);
+      res.json({ ok: true, status: 'confirmed', account: { id: account.id, driver: account.driver, name: account.name, status: account.status } });
+    } else {
+      res.json({ ok: true, status: result.status, message: result.error || '' });
+    }
+  } catch (e) {
+    console.error('[QR-Login] 轮询失败:', e.message);
+    res.json({ ok: true, status: 'waiting', message: '等待扫码' });
+  }
+});
+
+/**
+ * POST /api/cloud/accounts/sync-from-alist
+ * 从内置 Alist 同步网盘账号（参考 gbox 架构）
+ */
+router.post('/accounts/sync-from-alist', requireManager, async (req, res) => {
+  try {
+    const alistUrl = process.env.ALIST_INTERNAL_URL || process.env.ALIST_URL || 'http://localhost:5234';
+    const alistUser = process.env.ALIST_USER || 'admin';
+    const alistPass = process.env.ALIST_PASS || 'Dd112233';
+
+    const loginResp = await fetch(alistUrl + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: alistUser, password: alistPass }),
+    });
+    const loginData = await loginResp.json();
+    if (loginData.code !== 200 || !loginData.data || !loginData.data.token) {
+      return res.status(500).json({ error: 'Alist 登录失败', detail: loginData });
+    }
+    const alistToken = loginData.data.token;
+
+    const storagesResp = await fetch(alistUrl + '/api/admin/storage/list?page=1&per_page=200', {
+      headers: { 'Authorization': alistToken },
+    });
+    const storagesData = await storagesResp.json();
+    const storages = (storagesData.data && storagesData.data.content) || [];
+
+    const driverMap = {
+      '115 Cloud': 'pan115', 'Aliyundrive': 'aliyun', 'AliyundriveOpen': 'aliyun',
+      'BaiduNetdisk': 'baidu', 'Thunder': 'xunlei', 'ThunderBrowser': 'xunlei',
+      'CMCC': 'cmcc', 'CaiYun': 'cmcc',
+    };
+
+    const synced = [];
+    const skipped = [];
+
+    for (const storage of storages) {
+      const momoDriver = driverMap[storage.driver];
+      if (!momoDriver) { skipped.push({ id: storage.id, driver: storage.driver, reason: '不支持的驱动' }); continue; }
+      if (storage.status !== 'work' && storage.status !== 0) { skipped.push({ id: storage.id, driver: storage.driver, reason: '状态异常' }); continue; }
+
+      let addition = {};
+      try { addition = typeof storage.addition === 'string' ? JSON.parse(storage.addition) : (storage.addition || {}); } catch (e) {}
+
+      let accessToken = addition.cookie || addition.access_token || addition.token || '';
+      let refreshToken = addition.refresh_token || '';
+      if (!accessToken) { skipped.push({ id: storage.id, driver: storage.driver, reason: '无认证信息' }); continue; }
+
+      const accountName = (storage.mount_path || '').replace(/^\/+|\/+$/g, '') || ('我的' + momoDriver);
+      try {
+        const account = manager.createAccountWithCookie(momoDriver, accountName, accessToken, refreshToken);
+        synced.push({ id: account.id, driver: account.driver, name: account.name, alistStorageId: storage.id });
+      } catch (e) {
+        skipped.push({ id: storage.id, driver: storage.driver, reason: e.message });
+      }
+    }
+
+    res.json({ ok: true, synced: synced, skipped: skipped, totalStorages: storages.length });
+  } catch (e) {
+    console.error('[Alist-Sync] 同步失败:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+/**
  * POST /api/cloud/accounts/:id/test
 
  * 测试网盘账号连接是否正常
