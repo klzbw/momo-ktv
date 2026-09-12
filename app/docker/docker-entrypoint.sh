@@ -8,22 +8,17 @@ cd /opt/alist
 LD_LIBRARY_PATH=/opt/alist/lib /opt/alist/alist server --no-prefix --data ${ALIST_DATA_DIR:-/opt/alist/data} &
 ALIST_PID=$!
 
-# 等待 alist 启动和存储加载
+# 等待 alist 启动和存储加载（最多等待 30 秒）
 echo "[entrypoint] Waiting for alist to start..."
-sleep 5
+for i in $(seq 1 30); do
+  if curl -s http://localhost:${ALIST_PORT:-5234}/api/public/settings > /dev/null 2>&1; then
+    echo "[entrypoint] Alist is ready after ${i}s"
+    break
+  fi
+  sleep 1
+done
 
-# 启动 momo-ktv 服务端
+# 启动 momo-ktv 服务端（主进程，容器生命周期绑定到此进程）
 echo "[entrypoint] Starting momo-ktv server on port ${PORT:-8080}..."
 cd /app
-node server/index.js &
-MOMO_PID=$!
-
-# 等待任意进程退出
-wait -n $ALIST_PID $MOMO_PID
-EXIT_CODE=$?
-
-echo "[entrypoint] Process exited with code $EXIT_CODE, stopping..."
-kill $ALIST_PID $MOMO_PID 2>/dev/null || true
-wait $ALIST_PID $MOMO_PID 2>/dev/null || true
-
-exit $EXIT_CODE
+exec node server/index.js
