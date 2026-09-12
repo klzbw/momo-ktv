@@ -416,6 +416,16 @@ body{
               <button class="cloud-btn-primary" onclick="loginHomeXunleiSms()">验证并添加迅雷账号</button>
               <div class="cloud-sms-status" id="home-xl-status"></div>
             </div>
+
+            <!-- Alist 统一入口：更多网盘可在 Alist 添加后同步 -->
+            <div class="cloud-alist-row" style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)">
+              <div class="cloud-tip" style="text-align:center;margin-bottom:8px">夸克 / UC / 天翼 / 123 等更多网盘，可在 Alist 后台添加后一键同步</div>
+              <div class="cloud-link-row">
+                <a class="cloud-link-btn" href="http://192.168.3.16:5236" target="_blank" rel="noopener">🔗 打开Alist后台</a>
+                <button type="button" class="cloud-link-btn" id="home-alist-sync-btn" onclick="syncHomeFromAlist()">🔄 从Alist同步</button>
+              </div>
+              <div class="cloud-tip" style="text-align:center;margin-top:6px;margin-bottom:0">Alist：192.168.3.16:5236</div>
+            </div>
           </div>
         </div>
       </div>
@@ -922,6 +932,34 @@ async function loginHomeXunleiSms(){
       alert('登录失败：' + (d.error || '未知错误'));
     }
   }catch(e){ alert('登录失败：' + e.message); }
+}
+
+async function syncHomeFromAlist(){
+  const btn = document.getElementById('home-alist-sync-btn');
+  const originalText = btn.textContent;
+  btn.disabled = true; btn.textContent = '同步中...';
+  try{
+    const r = await fetch('/api/cloud/accounts/sync-from-alist', {
+      method:'POST', headers:{'Content-Type':'application/json'}
+    });
+    const d = await r.json();
+    if(d.ok){
+      btn.textContent = '✅ 同步成功';
+      if(d.synced && d.synced.length > 0){
+        alert('同步成功！新增账号：\n' + d.synced.map(a => '- ' + a.name + ' (' + a.driver + ')').join('\n'));
+      }else{
+        alert('同步完成，没有新账号需要同步。');
+      }
+      loadCloudAccounts();
+    }else{
+      btn.textContent = '❌ 同步失败';
+      alert('同步失败：' + (d.error || '未知错误'));
+    }
+  }catch(e){
+    btn.textContent = '❌ 同步失败';
+    alert('同步失败：' + e.message);
+  }
+  setTimeout(()=>{ btn.disabled = false; btn.textContent = originalText; }, 3000);
 }
 
 async function testCloudAccount(id){
