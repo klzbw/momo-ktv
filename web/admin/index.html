@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 
 <html lang="zh-CN">
 
@@ -5806,8 +5806,11 @@ async function deleteShareLink(id, name){
     const r = await fetch(`/api/share/links/${id}`, { method: 'DELETE' });
     const d = await r.json();
     if(d.success){
-      alert('删除成功');
+      const deletedCount = d.deletedSongs || 0;
+      alert('删除成功' + (deletedCount > 0 ? '，已清理 ' + deletedCount + ' 首歌曲' : ''));
       loadShareLinks();
+      // 刷新顶部统计和歌曲列表，确保歌曲总数实时更新
+      if (typeof loadAll === 'function') loadAll();
     } else {
       alert('删除失败: ' + (d.error || '未知错误'));
     }

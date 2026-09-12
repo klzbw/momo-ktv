@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 115 网盘分享链接导入模块（通过 Alist 115 Share 驱动实现）
  *
  * 功能：
@@ -416,11 +416,29 @@ router.delete('/links/:id', async (req, res) => {
     console.warn('[ShareImport] 删除 Alist 存储失败:', e.message);
   }
 
-  // 删除数据库记录
-  _db.prepare("DELETE FROM share_links WHERE id = ?").run(id);
-  _db.prepare("UPDATE songs SET share_link_id = NULL WHERE share_link_id = ?").run(id);
+  // 查询该分享链接对应的所有歌曲（用于清理 STRM 文件和统计）
+  const songs = _db.prepare("SELECT filename FROM songs WHERE share_link_id = ?").all(id);
 
-  res.json({ success: true });
+  // 清理 STRM 文件
+  const strmDir = path.join(_dataDir, 'share-strm');
+  for (const song of songs) {
+    const hashMatch = song.filename.match(/^([a-f0-9]+)_/);
+    if (hashMatch) {
+      const strmPath = path.join(strmDir, hashMatch[1] + '.strm');
+      try {
+        if (fs.existsSync(strmPath)) fs.unlinkSync(strmPath);
+      } catch (e) {
+        console.warn('[ShareImport] STRM 删除失败:', strmPath, e.message);
+      }
+    }
+  }
+
+  // 真正删除歌曲记录和分享链接记录（之前只把 share_link_id 设为 NULL，导致歌曲残留）
+  _db.prepare("DELETE FROM songs WHERE share_link_id = ?").run(id);
+  _db.prepare("DELETE FROM share_links WHERE id = ?").run(id);
+  console.log('[ShareImport] 删除分享链接 #' + id + '，清理 ' + songs.length + ' 首歌曲');
+
+  res.json({ success: true, deletedSongs: songs.length });
 });
 
 /**
