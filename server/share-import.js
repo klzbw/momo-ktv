@@ -93,36 +93,65 @@ function _initDB() {
 /**
  * 登录 Alist 获取 token
  */
-async function _alistLogin() {
-  const password = process.env.ALIST_ADMIN_PASSWORD || 'admin';
+async function _alistLogin(maxRetries = 5) {
+  const password = process.env.ALIST_ADMIN_PASSWORD || 'admin123';
   const body = JSON.stringify({ username: 'admin', password });
 
-  return new Promise((resolve, reject) => {
-    const req = http.request(_alistUrl + '/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-    }, (res) => {
-      let data = '';
-      res.on('data', c => data += c);
-      res.on('end', () => {
-        try {
-          const r = JSON.parse(data);
-          if (r.code === 200 && r.data && r.data.token) {
-            _alistToken = r.data.token;
-            _alistTokenExpiry = Date.now() + 47 * 3600 * 1000; // 47小时，留1小时余量
-            resolve(_alistToken);
-          } else {
-            reject(new Error('Alist 登录失败: ' + (r.message || data)));
-          }
-        } catch (e) {
-          reject(e);
-        }
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const req = http.request(_alistUrl + '/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+          timeout: 10000,
+        }, (res) => {
+          let data = '';
+          res.on('data', c => data += c);
+          res.on('end', () => {
+            try {
+              const r = JSON.parse(data);
+              if (r.code === 200 && r.data && r.data.token) {
+                resolve({ success: true, token: r.data.token });
+              } else {
+                resolve({ success: false, message: r.message || data });
+              }
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('Alist 登录超时')); });
+        req.write(body);
+        req.end();
       });
-    });
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
+
+      if (result.success) {
+        _alistToken = result.token;
+        _alistTokenExpiry = Date.now() + 47 * 3600 * 1000;
+        console.log('[ShareImport] Alist 登录成功');
+        return _alistToken;
+      }
+
+      // Alist 还在加载存储，等待重试
+      if (result.message && result.message.includes('Loading storage')) {
+        console.log(`[ShareImport] Alist 正在加载存储，等待 5 秒后重试 (${attempt + 1}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, 5000));
+        continue;
+      }
+
+      // 其他错误，直接抛出
+      throw new Error('Alist 登录失败: ' + result.message);
+    } catch (e) {
+      if (attempt < maxRetries - 1 && (e.message.includes('timeout') || e.message.includes('ECONNREFUSED'))) {
+        console.log(`[ShareImport] Alist 登录异常，等待 3 秒后重试: ${e.message}`);
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error('Alist 登录失败：超过最大重试次数');
 }
 
 /**
@@ -138,32 +167,42 @@ async function _getAlistToken() {
 /**
  * 调用 Alist API
  */
-async function _alistApi(method, apiPath, body = null) {
+async function _alistApi(method, apiPath, body = null, retry = true) {
   const token = await _getAlistToken();
   const url = _alistUrl + apiPath;
   const bodyStr = body ? JSON.stringify(body) : null;
 
-  return new Promise((resolve, reject) => {
+  const result = await new Promise((resolve, reject) => {
     const headers = { 'Authorization': token };
     if (bodyStr) {
       headers['Content-Type'] = 'application/json';
       headers['Content-Length'] = Buffer.byteLength(bodyStr);
     }
-    const req = http.request(url, { method, headers }, (res) => {
+    const req = http.request(url, { method, headers, timeout: 30000 }, (res) => {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => {
         try {
-          resolve(JSON.parse(data));
+          resolve({ status: res.statusCode, data: JSON.parse(data) });
         } catch (e) {
           reject(new Error('Alist API 响应解析失败: ' + data.substring(0, 200)));
         }
       });
     });
     req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('Alist API 超时: ' + apiPath)); });
     if (bodyStr) req.write(bodyStr);
     req.end();
   });
+
+  // token 失效，重新登录后重试
+  if (retry && (result.status === 401 || (result.data.code === 401))) {
+    console.log('[ShareImport] Alist token 失效，重新登录');
+    _alistToken = null;
+    return await _alistApi(method, apiPath, body, false);
+  }
+
+  return result.data;
 }
 
 /**
