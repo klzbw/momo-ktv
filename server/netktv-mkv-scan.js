@@ -11,6 +11,11 @@
  *   source_root - 'netktv-mkv'
  *   is_network  - 1
  *   is_strm     - 1（表示网络流歌曲，虽不生成本地.strm文件，但语义上仍是网络直连）
+ *   cloud_account_id - 所属 115 账号 ID（支持多账号）
+ *
+ * 多账号支持：
+ *   - 扫描时写入 cloud_account_id，不同账号的同名歌曲可分别入库
+ *   - API 不传 accountId（或传 0）时，自动遍历所有 active 账号扫描
  *
  * API：
  *   POST /api/netktv/mkv/scan — 触发扫描（body: { accountId, basePath, limit }）
@@ -87,7 +92,7 @@ function parseMkvFilename(filename) {
 }
 
 /**
- * 通过 cloud-drive API 扫描 115 网盘上的 MKV 文件
+ * 通过 cloud-drive API 扫描单个 115 账号上的 MKV 文件
  * @param {object} cloudDrive - cloud-drive 模块实例
  * @param {number} accountId - 115 账号 ID
  * @param {string} basePath - MKV 文件根目录，如 /ktv-output
@@ -116,7 +121,7 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
     }
     const driver = manager.getDriver(account);
 
-    console.log(`[NETKTV-MKV-SCAN] 开始扫描: ${basePath} (账号ID=${accountId})`);
+    console.log(`[NETKTV-MKV-SCAN] 开始扫描: ${basePath} (账号ID=${accountId}, 账号=${account.name})`);
 
     // 通过 API 列出目录下所有文件（内部已支持分页）
     const allFiles = await driver.listFiles(basePath);
@@ -145,15 +150,13 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
         // 用 pickCode 作为唯一标识（115每个文件都有唯一pickCode）
         const songKey = fileInfo.pickCode || Buffer.from(filename).toString('hex').substring(0, 16);
 
-        // 检查是否已经入库（兼容新旧两种 filename 格式）
-        // 新格式：原始 MKV 文件名，如 歌手-歌名.mkv
-        // 旧格式：netktv_mkv_<songKey>.strm（旧版扫描生成的STRM文件名）
+        // 检查是否已经入库（同一账号下同一 filename 不重复入库）
         const existing = db.prepare(`
-          SELECT id FROM songs WHERE source_root = ? AND (filename = ? OR filename = ?)
+          SELECT id FROM songs WHERE source_root = ? AND cloud_account_id = ? AND filename = ?
         `).get(
           'netktv-mkv',
-          filename,
-          `netktv_mkv_${songKey}.strm`
+          accountId,
+          filename
         );
 
         if (existing) {
@@ -165,17 +168,18 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
         // 播放时由 /api/direct-stream/<filepath> 302 到 Alist → 115 CDN
         const relativePath = relativeBase ? `${relativeBase}/${filename}` : filename;
 
-        // 入库（不再生成本地 STRM 文件，filepath 直接存 115 相对路径）
+        // 入库（写入 cloud_account_id 支持多账号）
         const now = new Date().toISOString();
         const result = db.prepare(`
-          INSERT INTO songs (title, artist, filename, filepath, source_root, is_network, is_strm, media_type, audio_tracks, duration, created_at)
-          VALUES (?, ?, ?, ?, ?, 1, 1, 'video', 2, ?, ?)
+          INSERT INTO songs (title, artist, filename, filepath, source_root, is_network, is_strm, media_type, audio_tracks, cloud_account_id, duration, created_at)
+          VALUES (?, ?, ?, ?, ?, 1, 1, 'video', 2, ?, ?, ?)
         `).run(
           meta.title,
           meta.artist,
           filename,           // 原始 MKV 文件名
           relativePath,       // 115 相对路径，如 ktv-output/xxx.mkv
           'netktv-mkv',
+          accountId,
           fileInfo.size ? Math.round(fileInfo.size / 1000) : null, // 粗略估算时长（按1MB≈1秒）
           now
         );
@@ -205,6 +209,30 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
   }
 
   return scanStatus;
+}
+
+/**
+ * 遍历所有 active 账号逐一扫描 MKV（自动识别新账号）
+ */
+async function scanMkvAllAccounts(cloudDrive, basePath, db, strmDir, limit = 0) {
+  const manager = cloudDrive.manager;
+  const activeAccounts = manager.listAccounts().filter(a => a.status === 'active');
+  console.log(`[NETKTV-MKV-SCAN] 自动识别到 ${activeAccounts.length} 个 active 账号，开始逐一扫描`);
+
+  let totalAdded = 0;
+  let totalSkipped = 0;
+  let totalErrors = 0;
+
+  for (const account of activeAccounts) {
+    console.log(`\n[NETKTV-MKV-SCAN] ===== 扫描账号: ${account.name} (ID=${account.id}) =====`);
+    const result = await scanMkvFiles(cloudDrive, account.id, basePath, db, strmDir, limit);
+    totalAdded += result.added;
+    totalSkipped += result.skipped;
+    totalErrors += result.errors.length;
+  }
+
+  console.log(`\n[NETKTV-MKV-SCAN] ===== 全部账号扫描完成: 新增=${totalAdded} 跳过=${totalSkipped} 错误=${totalErrors} =====`);
+  return { totalAdded, totalSkipped, totalErrors, accountCount: activeAccounts.length };
 }
 
 /**
@@ -282,10 +310,13 @@ async function migrateOldStrmData(db, defaultBasePath = 'ktv-output') {
 function init(db, cloudDrive) {
   const DATA_DIR = process.env.DATA_DIR || '/data';
   const STRM_DIR = path.join(DATA_DIR, 'netktv-mkv-strm');
-  const DEFAULT_ACCOUNT_ID = parseInt(process.env.MKV_CLOUD_ACCOUNT_ID || '2', 10);
+  const DEFAULT_ACCOUNT_ID = parseInt(process.env.MKV_CLOUD_ACCOUNT_ID || '0', 10);
   const DEFAULT_BASE_PATH = process.env.MKV_BASE_PATH || '/ktv-output';
 
   // POST /api/netktv/mkv/scan — 触发扫描
+  // body: { accountId, basePath, limit }
+  // - accountId 不传或传 0：自动遍历所有 active 账号扫描（自动识别新账号）
+  // - accountId 传具体数字：只扫描指定账号
   router.post('/mkv/scan', async (req, res) => {
     if (scanStatus.running) {
       return res.status(409).json({ error: '扫描正在进行中', status: scanStatus });
@@ -293,11 +324,19 @@ function init(db, cloudDrive) {
 
     const { accountId = DEFAULT_ACCOUNT_ID, basePath = DEFAULT_BASE_PATH, limit = 0 } = req.body || {};
 
-    scanMkvFiles(cloudDrive, accountId, basePath, db, STRM_DIR, limit).catch(e => {
-      console.error('[NETKTV-MKV-SCAN] 异步扫描异常:', e);
-    });
-
-    res.json({ ok: true, message: '扫描已开始', status: scanStatus });
+    if (!accountId || accountId === 0) {
+      // 自动识别：遍历所有 active 账号
+      scanMkvAllAccounts(cloudDrive, basePath, db, STRM_DIR, limit).catch(e => {
+        console.error('[NETKTV-MKV-SCAN] 全账号扫描异常:', e);
+      });
+      res.json({ ok: true, message: '已开始遍历所有 active 账号扫描', mode: 'all-accounts' });
+    } else {
+      // 指定账号扫描
+      scanMkvFiles(cloudDrive, accountId, basePath, db, STRM_DIR, limit).catch(e => {
+        console.error('[NETKTV-MKV-SCAN] 异步扫描异常:', e);
+      });
+      res.json({ ok: true, message: '扫描已开始', status: scanStatus, accountId });
+    }
   });
 
   // GET /api/netktv/mkv/scan/status — 查询扫描状态
@@ -319,4 +358,4 @@ function init(db, cloudDrive) {
   return router;
 }
 
-module.exports = { init, router, scanMkvFiles, parseMkvFilename, migrateOldStrmData };
+module.exports = { init, router, scanMkvFiles, scanMkvAllAccounts, parseMkvFilename, migrateOldStrmData };
