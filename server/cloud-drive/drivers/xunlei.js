@@ -124,12 +124,57 @@ class XunleiDriver extends CloudDriveBase {
 
   // ==================== 认证相关 ====================
 
+  /**
+   * 获取迅雷云盘扫码登录二维码
+   * API: POST https://api-pan.xunlei.com/drive/v1/auth/qrcode
+   */
   async getQRCode() {
-    throw new Error('迅雷云盘请使用 Bearer Token 登录（从浏览器开发者工具提取 Authorization）');
+    const result = await this._request('POST', '/drive/v1/auth/qrcode', {}, {
+      client_id: 'X',
+      client_secret: 'X',
+    });
+
+    const qrId = result.qrcode_id || result.id;
+    const qrUrl = result.qrcode_url || result.qr_url || result.url;
+
+    if (!qrId || !qrUrl) {
+      throw new Error('迅雷云盘获取二维码失败: ' + JSON.stringify(result));
+    }
+
+    return {
+      qrId,
+      qrImage: qrUrl, // 二维码图片 URL，前端直接 <img src>
+      expiresIn: result.expires_in || result.expiresIn || 180,
+    };
   }
 
+  /**
+   * 轮询迅雷云盘扫码状态
+   * API: GET https://api-pan.xunlei.com/drive/v1/auth/qrcode/{qrcode_id}
+   */
   async checkQRStatus(qrId) {
-    throw new Error('not implemented');
+    try {
+      const result = await this._request('GET', `/drive/v1/auth/qrcode/${qrId}`);
+      const status = result.status || result.state;
+
+      if (status === 'confirmed' || status === 'success') {
+        return {
+          status: 'confirmed',
+          tokens: {
+            access_token: result.access_token || result.token,
+            refresh_token: result.refresh_token,
+            expires_in: result.expires_in || 7200,
+          },
+        };
+      }
+      if (status === 'scanned' || status === 'scaned') return { status: 'scanned' };
+      if (status === 'expired' || status === 'timeout') return { status: 'expired' };
+      if (status === 'canceled') return { status: 'expired' };
+      return { status: 'waiting' };
+    } catch (e) {
+      // 轮询期间 API 可能返回错误，按等待处理
+      return { status: 'waiting' };
+    }
   }
 
   async refreshToken() {
