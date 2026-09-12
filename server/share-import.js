@@ -1,24 +1,27 @@
 /**
- * 115 网盘分享链接导入模块
+ * 115 网盘分享链接导入模块（通过 Alist 115 Share 驱动实现）
  *
  * 功能：
- * 1. 管理 115 分享链接（增删改查）
- * 2. 扫描分享链接中的 MKV 文件，加入曲库
+ * 1. 管理 115 分享链接（增删改查）→ 对应 Alist 中的 115 Share 存储
+ * 2. 扫描分享链接中的视频文件，加入曲库
  * 3. 预生成 STRM 文件
  * 4. 直链预取
  *
  * 风控优势：使用分享者的账号，自己的 115 账号零 API 调用
+ * 实现方式：通过内置 Alist 的 115 Share 驱动访问分享链接，Alist /d/ 端点 302 到 115 CDN
  */
 
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 const router = express.Router();
 
 let _db = null;
-let _Pan115Driver = null;
-let _driverCache = null;
 let _dataDir = '/data';
+let _alistUrl = 'http://localhost:5234';
+let _alistToken = null;
+let _alistTokenExpiry = 0;
 
 // 扫描状态
 let _scanState = {
@@ -29,13 +32,16 @@ let _scanState = {
   message: '',
 };
 
+// 视频文件扩展名
+const VIDEO_EXTENSIONS = ['.mkv', '.mp4', '.avi', '.ts', '.flv', '.wmv', '.mov', '.m4v', '.rmvb', '.rm'];
+
 /**
  * 初始化模块
  */
 function init(db, dataDir) {
   _db = db;
   _dataDir = dataDir || '/data';
-  _Pan115Driver = require('./cloud-drive/drivers/pan115');
+  _alistUrl = process.env.ALIST_URL || 'http://localhost:5234';
 
   // 初始化数据库表
   _initDB();
@@ -45,6 +51,9 @@ function init(db, dataDir) {
   if (!fs.existsSync(strmDir)) {
     fs.mkdirSync(strmDir, { recursive: true });
   }
+
+  // 启动时登录 Alist
+  _alistLogin().catch(e => console.warn('[ShareImport] Alist 登录失败:', e.message));
 
   return router;
 }
@@ -61,6 +70,7 @@ function _initDB() {
       pickcode TEXT NOT NULL,
       share_id TEXT,
       receive_code TEXT,
+      alist_mount_path TEXT,
       status TEXT DEFAULT 'active',
       file_count INTEGER DEFAULT 0,
       total_size INTEGER DEFAULT 0,
@@ -78,15 +88,195 @@ function _initDB() {
   }
 }
 
+// ==================== Alist API 封装 ====================
+
 /**
- * 获取或创建 pan115 driver 单例
+ * 登录 Alist 获取 token
  */
-function getDriver() {
-  if (_driverCache) return _driverCache;
-  const account = _db.prepare("SELECT * FROM cloud_accounts WHERE driver='pan115' AND status='active' ORDER BY id DESC LIMIT 1").get();
-  if (!account) return null;
-  _driverCache = new _Pan115Driver(account);
-  return _driverCache;
+async function _alistLogin() {
+  const password = process.env.ALIST_ADMIN_PASSWORD || 'admin';
+  const body = JSON.stringify({ username: 'admin', password });
+
+  return new Promise((resolve, reject) => {
+    const req = http.request(_alistUrl + '/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try {
+          const r = JSON.parse(data);
+          if (r.code === 200 && r.data && r.data.token) {
+            _alistToken = r.data.token;
+            _alistTokenExpiry = Date.now() + 47 * 3600 * 1000; // 47小时，留1小时余量
+            resolve(_alistToken);
+          } else {
+            reject(new Error('Alist 登录失败: ' + (r.message || data)));
+          }
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * 获取有效的 Alist token（自动刷新）
+ */
+async function _getAlistToken() {
+  if (_alistToken && Date.now() < _alistTokenExpiry) {
+    return _alistToken;
+  }
+  return await _alistLogin();
+}
+
+/**
+ * 调用 Alist API
+ */
+async function _alistApi(method, apiPath, body = null) {
+  const token = await _getAlistToken();
+  const url = _alistUrl + apiPath;
+  const bodyStr = body ? JSON.stringify(body) : null;
+
+  return new Promise((resolve, reject) => {
+    const headers = { 'Authorization': token };
+    if (bodyStr) {
+      headers['Content-Type'] = 'application/json';
+      headers['Content-Length'] = Buffer.byteLength(bodyStr);
+    }
+    const req = http.request(url, { method, headers }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(new Error('Alist API 响应解析失败: ' + data.substring(0, 200)));
+        }
+      });
+    });
+    req.on('error', reject);
+    if (bodyStr) req.write(bodyStr);
+    req.end();
+  });
+}
+
+/**
+ * 获取 115 cookie（从 cloud_accounts 表）
+ */
+function _get115Cookie() {
+  const account = _db.prepare("SELECT access_token FROM cloud_accounts WHERE driver='pan115' AND status='active' ORDER BY id DESC LIMIT 1").get();
+  return account ? account.access_token : '';
+}
+
+/**
+ * 在 Alist 中添加 115 Share 存储
+ */
+async function _alistAddShareStorage(link) {
+  const mountPath = `/share-${link.id}`;
+  const cookie = _get115Cookie();
+
+  const addition = JSON.stringify({
+    cookie: cookie,
+    share_code: link.pickcode,
+    receive_code: link.receive_code || '',
+    page_size: 100,
+    root_folder_id: '0',
+  });
+
+  const result = await _alistApi('POST', '/api/admin/storage/create', {
+    mount_path: mountPath,
+    order: link.id,
+    driver: '115 Share',
+    cache_expiration: 30,
+    status: 'work',
+    addition: addition,
+  });
+
+  if (result.code !== 200 && !result.message.includes('UNIQUE')) {
+    throw new Error('Alist 添加存储失败: ' + (result.message || JSON.stringify(result)));
+  }
+
+  return mountPath;
+}
+
+/**
+ * 在 Alist 中删除存储
+ */
+async function _alistDeleteStorage(storageId) {
+  return await _alistApi('POST', '/api/admin/storage/delete', { id: storageId });
+}
+
+/**
+ * 浏览 Alist 目录
+ */
+async function _alistListDir(dirPath, page = 1, perPage = 100) {
+  const result = await _alistApi('POST', '/api/fs/list', {
+    path: dirPath,
+    password: '',
+    page: page,
+    per_page: perPage,
+    refresh: false,
+  });
+
+  if (result.code !== 200) {
+    throw new Error('Alist 浏览失败: ' + (result.message || JSON.stringify(result)));
+  }
+
+  return {
+    content: result.data.content || [],
+    total: result.data.total || 0,
+  };
+}
+
+/**
+ * 递归获取所有视频文件
+ */
+async function _alistListAllVideos(dirPath, linkId) {
+  const videos = [];
+  const stack = [dirPath];
+
+  while (stack.length > 0) {
+    const currentPath = stack.pop();
+    _scanState.current = currentPath;
+
+    try {
+      let page = 1;
+      let allItems = [];
+      while (true) {
+        const result = await _alistListDir(currentPath, page, 100);
+        allItems = allItems.concat(result.content);
+        if (allItems.length >= result.total || result.content.length < 100) break;
+        page++;
+      }
+
+      for (const item of allItems) {
+        const itemPath = currentPath === '/' ? '/' + item.name : currentPath + '/' + item.name;
+        if (item.is_dir) {
+          stack.push(itemPath);
+        } else {
+          const ext = path.extname(item.name).toLowerCase();
+          if (VIDEO_EXTENSIONS.includes(ext)) {
+            videos.push({
+              name: item.name,
+              path: itemPath,
+              size: item.size,
+              pickCode: '', // Alist 路径方式不需要 pickcode
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`[ShareImport] 跳过目录 ${currentPath}: ${e.message}`);
+    }
+  }
+
+  return videos;
 }
 
 // ==================== API 路由 ====================
@@ -111,38 +301,42 @@ router.post('/links', async (req, res) => {
       return res.status(400).json({ success: false, error: 'pickcode 不能为空' });
     }
 
-    const driver = getDriver();
-    if (!driver) {
-      return res.status(400).json({ success: false, error: '未配置 115 账号，请先在云盘管理中添加' });
-    }
-
-    // 解析分享快照
-    let snap = null;
-    try {
-      snap = await driver.getShareSnap(pickcode);
-    } catch (e) {
-      return res.status(400).json({ success: false, error: '分享链接解析失败: ' + e.message });
-    }
-
-    const finalShareId = share_id || snap.shareId;
-    const finalName = name || snap.title || pickcode;
-
-    // 插入或更新
+    // 先插入数据库获取 ID
+    const finalName = name || pickcode;
     const stmt = _db.prepare(`
-      INSERT OR REPLACE INTO share_links (platform, name, pickcode, share_id, receive_code, status, file_count, total_size)
-      VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+      INSERT OR IGNORE INTO share_links (platform, name, pickcode, share_id, receive_code, status)
+      VALUES (?, ?, ?, ?, ?, 'active')
     `);
-    const result = stmt.run(platform, finalName, pickcode, finalShareId, receive_code || '', snap.fileCount, snap.size);
+    const result = stmt.run(platform, finalName, pickcode, share_id || '', receive_code || '');
+
+    let linkId = result.lastInsertRowid;
+    if (result.changes === 0) {
+      // 已存在，获取现有 ID
+      const existing = _db.prepare("SELECT id FROM share_links WHERE platform=? AND pickcode=?").get(platform, pickcode);
+      linkId = existing.id;
+    }
+
+    const link = _db.prepare("SELECT * FROM share_links WHERE id = ?").get(linkId);
+
+    // 在 Alist 中添加 115 Share 存储
+    try {
+      const mountPath = await _alistAddShareStorage(link);
+      _db.prepare("UPDATE share_links SET alist_mount_path = ? WHERE id = ?").run(mountPath, linkId);
+      link.alist_mount_path = mountPath;
+    } catch (e) {
+      console.warn('[ShareImport] Alist 添加存储失败:', e.message);
+      // 不阻塞，存储可能已存在
+    }
 
     res.json({
       success: true,
       data: {
-        id: result.lastInsertRowid,
+        id: linkId,
         name: finalName,
         pickcode,
-        share_id: finalShareId,
-        file_count: snap.fileCount,
-        total_size: snap.size,
+        share_id: share_id || '',
+        receive_code: receive_code || '',
+        alist_mount_path: link.alist_mount_path,
       },
     });
   } catch (e) {
@@ -153,16 +347,37 @@ router.post('/links', async (req, res) => {
 /**
  * 删除分享链接
  */
-router.delete('/links/:id', (req, res) => {
+router.delete('/links/:id', async (req, res) => {
   const { id } = req.params;
+  const link = _db.prepare("SELECT * FROM share_links WHERE id = ?").get(id);
+  if (!link) {
+    return res.status(404).json({ success: false, error: '分享链接不存在' });
+  }
+
+  // 删除 Alist 中的存储
+  try {
+    const storages = await _alistApi('GET', '/api/admin/storage/list');
+    if (storages.code === 200) {
+      for (const s of storages.data.content || []) {
+        if (s.mount_path === link.alist_mount_path || s.mount_path === `/share-${id}`) {
+          await _alistDeleteStorage(s.id);
+          break;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[ShareImport] 删除 Alist 存储失败:', e.message);
+  }
+
+  // 删除数据库记录
   _db.prepare("DELETE FROM share_links WHERE id = ?").run(id);
-  // 同时删除关联的歌曲（可选，这里只标记）
   _db.prepare("UPDATE songs SET share_link_id = NULL WHERE share_link_id = ?").run(id);
+
   res.json({ success: true });
 });
 
 /**
- * 扫描分享链接中的 MKV 文件
+ * 扫描分享链接中的视频文件
  */
 router.post('/links/:id/scan', async (req, res) => {
   if (_scanState.running) {
@@ -172,6 +387,19 @@ router.post('/links/:id/scan', async (req, res) => {
   const link = _db.prepare("SELECT * FROM share_links WHERE id = ?").get(req.params.id);
   if (!link) {
     return res.status(404).json({ success: false, error: '分享链接不存在' });
+  }
+
+  // 确保 Alist 存储存在
+  if (!link.alist_mount_path) {
+    try {
+      const mountPath = await _alistAddShareStorage(link);
+      _db.prepare("UPDATE share_links SET alist_mount_path = ? WHERE id = ?").run(mountPath, link.id);
+      link.alist_mount_path = mountPath;
+      // 等待存储加载
+      await new Promise(r => setTimeout(r, 5000));
+    } catch (e) {
+      return res.status(400).json({ success: false, error: 'Alist 存储初始化失败: ' + e.message });
+    }
   }
 
   // 异步执行扫描
@@ -198,25 +426,26 @@ router.get('/scan-state', (req, res) => {
 router.post('/prefetch', async (req, res) => {
   try {
     const { songIds = [] } = req.body;
-    const driver = getDriver();
-    if (!driver) {
-      return res.status(400).json({ success: false, error: '未配置 115 账号' });
-    }
-
     const results = [];
+
     for (const songId of songIds) {
       const song = _db.prepare("SELECT * FROM songs WHERE id = ?").get(songId);
       if (!song || !song.filepath) continue;
 
       try {
-        // filepath 格式: share:<shareLinkId>:<pickcode> 或 普通路径
-        if (song.filepath.startsWith('share:')) {
-          const parts = song.filepath.split(':');
-          const pickCode = parts[2];
-          if (pickCode) {
-            await driver.getDownloadUrl(pickCode, 'Mozilla/5.0 (Apple TV; CPU OS 17_0 like Mac OS X)');
-            results.push({ id: songId, status: 'ok' });
-          }
+        // filepath 格式: alist:/share-{id}/path/to/video.mkv
+        if (song.filepath.startsWith('alist:')) {
+          const alistPath = song.filepath.substring(6);
+          // 访问 Alist /d/ 端点触发直链缓存
+          await new Promise((resolve) => {
+            const req = http.get(_alistUrl + '/d' + alistPath, (res) => {
+              res.resume();
+              res.on('end', resolve);
+            });
+            req.on('error', resolve);
+            req.setTimeout(10000, () => { req.destroy(); resolve(); });
+          });
+          results.push({ id: songId, status: 'ok' });
         }
       } catch (e) {
         results.push({ id: songId, status: 'error', error: e.message });
@@ -232,41 +461,43 @@ router.post('/prefetch', async (req, res) => {
 // ==================== 核心扫描逻辑 ====================
 
 /**
- * 扫描分享链接，将 MKV 文件加入曲库
+ * 扫描分享链接，将视频文件加入曲库
  */
 async function _scanShareLink(link) {
-  const driver = getDriver();
-  if (!driver) throw new Error('未配置 115 账号');
-
   _scanState = {
     running: true,
     current: link.name,
     total: 0,
     done: 0,
-    message: '正在获取分享文件列表...',
+    message: '正在扫描分享文件...',
   };
 
+  const mountPath = link.alist_mount_path || `/share-${link.id}`;
+
   // 递归获取所有视频文件
-  const videos = await driver.listAllShareVideos(link.share_id, link.pickcode);
+  const videos = await _alistListAllVideos(mountPath, link.id);
 
   _scanState.total = videos.length;
   _scanState.message = `找到 ${videos.length} 个视频文件，正在入库...`;
 
   let added = 0;
   let skipped = 0;
+  let totalSize = 0;
   const strmDir = path.join(_dataDir, 'share-strm');
 
   for (const video of videos) {
     _scanState.current = video.name;
     _scanState.done++;
+    totalSize += video.size || 0;
 
     try {
-      // 生成唯一 filename（用 pickcode 避免重名）
-      const filename = `${video.pickCode}_${video.name}`;
-      const filepath = `share:${link.id}:${video.pickCode}`;
+      // 生成唯一 filename（用 Alist 路径的 hash 避免重名）
+      const pathHash = Buffer.from(video.path).toString('base64').replace(/[^a-zA-Z0-9]/g, '').substring(0, 16);
+      const filename = `${pathHash}_${video.name}`;
+      const filepath = `alist:${video.path}`;
 
       // 检查是否已存在
-      const existing = _db.prepare("SELECT id FROM songs WHERE filename = ?").get(filename);
+      const existing = _db.prepare("SELECT id FROM songs WHERE filepath = ?").get(filepath);
       if (existing) {
         skipped++;
         continue;
@@ -275,9 +506,9 @@ async function _scanShareLink(link) {
       // 解析歌名和歌手（从文件名）
       const { title, artist } = _parseFilename(video.name);
 
-      // 生成 STRM 文件
-      const strmPath = path.join(strmDir, `${video.pickCode}.strm`);
-      const strmContent = `http://127.0.0.1:8080/api/share/stream/${link.id}/${video.pickCode}`;
+      // 生成 STRM 文件（指向 momo-ktv 的分享流代理端点）
+      const strmPath = path.join(strmDir, `${pathHash}.strm`);
+      const strmContent = `http://127.0.0.1:8080/api/share/stream${video.path}`;
       fs.writeFileSync(strmPath, strmContent, 'utf-8');
 
       // 插入歌曲
@@ -293,60 +524,83 @@ async function _scanShareLink(link) {
     }
   }
 
-  // 更新分享链接的扫描时间
-  _db.prepare("UPDATE share_links SET last_scan_at = datetime('now'), file_count = ? WHERE id = ?").run(videos.length, link.id);
+  // 更新分享链接的扫描时间和统计
+  _db.prepare("UPDATE share_links SET last_scan_at = datetime('now'), file_count = ?, total_size = ? WHERE id = ?").run(videos.length, totalSize, link.id);
 
   _scanState.running = false;
   _scanState.message = `扫描完成：新增 ${added} 首，跳过 ${skipped} 首`;
-  console.log(`[ShareImport] 扫描完成: ${link.name}, 新增 ${added}, 跳过 ${skipped}`);
+  console.log(`[ShareImport] 扫描完成: ${link.name}, 新增 ${added}, 跳过 ${skipped}, 共 ${videos.length} 个视频`);
 }
 
 /**
  * 从文件名解析歌名和歌手
- * 支持格式：歌手 - 歌名.mkv / 歌名_歌手.mkv / 歌名.mkv
  */
 function _parseFilename(filename) {
-  // 去掉扩展名
-  const name = filename.replace(/\.(mkv|mp4|avi|ts|flv|wmv|mov|m4v)$/i, '');
+  const name = filename.replace(/\.(mkv|mp4|avi|ts|flv|wmv|mov|m4v|rmvb|rm)$/i, '');
 
-  // 尝试 "歌手 - 歌名" 格式
   const dashMatch = name.match(/^(.+?)\s*[-–—]\s*(.+)$/);
   if (dashMatch) {
     return { artist: dashMatch[1].trim(), title: dashMatch[2].trim() };
   }
 
-  // 尝试 "歌名_歌手" 格式
   const underscoreMatch = name.match(/^(.+?)_\s*(.+)$/);
   if (underscoreMatch) {
     return { title: underscoreMatch[1].trim(), artist: underscoreMatch[2].trim() };
   }
 
-  // 默认：整个文件名作为歌名
   return { title: name, artist: '未知' };
 }
 
-// ==================== 分享流播放端点 ====================
+// ==================== 分享流播放端点（代理 Alist /d/） ====================
 
 /**
- * 分享文件直链播放（302 重定向到 115 CDN）
- * GET /api/share/stream/:linkId/:pickCode
+ * 分享文件直链播放（代理 Alist /d/ 端点，302 重定向到 115 CDN）
+ * GET /api/share/stream/*
  */
-router.get('/stream/:linkId/:pickCode', async (req, res) => {
+router.get('/stream/*', async (req, res) => {
   try {
-    const { linkId, pickCode } = req.params;
-    const driver = getDriver();
-    if (!driver) {
-      return res.status(500).json({ error: '未配置 115 账号' });
-    }
+    const alistPath = '/' + (req.params[0] || '');
 
+    // 构建 Alist /d/ URL，透传客户端 UA（115 CDN 签名与 UA 绑定）
+    const alistUrl = _alistUrl + '/d' + alistPath;
+
+    // 向 Alist 发起请求，获取 302 重定向地址
     const userAgent = req.get('User-Agent') || 'Mozilla/5.0 115Browser/23.9.3.2';
-    const result = await driver.getDownloadUrl(pickCode, userAgent);
 
-    console.log(`[ShareStream] 302 → 115 CDN (分享来源): ${result.url.substring(0, 80)}...`);
-    res.redirect(302, result.url);
+    const redirectUrl = await new Promise((resolve, reject) => {
+      const req = http.get(alistUrl, {
+        headers: { 'User-Agent': userAgent },
+        timeout: 15000,
+      }, (res) => {
+        if (res.statusCode === 302 || res.statusCode === 301) {
+          resolve(res.headers.location);
+        } else if (res.statusCode === 200) {
+          // Alist 可能直接返回文件流（web_proxy 模式），直接代理
+          resolve(null);
+        } else {
+          reject(new Error('Alist 返回状态码: ' + res.statusCode));
+        }
+        res.resume();
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('Alist 请求超时')); });
+    });
+
+    if (redirectUrl) {
+      console.log(`[ShareStream] 302 → 115 CDN (Alist代理): ${alistPath.substring(0, 60)}...`);
+      res.redirect(302, redirectUrl);
+    } else {
+      // Alist 直接返回流，透传
+      console.log(`[ShareStream] Alist 直连代理: ${alistPath.substring(0, 60)}...`);
+      const proxyReq = http.get(alistUrl, { headers: { 'User-Agent': userAgent } }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res);
+      });
+      proxyReq.on('error', (e) => res.status(502).json({ error: e.message }));
+    }
   } catch (e) {
-    console.error('[ShareStream] 获取直链失败:', e);
-    res.status(500).json({ error: '获取直链失败: ' + e.message });
+    console.error('[ShareStream] 获取直链失败:', e.message);
+    res.status(502).json({ error: '获取直链失败: ' + e.message });
   }
 });
 

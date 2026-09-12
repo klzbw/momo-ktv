@@ -10240,16 +10240,14 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
-  // 分享链接来源（115 分享，零风控）
+  // 分享链接来源（115 分享，零风控，通过 Alist 115 Share 驱动）
   if (song.source_root === 'share-115') {
-    // filepath 格式: share:<linkId>:<pickCode>
-    const parts = (song.filepath || '').split(':');
-    const linkId = parts[1] || '';
-    const pickCode = parts[2] || '';
-
-    if (pickCode) {
-      const videoUrl = '/api/share/stream/' + linkId + '/' + pickCode;
-      console.log('[SEP-INFO] 分享链接直链:', videoUrl);
+    // filepath 格式: alist:/share-{id}/path/to/video.mkv
+    const filepath = song.filepath || '';
+    if (filepath.startsWith('alist:')) {
+      const alistPath = filepath.substring(6);
+      const videoUrl = '/api/share/stream' + alistPath;
+      console.log('[SEP-INFO] 分享链接直链(Alist):', videoUrl);
 
       return res.json({
         dual: false,
