@@ -674,7 +674,7 @@ router.post('/accounts/cookie', requireManager, async (req, res) => {
 
   try {
 
-    const { driver, name, cookie } = req.body;
+    const { driver, name, cookie, refreshToken } = req.body;
 
     if (!driver || !cookie) {
 
@@ -682,7 +682,7 @@ router.post('/accounts/cookie', requireManager, async (req, res) => {
 
     }
 
-    const account = manager.createAccountWithCookie(driver, name || '我的网盘', cookie);
+    const account = manager.createAccountWithCookie(driver, name || '我的网盘', cookie, refreshToken);
 
     // 115 账号额外把 cookie 写入内置 alist（实际播放使用）
 
