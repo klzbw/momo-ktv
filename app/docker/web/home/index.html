@@ -237,6 +237,46 @@ body{
   border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;outline:none;margin-bottom:8px
 }
 
+/* 网盘类型选择行 */
+.cloud-driver-row{display:flex;gap:6px;margin-bottom:10px}
+.cloud-driver-row select{
+  flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;outline:none;cursor:pointer
+}
+.cloud-driver-row select option{background:#10102a;color:var(--text)}
+.cloud-name-input{
+  width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;outline:none;margin-bottom:10px;box-sizing:border-box
+}
+.cloud-special textarea{
+  width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:8px;padding:8px 10px;color:var(--text);font-size:11px;outline:none;
+  min-height:52px;resize:vertical;font-family:monospace;margin-bottom:8px;box-sizing:border-box
+}
+.cloud-special input{
+  width:100%;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;outline:none;margin-bottom:8px;box-sizing:border-box
+}
+.cloud-link-row{display:flex;gap:6px;margin-bottom:8px}
+.cloud-link-btn{
+  flex:1;padding:8px 4px;border-radius:8px;border:1px solid rgba(54,217,247,.35);
+  background:rgba(54,217,247,.12);color:var(--cyan);font-size:11px;font-weight:600;
+  cursor:pointer;text-align:center;text-decoration:none;transition:.15s
+}
+.cloud-link-btn:hover{background:rgba(54,217,247,.25)}
+.cloud-tip{font-size:10px;color:var(--sub);line-height:1.6;margin-bottom:8px}
+.cloud-sms-row{display:flex;gap:6px;margin-bottom:8px}
+.cloud-sms-row input{
+  flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);
+  border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px;outline:none
+}
+.cloud-sms-btn{
+  padding:8px 12px;border-radius:8px;border:none;white-space:nowrap;cursor:pointer;
+  background:linear-gradient(135deg,var(--accent),var(--cyan));color:#07071a;font-size:11px;font-weight:600
+}
+.cloud-sms-btn:disabled{opacity:.5;cursor:not-allowed}
+.cloud-sms-status{font-size:10px;color:var(--sub);margin-top:6px;min-height:14px}
+
 /* 通用按钮 */
 .cloud-btn-primary{
   width:100%;padding:10px;border-radius:10px;font-size:13px;font-weight:600;
@@ -284,7 +324,7 @@ body{
     <div class="nav-card" style="cursor:pointer" onclick="toggleCloudPanel()">
       <div class="icon">☁️</div>
       <div class="title">网盘管理</div>
-      <div class="desc">115网盘 · 扫码登录 · 直链播放</div>
+      <div class="desc">多云盘 · 扫码登录 · 直链播放</div>
     </div>
   </div>
 
@@ -293,7 +333,7 @@ body{
     <div class="cloud-card">
       <div class="cloud-card-header">
         <div class="cloud-card-title">☁️ 网盘管理</div>
-        <div class="cloud-card-sub">115网盘 · 扫码登录 · 302直链播放</div>
+        <div class="cloud-card-sub">多云盘 · 扫码 / Cookie / 短信登录 · 302直链播放</div>
         <button class="cloud-card-close" onclick="toggleCloudPanel()">✕</button>
       </div>
       <div class="cloud-card-body">
@@ -310,17 +350,30 @@ body{
         <div class="cloud-add-col">
           <div class="cloud-col-title">快速添加</div>
           <div class="cloud-add-box">
-            <div class="cloud-tabs">
+            <div class="cloud-driver-row">
+              <select id="home-cloud-driver" onchange="onHomeDriverChange()">
+                <option value="pan115">115网盘</option>
+                <option value="aliyun">阿里云盘</option>
+                <option value="baidu">百度网盘</option>
+                <option value="xunlei">迅雷云盘</option>
+                <option value="cmcc">移动云盘</option>
+              </select>
+            </div>
+            <input id="home-cloud-name" class="cloud-name-input" placeholder="账号名称" value="我的115">
+
+            <!-- 扫码 / Cookie 切换（仅扫码类网盘） -->
+            <div class="cloud-tabs" id="home-cloud-tabs">
               <button class="cloud-tab active" id="home-tab-qrcode" onclick="switchHomeCloudTab('qrcode')">📱 扫码</button>
               <button class="cloud-tab" id="home-tab-cookie" onclick="switchHomeCloudTab('cookie')">🍪 Cookie</button>
             </div>
+
+            <!-- 扫码登录 -->
             <div id="home-cloud-qrcode-section" class="cloud-qr-mini">
               <div class="cloud-qr-img-box" id="home-qrcode-container">
                 <div style="color:#999;font-size:11px">点击获取二维码</div>
               </div>
               <div class="cloud-qr-status" id="home-qrcode-status">等待获取二维码...</div>
-              <div class="cloud-qr-app-row">
-                <input id="home-cloud-qr-name" placeholder="账号名" value="我的115">
+              <div class="cloud-qr-app-row" id="home-qr-app-row">
                 <select id="home-cloud-qr-app">
                   <option value="wechatmini">微信小程序</option>
                   <option value="web">网页版</option>
@@ -332,11 +385,36 @@ body{
               </div>
               <button class="cloud-btn-primary" onclick="startHomeQrLogin()">获取二维码</button>
             </div>
+
+            <!-- Cookie / Token 登录 -->
             <div id="home-cloud-cookie-section" class="cloud-cookie-mini" style="display:none">
-              <input id="home-cloud-name" placeholder="账号名称，如：我的115">
               <textarea id="home-cloud-cookie" placeholder="UID=xxx; CID=xxx; SEID=xxx; KID=xxx"></textarea>
               <div class="cloud-err" id="home-cloud-add-err"></div>
               <button class="cloud-btn-primary" onclick="addHomeCloudCookie()">添加账号</button>
+            </div>
+
+            <!-- 移动云盘专用：跳转登录后粘贴 Cookie -->
+            <div id="home-cmcc-panel" class="cloud-special" style="display:none">
+              <div class="cloud-tip">点击下方按钮登录移动云盘，登录后按 F12 → Network → 任一请求 → 复制 <b>Cookie</b> 请求头，粘贴到下方：</div>
+              <div class="cloud-link-row">
+                <a class="cloud-link-btn" href="https://yun.139.com" target="_blank" rel="noopener">🔗 登录移动云盘</a>
+                <a class="cloud-link-btn" href="https://mail.139.com" target="_blank" rel="noopener">📧 139邮箱</a>
+              </div>
+              <textarea id="home-cmcc-cookie" placeholder="粘贴 Cookie（包含 cml_passport 等登录字段）"></textarea>
+              <button class="cloud-btn-primary" onclick="addHomeCmccCookie()">添加移动云盘账号</button>
+            </div>
+
+            <!-- 迅雷云盘专用：手机号 + 短信验证码 -->
+            <div id="home-xunlei-panel" class="cloud-special" style="display:none">
+              <div class="cloud-tip">输入迅雷绑定的手机号，通过短信验证码自动登录：</div>
+              <div class="cloud-sms-row">
+                <input id="home-xl-phone" type="tel" maxlength="11" placeholder="11位手机号">
+                <button class="cloud-sms-btn" id="home-xl-send-btn" onclick="sendHomeXunleiSms()">发送验证码</button>
+              </div>
+              <input id="home-xl-code" type="text" maxlength="4" placeholder="4位短信验证码">
+              <input id="home-xl-session" type="hidden">
+              <button class="cloud-btn-primary" onclick="loginHomeXunleiSms()">验证并添加迅雷账号</button>
+              <div class="cloud-sms-status" id="home-xl-status"></div>
             </div>
           </div>
         </div>
@@ -472,17 +550,99 @@ fetch('/api/stats').then(r=>r.json()).then(d=>{
 }).catch(()=>{});
 
 // ========== 网盘管理 ==========
+const HOME_DRIVER_NAMES = { pan115:'115网盘', aliyun:'阿里云盘', baidu:'百度网盘', xunlei:'迅雷云盘', cmcc:'移动云盘', alist:'Alist' };
+const HOME_DRIVER_DEFAULT_NAMES = { pan115:'我的115', aliyun:'我的阿里云盘', baidu:'我的百度网盘', xunlei:'我的迅雷云盘', cmcc:'我的移动云盘', alist:'我的Alist' };
+const HOME_QR_DRIVERS = ['pan115','aliyun','baidu'];  // 支持扫码的网盘
 let cloudAccountsCache = [];
 let homeQrLoginData = null;
 let homeQrPollTimer = null;
+let homeQrPolling = false;
 
 function toggleCloudPanel(){
   const panel = document.getElementById('cloud-panel');
   panel.classList.toggle('open');
   if(panel.classList.contains('open')){
     loadCloudAccounts();
+    onHomeDriverChange();
     panel.scrollIntoView({behavior:'smooth',block:'center'});
   }
+}
+
+function currentHomeDriver(){
+  return document.getElementById('home-cloud-driver').value;
+}
+
+// 切换网盘类型：显示对应登录方式
+function onHomeDriverChange(){
+  const driver = currentHomeDriver();
+  const tabs = document.getElementById('home-cloud-tabs');
+  const qrSection = document.getElementById('home-cloud-qrcode-section');
+  const cookieSection = document.getElementById('home-cloud-cookie-section');
+  const cmccPanel = document.getElementById('home-cmcc-panel');
+  const xlPanel = document.getElementById('home-xunlei-panel');
+  const appRow = document.getElementById('home-qr-app-row');
+  const nameInput = document.getElementById('home-cloud-name');
+  const cookieArea = document.getElementById('home-cloud-cookie');
+  const errEl = document.getElementById('home-cloud-add-err');
+
+  // 自动更新账号名（仅当当前名为其他网盘的默认名或为空）
+  const curName = nameInput.value.trim();
+  const allDefaults = Object.values(HOME_DRIVER_DEFAULT_NAMES);
+  if(!curName || allDefaults.includes(curName)){
+    nameInput.value = HOME_DRIVER_DEFAULT_NAMES[driver] || '我的网盘';
+  }
+
+  // 停止旧的扫码轮询
+  if(homeQrPollTimer){ clearInterval(homeQrPollTimer); homeQrPollTimer = null; }
+  homeQrLoginData = null;
+  document.getElementById('home-qrcode-container').innerHTML = '<div style="color:#999;font-size:11px">点击获取二维码</div>';
+  document.getElementById('home-qrcode-status').textContent = '等待获取二维码...';
+  if(errEl) errEl.textContent = '';
+
+  // 重置为扫码 tab
+  switchHomeCloudTab('qrcode');
+
+  if(driver === 'cmcc'){
+    tabs.style.display = 'none';
+    qrSection.style.display = 'none';
+    cookieSection.style.display = 'none';
+    cmccPanel.style.display = '';
+    xlPanel.style.display = 'none';
+  }else if(driver === 'xunlei'){
+    tabs.style.display = 'none';
+    qrSection.style.display = 'none';
+    cookieSection.style.display = 'none';
+    cmccPanel.style.display = 'none';
+    xlPanel.style.display = '';
+  }else{
+    tabs.style.display = '';
+    cmccPanel.style.display = 'none';
+    xlPanel.style.display = 'none';
+    const canQr = HOME_QR_DRIVERS.includes(driver);
+    if(!canQr){
+      // 不支持扫码的驱动直接显示 Cookie
+      switchHomeCloudTab('cookie');
+      tabs.style.display = 'none';
+      qrSection.style.display = 'none';
+      cookieSection.style.display = '';
+    }else{
+      qrSection.style.display = '';
+      cookieSection.style.display = 'none';
+    }
+  }
+
+  // 115 才显示 App 类型选择
+  if(appRow) appRow.style.display = driver === 'pan115' ? '' : 'none';
+
+  // Cookie 输入框提示随驱动变化
+  const placeholders = {
+    pan115: 'UID=xxx; CID=xxx; SEID=xxx; KID=xxx',
+    aliyun: '粘贴阿里云盘 access_token（Bearer 令牌）',
+    baidu: '粘贴百度网盘 Cookie 或 access_token',
+    xunlei: '粘贴迅雷 Bearer Token（Authorization 头，去掉 Bearer 前缀）',
+    cmcc: '粘贴移动云盘 Cookie',
+  };
+  if(cookieArea) cookieArea.placeholder = placeholders[driver] || '粘贴登录凭证';
 }
 
 function switchHomeCloudTab(tab){
@@ -508,14 +668,16 @@ async function loadCloudAccounts(){
     const d = await r.json();
     cloudAccountsCache = d.accounts || [];
     if(!cloudAccountsCache.length){
-      listEl.innerHTML = '<div class="cloud-empty"><div class="cloud-empty-icon">📡</div>还没有连接网盘账号<br><span style="font-size:11px;opacity:.7">在右侧扫码登录或粘贴Cookie</span></div>';
+      listEl.innerHTML = '<div class="cloud-empty"><div class="cloud-empty-icon">📡</div>还没有连接网盘账号<br><span style="font-size:11px;opacity:.7">在右侧选择网盘类型登录</span></div>';
       return;
     }
     listEl.innerHTML = cloudAccountsCache.map(acc => {
       const statusClass = acc.status === 'active' ? 'cloud-status-active' : (acc.status === 'error' ? 'cloud-status-error' : 'cloud-status-pending');
       const statusText = acc.status === 'active' ? '已连接' : (acc.status || '未知');
-      const driverName = acc.driver === 'pan115' ? '115网盘' : acc.driver;
-      const userInfo = acc.user_info ? JSON.parse(acc.user_info) : null;
+      const driverName = HOME_DRIVER_NAMES[acc.driver] || acc.driver;
+      const rawUserInfo = acc.user_info;
+      let userInfo = rawUserInfo ? (typeof rawUserInfo === 'string' ? null : rawUserInfo) : null;
+      if(typeof rawUserInfo === 'string'){ try{ userInfo = JSON.parse(rawUserInfo); }catch(_){ userInfo = null; } }
       return '<div class="cloud-account-item">' +
         '<div class="cloud-account-icon">☁️</div>' +
         '<div class="cloud-account-info">' +
@@ -524,6 +686,7 @@ async function loadCloudAccounts(){
             '<span class="cloud-status-dot ' + statusClass + '"></span>' +
             '<span>' + statusText + '</span><span>·</span><span>' + driverName + '</span>' +
             (userInfo && userInfo.nickname ? '<span>·</span><span>' + escHtml(userInfo.nickname) + '</span>' : '') +
+            (acc.token_expires_at ? '<span>·</span><span>到期' + escHtml(String(acc.token_expires_at).replace('T',' ').slice(0,16)) + '</span>' : '') +
           '</div>' +
         '</div>' +
         '<div class="cloud-account-actions">' +
@@ -540,23 +703,40 @@ async function loadCloudAccounts(){
 function escHtml(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function escJs(s){ return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'); }
 
+// ========== 扫码登录（115 走旧 API，其他走通用 API）==========
 async function startHomeQrLogin(){
   const btn = event.target;
   const container = document.getElementById('home-qrcode-container');
   const statusEl = document.getElementById('home-qrcode-status');
+  const driver = currentHomeDriver();
+  const name = document.getElementById('home-cloud-name').value.trim() || HOME_DRIVER_DEFAULT_NAMES[driver] || '我的网盘';
+  if(homeQrPollTimer){ clearInterval(homeQrPollTimer); homeQrPollTimer = null; }
   btn.disabled = true; btn.textContent = '获取中...';
+  statusEl.textContent = '正在获取二维码...';
   try{
-    const r = await fetch('/api/cloud/qrcode/token');
-    const d = await r.json();
-    if(!d.uid || !d.qrcode_img) throw new Error('获取二维码失败');
-    homeQrLoginData = d;
-    container.innerHTML = '<img src="' + d.qrcode_img + '" alt="扫码登录">';
-    statusEl.textContent = '请用手机115 App扫码';
+    if(driver === 'pan115'){
+      const r = await fetch('/api/cloud/qrcode/token');
+      const d = await r.json();
+      if(!d.uid || !d.qrcode_img) throw new Error(d.error || '获取二维码失败');
+      homeQrLoginData = { uid:d.uid, time:d.time, sign:d.sign, driver:'pan115', name, generic:false };
+      container.innerHTML = '<img src="' + d.qrcode_img + '" alt="扫码登录">';
+      statusEl.textContent = '请用手机115 App扫码';
+    }else{
+      const r = await fetch('/api/cloud/accounts/qrcode/start', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ driver, name })
+      });
+      const d = await r.json();
+      if(!d.ok || !d.qrId || !d.qrImage) throw new Error(d.error || '获取二维码失败');
+      homeQrLoginData = { qrId:d.qrId, driver, name, generic:true };
+      container.innerHTML = '<img src="' + d.qrImage + '" alt="扫码登录">';
+      statusEl.textContent = '请用手机' + (HOME_DRIVER_NAMES[driver] || driver) + 'App扫码';
+    }
     btn.textContent = '重新获取';
-    if(homeQrPollTimer) clearInterval(homeQrPollTimer);
-    homeQrPollTimer = setInterval(pollHomeQrStatus, 2000);
+    homeQrPollTimer = setInterval(pollHomeQrStatus, 2500);
   }catch(e){
     statusEl.textContent = '获取失败：' + e.message;
+    container.innerHTML = '<div style="color:#999;font-size:11px">点击获取二维码</div>';
     btn.textContent = '获取二维码';
   }finally{
     btn.disabled = false;
@@ -564,31 +744,64 @@ async function startHomeQrLogin(){
 }
 
 async function pollHomeQrStatus(){
-  if(!homeQrLoginData) return;
+  if(!homeQrLoginData || homeQrPolling) return;
+  homeQrPolling = true;
+  const statusEl = document.getElementById('home-qrcode-status');
   try{
-    const r = await fetch('/api/cloud/qrcode/status?uid=' + homeQrLoginData.uid + '&time=' + homeQrLoginData.time + '&sign=' + homeQrLoginData.sign);
-    const d = await r.json();
-    const statusEl = document.getElementById('home-qrcode-status');
-    if(d.status === '等待扫码'){ statusEl.textContent = '等待扫码...'; }
-    else if(d.status === '已扫码'){ statusEl.textContent = '已扫码，请在手机上确认'; }
-    else if(d.status === '已授权' || d.status === 'success'){
-      clearInterval(homeQrPollTimer);
-      statusEl.textContent = '登录成功，正在添加账号...';
-      await finishHomeQrLogin();
-    }else if(d.status === '已取消' || d.status === '已过期'){
-      clearInterval(homeQrPollTimer);
-      statusEl.textContent = d.status;
+    if(homeQrLoginData.generic){
+      const r = await fetch('/api/cloud/accounts/qrcode/check?qrId=' + encodeURIComponent(homeQrLoginData.qrId));
+      const d = await r.json();
+      const st = d.status;
+      if(st === 'waiting'){ statusEl.textContent = '等待扫码...'; }
+      else if(st === 'scanned'){ statusEl.textContent = '已扫码，请在手机上确认'; }
+      else if(st === 'confirmed'){
+        clearInterval(homeQrPollTimer); homeQrPollTimer = null;
+        statusEl.textContent = '登录成功，账号已添加 ✓';
+        await finishHomeQrSuccess();
+      }else if(st === 'expired'){
+        clearInterval(homeQrPollTimer); homeQrPollTimer = null;
+        statusEl.textContent = '二维码已过期，请重新获取';
+      }
+    }else{
+      const d0 = homeQrLoginData;
+      const r = await fetch('/api/cloud/qrcode/status?uid=' + d0.uid + '&time=' + d0.time + '&sign=' + d0.sign);
+      const d = await r.json();
+      const s = d.status;
+      const isWaiting = (s === 0 || s === '0' || s === '等待扫码' || s === 'waiting');
+      const isScanned = (s === 1 || s === '1' || s === '已扫码' || s === 'scanned');
+      const isConfirmed = (s === 2 || s === '2' || s === '已授权' || s === 'success' || s === 'confirmed');
+      const isExpired = (s === -1 || s === '-1' || s === '已过期' || s === 'expired');
+      const isCancelled = (s === -2 || s === '-2' || s === '已取消' || s === 'cancelled');
+      if(isWaiting){ statusEl.textContent = '等待扫码...'; }
+      else if(isScanned){ statusEl.textContent = '已扫码，请在手机上确认'; }
+      else if(isConfirmed){
+        clearInterval(homeQrPollTimer); homeQrPollTimer = null;
+        statusEl.textContent = '登录成功，正在添加账号...';
+        await finishHomeQrLogin();
+      }else if(isExpired || isCancelled){
+        clearInterval(homeQrPollTimer); homeQrPollTimer = null;
+        statusEl.textContent = isExpired ? '二维码已过期，请重新获取' : '已取消登录';
+      }
     }
   }catch(e){}
+  finally{ homeQrPolling = false; }
+}
+
+async function finishHomeQrSuccess(){
+  // 通用扫码成功后账号已由后端自动创建，直接刷新列表
+  loadCloudAccounts();
+  document.getElementById('home-qrcode-container').innerHTML = '<div style="color:#999;font-size:11px">点击获取二维码</div>';
+  document.getElementById('home-qrcode-status').textContent = '等待获取二维码...';
+  homeQrLoginData = null;
 }
 
 async function finishHomeQrLogin(){
-  const name = document.getElementById('home-cloud-qr-name').value.trim() || '我的115';
+  const d0 = homeQrLoginData;
   const app = document.getElementById('home-cloud-qr-app').value;
   try{
     const r = await fetch('/api/cloud/qrcode/login', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ uid: homeQrLoginData.uid, app, name }),
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ uid:d0.uid, app, name:d0.name })
     });
     const d = await r.json();
     if(d.success || d.account){
@@ -605,35 +818,115 @@ async function finishHomeQrLogin(){
   }
 }
 
+// ========== Cookie / Token 添加 ==========
 async function addHomeCloudCookie(){
+  const driver = currentHomeDriver();
   const name = document.getElementById('home-cloud-name').value.trim();
   const cookie = document.getElementById('home-cloud-cookie').value.trim();
   const errEl = document.getElementById('home-cloud-add-err');
   errEl.textContent = '';
   if(!name){ errEl.textContent = '请填写账号名称'; return; }
-  if(!cookie){ errEl.textContent = '请填写Cookie'; return; }
-  if(!cookie.includes('UID') || !cookie.includes('SEID')){
+  if(!cookie){ errEl.textContent = '请填写登录凭证'; return; }
+  if(driver === 'pan115' && (!cookie.includes('UID') || !cookie.includes('SEID'))){
     errEl.textContent = 'Cookie格式不正确，应包含 UID、CID、SEID、KID'; return;
   }
   try{
     const r = await fetch('/api/cloud/accounts/cookie', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ driver: 'pan115', name, cookie }),
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ driver, name, cookie })
     });
     const d = await r.json();
-    if(!r.ok){ errEl.textContent = d.error || '添加失败'; return; }
-    document.getElementById('home-cloud-name').value = '';
+    if(!r.ok || !(d.ok || d.success)){ errEl.textContent = d.error || '添加失败'; return; }
     document.getElementById('home-cloud-cookie').value = '';
-    alert('账号已添加！');
+    alert((HOME_DRIVER_NAMES[driver] || driver) + '账号已添加！');
     loadCloudAccounts();
   }catch(e){
     errEl.textContent = '请求失败，请检查网络';
   }
 }
 
+// ========== 移动云盘 Cookie 添加 ==========
+async function addHomeCmccCookie(){
+  const name = document.getElementById('home-cloud-name').value.trim() || '我的移动云盘';
+  const cookie = document.getElementById('home-cmcc-cookie').value.trim();
+  if(!cookie){ alert('请先粘贴移动云盘 Cookie'); return; }
+  try{
+    const r = await fetch('/api/cloud/accounts/cookie', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ driver:'cmcc', name, cookie })
+    });
+    const d = await r.json();
+    if(r.ok && (d.ok || d.success)){
+      alert('移动云盘账号添加成功！');
+      document.getElementById('home-cmcc-cookie').value = '';
+      loadCloudAccounts();
+    }else{
+      alert('添加失败：' + (d.error || '未知错误'));
+    }
+  }catch(e){ alert('添加失败：' + e.message); }
+}
+
+// ========== 迅雷短信登录 ==========
+async function sendHomeXunleiSms(){
+  const phone = document.getElementById('home-xl-phone').value.trim();
+  const btn = document.getElementById('home-xl-send-btn');
+  const status = document.getElementById('home-xl-status');
+  if(!/^1\d{10}$/.test(phone)){ status.textContent='请输入有效的11位手机号'; status.style.color='#ff4f9b'; return; }
+  btn.disabled = true; btn.textContent = '发送中...';
+  status.textContent = '正在发送验证码...'; status.style.color = 'var(--sub)';
+  try{
+    const r = await fetch('/api/cloud/xunlei/sms/send', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ mobile:phone })
+    });
+    const d = await r.json();
+    if(d.ok){
+      document.getElementById('home-xl-session').value = d.sessionKey || '';
+      status.textContent = '验证码已发送，请注意查收短信';
+      status.style.color = '#4ade80';
+      let sec = 60;
+      const timer = setInterval(()=>{
+        sec--;
+        if(sec <= 0){ clearInterval(timer); btn.disabled=false; btn.textContent='重新发送'; }
+        else{ btn.textContent = sec + 's'; }
+      }, 1000);
+    }else{
+      status.textContent = '发送失败：' + (d.error || '未知错误');
+      status.style.color = '#ff4f9b';
+      btn.disabled = false; btn.textContent = '发送验证码';
+    }
+  }catch(e){
+    status.textContent = '发送失败：' + e.message;
+    status.style.color = '#ff4f9b';
+    btn.disabled = false; btn.textContent = '发送验证码';
+  }
+}
+
+async function loginHomeXunleiSms(){
+  const phone = document.getElementById('home-xl-phone').value.trim();
+  const code = document.getElementById('home-xl-code').value.trim();
+  const sessionKey = document.getElementById('home-xl-session').value;
+  const name = document.getElementById('home-cloud-name').value.trim() || '我的迅雷云盘';
+  if(!code || code.length !== 4){ alert('请输入4位短信验证码'); return; }
+  try{
+    const r = await fetch('/api/cloud/xunlei/sms/login', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ mobile:phone, smsCode:code, sessionKey, name })
+    });
+    const d = await r.json();
+    if(d.ok){
+      alert('迅雷云盘登录成功，账号已添加！');
+      document.getElementById('home-xl-code').value = '';
+      loadCloudAccounts();
+    }else{
+      alert('登录失败：' + (d.error || '未知错误'));
+    }
+  }catch(e){ alert('登录失败：' + e.message); }
+}
+
 async function testCloudAccount(id){
   try{
-    const r = await fetch('/api/cloud/accounts/' + id + '/test', { method: 'POST' });
+    const r = await fetch('/api/cloud/accounts/' + id + '/test', { method:'POST' });
     const d = await r.json();
     if(d.success){ alert('连接测试成功！'); loadCloudAccounts(); }
     else{ alert('连接测试失败：' + (d.error || '未知错误')); }
@@ -643,7 +936,7 @@ async function testCloudAccount(id){
 async function deleteCloudAccount(id, name){
   if(!confirm('确认删除网盘账号「' + name + '」？\n\n删除后该网盘的曲库来源将无法访问，但已扫描入库的歌曲记录会保留。')) return;
   try{
-    const r = await fetch('/api/cloud/accounts/' + id, { method: 'DELETE' });
+    const r = await fetch('/api/cloud/accounts/' + id, { method:'DELETE' });
     if(r.ok){ alert('账号已删除'); loadCloudAccounts(); }
     else{ alert('删除失败'); }
   }catch(e){ alert('删除请求失败'); }
