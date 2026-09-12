@@ -16,17 +16,17 @@ const fs = require('fs');
 const path = require('path');
 
 const Pan115Driver = require('./drivers/pan115');
-
-// const AliyunDriver = require('./drivers/aliyun'); // 后续实现
-
-
+const AliyunDriver = require('./drivers/aliyun');
+const BaiduDriver = require('./drivers/baidu');
+const XunleiDriver = require('./drivers/xunlei');
+const CMCCDriver = require('./drivers/cmcc');
 
 const DRIVERS = {
-
   pan115: Pan115Driver,
-
-  // aliyun: AliyunDriver,
-
+  aliyun: AliyunDriver,
+  baidu: BaiduDriver,
+  xunlei: XunleiDriver,
+  cmcc: CMCCDriver,
 };
 
 
@@ -279,11 +279,12 @@ class CloudDriveManager {
    *
    * @param {string} driver - 驱动类型
    * @param {string} name - 账号名称（用于区分多账号）
-   * @param {string} cookie - 浏览器中的 Cookie 字符串
+   * @param {string} cookie - 浏览器中的 Cookie 字符串（或 token 类驱动的 access_token）
+   * @param {string} [refreshToken] - 刷新令牌（token 类驱动使用，如阿里云盘/百度网盘）
    * @returns {object} 账号信息
    */
 
-  createAccountWithCookie(driver, name, cookie) {
+  createAccountWithCookie(driver, name, cookie, refreshToken = null) {
 
     if (!DRIVERS[driver]) {
 
@@ -293,13 +294,14 @@ class CloudDriveManager {
 
     if (!cookie || !cookie.trim()) {
 
-      throw new Error('Cookie 不能为空');
+      throw new Error('Cookie/Token 不能为空');
 
     }
 
 
 
     const cookieVal = cookie.trim();
+    const refreshVal = refreshToken ? refreshToken.trim() : null;
     const expiresAt = new Date(Date.now() + 86400 * 30 * 1000).toISOString();
 
     // 多账号去重：按 "driver + name" 查找是否已存在
@@ -311,16 +313,29 @@ class CloudDriveManager {
 
     let accountId;
     if (existing) {
-      this.db.prepare(
-        'UPDATE cloud_accounts SET access_token = ?, status = ?, token_expires_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-      ).run(cookieVal, 'active', expiresAt, existing.id);
+      if (refreshVal) {
+        this.db.prepare(
+          'UPDATE cloud_accounts SET access_token = ?, refresh_token = ?, status = ?, token_expires_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        ).run(cookieVal, refreshVal, 'active', expiresAt, existing.id);
+      } else {
+        this.db.prepare(
+          'UPDATE cloud_accounts SET access_token = ?, status = ?, token_expires_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        ).run(cookieVal, 'active', expiresAt, existing.id);
+      }
       accountId = existing.id;
       console.log(`[CloudDrive] 更新已有账号: ${accountName} (ID=${accountId}, driver=${driver})`);
     } else {
-      const info = this.db.prepare(
-        'INSERT INTO cloud_accounts (driver, name, access_token, status, token_expires_at) VALUES (?, ?, ?, ?, ?)'
-      ).run(driver, accountName, cookieVal, 'active', expiresAt);
-      accountId = info.lastInsertRowid;
+      if (refreshVal) {
+        const info = this.db.prepare(
+          'INSERT INTO cloud_accounts (driver, name, access_token, refresh_token, status, token_expires_at) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run(driver, accountName, cookieVal, refreshVal, 'active', expiresAt);
+        accountId = info.lastInsertRowid;
+      } else {
+        const info = this.db.prepare(
+          'INSERT INTO cloud_accounts (driver, name, access_token, status, token_expires_at) VALUES (?, ?, ?, ?, ?)'
+        ).run(driver, accountName, cookieVal, 'active', expiresAt);
+        accountId = info.lastInsertRowid;
+      }
       console.log(`[CloudDrive] 新增账号: ${accountName} (ID=${accountId}, driver=${driver})`);
     }
     const account = this.getAccount(accountId);
@@ -680,17 +695,13 @@ class CloudDriveManager {
    */
 
   getSupportedDrivers() {
-
-    return Object.entries(DRIVERS).map(([key, cls]) => ({
-
-      type: key,
-
-      name: key,
-
-      authMethod: 'cookie',
-
-    }));
-
+    return [
+      { type: 'pan115', name: '115网盘', authMethod: 'cookie', authHint: '填写浏览器中的 Cookie（UID+CID+SEID+KID）' },
+      { type: 'aliyun', name: '阿里云盘', authMethod: 'token', authHint: '填写 access_token 和 refresh_token（Bearer 令牌）' },
+      { type: 'baidu', name: '百度网盘', authMethod: 'token', authHint: '填写 OAuth access_token（可选 refresh_token）' },
+      { type: 'xunlei', name: '迅雷云盘', authMethod: 'token', authHint: '填写 Bearer Token（从浏览器 Authorization 头提取）' },
+      { type: 'cmcc', name: '移动云盘', authMethod: 'cookie', authHint: '填写浏览器中的 Cookie（和彩云登录态）' },
+    ];
   }
 
 }
