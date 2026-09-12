@@ -151,18 +151,43 @@ class AliyunDriver extends CloudDriveBase {
    * 使用公开 OAuth 应用凭证（来自开源社区）
    */
   async getQRCode() {
-    const body = {
+    // 使用 aliyundrive-webdav 项目的公开 OAuth 代理获取二维码
+    // 官方 API 需要有效的 client_id/client_secret，社区代理已配置好
+    const https = require('https');
+    const body = JSON.stringify({
       client_id: '25dzX3vbYqktVxyX',
-      client_secret: '',
-      scopes: 'user:base,file:all:read,file:all:write',
+      scopes: ['user:base', 'file:all:read', 'file:all:write'],
       width: 280,
       height: 280,
-    };
+    });
 
-    const result = await this._request('POST', '/oauth/authorize/qrcode', body);
+    const result = await new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: 'aliyundrive-oauth.messense.me',
+        port: 443,
+        path: '/oauth/authorize/qrcode',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+          'User-Agent': 'momo-ktv/1.0',
+        },
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)); }
+          catch (e) { reject(new Error('阿里云盘代理返回非JSON: ' + data.substring(0, 200))); }
+        });
+      });
+      req.on('error', reject);
+      req.setTimeout(15000, () => { req.destroy(); reject(new Error('阿里云盘代理超时')); });
+      req.write(body);
+      req.end();
+    });
 
-    const qrId = result.qrId || result.qr_id;
-    const qrUrl = result.qrCodeUrl || result.qr_code_url;
+    const qrId = result.sid || result.qrId || result.qr_id;
+    const qrUrl = result.qrCodeUrl || result.qr_code_url || result.url;
 
     if (!qrId || !qrUrl) {
       throw new Error('阿里云盘获取二维码失败: ' + JSON.stringify(result).substring(0, 200));
@@ -182,33 +207,87 @@ class AliyunDriver extends CloudDriveBase {
    */
   async checkQRStatus(qrId) {
     try {
-      const result = await this._request('GET', `/oauth/authorize/qrcode/${qrId}`);
+      // 使用官方 openapi 查询扫码状态
+      const https = require('https');
+      const result = await new Promise((resolve, reject) => {
+        const req = https.request({
+          hostname: 'openapi.aliyundrive.com',
+          port: 443,
+          path: `/oauth/qrcode/${qrId}/status`,
+          method: 'GET',
+          headers: { 'User-Agent': 'momo-ktv/1.0' },
+        }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try { resolve(JSON.parse(data)); }
+            catch (e) { resolve({ status: 'WaitLogin' }); }
+          });
+        });
+        req.on('error', () => resolve({ status: 'WaitLogin' }));
+        req.setTimeout(10000, () => { req.destroy(); resolve({ status: 'WaitLogin' }); });
+        req.end();
+      });
+
       const status = result.status;
 
-      if (status === 'CONFIRMED' && result.authCode) {
-        // 用 authCode 换取 token
-        const tokenResult = await this._request('POST', '/oauth/access_token', {
-          client_id: '25dzX3vbYqktVxyX',
-          client_secret: '',
-          grant_type: 'authorization_code',
-          code: result.authCode,
-        });
+      // WaitLogin = 等待扫码, LoginSuccess = 扫码成功, QrCodeExpired = 过期
+      if (status === 'LoginSuccess' && result.authCode) {
+        // 用 authCode 通过代理换取 refresh_token
+        try {
+          const tokenBody = JSON.stringify({
+            client_id: '25dzX3vbYqktVxyX',
+            grant_type: 'authorization_code',
+            code: result.authCode,
+          });
+          const tokenResult = await new Promise((resolve, reject) => {
+            const req = https.request({
+              hostname: 'aliyundrive-oauth.messense.me',
+              port: 443,
+              path: '/oauth/access_token',
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(tokenBody),
+              },
+            }, (res) => {
+              let data = '';
+              res.on('data', chunk => data += chunk);
+              res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(new Error(data)); } });
+            });
+            req.on('error', reject);
+            req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
+            req.write(tokenBody);
+            req.end();
+          });
 
-        if (tokenResult.access_token) {
+          if (tokenResult.refresh_token || tokenResult.access_token) {
+            return {
+              status: 'confirmed',
+              tokens: {
+                access_token: tokenResult.access_token || '',
+                refresh_token: tokenResult.refresh_token || '',
+                expires_in: tokenResult.expires_in || 7200,
+              },
+            };
+          }
+        } catch (e) {
+          // token 换取失败，返回 authCode 让用户手动获取
           return {
             status: 'confirmed',
             tokens: {
-              access_token: tokenResult.access_token,
-              refresh_token: tokenResult.refresh_token,
-              expires_in: tokenResult.expires_in || 7200,
+              access_token: '',
+              refresh_token: '',
+              auth_code: result.authCode,
+              expires_in: 7200,
             },
+            message: '扫码成功！请在浏览器打开 https://alist.nn.ci/zh/guide/drivers/aliyundrive_open.html 获取 refresh_token 后粘贴到 Cookie 模式',
           };
         }
-        throw new Error('阿里云盘换取 token 失败: ' + JSON.stringify(tokenResult).substring(0, 200));
       }
 
-      if (status === 'SCANED' || status === 'SCANNED') return { status: 'scanned' };
-      if (status === 'EXPIRED' || status === 'CANCELED') return { status: 'expired' };
+      if (status === 'QrCodeExpired' || status === 'Canceled') return { status: 'expired' };
+      if (status === 'WaitLogin') return { status: 'waiting' };
       return { status: 'waiting' };
     } catch (e) {
       return { status: 'waiting' };
