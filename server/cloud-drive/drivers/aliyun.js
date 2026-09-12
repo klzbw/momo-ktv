@@ -145,12 +145,74 @@ class AliyunDriver extends CloudDriveBase {
 
   // ==================== 认证相关 ====================
 
+  /**
+   * 获取阿里云盘扫码登录二维码
+   * API: POST https://api.aliyundrive.com/oauth/authorize/qrcode
+   * 使用公开 OAuth 应用凭证（来自开源社区）
+   */
   async getQRCode() {
-    throw new Error('阿里云盘请使用 Token 登录（在账号管理中填写 access_token 和 refresh_token）');
+    const body = {
+      client_id: '25dzX3vbYqktVxyX',
+      client_secret: '',
+      scopes: 'user:base,file:all:read,file:all:write',
+      width: 280,
+      height: 280,
+    };
+
+    const result = await this._request('POST', '/oauth/authorize/qrcode', body);
+
+    const qrId = result.qrId || result.qr_id;
+    const qrUrl = result.qrCodeUrl || result.qr_code_url;
+
+    if (!qrId || !qrUrl) {
+      throw new Error('阿里云盘获取二维码失败: ' + JSON.stringify(result).substring(0, 200));
+    }
+
+    return {
+      qrId,
+      qrImage: qrUrl,
+      expiresIn: 180,
+    };
   }
 
+  /**
+   * 轮询阿里云盘扫码状态
+   * API: GET https://api.aliyundrive.com/oauth/authorize/qrcode/{qrId}
+   * 确认后用 authCode 换取 access_token
+   */
   async checkQRStatus(qrId) {
-    throw new Error('not implemented');
+    try {
+      const result = await this._request('GET', `/oauth/authorize/qrcode/${qrId}`);
+      const status = result.status;
+
+      if (status === 'CONFIRMED' && result.authCode) {
+        // 用 authCode 换取 token
+        const tokenResult = await this._request('POST', '/oauth/access_token', {
+          client_id: '25dzX3vbYqktVxyX',
+          client_secret: '',
+          grant_type: 'authorization_code',
+          code: result.authCode,
+        });
+
+        if (tokenResult.access_token) {
+          return {
+            status: 'confirmed',
+            tokens: {
+              access_token: tokenResult.access_token,
+              refresh_token: tokenResult.refresh_token,
+              expires_in: tokenResult.expires_in || 7200,
+            },
+          };
+        }
+        throw new Error('阿里云盘换取 token 失败: ' + JSON.stringify(tokenResult).substring(0, 200));
+      }
+
+      if (status === 'SCANED' || status === 'SCANNED') return { status: 'scanned' };
+      if (status === 'EXPIRED' || status === 'CANCELED') return { status: 'expired' };
+      return { status: 'waiting' };
+    } catch (e) {
+      return { status: 'waiting' };
+    }
   }
 
   async refreshToken() {
