@@ -1813,17 +1813,17 @@ select option{color:#000}
           <!-- Alist 引导 + G-Box 登录整合区域 -->
           <div id="alist-guide-section" style="display:none;background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:16px;margin:10px 0">
 
-            <!-- 移动云盘：跳转拿token/cookie -->
+            <!-- 移动云盘：跳转登录后粘贴 Cookie -->
             <div id="cmcc-login-panel" style="display:none">
-              <div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:10px">📋 获取移动云盘 Authorization</div>
+              <div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:10px">📋 获取移动云盘登录 Cookie</div>
               <div style="font-size:12px;color:var(--sub);line-height:1.8;margin-bottom:12px">
-                点击下方按钮打开移动云盘官网，登录后按 F12 打开开发者工具，在 Application → Cookies → https://yun.139.com 中找到 <b>Authorization</b> 项，复制其值粘贴到下方：
+                点击下方按钮打开移动云盘官网并登录，登录后按 F12 打开开发者工具 → Network → 点任意请求 → 复制请求头中的 <b>Cookie</b> 值，粘贴到下方：
               </div>
               <div style="display:flex;gap:8px;margin-bottom:12px">
-                <button onclick="window.open('https://yun.139.com','_blank')" style="flex:1;padding:8px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🔗 跳转拿token</button>
-                <button onclick="window.open('https://mail.139.com','_blank')" style="flex:1;padding:8px;background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">📧 跳转拿cookie</button>
+                <button onclick="window.open('https://yun.139.com','_blank')" style="flex:1;padding:8px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🔗 登录移动云盘</button>
+                <button onclick="window.open('https://mail.139.com','_blank')" style="flex:1;padding:8px;background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">📧 139邮箱</button>
               </div>
-              <textarea id="cmcc-token-input" rows="3" placeholder="粘贴 Authorization 值（pc:手机号:token 格式的 Base64 编码，带不带 Basic 前缀都可以）" style="width:100%;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px;color:#fff;font-size:11px;resize:vertical;box-sizing:border-box"></textarea>
+              <textarea id="cmcc-token-input" rows="3" placeholder="粘贴 Cookie 值（包含 cml_passport 等登录字段）" style="width:100%;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px;color:#fff;font-size:11px;resize:vertical;box-sizing:border-box"></textarea>
               <button onclick="addCmccToken()" style="width:100%;margin-top:8px;padding:8px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">✓ 添加移动云盘账号</button>
             </div>
 
@@ -6272,21 +6272,19 @@ async function deleteCloudAccount(id, name){
 }
 
 
-  // ========== 移动云盘 Token 添加 ==========
+  // ========== 移动云盘 Cookie 添加 ==========
   async function addCmccToken(){
-    const token = document.getElementById('cmcc-token-input').value.trim();
+    const cookie = document.getElementById('cmcc-token-input').value.trim();
     const name = document.getElementById('cloud-qr-name-input').value.trim() || '我的移动云盘';
-    if(!token){ alert('请先粘贴 Authorization 值'); return; }
-    // Remove "Basic " prefix if present
-    let cleanToken = token.replace(/^Basic\s+/i, '').trim();
+    if(!cookie){ alert('请先粘贴移动云盘 Cookie'); return; }
     try{
-      const res = await fetch('/api/cloud/accounts', {
+      const res = await fetch('/api/cloud/accounts/cookie', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ driver:'cmcc', name:name, access_token:cleanToken, refresh_token:'' })
+        body: JSON.stringify({ driver:'cmcc', name:name, cookie:cookie })
       });
       const data = await res.json();
-      if(data.ok || data.id){
+      if(data.ok || data.success || data.id){
         alert('移动云盘账号添加成功！');
         document.getElementById('cmcc-token-input').value = '';
         loadCloudAccounts();
