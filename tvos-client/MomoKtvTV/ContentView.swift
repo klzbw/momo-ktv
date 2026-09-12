@@ -739,6 +739,7 @@ struct ContentView: View {
     }
 
     private func setupPlaybackEndHandler() {
+        // AVPlayer 模式播放结束回调
         playerManager.onPlaybackEnd = {
             DispatchQueue.main.async {
                 guard let curSong = self.api.queue.first(where: { $0.isPlaying }) else {
@@ -750,6 +751,18 @@ struct ContentView: View {
                 self.lastAutoNextQueueId = curSong.id
                 // 队列里还有已点就播下一首；已点播完则自动从曲库随机选一首续播，
                 // 不再直接停住 / 退出全屏（修复"已点歌曲播完后无法自动随机播放"）
+                self.advancePlayback()
+            }
+        }
+        // VLC 模式播放结束回调（网络 MKV 视频走 VLC，之前播完不触发自动切歌）
+        vlcManager.onPlaybackEnd = {
+            DispatchQueue.main.async {
+                guard let curSong = self.api.queue.first(where: { $0.isPlaying }) else {
+                    if self.showingPlayer { self.showingPlayer = false }
+                    return
+                }
+                if self.lastAutoNextQueueId == curSong.id { return }
+                self.lastAutoNextQueueId = curSong.id
                 self.advancePlayback()
             }
         }

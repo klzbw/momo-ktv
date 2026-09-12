@@ -28,6 +28,8 @@ class VLCPlayerManager: NSObject, ObservableObject {
     var onTimeUpdate: ((Double, Double) -> Void)?
     var onStateChange: ((Bool) -> Void)?
     var onError: ((String) -> Void)?
+    /// 播放自然结束回调（VLC模式下用于自动播放下一首，与 AVPlayer 的 onPlaybackEnd 对齐）
+    var onPlaybackEnd: (() -> Void)?
 
     // MARK: - VLC实例
     #if canImport(TVVLCKit)
@@ -639,6 +641,8 @@ extension VLCPlayerManager: VLCMediaPlayerDelegate {
         case .ended:
             isPlaying = false
             onStateChange?(false)
+            // VLC 播放自然结束：触发自动播放下一首（修复 VLC 模式下播完不自动切歌）
+            onPlaybackEnd?()
         case .error:
             log("❌ VLC错误! 视频轨:\(player.videoTrackNames.count) 音频轨:\(player.audioTrackNames.count)")
             if let media = player.media {
