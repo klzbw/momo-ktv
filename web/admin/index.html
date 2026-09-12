@@ -5815,6 +5815,7 @@ async function testCloudAccount(id){
 // ---------- 扫码登录相关 ----------
 
 let qrPollTimer = null;
+let qrLoginPolling = null;
 
 let qrLoginData = null;
 
@@ -5860,28 +5861,47 @@ function switchCloudTab(tab){
 
 function onQrDriverChange(){
   const driver = document.getElementById('cloud-qr-driver-select').value;
-  const driverNames = { pan115:'115网盘', aliyun:'阿里云盘', baidu:'百度网盘', xunlei:'迅雷云盘', cmcc:'移动云盘' };
+  const driverNames = { pan115:'115网盘', aliyun:'阿里云盘', baidu:'百度网盘', xunlei:'迅雷云盘', cmcc:'移动云盘', alist:'Alist' };
+  // 更新标题
   const nameEl = document.getElementById('qr-driver-name');
   if(nameEl) nameEl.textContent = driverNames[driver] || driver;
-  // Hide 登录设备类型 for non-115 drivers
-  const appSelect = document.getElementById('cloud-qr-app-select');
-  const appLabel = appSelect ? appSelect.closest('div') : null;
-  if(appSelect){
-    if(driver === 'pan115'){
-      appSelect.style.display = '';
-      if(appLabel) appLabel.style.display = '';
-    }else{
-      appSelect.style.display = 'none';
-      if(appLabel) appLabel.style.display = 'none';
+  // 更新账号名称默认值（只在用户未手动修改时）
+  const nameInput = document.getElementById('cloud-qr-name-input');
+  if(nameInput){
+    const defaultNames = { pan115:'我的115', aliyun:'我的阿里云盘', baidu:'我的百度网盘', xunlei:'我的迅雷云盘', cmcc:'我的移动云盘', alist:'我的Alist' };
+    const currentVal = nameInput.value.trim();
+    const allDefaults = Object.values(defaultNames);
+    if(!currentVal || allDefaults.includes(currentVal)){
+      nameInput.value = defaultNames[driver] || '我的网盘';
     }
   }
-  // Reset QR area
+  // 隐藏非115的"登录设备类型"
+  const appSelect = document.getElementById('cloud-qr-app-select');
+  if(appSelect){
+    const appWrap = appSelect.closest('.form-row') || appSelect.parentElement;
+    if(driver === 'pan115'){
+      appSelect.style.display = '';
+      if(appWrap) appWrap.style.display = '';
+    }else{
+      appSelect.style.display = 'none';
+      if(appWrap) appWrap.style.display = 'none';
+    }
+  }
+  // 更新步骤提示
+  const stepsEl = document.querySelector('#cloud-qrcode-section div[style*="font-size:11px"]');
+  if(stepsEl){
+    const appName = driverNames[driver] || driver;
+    stepsEl.innerHTML = '1. 点击「获取二维码」<br>2. 用手机' + appName + 'App扫码<br>3. 手机上确认登录<br>4. 自动创建账号 ✓';
+  }
+  // 重置扫码区域
   if(qrLoginPolling){ clearInterval(qrLoginPolling); qrLoginPolling=null; }
   qrLoginData = null;
   const container = document.getElementById('qrcode-container');
   if(container) container.innerHTML = '<div style="color:#999;font-size:12px">点击下方按钮获取二维码</div>';
   const statusEl = document.getElementById('qrcode-status');
   if(statusEl){ statusEl.textContent = '等待扫码...'; statusEl.style.color = 'var(--sub)'; }
+  const btn = document.getElementById('cloud-qr-start-btn');
+  if(btn) btn.textContent = '获取二维码';
 }
 
 async function startQrLogin(){
