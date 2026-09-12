@@ -288,8 +288,10 @@ class VLCPlayerManager: NSObject, ObservableObject {
         } else {
             p.play()
             isPlaying = true
-            log("togglePlayPause: 播放")
-            let delays: [Double] = [0.2, 0.6, 1.2, 2.0]
+            log("togglePlayPause: 恢复播放")
+            // 恢复播放时多次刷新 drawable：VLC 暂停过久后视频输出层可能失效，
+            // 不刷新会导致只有声音无画面（黑屏）。密集刷新覆盖 VLC 异步恢复的各个阶段。
+            let delays: [Double] = [0.1, 0.3, 0.6, 1.0, 1.5, 2.0, 3.0]
             for (i, delay) in delays.enumerated() {
                 DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                     self?.refreshDrawables()

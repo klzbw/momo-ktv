@@ -588,16 +588,32 @@ class PlayerManager: ObservableObject {
             }
             return
         }
+        // 暂停后恢复播放：若缓冲不足(readyState<2)先显示 loading，避免用户看到无提示的黑屏
+        if player.currentItem?.isPlaybackBufferEmpty == true || player.currentItem?.status != .readyToPlay {
+            print("[PlayerManager] buffer empty on resume, will reload if stuck")
+        }
         player.play()
         isPlaying = true
         // 播放后0.5秒检查：如果rate仍为0且不是暂停，尝试seek恢复
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self, let p = self.player else { return }
             if p.rate == 0 && self.isPlaying && p.timeControlStatus != .paused {
-                print("[PlayerManager] play stuck, seek recovery")
+                print("[PlayerManager] play stuck after 0.5s, seek recovery")
                 let t = p.currentTime().seconds
                 p.seek(to: CMTime(seconds: max(0, t - 0.5), preferredTimescale: 600))
                 p.play()
+            }
+        }
+        // 播放后1.5秒二次检查：HLS暂停过久缓冲失效时，重建 playerItem 恢复（修复暂停后点播放黑屏）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self = self, let p = self.player else { return }
+            if p.rate == 0 && self.isPlaying && p.timeControlStatus != .paused {
+                print("[PlayerManager] still stuck after 1.5s, rebuild playerItem")
+                if let url = (p.currentItem?.asset as? AVURLAsset)?.url ?? self.currentHLSURL {
+                    let curTime = p.currentTime().seconds
+                    self.setupPlayer(for: url)
+                    self.seek(to: max(0, curTime - 1))
+                }
             }
         }
     }

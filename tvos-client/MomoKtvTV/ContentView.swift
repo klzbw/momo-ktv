@@ -530,6 +530,12 @@ struct ContentView: View {
         .onChange(of: api.queue.first(where: { $0.isPlaying })?.song_id) { newId in
             // Reset auto-next guard when song changes
             lastAutoNextQueueId = nil
+
+            // === 切歌立即停止旧播放：防止切歌后后台残留旧歌曲音频 ===
+            isUsingVLC = false
+            vlcManager.stop()
+            playerManager.pause()
+
             if let playing = api.queue.first(where: { $0.isPlaying }) {
                 // 小窗预览歌词：视频歌清空，纯音频歌加载
                 if playing.isVideoFile { previewLyrics.lyrics = .empty }
@@ -539,16 +545,23 @@ struct ContentView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                     showSongIntro = false
                 }
-                // Setup new song in shared player
-                // 先检测歌曲类型：网络KTV歌曲直接走DUAL双FLAC模式，本地歌曲走HLS
                 let sid = playing.song_id
+
+                // === 本地歌曲立即 HLS 起播，不等 sep-info（大幅提升切歌速度）===
+                // 网络歌曲(115网盘)必须等 sep-info 决定走 VLC(MKV直连) 还是 DUAL(双FLAC直连)
+                if !playing.isNetworkSong, let hlsURL = api.hlsURL(songId: sid) {
+                    playerManager.vocalTrackCount = playing.audio_tracks ?? 1
+                    playerManager.setupPlayer(for: hlsURL)
+                    playerManager.setVolume(volume)
+                }
+
+                // === 后台异步获取 sep-info：网络歌曲直连播放 / 本地歌曲升级 DUAL ===
                 api.fetchSepInfo(songId: sid) { info in
                     DispatchQueue.main.async {
                         // 快切歌保护：当前仍在播放同一首才继续
                         guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
 
-                        // 网络KTV MKV视频：使用VLC播放器播放（AVFoundation不支持MKV容器）
-                        // VLC内置115专用UA，自动跟随302重定向，真正直连不占NAS带宽
+                        // 网络 MKV 视频：VLC 302 直连播放（不占 NAS 带宽和容量）
                         if let info = info, info.isNetworkMkv,
                            let videoPath = info.videoUrl,
                            let videoURL = self.api.apiURL(videoPath) {
@@ -566,15 +579,15 @@ struct ContentView: View {
                                     self.playerManager.duration = total
                                 }
                             }
-                            print("[ContentView] 网络KTV MKV视频播放(VLC播放器): \(videoPath)")
+                            print("[ContentView] 网络MKV直连(VLC): \(videoPath)")
                             return
                         }
 
-                        // 切到非VLC歌曲时，先停止VLC播放，避免两种声音同时存在
+                        // 非 MKV：停止 VLC（防止两种声音同时存在）
                         self.isUsingVLC = false
                         self.vlcManager.stop()
 
-                        // 网络KTV歌曲：直接走DUAL双FLAC模式，不走HLS
+                        // 网络双 FLAC：DUAL 混合直连播放（原唱/伴唱连续调节）
                         if let info = info, info.isNetworkDual,
                            let vocalPath = info.vocalUrl, let accompPath = info.accompUrl,
                            let vURL = self.api.apiURL(vocalPath),
@@ -585,23 +598,14 @@ struct ContentView: View {
                             return
                         }
 
-                        // 切到非VLC歌曲时，先停止VLC播放，避免两种声音同时存在
-                        self.isUsingVLC = false
-                        self.vlcManager.stop()
-
-                        // 本地歌曲：走原有的HLS播放流程
-                        if let url = self.api.hlsURL(songId: sid) {
-                            self.playerManager.vocalTrackCount = playing.audio_tracks ?? 1
-                            self.playerManager.setupPlayer(for: url)
-                            self.playerManager.setVolume(volume)
+                        // 本地歌曲：已在上方立即 HLS 起播，这里检查是否需要升级 DUAL（AI分离歌）
+                        if !playing.isNetworkSong {
                             self.prepareDualIfNeeded(playing)
                         }
                     }
                 }
             } else {
                 // No song playing
-                isUsingVLC = false
-                vlcManager.stop()
                 playerManager.cleanup()
             }
             isPlaying = playerManager.isPlaying
