@@ -2106,9 +2106,8 @@ select option{color:#000}
 
 
   <button class="hbtn" onclick="openShareModal()" title="管理115网盘分享链接，添加后自动扫描入库">🔗 分享管理</button>
-  <button class="hbtn" onclick="openQuarkModal()" title="扫码登录夸克网盘，自动添加到Alist">🍒 夸克网盘</button>
 
-  <button class="hbtn" onclick="openCloudModal()" title="管理115网盘等云端存储账号" style="display:none">☁️ 网盘管理</button>
+  <button class="hbtn" onclick="openCloudModal()" title="管理115/夸克/移动等网盘账号">☁️ 网盘管理</button>
 
 
 
@@ -3642,6 +3641,8 @@ select option{color:#000}
 
 <option value="cmcc">移动云盘</option>
 
+<option value="quark">夸克网盘</option>
+
 </select>
 
 </div>
@@ -3690,6 +3691,26 @@ select option{color:#000}
 
               <button onclick="addCmccToken()" style="width:100%;margin-top:8px;padding:8px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">✓ 添加移动云盘账号</button>
 
+            </div>
+
+            <!-- 夸克网盘：扫码登录 -->
+            <div id="quark-login-panel" style="display:none">
+              <div style="font-size:13px;font-weight:600;color:#ff6b6b;margin-bottom:10px">🍒 夸克网盘扫码登录</div>
+              <div style="font-size:12px;color:var(--sub);line-height:1.8;margin-bottom:12px">
+                点击下方按钮生成二维码，用夸克App扫码即可自动登录并添加到Alist。
+              </div>
+              <div id="cloud-quark-qr-area" style="text-align:center;margin-bottom:12px">
+                <div id="cloud-quark-qr-container" style="display:inline-block;background:#fff;padding:12px;border-radius:10px">
+                  <div id="cloud-quark-qr-placeholder" style="width:180px;height:180px;display:flex;align-items:center;justify-content:center;color:#666;font-size:12px">
+                    点击生成二维码
+                  </div>
+                  <canvas id="cloud-quark-qrcode" style="display:none"></canvas>
+                </div>
+                <div id="cloud-quark-status" style="margin-top:10px;font-size:12px;color:var(--sub)">等待生成二维码...</div>
+              </div>
+              <button onclick="cloudQuarkGenerateQr()" id="cloud-quark-btn" style="width:100%;padding:8px;background:linear-gradient(135deg,#ff6b6b,#ee5a24);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">
+                📱 生成夸克登录二维码
+              </button>
             </div>
 
 
@@ -12144,7 +12165,7 @@ function onQrDriverChange(){
 
   const driver = document.getElementById('cloud-qr-driver-select').value;
 
-  const driverNames = { pan115:'115网盘', aliyun:'阿里云盘', baidu:'百度网盘', xunlei:'迅雷云盘', cmcc:'移动云盘', alist:'Alist' };
+  const driverNames = { pan115:'115网盘', aliyun:'阿里云盘', baidu:'百度网盘', xunlei:'迅雷云盘', cmcc:'移动云盘', quark:'夸克网盘', alist:'Alist' };
 
   const alistGuide = document.getElementById('alist-guide-section');
 
@@ -12176,7 +12197,7 @@ function onQrDriverChange(){
 
   if(nameInput){
 
-    const defaults = { pan115:'我的115', aliyun:'我的阿里云盘', baidu:'我的百度网盘', xunlei:'我的迅雷云盘', cmcc:'我的移动云盘', alist:'我的Alist' };
+    const defaults = { pan115:'我的115', aliyun:'我的阿里云盘', baidu:'我的百度网盘', xunlei:'我的迅雷云盘', cmcc:'我的移动云盘', quark:'我的夸克网盘', alist:'我的Alist' };
 
     const cur = nameInput.value.trim();
 
@@ -12214,7 +12235,9 @@ function onQrDriverChange(){
 
   const isXl = driver === 'xunlei';
 
-  const isGuide = isCmcc || isXl;
+  const isQuark = driver === 'quark';
+
+  const isGuide = isCmcc || isXl || isQuark;
 
 
 
@@ -12225,6 +12248,9 @@ function onQrDriverChange(){
     if(cmccPanel) cmccPanel.style.display = isCmcc ? '' : 'none';
 
     if(xlPanel) xlPanel.style.display = isXl ? '' : 'none';
+
+    const quarkPanel = document.getElementById('quark-login-panel');
+    if (quarkPanel) quarkPanel.style.display = isQuark ? '' : 'none';
 
     if(genericPanel) genericPanel.style.display = 'none';
 
@@ -13082,6 +13108,118 @@ function loadScript(src) {
     s.onerror = reject;
     document.head.appendChild(s);
   });
+}
+
+
+// ---------- 网盘管理-夸克网盘扫码登录 ----------
+let cloudQuarkPollTimer = null;
+
+async function cloudQuarkGenerateQr(){
+  const statusEl = document.getElementById('cloud-quark-status');
+  const placeholder = document.getElementById('cloud-quark-qr-placeholder');
+  const canvas = document.getElementById('cloud-quark-qrcode');
+  const btn = document.getElementById('cloud-quark-btn');
+
+  btn.disabled = true;
+  btn.textContent = '生成中...';
+  statusEl.textContent = '正在生成二维码...';
+  statusEl.style.color = 'var(--sub)';
+
+  try {
+    const r = await fetch('/api/quark/qrcode/generate');
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || '生成失败');
+
+    // 加载 qrcode.js 库
+    if (typeof QRCode === 'undefined') {
+      await loadScript('https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js');
+    }
+
+    // 清空并生成新二维码
+    placeholder.style.display = 'none';
+    canvas.style.display = 'block';
+
+    const qrContainer = document.createElement('div');
+    new QRCode(qrContainer, {
+      text: d.qrContent,
+      width: 180,
+      height: 180,
+      colorDark: '#000000',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+
+    setTimeout(() => {
+      const img = qrContainer.querySelector('img');
+      if (img) {
+        img.onload = () => {
+          const ctx = canvas.getContext('2d');
+          canvas.width = 180;
+          canvas.height = 180;
+          ctx.clearRect(0, 0, 180, 180);
+          ctx.drawImage(img, 0, 0);
+        };
+        if (img.complete) img.onload();
+      }
+    }, 100);
+
+    statusEl.textContent = '请用夸克App扫码登录';
+    statusEl.style.color = 'var(--sub)';
+
+    // 开始轮询
+    if (cloudQuarkPollTimer) clearInterval(cloudQuarkPollTimer);
+    cloudQuarkPollTimer = setInterval(() => cloudQuarkPollStatus(d.sessionId), 2000);
+
+  } catch (e) {
+    statusEl.textContent = '生成失败: ' + e.message;
+    statusEl.style.color = 'var(--pink)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📱 重新生成二维码';
+  }
+}
+
+async function cloudQuarkPollStatus(token){
+  const statusEl = document.getElementById('cloud-quark-status');
+  try {
+    const r = await fetch(`/api/quark/qrcode/status?token=${encodeURIComponent(token)}`);
+    const d = await r.json();
+
+    if (d.status === 'confirmed') {
+      clearInterval(cloudQuarkPollTimer);
+      cloudQuarkPollTimer = null;
+      statusEl.textContent = '扫码成功，正在添加到Alist...';
+      statusEl.style.color = '#4ade80';
+
+      const applyR = await fetch('/api/quark/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cookie: d.cookie, nickname: d.nickname || '' })
+      });
+      const applyD = await applyR.json();
+
+      if (applyD.success) {
+        statusEl.textContent = '✅ ' + applyD.message;
+        statusEl.style.color = '#4ade80';
+        // 刷新账号列表
+        if (typeof loadCloudAccounts === 'function') loadCloudAccounts();
+      } else {
+        statusEl.textContent = '❌ 添加失败: ' + (applyD.error || '未知错误');
+        statusEl.style.color = 'var(--pink)';
+      }
+
+    } else if (d.status === 'scanned') {
+      statusEl.textContent = '已扫码，请在手机上确认...';
+      statusEl.style.color = '#fbbf24';
+    } else if (d.status === 'expired') {
+      clearInterval(cloudQuarkPollTimer);
+      cloudQuarkPollTimer = null;
+      statusEl.textContent = '二维码已过期，请重新生成';
+      statusEl.style.color = 'var(--pink)';
+    }
+  } catch (e) {
+    console.warn('[QuarkLogin] poll error:', e.message);
+  }
 }
 
 </script>
