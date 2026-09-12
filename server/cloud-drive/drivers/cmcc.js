@@ -130,29 +130,9 @@ class CMCCDriver extends CloudDriveBase {
    * API: POST https://yun.139.com/ipms/interface/v1/user/getQRCode
    */
   async getQRCode() {
-    const result = await this._request('POST', '/ipms/interface/v1/user/getQRCode', {}, {
-      clientType: 'web',
-    });
-
-    const qrId = result.qrId || result.qr_id || result.qrcodeId;
-    const qrImg = result.qrImage || result.qr_img || result.qrcodeUrl || result.imageUrl;
-    const qrContent = result.qrContent || result.qr_content || result.content;
-
-    let qrImage = qrImg;
-    if (!qrImage && qrContent) {
-      // 如果只返回二维码内容，用公共 API 生成二维码图片
-      qrImage = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(qrContent)}`;
-    }
-
-    if (!qrId || !qrImage) {
-      throw new Error('移动云盘获取二维码失败: ' + JSON.stringify(result).substring(0, 200));
-    }
-
-    return {
-      qrId,
-      qrImage,
-      expiresIn: result.expiresIn || result.expires_in || 300,
-    };
+    // 移动云盘扫码登录需要开放平台 appKey/appSecret，API 未公开
+    // 引导用户通过内置 Alist 添加（Alist 已支持 139 移动云盘）
+    throw new Error('移动云盘暂不支持直接扫码登录。请使用以下方式添加：\n1. 打开内置 Alist 后台 http://192.168.3.16:5236\n2. 存储 → 添加 → 驱动选择「139 移动云盘」\n3. 按 Alist 文档完成登录获取 token\n4. 回到本页点击「从 Alist 同步账号」\n\n或使用「Cookie粘贴」模式，从移动云盘网页端获取 Cookie 后粘贴。');
   }
 
   /**
