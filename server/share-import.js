@@ -541,6 +541,7 @@ async function _scanShareLink(link) {
       const pathHash = Buffer.from(video.path).toString('base64').replace(/[^a-zA-Z0-9]/g, '').substring(0, 16);
       const filename = `${pathHash}_${video.name}`;
       const filepath = `alist:${video.path}`;
+      const safeHash = pathHash; // 已过滤非字母数字，不含 /
 
       // 检查是否已存在
       const existing = _db.prepare("SELECT id FROM songs WHERE filepath = ?").get(filepath);
@@ -553,9 +554,13 @@ async function _scanShareLink(link) {
       const { title, artist } = _parseFilename(video.name);
 
       // 生成 STRM 文件（指向 momo-ktv 的分享流代理端点）
-      const strmPath = path.join(strmDir, `${pathHash}.strm`);
+      const strmPath = path.join(strmDir, `${safeHash}.strm`);
       const strmContent = `http://127.0.0.1:8080/api/share/stream${video.path}`;
-      fs.writeFileSync(strmPath, strmContent, 'utf-8');
+      try {
+        fs.writeFileSync(strmPath, strmContent, 'utf-8');
+      } catch (e) {
+        console.warn(`[ShareImport] STRM 写入失败 ${video.name}: ${e.message}`);
+      }
 
       // 插入歌曲
       _db.prepare(`
