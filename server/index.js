@@ -20290,7 +20290,8 @@ function findOrphanSongIds() {
 
 
 
-  return rows.filter(r => !knownDirs.has(r.source_root)).map(r => r.id);
+  // 分享链接导入的歌曲（source_root 以 share- 开头）不属于曲库来源配置，不算孤儿
+  return rows.filter(r => !knownDirs.has(r.source_root) && !r.source_root.startsWith('share-')).map(r => r.id);
 
 
 
