@@ -86,6 +86,13 @@ function _initDB() {
   } catch (e) {
     // 字段已存在
   }
+
+  // 确保 share_links 表有 alist_mount_path 字段（兼容旧数据库）
+  try {
+    _db.exec(`ALTER TABLE share_links ADD COLUMN alist_mount_path TEXT`);
+  } catch (e) {
+    // 字段已存在
+  }
 }
 
 // ==================== Alist API 封装 ====================
