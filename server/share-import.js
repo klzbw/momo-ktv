@@ -15,6 +15,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const crypto = require('crypto');
 const router = express.Router();
 
 let _db = null;
@@ -537,11 +538,11 @@ async function _scanShareLink(link) {
     totalSize += video.size || 0;
 
     try {
-      // 生成唯一 filename（用 Alist 路径的 hash 避免重名）
-      const pathHash = Buffer.from(video.path).toString('base64').replace(/[^a-zA-Z0-9]/g, '').substring(0, 16);
+      // 生成唯一 filename（用路径 SHA256 哈希避免重名，base64 截断会因共同前缀导致碰撞）
+      const pathHash = crypto.createHash('sha256').update(video.path).digest('hex').substring(0, 16);
       const filename = `${pathHash}_${video.name}`;
       const filepath = `alist:${video.path}`;
-      const safeHash = pathHash; // 已过滤非字母数字，不含 /
+      const safeHash = pathHash;
 
       // 检查是否已存在
       const existing = _db.prepare("SELECT id FROM songs WHERE filepath = ?").get(filepath);
