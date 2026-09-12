@@ -18,10 +18,16 @@
  * UA 透传（关键）：115 CDN 下载 URL 的签名与调用 downurl API 时的 User-Agent 绑定。
  * 必须用客户端（VLC/tvOS/浏览器）的 UA 调用 API，生成的 URL 客户端才能下载，
  * 否则 CDN 返回 403 invalid signature。这里把 req.get('User-Agent') 透传给驱动。
+ *
+ * 修复历史：
+ *   - 原硬编码 ALIST_TOKEN 会过期(401)，改为动态登录 Alist + 自动刷新
  */
 
 const express = require('express');
 const path = require('path');
+const http = require('http');
+const https = require('https');
+const { URL } = require('url');
 const router = express.Router();
 
 // 延迟加载依赖（避免循环引用）
@@ -29,13 +35,97 @@ let _db = null;
 let _Pan115Driver = null;
 let _driverCache = null; // 单例 driver 实例
 
+// AList 配置（仅作 fallback）
+const ALIST_BASE_URL = process.env.ALIST_URL || process.env.ALIST_BASE_URL || 'http://localhost:5234';
+const ALIST_BASE_PATH = process.env.ALIST_BASE_PATH || '/🥝115网盘/115';
+// 不再硬编码 token，启动后由 _alistLogin() 动态获取
+let _alistToken = null;
+let _alistTokenExpiry = 0;
+
 /**
  * 初始化：传入 db 实例
  */
 function init(db) {
   _db = db;
   _Pan115Driver = require('./cloud-drive/drivers/pan115');
+
+  // 启动时异步登录 Alist（fallback 用）
+  _alistLogin().catch(e =>
+    console.warn('[DirectStream] AList 初始登录失败，fallback 暂不可用:', e.message)
+  );
+
   return router;
+}
+
+/**
+ * 登录 Alist 获取 token（参考 share-import.js / streamer.js 的成熟实现）
+ */
+async function _alistLogin(maxRetries = 5) {
+  const password = process.env.ALIST_ADMIN_PASSWORD || 'admin123';
+  const body = JSON.stringify({ username: 'admin', password });
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const req = http.request(ALIST_BASE_URL + '/api/auth/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+          },
+          timeout: 10000,
+        }, (res) => {
+          let data = '';
+          res.on('data', (c) => { data += c; });
+          res.on('end', () => {
+            try {
+              const r = JSON.parse(data);
+              if (r.code === 200 && r.data && r.data.token) {
+                resolve({ success: true, token: r.data.token });
+              } else {
+                resolve({ success: false, message: r.message || data });
+              }
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('Alist 登录超时')); });
+        req.write(body);
+        req.end();
+      });
+
+      if (result.success) {
+        _alistToken = result.token;
+        _alistTokenExpiry = Date.now() + 47 * 3600 * 1000;
+        console.log('[DirectStream] AList 登录成功');
+        return _alistToken;
+      }
+
+      if (result.message && result.message.includes('Loading storage')) {
+        console.log(`[DirectStream] AList 正在加载存储，等待 5 秒后重试 (${attempt + 1}/${maxRetries})`);
+        await new Promise(r => setTimeout(r, 5000));
+        continue;
+      }
+
+      throw new Error('Alist 登录失败: ' + result.message);
+    } catch (e) {
+      if (attempt < maxRetries - 1 && (e.message.includes('timeout') || e.message.includes('ECONNREFUSED'))) {
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error('Alist 登录失败：超过最大重试次数');
+}
+
+async function _getAlistToken() {
+  if (_alistToken && Date.now() < _alistTokenExpiry) {
+    return _alistToken;
+  }
+  return await _alistLogin();
 }
 
 /**
@@ -67,19 +157,19 @@ function resetDriverCache() {
   _driverCache = null;
 }
 
-// AList 配置（仅作 fallback）
-const ALIST_BASE_URL = process.env.ALIST_BASE_URL || 'http://localhost:5234';
-const ALIST_BASE_PATH = process.env.ALIST_BASE_PATH || '/🥝115网盘/115';
-const ALIST_TOKEN = process.env.ALIST_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwicHdkX3RzIjoxNzg4NjIzNDA4LCJleHAiOjE4MDU5MDM5ODQsIm5iZiI6MTc4ODYyMzk4NCwiaWF0IjoxNzg4NjIzOTg0fQ.5XzN8q2T1jEaO8yoV8eTj6gZzBmDUtr1ijUuM48QD9w';
-
 /**
  * Fallback: 通过 AList /api/fs/get 获取直链
  */
-function getDirectUrlFromAlist(filePath) {
+async function getDirectUrlFromAlist(filePath) {
+  let token;
+  try {
+    token = await _getAlistToken();
+  } catch (e) {
+    console.warn('[DirectStream] 获取 AList token 失败:', e.message);
+    return null;
+  }
+
   return new Promise((resolve) => {
-    const http = require('http');
-    const https = require('https');
-    const { URL } = require('url');
     const fullPath = ALIST_BASE_PATH.replace(/\/+$/, '') + '/' + filePath.replace(/^\/+/, '');
     const postData = JSON.stringify({ path: fullPath, password: '' });
     const url = new URL(ALIST_BASE_URL + '/api/fs/get');
@@ -94,7 +184,7 @@ function getDirectUrlFromAlist(filePath) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(postData),
-        'Authorization': ALIST_TOKEN,
+        'Authorization': token,
       },
       timeout: 10000,
     }, (res) => {
@@ -105,7 +195,9 @@ function getDirectUrlFromAlist(filePath) {
           const r = JSON.parse(data);
           if (r.code === 200 && r.data && r.data.raw_url) {
             resolve(r.data.raw_url);
-          } else { resolve(null); }
+          } else {
+            resolve(null);
+          }
         } catch (e) { resolve(null); }
       });
     });
@@ -133,7 +225,6 @@ router.get('/*', async (req, res) => {
     let source = 'pan115';
 
     // 方案1: pan115 driver 获取直链（首选，签名有效）
-    // 关键：透传客户端 UA——115 CDN URL 签名与 UA 绑定，必须用客户端 UA 调用 API
     const clientUA = req.get('User-Agent') || '';
     try {
       const driver = getDriver();
@@ -166,7 +257,6 @@ router.get('/*', async (req, res) => {
       return res.status(502).json({ error: 'Failed to get direct URL from 115' });
     }
 
-    // 302 重定向到 115 CDN 直链
     console.log('[DirectStream] 302 → 115 CDN (来源:' + source + '):', directUrl.substring(0, 80) + '...');
     res.redirect(302, directUrl);
 
