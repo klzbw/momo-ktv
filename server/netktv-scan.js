@@ -10,6 +10,10 @@
  *   /momo-ktv/separated/<sha256前16位>/<歌手>-<歌名>-人声.flac
  *   /momo-ktv/separated/<sha256前16位>/<歌手>-<歌名>-伴奏.flac
  *
+ * 多账号支持：
+ *   - 扫描时写入 cloud_account_id，不同账号的同名歌曲可分别入库
+ *   - API 不传 accountId（或传 0）时，自动遍历所有 active 账号扫描
+ *
  * API：
  *   POST /api/netktv/scan — 触发扫描（body: { accountId, basePath }）
  *   GET  /api/netktv/scan/status — 查询扫描状态
@@ -72,7 +76,7 @@ function isAccompFile(filename) {
 }
 
 /**
- * 扫描 115 网盘上的分离文件
+ * 扫描单个 115 账号上的分离文件
  * @param {object} cloudDrive - cloud-drive 模块实例
  * @param {number} accountId - 115 账号 ID
  * @param {string} basePath - 分离文件根目录，如 /momo-ktv/separated
@@ -102,7 +106,7 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir) 
     const driver = manager.getDriver(account);
 
     // 列出根目录下的所有歌曲目录
-    console.log(`[NETKTV-SCAN] 开始扫描: ${basePath}`);
+    console.log(`[NETKTV-SCAN] 开始扫描: ${basePath} (账号ID=${accountId}, 账号=${account.name})`);
     const rootFiles = await driver.listFiles(basePath);
     console.log(`[NETKTV-SCAN] 根目录下有 ${rootFiles.length} 个条目`);
 
@@ -143,14 +147,17 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir) 
         const meta = parseFilename(vocalFile.name);
         const songKey = dirInfo.name; // 用目录名作为唯一标识
 
-        // 检查是否已经入库
-        const existing = db.prepare('SELECT id FROM songs WHERE source_root = ? AND filepath LIKE ?').get(
+        // 检查是否已经入库（同一账号下同一 songKey 不重复入库）
+        const existing = db.prepare(
+          'SELECT id FROM songs WHERE source_root = ? AND cloud_account_id = ? AND filepath LIKE ?'
+        ).get(
           'netktv',
+          accountId,
           `%${songKey}_vocals.strm%`
         );
 
         if (existing) {
-          console.log(`[NETKTV-SCAN] 已存在: ${meta.artist} - ${meta.title} (id=${existing.id})`);
+          console.log(`[NETKTV-SCAN] 已存在: ${meta.artist} - ${meta.title} (id=${existing.id}, 账号=${accountId})`);
           scanStatus.skipped++;
           continue;
         }
@@ -166,24 +173,26 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir) 
         fs.writeFileSync(vocalStrmPath, vocalStrmContent);
         fs.writeFileSync(accompStrmPath, accompStrmContent);
 
-        // 入库
+        // 入库（写入 cloud_account_id 支持多账号）
         const now = new Date().toISOString();
         const result = db.prepare(`
-          INSERT INTO songs (title, artist, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, duration, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?)
+          INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, cloud_account_id, duration, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 'audio', 2, 'done', ?, ?, ?, ?)
         `).run(
           meta.title,
           meta.artist,
+          `${songKey}_vocals.strm`,
           vocalStrmPath,
           vocalStrmPath,
           accompStrmPath,
           'netktv',
+          accountId,
           null, // duration 暂时为空，播放时探测
           now,
           now
         );
 
-        console.log(`[NETKTV-SCAN] 新增: ${meta.artist} - ${meta.title} (id=${result.lastInsertRowid})`);
+        console.log(`[NETKTV-SCAN] 新增: ${meta.artist} - ${meta.title} (id=${result.lastInsertRowid}, 账号=${accountId})`);
         scanStatus.added++;
 
         // 限速：避免请求过快被 115 风控
@@ -211,6 +220,34 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir) 
 }
 
 /**
+ * 遍历所有 active 账号逐一扫描（自动识别新账号）
+ * @param {object} cloudDrive - cloud-drive 模块实例
+ * @param {string} basePath - 分离文件根目录
+ * @param {object} db - 数据库实例
+ * @param {string} strmDir - STRM 文件输出目录
+ */
+async function scanAllAccounts(cloudDrive, basePath, db, strmDir) {
+  const manager = cloudDrive.manager;
+  const activeAccounts = manager.listAccounts().filter(a => a.status === 'active');
+  console.log(`[NETKTV-SCAN] 自动识别到 ${activeAccounts.length} 个 active 账号，开始逐一扫描`);
+
+  let totalAdded = 0;
+  let totalSkipped = 0;
+  let totalErrors = 0;
+
+  for (const account of activeAccounts) {
+    console.log(`\n[NETKTV-SCAN] ===== 扫描账号: ${account.name} (ID=${account.id}) =====`);
+    const result = await scanSeparatedFiles(cloudDrive, account.id, basePath, db, strmDir);
+    totalAdded += result.added;
+    totalSkipped += result.skipped;
+    totalErrors += result.errors.length;
+  }
+
+  console.log(`\n[NETKTV-SCAN] ===== 全部账号扫描完成: 新增=${totalAdded} 跳过=${totalSkipped} 错误=${totalErrors} =====`);
+  return { totalAdded, totalSkipped, totalErrors, accountCount: activeAccounts.length };
+}
+
+/**
  * 初始化模块
  * @param {object} db - 数据库实例
  * @param {object} cloudDrive - cloud-drive 模块实例
@@ -220,19 +257,29 @@ function init(db, cloudDrive) {
   const STRM_DIR = path.join(DATA_DIR, 'netktv-strm');
 
   // POST /api/netktv/scan — 触发扫描
+  // body: { accountId, basePath }
+  // - accountId 不传或传 0：自动遍历所有 active 账号扫描（自动识别新账号）
+  // - accountId 传具体数字：只扫描指定账号
   router.post('/scan', async (req, res) => {
     if (scanStatus.running) {
       return res.status(409).json({ error: '扫描正在进行中', status: scanStatus });
     }
 
-    const { accountId = 1, basePath = '/momo-ktv/separated' } = req.body || {};
+    const { accountId = 0, basePath = '/momo-ktv/separated' } = req.body || {};
 
-    // 异步执行扫描
-    scanSeparatedFiles(cloudDrive, accountId, basePath, db, STRM_DIR).catch(e => {
-      console.error('[NETKTV-SCAN] 异步扫描异常:', e);
-    });
-
-    res.json({ ok: true, message: '扫描已开始', status: scanStatus });
+    if (!accountId || accountId === 0) {
+      // 自动识别：遍历所有 active 账号
+      scanAllAccounts(cloudDrive, basePath, db, STRM_DIR).catch(e => {
+        console.error('[NETKTV-SCAN] 全账号扫描异常:', e);
+      });
+      res.json({ ok: true, message: '已开始遍历所有 active 账号扫描', mode: 'all-accounts' });
+    } else {
+      // 指定账号扫描
+      scanSeparatedFiles(cloudDrive, accountId, basePath, db, STRM_DIR).catch(e => {
+        console.error('[NETKTV-SCAN] 异步扫描异常:', e);
+      });
+      res.json({ ok: true, message: '扫描已开始', status: scanStatus, accountId });
+    }
   });
 
   // GET /api/netktv/scan/status — 查询扫描状态
@@ -243,4 +290,4 @@ function init(db, cloudDrive) {
   return router;
 }
 
-module.exports = { init, router, scanSeparatedFiles, parseFilename };
+module.exports = { init, router, scanSeparatedFiles, scanAllAccounts, parseFilename };
