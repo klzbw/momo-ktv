@@ -1,18 +1,19 @@
-import SwiftUI
+﻿import SwiftUI
 import AVKit
 import CoreImage
 
 
-// MARK: - 灏忓睆姝岃瘝鐙珛瑙嗗浘锛?0Hz Timer 椹卞姩锛岄伩鍏?ContentView 瑙傚療 20Hz 鐨?playerManager.currentTime 瀵艰嚧鏁撮〉楂橀閲嶇粯锛?struct CompactLyricsView: View {
+// MARK: - 小屏歌词独立视图（10Hz Timer 驱动，避免 ContentView 观察 20Hz 的 playerManager.currentTime 导致整页高频重绘）
+struct CompactLyricsView: View {
     let lyrics: SongLyrics
     @State private var displayTime: Double = 0
-    // 灏忓睆鐢?10Hz 鍒锋柊瓒冲锛氬瓧灏忋€侀€愬瓧鏁堟灉鍦?0.1s 闂撮殧涓嬩緷鐒舵祦鐣咃紝涓?GPU 璐熻浇鍑忓崐
+    // 小屏用 10Hz 刷新足够：字小、逐字效果在 0.1s 间隔下依然流畅，且 GPU 负载减半
     private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         LyricsView(lyrics: lyrics, currentTime: displayTime, compact: true)
             .onReceive(timer) { _ in
-                // 鐩存帴璇诲彇鍗曚緥鐨勫綋鍓嶆椂闂达紝涓嶉€氳繃 @ObservedObject 璁㈤槄锛岄伩鍏?20Hz 瑙﹀彂鏈鍥句箣澶栫殑閲嶇粯
+                // 直接读取单例的当前时间，不通过 @ObservedObject 订阅，避免 20Hz 触发本视图之外的重绘
                 displayTime = PlayerManager.shared.currentTime
             }
     }
@@ -22,7 +23,7 @@ struct ContentView: View {
     @StateObject private var api: KTVAPIClient
     @AppStorage("serverAddress") private var serverAddress: String = ""
     @AppStorage("appTheme") private var appThemeRaw: Int = 1
-    // 杩炴帴娴佺▼锛歝onnected=false 鏃跺浜?杩炴帴纭 / 杈撳叆鍦板潃"闃舵锛涘喎鍚姩鍥炲埌璇ラ樁娈碉紝浠庡悗鍙拌繑鍥炲垯鑷姩杩炴帴
+    // 连接流程：connected=false 时处于"连接确认 / 输入地址"阶段；冷启动回到该阶段，从后台返回则自动连接
     @State private var connected = false
     @State private var showSetupInput = false
     @State private var hasBeenBackground = false
@@ -40,7 +41,8 @@ struct ContentView: View {
     @State private var showQR = false
     @State private var shouldResumePlaying = true
     @State private var lastAutoNextQueueId: Int? = nil
-    @State private var recentRandomSongIds: Set<Int> = []  // 鏈€杩戦殢鏈烘挱鏀捐繃鐨勬瓕鏇睮D锛岄伩鍏嶈繛缁噸澶?    @FocusState private var searchNavFocused: Bool
+    @State private var recentRandomSongIds: Set<Int> = []  // 最近随机播放过的歌曲ID，避免连续重复
+    @FocusState private var searchNavFocused: Bool
     @FocusState private var queueNavFocused: Bool
     @FocusState private var settingsNavFocused: Bool
     @State private var lastNavButton: String? = nil
@@ -48,7 +50,7 @@ struct ContentView: View {
     private let vlcManager = VLCPlayerManager.shared
     @State private var isUsingVLC = false
     @State private var showDebugLog = false
-    @StateObject private var previewLyrics = LyricsLoader()  // 棣栭〉灏忕獥棰勮姝岃瘝
+    @StateObject private var previewLyrics = LyricsLoader()  // 首页小窗预览歌词
 
     enum PanelType { case search, queue, settings, eq }
     enum PageType { case order, artists, artistSongs, charts, favorites, history, newest, category }
@@ -70,7 +72,7 @@ struct ContentView: View {
                             .zIndex(1)
                     }
 
-                    // VLC璋冭瘯鏃ュ織瑕嗙洊灞傦紙闀挎寜瑙嗛鍖哄煙1绉掑垏鎹㈡樉绀猴級
+                    // VLC调试日志覆盖层（长按视频区域1秒切换显示）
                     if showDebugLog {
                         VStack {
                             Spacer()
@@ -83,9 +85,10 @@ struct ContentView: View {
                     }
                 }
             } else if showSetupInput || serverAddress.isEmpty {
-                // 棣栨浣跨敤锛堟棤鍘嗗彶鍦板潃锛夋垨鐢ㄦ埛閫夋嫨"杈撳叆鏂板湴鍧€"锛氳繘鍏?IP 杈撳叆椤?                SetupView(serverAddress: $serverAddress, onSave: { connectCurrent() })
+                // 首次使用（无历史地址）或用户选择"输入新地址"：进入 IP 输入页
+                SetupView(serverAddress: $serverAddress, onSave: { connectCurrent() })
             } else {
-                // 姣忔杩涘叆 App / 浠庡悗鍙拌繑鍥烇細鍏堝脊杩炴帴纭锛屽彲涓€閿洿杩炰笂娆″湴鍧€鎴栨敼鏂板湴鍧€
+                // 每次进入 App / 从后台返回：先弹连接确认，可一键直连上次地址或改新地址
                 ConnectConfirmView(savedAddress: serverAddress,
                                    onDirect: { connectCurrent() },
                                    onChangeIP: { showSetupInput = true })
@@ -98,19 +101,22 @@ struct ContentView: View {
         }
         .onAppear {
             currentTheme = AppTheme(rawValue: appThemeRaw) ?? .theme1
-            // 涓嶈嚜鍔ㄨ繛鎺ワ細鏈変笂娆″湴鍧€鍏堝脊"鐩存帴杩炴帴 / 鏀规柊鍦板潃"纭锛涙病鏈夎褰曟墠鐩存帴杩涘叆杈撳叆椤?            connected = false
+            // 不自动连接：有上次地址先弹"直接连接 / 改新地址"确认；没有记录才直接进入输入页
+            connected = false
             showSetupInput = serverAddress.isEmpty
         }
         .onChange(of: scenePhase) { phase in
-            // 鍏ㄩ€€鍚庡彴鍐嶆杩涘叆 App锛氶噸鏂板脊鍑烘湇鍔″櫒杩炴帴纭锛堜繚鐣欎笂娆″湴鍧€锛屽彲鐩磋繛鎴栨敼鏂?IP锛?            switch phase {
+            // 全退后台再次进入 App：重新弹出服务器连接确认（保留上次地址，可直连或改新 IP）
+            switch phase {
             case .background:
                 hasBeenBackground = true
             case .active:
                 if hasBeenBackground {
                     hasBeenBackground = false
                     if !serverAddress.isEmpty {
-                        // 浠庡悗鍙拌繑鍥炴椂鐩存帴鑷姩杩炴帴涓婃鏈嶅姟鍣紝涓嶅啀寮硅繛鎺ョ‘璁ら〉璁╃敤鎴锋墜鍔ㄧ偣鍑伙紝
-                        // 瑙ｅ喅"娓呭嚭鍚庡彴鍚巃pp杩炴帴鏈嶅姟鍣ㄦ參"鐨勯棶棰?                        showSetupInput = false
+                        // 从后台返回时直接自动连接上次服务器，不再弹连接确认页让用户手动点击，
+                        // 解决"清出后台后app连接服务器慢"的问题
+                        showSetupInput = false
                         showingPlayer = false
                         connectCurrent()
                     }
@@ -127,8 +133,9 @@ struct ContentView: View {
                 // Exiting fullscreen: shared player continues, just sync state
                 isPlaying = playerManager.isPlaying
             }
-            // VLC浣跨敤鍏变韩鍗曚緥瑙嗗浘(VLCSharedVideoView)锛屽ぇ灏忓睆鍒囨崲鏃跺彧鏄妸
-            // 鍚屼竴涓猆IView鍦ㄥ鍣ㄩ棿绉诲姩锛岃棰戣緭鍑哄畬鍏ㄤ笉涓柇锛屾棤闇€杞噸鍚€?        }
+            // VLC使用共享单例视图(VLCSharedVideoView)，大小屏切换时只是把
+            // 同一个UIView在容器间移动，视频输出完全不中断，无需软重启。
+        }
         .fullScreenCover(isPresented: $showingPlayer) {
             if let playing = api.queue.first(where: { $0.isPlaying }) {
                 FullPlayerView(
@@ -203,7 +210,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: activePanel == nil) { closed in
-            // 寮圭獥鍏抽棴鍚庯紝鎶婄劍鐐规仮澶嶅埌鎵撳紑瀹冪殑閭ｄ釜瀵艰埅鎸夐挳
+            // 弹窗关闭后，把焦点恢复到打开它的那个导航按钮
             if closed, let target = lastNavButton {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     switch target {
@@ -231,15 +238,15 @@ struct ContentView: View {
                     .font(.system(size: 24))
                     .foregroundStyle(LinearGradient(colors: [WebColors.ac2, WebColors.ac, WebColors.pink],
                                                     startPoint: .leading, endPoint: .trailing))
-                Text("澧ㄥⅷ鐖盞姝?)
+                Text("墨墨爱K歌")
                     .font(.system(size: 22, weight: .bold))
                     .foregroundColor(.white)
             }
             .padding(.trailing, 4)
 
-            NavButton(icon: "magnifyingglass", title: "鎼滅储", badge: nil, externalFocus: $searchNavFocused) { lastNavButton = "search"; activePanel = .search }
-            NavButton(icon: "list.bullet", title: "宸茬偣", badge: api.queue.count > 0 ? api.queue.count : nil, externalFocus: $queueNavFocused) { lastNavButton = "queue"; activePanel = .queue }
-            NavButton(icon: "gearshape", title: "璁剧疆", badge: nil, externalFocus: $settingsNavFocused) { lastNavButton = "settings"; activePanel = .settings }
+            NavButton(icon: "magnifyingglass", title: "搜索", badge: nil, externalFocus: $searchNavFocused) { lastNavButton = "search"; activePanel = .search }
+            NavButton(icon: "list.bullet", title: "已点", badge: api.queue.count > 0 ? api.queue.count : nil, externalFocus: $queueNavFocused) { lastNavButton = "queue"; activePanel = .queue }
+            NavButton(icon: "gearshape", title: "设置", badge: nil, externalFocus: $settingsNavFocused) { lastNavButton = "settings"; activePanel = .settings }
 
             Spacer()
 
@@ -248,7 +255,7 @@ struct ContentView: View {
                 Circle()
                     .fill(api.isConnected ? Color.green : Color.orange)
                     .frame(width: 10, height: 10)
-                Text(api.isConnected ? "宸茶繛鎺? : "鏈繛鎺?)
+                Text(api.isConnected ? "已连接" : "未连接")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(WebColors.sub)
             }
@@ -272,25 +279,26 @@ struct ContentView: View {
         .focusSection()
     }
 
-    // MARK: - Next Up Bar锛堝父椹绘粴鍔ㄦí鏉★紝瀵归綈缃戦〉 #next-up-bar锛屽皬灞忎笉娑堝け锛?    private var nextUpBar: some View {
+    // MARK: - Next Up Bar（常驻滚动横条，对齐网页 #next-up-bar，小屏不消失）
+    private var nextUpBar: some View {
         TVTickerBar(text: tickerText, fontSize: 22)
     }
 
-    /// 涓荤晫闈㈡粴鍔ㄦí鏉℃枃妗堬紙姝ｅ湪鎾斁/涓嬩竴棣?寰呮挱鎻愰啋/闃熷垪鏁伴噺/娆㈣繋璇級
+    /// 主界面滚动横条文案（正在播放/下一首/待播提醒/队列数量/欢迎语）
     private var tickerText: String {
         var parts: [String] = []
         if let cur = api.queue.first(where: { $0.isPlaying }) {
-            parts.append("鈾?姝ｅ湪鎾斁锛氥€奬(cur.displayTitle)銆?\(cur.displayArtist)")
+            parts.append("♪ 正在播放：《\(cur.displayTitle)》 \(cur.displayArtist)")
         } else {
-            parts.append("馃帳 蹇潵鐐规瓕寮€鍞卞惂锝?)
+            parts.append("🎤 快来点歌开唱吧～")
         }
         let waiting = api.queue.filter { !$0.isPlaying }
         if let next = waiting.first {
-            parts.append("馃幍 涓嬩竴棣栵細銆奬(next.displayTitle)銆?\(next.displayArtist)")
+            parts.append("🎵 下一首：《\(next.displayTitle)》 \(next.displayArtist)")
         }
-        if waiting.count < 3 { parts.append("馃帳 寰呮挱鏇茬洰涓嶅鍟︼紝缁х画鐐规瓕鍚э綖") }
-        parts.append("馃搵 闃熷垪閲岃繕鏈?\(waiting.count) 棣栨瓕")
-        parts.append("馃帳 澧ㄥⅷ鐖盞姝屸€斺€旀瓕澹版湁绾︼紝蹇箰鏃犻檺")
+        if waiting.count < 3 { parts.append("🎤 待播曲目不多啦，继续点歌吧～") }
+        parts.append("📋 队列里还有 \(waiting.count) 首歌")
+        parts.append("🎤 墨墨爱K歌——歌声有约，快乐无限")
         return parts.joined(separator: "        ")
     }
 
@@ -331,10 +339,10 @@ struct ContentView: View {
     // MARK: - Bottom Quick Cards (hot charts, recent, favorites, newest)
     private var bottomQuickCards: some View {
         HStack(spacing: 6) {
-            quickCard(title: "鐑瓕鎺掕", icon: "chart.line.uptrend.xyaxis", gradient: LinearGradient(colors: [Color(hex: 0xff4f9b), Color(hex: 0xff6b6b)], startPoint: .leading, endPoint: .trailing)) { activePage = .charts }
-            quickCard(title: "鏈€杩戝敱杩?, icon: "clock.fill", gradient: LinearGradient(colors: [Color(hex: 0x8e44f7), Color(hex: 0xc736f7)], startPoint: .leading, endPoint: .trailing)) { activePage = .history }
-            quickCard(title: "鎴戠殑鏀惰棌", icon: "heart.fill", gradient: LinearGradient(colors: [Color(hex: 0xff8c42), Color(hex: 0xffb347)], startPoint: .leading, endPoint: .trailing)) { activePage = .favorites }
-            quickCard(title: "鏈€鏂板叆搴?, icon: "tray.full.fill", gradient: LinearGradient(colors: [Color(hex: 0x1a7bff), Color(hex: 0x36d9f7)], startPoint: .leading, endPoint: .trailing)) { activePage = .newest }
+            quickCard(title: "热歌排行", icon: "chart.line.uptrend.xyaxis", gradient: LinearGradient(colors: [Color(hex: 0xff4f9b), Color(hex: 0xff6b6b)], startPoint: .leading, endPoint: .trailing)) { activePage = .charts }
+            quickCard(title: "最近唱过", icon: "clock.fill", gradient: LinearGradient(colors: [Color(hex: 0x8e44f7), Color(hex: 0xc736f7)], startPoint: .leading, endPoint: .trailing)) { activePage = .history }
+            quickCard(title: "我的收藏", icon: "heart.fill", gradient: LinearGradient(colors: [Color(hex: 0xff8c42), Color(hex: 0xffb347)], startPoint: .leading, endPoint: .trailing)) { activePage = .favorites }
+            quickCard(title: "最新入库", icon: "tray.full.fill", gradient: LinearGradient(colors: [Color(hex: 0x1a7bff), Color(hex: 0x36d9f7)], startPoint: .leading, endPoint: .trailing)) { activePage = .newest }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .focusSection()
@@ -377,7 +385,7 @@ struct ContentView: View {
                     .font(.system(size: 60))
                     .frame(width: 96, height: 96)
             }
-            Text("鎵爜鐐规瓕")
+            Text("扫码点歌")
                 .font(.system(size: 11))
                 .foregroundColor(.black)
         }
@@ -411,18 +419,21 @@ struct ContentView: View {
                 // Video preview using shared player (AVPlayer) or VLC player
                 // Use id to force rebuild when returning from fullscreen
                 if isUsingVLC {
-                    // 鍏ㄥ睆鏃朵笉鍒涘缓灏忓睆VLC瑙嗗浘锛岄伩鍏嶄笌鍏ㄥ睆VLCVideoView绔炰簤drawable瀵艰嚧鍙湁澹伴煶鏃犺棰?                    if !showingPlayer {
+                    // 全屏时不创建小屏VLC视图，避免与全屏VLCVideoView竞争drawable导致只有声音无视频
+                    if !showingPlayer {
                         VLCVideoView(vlcManager: vlcManager)
                             .id("preview-vlc")
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .onAppear {
-                                // VLC妯″紡锛氳棰戝凡鍦╬laySong涓缃紝杩欓噷鍙姞杞芥瓕璇?                                if playing.isVideoFile { previewLyrics.lyrics = .empty }
+                                // VLC模式：视频已在playSong中设置，这里只加载歌词
+                                if playing.isVideoFile { previewLyrics.lyrics = .empty }
                                 else if previewLyrics.lyrics.isEmpty { previewLyrics.load(server: api.serverAddress, songId: playing.song_id) }
                             }
                     }
 
                 } else if let hlsURL = hlsURL {
-                    // 鍏ㄥ睆鏃朵笉鍒涘缓灏忓睆SharedVideoView锛孎ullPlayerView宸叉湁鑷繁鐨勮棰戣鍥?                    if !showingPlayer {
+                    // 全屏时不创建小屏SharedVideoView，FullPlayerView已有自己的视频视图
+                    if !showingPlayer {
                         SharedVideoView(playerManager: playerManager)
                             .id("preview")
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -440,7 +451,8 @@ struct ContentView: View {
                     }
                 }
 
-                // 绾煶棰戞瓕锛氬皬绐椾篃鏄剧ず鍔ㄦ€佽儗鏅?+ 閫愬瓧姝岃瘝锛屼笌鍏ㄥ睆 FullPlayerView 涓€鑷?                if !playing.isVideoFile {
+                // 纯音频歌：小窗也显示动态背景 + 逐字歌词，与全屏 FullPlayerView 一致
+                if !playing.isVideoFile {
                     AudioBackgroundView(server: api.serverAddress)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .allowsHitTesting(false)
@@ -476,11 +488,11 @@ struct ContentView: View {
             } else {
                 // Idle state (exact #now-idle)
                 VStack(spacing: 10) {
-                    Text("澧ㄥⅷ鐖盞姝?)
+                    Text("墨墨爱K歌")
                         .font(.system(size: 36, weight: .heavy))
                         .foregroundStyle(LinearGradient(colors: [WebColors.ac2, WebColors.ac, WebColors.pink],
                                                         startPoint: .leading, endPoint: .trailing))
-                    Text("鎵爜鐐规瓕 路 澶у睆娌夋蹈婕斿敱")
+                    Text("扫码点歌 · 大屏沉浸演唱")
                         .font(.system(size: 14))
                         .foregroundColor(WebColors.sub)
                 }
@@ -519,13 +531,14 @@ struct ContentView: View {
             // Reset auto-next guard when song changes
             lastAutoNextQueueId = nil
 
-            // === 鍒囨瓕绔嬪嵆鍋滄鏃ф挱鏀撅細闃叉鍒囨瓕鍚庡悗鍙版畫鐣欐棫姝屾洸闊抽 ===
+            // === 切歌立即停止旧播放：防止切歌后后台残留旧歌曲音频 ===
             isUsingVLC = false
             vlcManager.stop()
             playerManager.pause()
 
             if let playing = api.queue.first(where: { $0.isPlaying }) {
-                // 灏忕獥棰勮姝岃瘝锛氳棰戞瓕娓呯┖锛岀函闊抽姝屽姞杞?                if playing.isVideoFile { previewLyrics.lyrics = .empty }
+                // 小窗预览歌词：视频歌清空，纯音频歌加载
+                if playing.isVideoFile { previewLyrics.lyrics = .empty }
                 else { previewLyrics.load(server: api.serverAddress, songId: playing.song_id) }
                 introSong = playing
                 showSongIntro = true
@@ -534,42 +547,43 @@ struct ContentView: View {
                 }
                 let sid = playing.song_id
 
-                // === 鏈湴姝屾洸绔嬪嵆 HLS 璧锋挱锛屼笉绛?sep-info锛堝ぇ骞呮彁鍗囧垏姝岄€熷害锛?==
-                // 缃戠粶姝屾洸(115缃戠洏)蹇呴』绛?sep-info 鍐冲畾璧?VLC(MKV鐩磋繛) 杩樻槸 DUAL(鍙孎LAC鐩磋繛)
+                // === 本地歌曲立即 HLS 起播，不等 sep-info（大幅提升切歌速度）===
+                // 网络歌曲(115网盘)必须等 sep-info 决定走 VLC(MKV直连) 还是 DUAL(双FLAC直连)
                 if !playing.isNetworkSong, let hlsURL = api.hlsURL(songId: sid) {
                     playerManager.vocalTrackCount = playing.audio_tracks ?? 1
                     playerManager.setupPlayer(for: hlsURL)
                     playerManager.setVolume(volume)
                 }
 
-                // === 鍚庡彴寮傛鑾峰彇 sep-info锛氱綉缁滄瓕鏇茬洿杩炴挱鏀?/ 鏈湴姝屾洸鍗囩骇 DUAL ===
+                // === 后台异步获取 sep-info：网络歌曲直连播放 / 本地歌曲升级 DUAL ===
                 api.fetchSepInfo(songId: sid) { info in
                     DispatchQueue.main.async {
-                        // 蹇垏姝屼繚鎶わ細褰撳墠浠嶅湪鎾斁鍚屼竴棣栨墠缁х画
+                        // 快切歌保护：当前仍在播放同一首才继续
                         guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else {
-                            self.vlcManager.log("sep-info: 蹇垏姝屼繚鎶わ紝蹇界暐 sid=\(sid)")
+                            self.vlcManager.log("sep-info: 快切歌保护，忽略 sid=\(sid)")
                             return
                         }
 
-                        // 鎵撳嵃 sep-info 璇婃柇淇℃伅锛堝畾浣?share-115 绛夐摼璺棶棰橈級
+                        // 打印 sep-info 诊断信息（定位 share-115 等链路问题）
                         if let info = info {
                             self.vlcManager.log("sep-info: isNetKtvMkv=\(info.isNetKtvMkv ?? false), isNetworkMkvRaw=\(info.isNetworkMkvRaw ?? false), isNetworkMkv=\(info.isNetworkMkv), videoUrl=\(info.videoUrl ?? "nil"), source=\(info.source ?? "nil"), isNetworkSong=\(playing.isNetworkSong), source_root=\(playing.source_root ?? "nil")")
                         } else {
-                            self.vlcManager.log("sep-info: 杩斿洖 nil (sid=\(sid))")
+                            self.vlcManager.log("sep-info: 返回 nil (sid=\(sid))")
                         }
 
-                        // 缃戠粶 MKV 瑙嗛锛歏LC 302 鐩磋繛鎾斁锛堜笉鍗?NAS 甯﹀鍜屽閲忥級
-                        // 鏀寔涓夌鏉ユ簮锛?api/direct-stream/*銆?api/cloud/115-direct/*銆乧loud_url瀹屾暣URL
+                        // 网络 MKV 视频：VLC 302 直连播放（不占 NAS 带宽和容量）
+                        // 支持三种来源：/api/direct-stream/*、/api/cloud/115-direct/*、cloud_url完整URL
                         if let info = info, info.isNetworkMkv,
                            let videoURL = self.api.cloudDirectURL(for: info) {
                             let videoPath = info.videoUrl ?? info.cloud_url ?? videoURL.absoluteString
-                            self.vlcManager.log("鈻讹笍 璧癡LC鐩磋繛鍒嗘敮: \(videoPath)")
+                            self.vlcManager.log("▶️ 走VLC直连分支: \(videoPath)")
                             self.isUsingVLC = true
                             self.playerManager.cleanup()
-                            // 浼犻€掔綉鐩橀┍鍔ㄧ被鍨嬶紝纭繚VLC浣跨敤姝ｇ‘鐨刄A鍜孯eferer
-                            // 浼樺厛 sep-info 鐨?cloud_driver锛屽叾娆￠槦鍒楅」鐨?cloud_driver銆?                            // 澶稿厠CDN鐩撮摼绛惧悕涓嶶A缁戝畾锛屽繀椤讳娇鐢ㄥじ鍏嬪鎴风UA
-                            let driver = info.cloud_driver ?? playing.cloud_driver
-                            self.vlcManager.play(url: videoURL, cloudDriver: driver)
+                            // 传递网盘驱动类型，确保VLC使用正确的UA和Referer
+                            // 夸克CDN直链签名与UA绑定，必须使用夸克客户端UA
+                            // 优先用sep-info返回的cloud_driver，兜底用队列歌曲的
+                            let cloudDriver = info.cloud_driver ?? playing.cloud_driver
+                            self.vlcManager.play(url: videoURL, cloudDriver: cloudDriver)
                             self.vlcManager.onStateChange = { playing in
                                 DispatchQueue.main.async {
                                     self.playerManager.isPlaying = playing
@@ -581,32 +595,33 @@ struct ContentView: View {
                                     self.playerManager.duration = total
                                 }
                             }
-                            print("[ContentView] 缃戠粶MKV鐩磋繛(VLC): \(videoPath)")
+                            print("[ContentView] 网络MKV直连(VLC): \(videoPath)")
                             return
                         }
 
-                        // 闈?MKV锛氬仠姝?VLC锛堥槻姝袱绉嶅０闊冲悓鏃跺瓨鍦級
-                        self.vlcManager.log("鈴笍 鏈蛋VLC鍒嗘敮: isNetworkMkv=\(info?.isNetworkMkv ?? false), videoUrl=\(info?.videoUrl ?? "nil")")
+                        // 非 MKV：停止 VLC（防止两种声音同时存在）
+                        self.vlcManager.log("⏭️ 未走VLC分支: isNetworkMkv=\(info?.isNetworkMkv ?? false), videoUrl=\(info?.videoUrl ?? "nil")")
                         self.isUsingVLC = false
                         self.vlcManager.stop()
 
-                        // 缃戠粶鍙?FLAC锛欴UAL 娣峰悎鐩磋繛鎾斁锛堝師鍞?浼村敱杩炵画璋冭妭锛?                        if let info = info, info.isNetworkDual,
+                        // 网络双 FLAC：DUAL 混合直连播放（原唱/伴唱连续调节）
+                        if let info = info, info.isNetworkDual,
                            let vocalPath = info.vocalUrl, let accompPath = info.accompUrl,
                            let vURL = self.api.apiURL(vocalPath),
                            let aURL = self.api.apiURL(accompPath) {
-                            self.vlcManager.log("鈻讹笍 璧癉UAL鍙孎LAC鍒嗘敮: vocal=\(vocalPath)")
+                            self.vlcManager.log("▶️ 走DUAL双FLAC分支: vocal=\(vocalPath)")
                             self.playerManager.vocalTrackCount = 2
                             self.playerManager.setupNetKtvPlayer(songId: String(sid), vocalURL: vURL, accompURL: aURL)
                             self.playerManager.setVolume(volume)
                             return
                         }
 
-                        // 鏈湴姝屾洸锛氬凡鍦ㄤ笂鏂圭珛鍗?HLS 璧锋挱锛岃繖閲屾鏌ユ槸鍚﹂渶瑕佸崌绾?DUAL锛圓I鍒嗙姝岋級
+                        // 本地歌曲：已在上方立即 HLS 起播，这里检查是否需要升级 DUAL（AI分离歌）
                         if !playing.isNetworkSong {
-                            self.vlcManager.log("鈴笍 璧版湰鍦癏LS/prepareDual鍒嗘敮 (isNetworkSong=false)")
+                            self.vlcManager.log("⏭️ 走本地HLS/prepareDual分支 (isNetworkSong=false)")
                             self.prepareDualIfNeeded(playing)
                         } else {
-                            self.vlcManager.log("鉂?鏃犲尮閰嶆挱鏀惧垎鏀? isNetworkSong=true 浣嗘棦闈濵KV涔熼潪DUAL")
+                            self.vlcManager.log("❌ 无匹配播放分支! isNetworkSong=true 但既非MKV也非DUAL")
                         }
                     }
                 }
@@ -620,25 +635,31 @@ struct ContentView: View {
         .focusSection()
     }
 
-    /// 绾煶棰戜笖宸?AI 鍒嗙鐨勬瓕锛欻LS 鍏堣捣鎾紝闅忓悗鍗囩骇涓?DUAL 杩炵画浜哄０闊抽噺锛?    /// 缃戠粶KTV姝屾洸(isNetKtv)鐩存帴鐢ㄧ綉缁淯RL锛屼笉涓嬭浇鍒版湰鍦帮紱鏈湴鍒嗙姝屾洸鍏堜笅杞藉啀婵€娲汇€?    /// MKV/MP4 绛夎棰戞瓕鐩存帴璺宠繃锛屼繚鎸佸師 HLS 澶氭。/澹伴亾鏂规銆?    private func prepareDualIfNeeded(_ playing: QueueItem) {
+    /// 纯音频且已 AI 分离的歌：HLS 先起播，随后升级为 DUAL 连续人声音量；
+    /// 网络KTV歌曲(isNetKtv)直接用网络URL，不下载到本地；本地分离歌曲先下载再激活。
+    /// MKV/MP4 等视频歌直接跳过，保持原 HLS 多档/声道方案。
+    private func prepareDualIfNeeded(_ playing: QueueItem) {
         guard !playing.isVideoFile else { return }
         let sid = playing.song_id
         api.fetchSepInfo(songId: sid) { info in
             guard let info = info, info.isDual,
                   let vocalPath = info.vocalUrl, let accompPath = info.accompUrl else { return }
 
-            // 缃戠粶KTV姝屾洸锛氱洿鎺ョ敤缃戠粶URL锛屼笉涓嬭浇鍒版湰鍦?            if info.isNetworkDual {
+            // 网络KTV歌曲：直接用网络URL，不下载到本地
+            if info.isNetworkDual {
                 guard let vURL = self.api.apiURL(vocalPath),
                       let aURL = self.api.apiURL(accompPath) else { return }
-                // 蹇垏姝屼繚鎶わ細褰撳墠浠嶅湪鎾斁鍚屼竴棣栨墠鍗囩骇
+                // 快切歌保护：当前仍在播放同一首才升级
                 guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
                 self.playerManager.activateDual(songId: sid, vocalFile: vURL, accompFile: aURL)
                 return
             }
 
-            // 鏈湴鍒嗙姝屾洸锛氬厛涓嬭浇鍒版湰鍦板啀婵€娲?            self.api.downloadDualTracks(songId: sid, vocalPath: vocalPath, accompPath: accompPath) { vFile, aFile in
+            // 本地分离歌曲：先下载到本地再激活
+            self.api.downloadDualTracks(songId: sid, vocalPath: vocalPath, accompPath: accompPath) { vFile, aFile in
                 guard let vFile = vFile, let aFile = aFile else { return }
-                // 蹇垏姝屼繚鎶わ細褰撳墠浠嶅湪鎾斁鍚屼竴棣栨墠鍗囩骇锛圥layerManager 鍐呴儴鍙︽湁 generation 鏍￠獙锛?                guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
+                // 快切歌保护：当前仍在播放同一首才升级（PlayerManager 内部另有 generation 校验）
+                guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
                 self.playerManager.activateDual(songId: sid, vocalFile: vFile, accompFile: aFile)
             }
         }
@@ -652,23 +673,23 @@ struct ContentView: View {
                 if isUsingVLC {
                     vlcManager.togglePlayPause()
                     isPlaying = vlcManager.isPlaying
-                    FeedbackCenter.shared.show(vlcManager.isPlaying ? "寮€濮嬫挱鏀? : "鏆傚仠鎾斁",
+                    FeedbackCenter.shared.show(vlcManager.isPlaying ? "开始播放" : "暂停播放",
                                            icon: vlcManager.isPlaying ? "play.fill" : "pause.fill")
                 } else {
                     playerManager.togglePlayPause()
                     isPlaying = playerManager.isPlaying
-                    FeedbackCenter.shared.show(playerManager.isPlaying ? "寮€濮嬫挱鏀? : "鏆傚仠鎾斁",
+                    FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
                                            icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
                 }
             case "repeat":
-                // 鏀跺埌WebSocket骞挎挱鐨剅epeat娑堟伅锛屽彧鎵ц鏈湴restart锛屼笉鍐嶈皟鐢╝pi.restartSong()
-                // 鍚﹀垯浼氬舰鎴愬洖鐜細鍙戦€乺epeat -> 骞挎挱鍥炴潵 -> 鍐嶅彂閫?-> 鏃犻檺寰幆
+                // 收到WebSocket广播的repeat消息，只执行本地restart，不再调用api.restartSong()
+                // 否则会形成回环：发送repeat -> 广播回来 -> 再发送 -> 无限循环
                 if isUsingVLC {
                     vlcManager.restart()
                 } else {
                     playerManager.restart()
                 }
-                FeedbackCenter.shared.show("閲嶆柊婕斿敱", icon: "gobackward")
+                FeedbackCenter.shared.show("重新演唱", icon: "gobackward")
             case "voice":
                 // Server broadcasts control messages back to ALL clients including
                 // the sender; ignore our own echo so we don't toggle twice.
@@ -678,20 +699,21 @@ struct ContentView: View {
                 FeedbackCenter.shared.show(playerManager.vocalTrackLabel, icon: "mic.fill")
             case "eq":
                 if let name = payload["name"] as? String {
-                    let labels = ["flat": "鏍囧噯", "vocal": "浜哄０澧炲己", "bass": "浣庨煶澧炲己", "bright": "鏄庝寒娓呮櫚"]
-                    FeedbackCenter.shared.show("鍧囪　鍣細\(labels[name] ?? name)", icon: "slider.horizontal.3")
+                    let labels = ["flat": "标准", "vocal": "人声增强", "bass": "低音增强", "bright": "明亮清晰"]
+                    FeedbackCenter.shared.show("均衡器：\(labels[name] ?? name)", icon: "slider.horizontal.3")
                 }
             case "volume":
-                // JSON 鏁板瓧缁?JSONSerialization 妗ユ帴涓?NSNumber锛岀洿鎺?as? Float 鍦ㄩ儴鍒嗘儏鍐典笅
-                // 浼氬緱鍒?nil锛屽鑷存墜鏈洪仴鎺ч煶閲忔棤鏁堬紱缁熶竴鐢?NSNumber.floatValue 璇诲彇銆?                let delta = (payload["delta"] as? NSNumber)?.floatValue
+                // JSON 数字经 JSONSerialization 桥接为 NSNumber，直接 as? Float 在部分情况下
+                // 会得到 nil，导致手机遥控音量无效；统一用 NSNumber.floatValue 读取。
+                let delta = (payload["delta"] as? NSNumber)?.floatValue
                     ?? Float(payload["delta"] as? Double ?? 0)
                 guard delta != 0 else { return }
                 volume = max(0, min(1, volume + delta))
                 if isUsingVLC { vlcManager.setVolume(volume) } else { playerManager.setVolume(volume) }
-                FeedbackCenter.shared.show("闊抽噺 \(Int(volume * 100))%",
+                FeedbackCenter.shared.show("音量 \(Int(volume * 100))%",
                                            icon: delta > 0 ? "speaker.plus" : "speaker.minus")
             case "next":
-                FeedbackCenter.shared.show("鍒囧埌涓嬩竴棣?, icon: "forward.end.fill")
+                FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill")
                 advancePlayback()
             case "fullscreen":
                 if api.queue.contains(where: { $0.isPlaying }) { showingPlayer = true }
@@ -700,24 +722,26 @@ struct ContentView: View {
                 activePanel = nil
                 activePage = nil
             case "bg_next":
-                // 閬ユ帶绔垏鎹㈠姩鎬佽儗鏅細寰幆 AudioBgMode 鍐欏叆 UserDefaults锛孎ullPlayerView 鐨?@AppStorage 鑷姩鍝嶅簲
+                // 遥控端切换动态背景：循环 AudioBgMode 写入 UserDefaults，FullPlayerView 的 @AppStorage 自动响应
                 let curRaw = UserDefaults.standard.string(forKey: "momoBgMode") ?? AudioBgMode.flow.rawValue
                 let nextMode = AudioBgMode.from(curRaw).next
                 UserDefaults.standard.set(nextMode.rawValue, forKey: "momoBgMode")
-                FeedbackCenter.shared.show("鑳屾櫙锛歕(nextMode.display)", icon: "sparkles")
+                FeedbackCenter.shared.show("背景：\(nextMode.display)", icon: "sparkles")
             case "bg_set":
-                // 閬ユ帶绔寚瀹氳儗鏅ā寮忕储寮?                if let idx = (payload["index"] as? NSNumber)?.intValue {
+                // 遥控端指定背景模式索引
+                if let idx = (payload["index"] as? NSNumber)?.intValue {
                     let all = AudioBgMode.allCases
                     let mode = all[((idx % all.count) + all.count) % all.count]
                     UserDefaults.standard.set(mode.rawValue, forKey: "momoBgMode")
-                    FeedbackCenter.shared.show("鑳屾櫙锛歕(mode.display)", icon: "sparkles")
+                    FeedbackCenter.shared.show("背景：\(mode.display)", icon: "sparkles")
                 }
             case "lyrics_mode":
-                // 閬ユ帶绔垏鎹㈡瓕璇嶅弻鎺?婊氬姩妯″紡
+                // 遥控端切换歌词双排/滚动模式
                 let lmRaw = UserDefaults.standard.string(forKey: "momoLyricsMode") ?? "dual"
                 UserDefaults.standard.set(lmRaw == "dual" ? "scroll" : "dual", forKey: "momoLyricsMode")
             case "lyrics_offset":
-                // 閬ユ帶绔瓕璇嶅揩鎱㈡牎鍑嗭細杞彂缁欐鍦ㄦ樉绀虹殑鍏ㄥ睆鎾斁鍣?                let delta = (payload["delta"] as? NSNumber)?.doubleValue
+                // 遥控端歌词快慢校准：转发给正在显示的全屏播放器
+                let delta = (payload["delta"] as? NSNumber)?.doubleValue
                     ?? Double(payload["delta"] as? Double ?? 0)
                 if delta != 0 {
                     NotificationCenter.default.post(name: .momoLyricsOffset, object: nil,
@@ -736,7 +760,7 @@ struct ContentView: View {
     }
 
     private func setupPlaybackEndHandler() {
-        // AVPlayer 妯″紡鎾斁缁撴潫鍥炶皟
+        // AVPlayer 模式播放结束回调
         playerManager.onPlaybackEnd = {
             DispatchQueue.main.async {
                 guard let curSong = self.api.queue.first(where: { $0.isPlaying }) else {
@@ -746,11 +770,13 @@ struct ContentView: View {
                 // Prevent duplicate next calls for the same song
                 if self.lastAutoNextQueueId == curSong.id { return }
                 self.lastAutoNextQueueId = curSong.id
-                // 闃熷垪閲岃繕鏈夊凡鐐瑰氨鎾笅涓€棣栵紱宸茬偣鎾畬鍒欒嚜鍔ㄤ粠鏇插簱闅忔満閫変竴棣栫画鎾紝
-                // 涓嶅啀鐩存帴鍋滀綇 / 閫€鍑哄叏灞忥紙淇"宸茬偣姝屾洸鎾畬鍚庢棤娉曡嚜鍔ㄩ殢鏈烘挱鏀?锛?                self.advancePlayback()
+                // 队列里还有已点就播下一首；已点播完则自动从曲库随机选一首续播，
+                // 不再直接停住 / 退出全屏（修复"已点歌曲播完后无法自动随机播放"）
+                self.advancePlayback()
             }
         }
-        // VLC 妯″紡鎾斁缁撴潫鍥炶皟锛堢綉缁?MKV 瑙嗛璧?VLC锛屼箣鍓嶆挱瀹屼笉瑙﹀彂鑷姩鍒囨瓕锛?        vlcManager.onPlaybackEnd = {
+        // VLC 模式播放结束回调（网络 MKV 视频走 VLC，之前播完不触发自动切歌）
+        vlcManager.onPlaybackEnd = {
             DispatchQueue.main.async {
                 guard let curSong = self.api.queue.first(where: { $0.isPlaying }) else {
                     if self.showingPlayer { self.showingPlayer = false }
@@ -763,33 +789,44 @@ struct ContentView: View {
         }
     }
 
-    /// 缁熶竴鎺ㄨ繘鎾斁锛氶槦鍒楅噷鏈夊緟鎾凡鐐?鈫?鍒囦笅涓€棣栵紱宸茬偣闃熷垪娓呯┖ 鈫?鑷姩闅忔満鎸戜竴棣栫画鎾€?    /// 鎵嬪姩鍒囨瓕銆侀仴鎺у垏姝屻€佽嚜鐒舵挱瀹屼笁澶勯兘璧拌繖閲岋紝淇濊瘉琛屼负涓€鑷淬€?    /// 缁熶竴鎺ㄨ繘鎾斁锛氶槦鍒楅噷鏈夊緟鎾凡鐐?鈫?鍒囦笅涓€棣栵紱宸茬偣闃熷垪娓呯┖ 鈫?鑷姩闅忔満鎸戜竴棣栫画鎾€?    /// 鎵嬪姩鍒囨瓕銆侀仴鎺у垏姝屻€佽嚜鐒舵挱瀹屼笁澶勯兘璧拌繖閲岋紝淇濊瘉琛屼负涓€鑷淬€?    private func advancePlayback() {
-        // 1) 杩樻湁绛夊緟涓殑宸茬偣姝屾洸锛岀洿鎺ュ垏涓嬩竴棣?        if api.queue.contains(where: { !$0.isPlaying }) {
+    /// 统一推进播放：队列里有待播已点 → 切下一首；已点队列清空 → 自动随机挑一首续播。
+    /// 手动切歌、遥控切歌、自然播完三处都走这里，保证行为一致。
+    /// 统一推进播放：队列里有待播已点 → 切下一首；已点队列清空 → 自动随机挑一首续播。
+    /// 手动切歌、遥控切歌、自然播完三处都走这里，保证行为一致。
+    private func advancePlayback() {
+        // 1) 还有等待中的已点歌曲，直接切下一首
+        if api.queue.contains(where: { !$0.isPlaying }) {
             api.nextSong()
             return
         }
-        // 2) 宸茬偣闃熷垪宸茬┖锛氫粠鏇插簱闅忔満鎸戜竴棣栵紙鎺掗櫎鏈€杩戞挱鏀捐繃鐨勶紝閬垮厤杩炵画閲嶅锛?        let currentId = api.queue.first(where: { $0.isPlaying })?.song_id
+        // 2) 已点队列已空：从曲库随机挑一首（排除最近播放过的，避免连续重复）
+        let currentId = api.queue.first(where: { $0.isPlaying })?.song_id
         func pick(from list: [Song]) {
-            // 鎺掗櫎褰撳墠姝屾洸鍜屾渶杩戦殢鏈烘挱鏀捐繃鐨勬瓕鏇诧紙鏈€澶氫繚鐣?0棣栧巻鍙诧級
+            // 排除当前歌曲和最近随机播放过的歌曲（最多保留20首历史）
             var pool = list.filter { $0.id != currentId && !self.recentRandomSongIds.contains($0.id) }
-            // 濡傛灉鎺掗櫎鍚庝负绌猴紙鏇插簱澶皬锛夛紝閫€鍖栦负鍙帓闄ゅ綋鍓嶆瓕鏇?            if pool.isEmpty { pool = list.filter { $0.id != currentId } }
-            // 濡傛灉杩樻槸涓虹┖锛堝彧鏈変竴棣栨瓕锛夛紝鐢ㄥ叏閮ㄥ垪琛?            let finalPool = pool.isEmpty ? list : pool
+            // 如果排除后为空（曲库太小），退化为只排除当前歌曲
+            if pool.isEmpty { pool = list.filter { $0.id != currentId } }
+            // 如果还是为空（只有一首歌），用全部列表
+            let finalPool = pool.isEmpty ? list : pool
             guard let song = finalPool.randomElement() else {
-                // 鏇插簱纭疄涓虹┖銆佹棤姝屽彲缁挱鏃舵墠閫€鍑哄叏灞?                if self.showingPlayer { self.showingPlayer = false }
+                // 曲库确实为空、无歌可续播时才退出全屏
+                if self.showingPlayer { self.showingPlayer = false }
                 return
             }
-            // 璁板綍鍒版渶杩戞挱鏀惧巻鍙?            self.recentRandomSongIds.insert(song.id)
+            // 记录到最近播放历史
+            self.recentRandomSongIds.insert(song.id)
             if self.recentRandomSongIds.count > 20 {
                 self.recentRandomSongIds.removeFirst()
             }
-            // 鍏堟妸闅忔満姝屼互 waiting 鍏ラ槦锛屽欢杩熶竴鐐瑰啀鍒囨瓕锛岀‘淇濋槦鍒楀凡鏇存柊锛堥伩鍏嶅崱椤?鏃犳瓕鏇诧級
+            // 先把随机歌以 waiting 入队，延迟一点再切歌，确保队列已更新（避免卡顿/无歌曲）
             self.api.addToQueue(songId: song.id) { ok in
                 if ok {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                         self.api.nextSong()
                     }
                 } else {
-                    // 鍏ラ槦澶辫触锛屼粠鍘嗗彶涓Щ闄ゅ苟閲嶈瘯涓€娆?                    self.recentRandomSongIds.remove(song.id)
+                    // 入队失败，从历史中移除并重试一次
+                    self.recentRandomSongIds.remove(song.id)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         self.advancePlayback()
                     }
@@ -797,18 +834,20 @@ struct ContentView: View {
             }
         }
         if api.songs.isEmpty {
-            // 鏇插簱灏氭湭鍔犺浇鍒板唴瀛橈紝鍏堟媺鍙栧啀闅忔満鎸戦€?            api.fetchSongs { pick(from: self.api.songs) }
+            // 曲库尚未加载到内存，先拉取再随机挑选
+            api.fetchSongs { pick(from: self.api.songs) }
         } else {
             pick(from: self.api.songs)
         }
     }
 
-    /// 鐢ㄥ綋鍓?serverAddress 寤虹珛杩炴帴骞惰繘鍏ヤ富鐣岄潰锛?鐩存帴杩炴帴"涓?杈撳叆鏂板湴鍧€鍚庤繛鎺?鍏辩敤锛夈€?    private func connectCurrent() {
+    /// 用当前 serverAddress 建立连接并进入主界面（"直接连接"与"输入新地址后连接"共用）。
+    private func connectCurrent() {
         guard !serverAddress.isEmpty else { showSetupInput = true; return }
-        // updateBaseURL 鍐呴儴浼氭柇寮€鏃?WebSocket銆佺敤鐩爣鍦板潃閲嶈繛骞?fetchAll 鎷夊彇鍏ㄩ儴鏁版嵁
+        // updateBaseURL 内部会断开旧 WebSocket、用目标地址重连并 fetchAll 拉取全部数据
         api.updateBaseURL(serverAddress)
         // 预加载所有网盘Cookie（VLC library级别Cookie只能在创建时设置，必须提前获取）
-        vlcManager.preloadCookies(baseURL: serverAddress)
+        vlcManager.preloadCookies(baseURL: api.baseURL)
         setupControlHandler()
         setupAtmosphereHandler()
         setupPlaybackEndHandler()
@@ -820,7 +859,7 @@ struct ContentView: View {
     /// Wire PlayerManager's 1s progress timer to API client's sendProgress.
     /// The server only accepts progress from the active player (this TV,
     /// announced via role_announce on WS connect) and broadcasts it to all
-    /// controllers 鈥?mobile remote then interpolates for its progress bar.
+    /// controllers — mobile remote then interpolates for its progress bar.
     private func setupProgressReporting() {
         // ContentView is a struct (value type), so [weak self] is not allowed.
         // Capture api (a class instance) directly instead.
@@ -882,10 +921,10 @@ struct ContentView: View {
     // MARK: - MV Ctrl (compact 7-button row, exact web style)
     private var mvCtrl: some View {
         HStack(spacing: 6) {
-            MVButton(icon: "slider.horizontal.3", title: "鍧囪　鍣?) { activePanel = .eq }
+            MVButton(icon: "slider.horizontal.3", title: "均衡器") { activePanel = .eq }
             MVButton(icon: "mic", title: isUsingVLC ? vlcManager.voiceLabel : playerManager.vocalTrackLabel) {
                 if isUsingVLC {
-                    // VLC妯″紡锛氫娇鐢╒LC闊宠建鍒囨崲
+                    // VLC模式：使用VLC音轨切换
                     vlcManager.toggleVoice()
                     showToast(vlcManager.voiceLabel)
                 } else {
@@ -897,22 +936,22 @@ struct ContentView: View {
                 // button highlight stays in sync with the TV.
                 api.sendPlaybackState(paused: !playerManager.isPlaying, voice: isUsingVLC ? vlcManager.voiceLabel : playerManager.voiceStateString)
             }
-            MVButton(icon: "speaker.minus", title: "闊抽噺-") {
+            MVButton(icon: "speaker.minus", title: "音量-") {
                 volume = max(0, volume - 0.1)
                 if isUsingVLC { vlcManager.setVolume(volume) } else { playerManager.setVolume(volume) }
-                showToast("闊抽噺: \(Int(volume * 100))%")
+                showToast("音量: \(Int(volume * 100))%")
             }
             MVButton(icon: (isUsingVLC ? vlcManager.isPlaying : playerManager.isPlaying) ? "pause.fill" : "play.fill",
-                    title: (isUsingVLC ? vlcManager.isPlaying : playerManager.isPlaying) ? "鏆傚仠" : "鎾斁", isCenter: true) {
+                    title: (isUsingVLC ? vlcManager.isPlaying : playerManager.isPlaying) ? "暂停" : "播放", isCenter: true) {
                 if isUsingVLC {
                     vlcManager.togglePlayPause()
                     isPlaying = vlcManager.isPlaying
-                    FeedbackCenter.shared.show(vlcManager.isPlaying ? "寮€濮嬫挱鏀? : "鏆傚仠鎾斁",
+                    FeedbackCenter.shared.show(vlcManager.isPlaying ? "开始播放" : "暂停播放",
                                            icon: vlcManager.isPlaying ? "play.fill" : "pause.fill")
                 } else {
                     playerManager.togglePlayPause()
                     isPlaying = playerManager.isPlaying
-                    FeedbackCenter.shared.show(playerManager.isPlaying ? "寮€濮嬫挱鏀? : "鏆傚仠鎾斁",
+                    FeedbackCenter.shared.show(playerManager.isPlaying ? "开始播放" : "暂停播放",
                                            icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
                 }
                 // Sync playback state to server so mobile remote play/pause
@@ -920,24 +959,24 @@ struct ContentView: View {
                 api.sendPlaybackState(paused: !(isUsingVLC ? vlcManager.isPlaying : playerManager.isPlaying),
                     voice: isUsingVLC ? vlcManager.voiceLabel : playerManager.voiceStateString)
             }
-            MVButton(icon: "speaker.plus", title: "闊抽噺+") {
+            MVButton(icon: "speaker.plus", title: "音量+") {
                 volume = min(1, volume + 0.1)
                 if isUsingVLC { vlcManager.setVolume(volume) } else { playerManager.setVolume(volume) }
-                showToast("闊抽噺: \(Int(volume * 100))%")
+                showToast("音量: \(Int(volume * 100))%")
             }
-            MVButton(icon: "forward.end.fill", title: "鍒囨瓕") { FeedbackCenter.shared.show("鍒囧埌涓嬩竴棣?, icon: "forward.end.fill"); advancePlayback() }
-            MVButton(icon: "gobackward", title: "閲嶅敱") {
+            MVButton(icon: "forward.end.fill", title: "切歌") { FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill"); advancePlayback() }
+            MVButton(icon: "gobackward", title: "重唱") {
                 if isUsingVLC {
                     vlcManager.restart()
                 } else {
                     playerManager.restart()
                 }
                 api.restartSong()
-                FeedbackCenter.shared.show("閲嶆柊婕斿敱", icon: "gobackward")
+                FeedbackCenter.shared.show("重新演唱", icon: "gobackward")
             }
-            MVButton(icon: "ladybug", title: "璋冭瘯") {
+            MVButton(icon: "ladybug", title: "调试") {
                 showDebugLog.toggle()
-                FeedbackCenter.shared.show(showDebugLog ? "璋冭瘯鏃ュ織宸插紑鍚? : "璋冭瘯鏃ュ織宸插叧闂?, icon: "ladybug")
+                FeedbackCenter.shared.show(showDebugLog ? "调试日志已开启" : "调试日志已关闭", icon: "ladybug")
             }
         }
         .padding(.horizontal, 8)
@@ -950,10 +989,10 @@ struct ContentView: View {
     // MARK: - Mid Cards (vertical column, 4 buttons fill height)
     private var midCards: some View {
         VStack(spacing: 8) {
-            bigRequestButton(title: "姝屽悕鐐规瓕", icon: "music.note.list", gradient: LinearGradient(colors: [Color(hex: 0xff4f9b), Color(hex: 0xff6b6b)], startPoint: .leading, endPoint: .trailing)) { activePage = .order }
-            bigRequestButton(title: "姝屾墜鐐规瓕", icon: "mic.fill", gradient: LinearGradient(colors: [Color(hex: 0x8e44f7), Color(hex: 0xc736f7)], startPoint: .leading, endPoint: .trailing)) { activePage = .artists }
-            bigRequestButton(title: "鍒嗙被鐐规瓕", icon: "square.grid.2x2.fill", gradient: LinearGradient(colors: [Color(hex: 0xff8c42), Color(hex: 0xffb347)], startPoint: .leading, endPoint: .trailing)) { activePage = .category }
-            bigRequestButton(title: "鎵爜鐐规瓕", icon: "qrcode", gradient: LinearGradient(colors: [Color(hex: 0x1a7bff), Color(hex: 0x36d9f7)], startPoint: .leading, endPoint: .trailing)) { showQR.toggle() }
+            bigRequestButton(title: "歌名点歌", icon: "music.note.list", gradient: LinearGradient(colors: [Color(hex: 0xff4f9b), Color(hex: 0xff6b6b)], startPoint: .leading, endPoint: .trailing)) { activePage = .order }
+            bigRequestButton(title: "歌手点歌", icon: "mic.fill", gradient: LinearGradient(colors: [Color(hex: 0x8e44f7), Color(hex: 0xc736f7)], startPoint: .leading, endPoint: .trailing)) { activePage = .artists }
+            bigRequestButton(title: "分类点歌", icon: "square.grid.2x2.fill", gradient: LinearGradient(colors: [Color(hex: 0xff8c42), Color(hex: 0xffb347)], startPoint: .leading, endPoint: .trailing)) { activePage = .category }
+            bigRequestButton(title: "扫码点歌", icon: "qrcode", gradient: LinearGradient(colors: [Color(hex: 0x1a7bff), Color(hex: 0x36d9f7)], startPoint: .leading, endPoint: .trailing)) { showQR.toggle() }
         }
         .frame(maxHeight: .infinity)
         .focusSection()
@@ -1044,18 +1083,18 @@ struct ContentView: View {
     private var rightQueue: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("鈾?宸茬偣闃熷垪")
+                Text("♪ 已点队列")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundColor(WebColors.ac2)
                 Spacer()
-                Text("\(api.queue.count)棣?)
+                Text("\(api.queue.count)首")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundColor(WebColors.sub)
             }
 
             if api.queue.isEmpty {
                 Spacer()
-                Text("鏆傛棤鐐规瓕")
+                Text("暂无点歌")
                     .font(.system(size: 17, weight: .medium))
                     .foregroundColor(WebColors.sub)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -1100,7 +1139,7 @@ struct ContentView: View {
         switch panel {
         case .search:
             SearchPanel(api: api, onClose: { activePanel = nil },
-                        onAdd: { song in api.addToQueue(songId: song.id); showToast("宸茬偣: \(song.displayTitle)") })
+                        onAdd: { song in api.addToQueue(songId: song.id); showToast("已点: \(song.displayTitle)") })
         case .queue:
             QueuePanel(api: api, onClose: { activePanel = nil }, onPlay: { activePanel = nil; showingPlayer = true })
         case .settings:
@@ -1119,7 +1158,7 @@ struct ContentView: View {
         switch page {
         case .order:
             OrderSongsPage(api: api, onBack: { activePage = nil },
-                          onAdd: { song in api.addToQueue(songId: song.id); showToast("宸茬偣: \(song.displayTitle)") })
+                          onAdd: { song in api.addToQueue(songId: song.id); showToast("已点: \(song.displayTitle)") })
         case .artists:
             ArtistsPage(api: api, onBack: { activePage = nil }, onArtistSelect: { artist in
                 selectedArtist = artist
@@ -1127,22 +1166,22 @@ struct ContentView: View {
             })
         case .artistSongs:
             ArtistSongsPage(api: api, artist: selectedArtist, onBack: { activePage = .artists },
-                            onAdd: { song in api.addToQueue(songId: song.id); showToast("宸茬偣: \(song.displayTitle)") })
+                            onAdd: { song in api.addToQueue(songId: song.id); showToast("已点: \(song.displayTitle)") })
         case .charts:
             ChartsPage(api: api, onBack: { activePage = nil },
-                       onAdd: { song in api.addToQueue(songId: song.id); showToast("宸茬偣: \(song.displayTitle)") })
+                       onAdd: { song in api.addToQueue(songId: song.id); showToast("已点: \(song.displayTitle)") })
         case .favorites:
             FavoritesPage(api: api, onBack: { activePage = nil },
-                          onAdd: { song in api.addToQueue(songId: song.id); showToast("宸茬偣: \(song.displayTitle)") })
+                          onAdd: { song in api.addToQueue(songId: song.id); showToast("已点: \(song.displayTitle)") })
         case .history:
             HistoryPage(api: api, onBack: { activePage = nil },
-                        onAdd: { song in api.addToQueue(songId: song.id); showToast("宸茬偣: \(song.displayTitle)") })
+                        onAdd: { song in api.addToQueue(songId: song.id); showToast("已点: \(song.displayTitle)") })
         case .newest:
             NewestPage(api: api, onBack: { activePage = nil },
-                       onAdd: { song in api.addToQueue(songId: song.id); showToast("宸茬偣: \(song.displayTitle)") })
+                       onAdd: { song in api.addToQueue(songId: song.id); showToast("已点: \(song.displayTitle)") })
         case .category:
             CategoryPage(api: api, onBack: { activePage = nil },
-                         onAdd: { song in api.addToQueue(songId: song.id); showToast("宸茬偣: \(song.displayTitle)") })
+                         onAdd: { song in api.addToQueue(songId: song.id); showToast("已点: \(song.displayTitle)") })
         }
     }
 
@@ -1154,17 +1193,18 @@ struct ContentView: View {
     }
     private var currentDate: String {
         let f = DateFormatter()
-        f.dateFormat = "M鏈坉鏃?EEE"
+        f.dateFormat = "M月d日 EEE"
         f.locale = Locale(identifier: "zh_CN")
         return f.string(from: Date())
     }
 
-    // MARK: - Toast锛堢粺涓€璧板叏灞€澶у睆鍙嶉涓績锛?    private func showToast(_ msg: String) {
+    // MARK: - Toast（统一走全局大屏反馈中心）
+    private func showToast(_ msg: String) {
         FeedbackCenter.shared.show(msg)
     }
 }
 
-// MARK: - Order Songs Page (姝屽悕鐐规瓕 - left list + right alphabet panel)
+// MARK: - Order Songs Page (歌名点歌 - left list + right alphabet panel)
 struct OrderSongsPage: View {
     let api: KTVAPIClient
     let onBack: () -> Void
@@ -1174,10 +1214,13 @@ struct OrderSongsPage: View {
     @State private var keyboardMode: KeyboardMode = .abc
     @State private var songPinyin: [Int: String] = [:] // Precomputed pinyin initials
     @State private var isCacheReady = false
-    @State private var filteredSongs: [Song] = []   // 杩囨护缁撴灉锛園State閬垮厤姣忔UI娓叉煋閲嶆柊杩囨护锛?    @State private var searchDebounceTimer: Timer?   // 杈撳叆闃叉姈
-    @State private var lastFilterQuery = ""           // 澧為噺杩囨护锛氫笂娆℃煡璇?    @State private var lastFilterIndices: [Int] = []  // 澧為噺杩囨护锛氫笂娆＄粨鏋滅储寮?    private let pageSize = 32
+    @State private var filteredSongs: [Song] = []   // 过滤结果（@State避免每次UI渲染重新过滤）
+    @State private var searchDebounceTimer: Timer?   // 输入防抖
+    @State private var lastFilterQuery = ""           // 增量过滤：上次查询
+    @State private var lastFilterIndices: [Int] = []  // 增量过滤：上次结果索引
+    private let pageSize = 32
     private enum KeyboardMode { case abc, num }
-    // 姝屽悕閿洏 ABC 妯″紡锛? 琛岋紝鏈€鍚庝竴琛?Z 璺?2 鍒椼€丏EL 璺?3 鍒楋紝濉弧鏁磋
+    // 歌名键盘 ABC 模式：6 行，最后一行 Z 跨 2 列、DEL 跨 3 列，填满整行
     private let abcRows: [[(String, Int)]] = [
         [("A",1),("B",1),("C",1),("D",1),("E",1)],
         [("F",1),("G",1),("H",1),("I",1),("J",1)],
@@ -1186,7 +1229,8 @@ struct OrderSongsPage: View {
         [("U",1),("V",1),("W",1),("X",1),("Y",1)],
         [("Z",2),("DEL",3)]
     ]
-    // 姝屽悕閿洏鏁板瓧妯″紡锛? 琛岋紝DEL 璺?5 鍒楀～婊℃暣琛?    private let numRows: [[(String, Int)]] = [
+    // 歌名键盘数字模式：3 行，DEL 跨 5 列填满整行
+    private let numRows: [[(String, Int)]] = [
         [("1",1),("2",1),("3",1),("4",1),("5",1)],
         [("6",1),("7",1),("8",1),("9",1),("0",1)],
         [("DEL",5)]
@@ -1241,7 +1285,7 @@ struct OrderSongsPage: View {
             DispatchQueue.main.async {
                 self.songPinyin = cache
                 self.isCacheReady = true
-                // 缂撳瓨灏辩华鍚庨噸鏂拌繃婊わ紙濡傛灉褰撳墠鏈夎緭鍏ワ級
+                // 缓存就绪后重新过滤（如果当前有输入）
                 if !self.inputText.isEmpty {
                     self.lastFilterQuery = ""
                     self.applyFilter()
@@ -1250,7 +1294,8 @@ struct OrderSongsPage: View {
         }
     }
 
-    /// 闃叉姈杩囨护锛氳緭鍏ュ仠姝?00ms鍚庡悗鍙扮嚎绋嬭繃婊?    private func debounceFilter() {
+    /// 防抖过滤：输入停止100ms后后台线程过滤
+    private func debounceFilter() {
         searchDebounceTimer?.invalidate()
         searchDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: false) { _ in
             self.currentPage = 0
@@ -1258,7 +1303,7 @@ struct OrderSongsPage: View {
         }
     }
 
-    /// 鍚庡彴绾跨▼杩囨护+澧為噺杩囨护锛圓BC妯″紡鏂板瓧姣嶅湪涓婃缁撴灉涓婄户缁繃婊わ級
+    /// 后台线程过滤+增量过滤（ABC模式新字母在上次结果上继续过滤）
     private func applyFilter() {
         let q = inputText
         let songs = api.songs
@@ -1266,7 +1311,8 @@ struct OrderSongsPage: View {
         let cacheReady = isCacheReady
         let mode = keyboardMode
 
-        // 澧為噺杩囨护锛欰BC妯″紡涓嬶紝鏂皅uery鏄棫query鐨勫墠缂€鎵╁睍鏃讹紝鍦ㄤ笂娆＄粨鏋滅储寮曞熀纭€涓婅繃婊?        let sourceIndices: [Int]
+        // 增量过滤：ABC模式下，新query是旧query的前缀扩展时，在上次结果索引基础上过滤
+        let sourceIndices: [Int]
         if mode == .abc && !q.isEmpty && !lastFilterQuery.isEmpty && q.hasPrefix(lastFilterQuery) && lastFilterIndices.count > 0 {
             sourceIndices = lastFilterIndices
         } else {
@@ -1316,7 +1362,7 @@ struct OrderSongsPage: View {
                     Image(systemName: "music.note")
                         .font(.system(size: 24))
                         .foregroundColor(WebColors.ac2)
-                    Text("绔嬪嵆鐐规瓕")
+                    Text("立即点歌")
                         .font(.system(size: 26, weight: .bold))
                         .foregroundColor(.white)
                 }
@@ -1324,7 +1370,7 @@ struct OrderSongsPage: View {
                 TVTightButton(action: onBack) { focused in
                     HStack(spacing: 6) {
                         Image(systemName: "chevron.left")
-                        Text("杩斿洖")
+                        Text("返回")
                     }
                     .font(.system(size: 18, weight: .medium))
                     .padding(.horizontal, 20).padding(.vertical, 8)
@@ -1362,12 +1408,12 @@ struct OrderSongsPage: View {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 20))
                             .foregroundColor(WebColors.sub)
-                        Text(inputText.isEmpty ? "姝屽悕鎼滅储" : inputText)
+                        Text(inputText.isEmpty ? "歌名搜索" : inputText)
                             .font(.system(size: 22, weight: .bold))
                             .foregroundColor(.white)
                             .lineLimit(1)
                         Spacer()
-                        // 鍗曟寜閽垏鎹細ABC 妯″紡鏄剧ず"123"锛?23 妯″紡鏄剧ず"ABC"
+                        // 单按钮切换：ABC 模式显示"123"，123 模式显示"ABC"
                         TVTightButton(action: {
                             keyboardMode = (keyboardMode == .abc ? .num : .abc)
                             inputText = ""
@@ -1385,7 +1431,8 @@ struct OrderSongsPage: View {
                     }
                     .padding(.horizontal, 16).padding(.vertical, 14)
 
-                    // Keyboard: 鎸夐敭鏀惧ぇ濉弧鍙充晶闈㈡澘锛圴Stack 绛夐珮琛?+ GeometryReader 绮剧‘璺ㄥ垪锛?                    VStack(spacing: 8) {
+                    // Keyboard: 按键放大填满右侧面板（VStack 等高行 + GeometryReader 精确跨列）
+                    VStack(spacing: 8) {
                         ForEach(0..<activeRows.count, id: \.self) { r in
                             let row = activeRows[r]
                             GeometryReader { geo in
@@ -1409,7 +1456,8 @@ struct OrderSongsPage: View {
                             .frame(maxHeight: .infinity)
                         }
 
-                        // Clear button锛堝浐瀹氬湪閿洏搴曢儴锛岄敭鐩樿骞冲垎鍓╀綑绌洪棿锛?                        TightClearButton(isEmpty: inputText.isEmpty) {
+                        // Clear button（固定在键盘底部，键盘行平分剩余空间）
+                        TightClearButton(isEmpty: inputText.isEmpty) {
                             inputText = ""; debounceFilter()
                         }
                     }
@@ -1430,7 +1478,7 @@ struct OrderSongsPage: View {
                 TVTightButton(action: { if currentPage > 0 { currentPage -= 1 } }) { focused in
                     HStack(spacing: 6) {
                         Image(systemName: "chevron.left")
-                        Text("涓婁竴椤?)
+                        Text("上一页")
                     }
                     .font(.system(size: 20, weight: .medium))
                     .padding(.horizontal, 22).padding(.vertical, 10)
@@ -1440,13 +1488,13 @@ struct OrderSongsPage: View {
                 }
                 .disabled(currentPage == 0)
 
-                Text("绗?\(currentPage + 1)/\(totalPages) (鍏盶(filteredSongs.count)棣?")
+                Text("第 \(currentPage + 1)/\(totalPages) (共\(filteredSongs.count)首)")
                     .font(.system(size: 20))
                     .foregroundColor(.white)
 
                 TVTightButton(action: { if currentPage + 1 < totalPages { currentPage += 1 } }) { focused in
                     HStack(spacing: 6) {
-                        Text("涓嬩竴椤?)
+                        Text("下一页")
                         Image(systemName: "chevron.right")
                     }
                     .font(.system(size: 20, weight: .medium))
@@ -1464,7 +1512,8 @@ struct OrderSongsPage: View {
         }
         .background(WebColors.bg.ignoresSafeArea())
         .onAppear {
-            // 閲嶇疆鎼滅储鐘舵€侊細娓呯┖涓婃鎼滅储鍏抽敭璇嶅拰澧為噺杩囨护缂撳瓨锛岀‘淇濇瘡娆¤繘鍏ラ兘鏄叏鏂版悳绱?            inputText = ""
+            // 重置搜索状态：清空上次搜索关键词和增量过滤缓存，确保每次进入都是全新搜索
+            inputText = ""
             lastFilterQuery = ""
             lastFilterIndices = []
             currentPage = 0
@@ -1481,7 +1530,7 @@ struct OrderSongsPage: View {
     @ViewBuilder
     private func songRow(_ song: Song, index: Int) -> some View {
         HStack(spacing: 14) {
-            // 鏁磋澶ф寜閽細鏁板瓧 + 姝屽悕/姝屾墜 + 鐐规瓕锛岀劍鐐瑰尯鍩熷ぇ锛岄仴鎺у櫒鏄撻€変腑
+            // 整行大按钮：数字 + 歌名/歌手 + 点歌，焦点区域大，遥控器易选中
             TVTightButton(action: { onAdd(song) }) { focused in
                 HStack(spacing: 14) {
                     ZStack {
@@ -1523,7 +1572,7 @@ struct OrderSongsPage: View {
 
                     Spacer(minLength: 0)
 
-                    Text("鐐规瓕")
+                    Text("点歌")
                         .font(.system(size: 26, weight: .semibold))
                         .padding(.horizontal, 26).padding(.vertical, 12)
                         .background(Group {
@@ -1578,18 +1627,20 @@ struct VideoPreview: UIViewRepresentable {
     }
 }
 
-// 姝岃瘝蹇參鏍″噯閫氱煡锛氶仴鎺х -> 鍏ㄥ睆鎾斁鍣?extension Notification.Name {
+// 歌词快慢校准通知：遥控端 -> 全屏播放器
+extension Notification.Name {
     static let momoLyricsOffset = Notification.Name("momoLyricsOffset")
 }
 
-// MARK: - VLC璋冭瘯鏃ュ織瑕嗙洊灞?struct DebugLogOverlay: View {
+// MARK: - VLC调试日志覆盖层
+struct DebugLogOverlay: View {
     let log: String
     let onClose: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("VLC璋冭瘯鏃ュ織 v2026.09.13-sync-lib-fix5 (闀挎寜闃熷垪鎸夐挳鍏抽棴)")
+                Text("VLC调试日志 v2026.09.13-quark-fix3 (长按队列按钮关闭)")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.white)
                 Spacer()
