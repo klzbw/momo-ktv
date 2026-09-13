@@ -56,7 +56,7 @@ struct Song: Codable, Identifiable, Hashable {
 
         if media_type == "video" { return true }
 
-        if source_root == "netktv-mkv" || source_root == "share-115" { return true }
+        if let sr = source_root, (sr == "netktv-mkv" || sr == "share-115" || sr.hasPrefix("cloud-mkv")) { return true }
 
         guard let fn = filename?.lowercased() else { return false }
 
@@ -185,7 +185,7 @@ struct QueueItem: Codable, Identifiable, Hashable {
 
         if media_type == "video" { return true }
 
-        if source_root == "netktv-mkv" || source_root == "share-115" { return true }
+        if let sr = source_root, (sr == "netktv-mkv" || sr == "share-115" || sr.hasPrefix("cloud-mkv")) { return true }
 
         guard let fn = filename?.lowercased() else { return false }
 

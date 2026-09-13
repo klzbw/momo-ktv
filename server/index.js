@@ -22635,15 +22635,8 @@ function getQueueWithSongs() {
 
 
 
-           s.audio_tracks, s.audio_needs_soft, s.video_needs_soft, s.is_network, s.is_strm
-
-
-
-
-
-
-
-
+           s.audio_tracks, s.audio_needs_soft, s.video_needs_soft, s.is_network, s.is_strm,
+           s.source_root, s.source_type, s.media_type, s.filepath, s.cloud_account_id
 
     FROM queue q JOIN songs s ON q.song_id = s.id
 
