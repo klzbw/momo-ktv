@@ -59,29 +59,6 @@ class VLCPlayerManager: NSObject, ObservableObject {
     /// 夸克CDN直链签名与UA绑定，必须使用夸克客户端UA
     private var currentCloudDriver: String = "pan115"
 
-    /// 预加载的所有网盘Cookie（连接服务器成功后获取，仅作纯字符串缓存）
-    /// 不触碰任何VLC实例，绝不因此创建/重建library，从根上避免建库时序闪退
-    private var preloadedCookies: [String: String] = [:]
-
-    /// 预加载所有网盘Cookie（连接服务器成功后调用一次即可）
-    /// 仅发起网络请求并把Cookie字符串缓存到内存，供首次同步建库时读取
-    func preloadCookies(baseURL: String) {
-        let normalized = baseURL.hasPrefix("http") ? baseURL : "http://\(baseURL)"
-        guard let url = URL(string: "\(normalized)/api/cloud/all-cookies") else { return }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 10
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            guard let data = data, error == nil else { return }
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let cookies = json["cookies"] as? [String: String] {
-                DispatchQueue.main.async {
-                    self?.preloadedCookies = cookies
-                    self?.log("预加载网盘Cookie成功: \(cookies.keys.joined(separator: ","))")
-                }
-            }
-        }.resume()
-    }
-
     /// 根据网盘驱动类型返回对应的UA
     static func userAgent(forDriver driver: String?) -> String {
         if driver == "quark" {
@@ -106,31 +83,22 @@ class VLCPlayerManager: NSObject, ObservableObject {
     private func setupLibrary() {
         guard !libraryInitialized else { return }
         libraryInitialized = true
-        // 同步建库：play()开头立即执行，保证player非空（时序与稳定基线一致，不异步、不重建）
-        let ua = VLCPlayerManager.userAgent(forDriver: currentCloudDriver)
-        let ref = VLCPlayerManager.referer(forDriver: currentCloudDriver)
-        var options = [
-            "--http-user-agent=\(ua)",
-            "--http-referrer=\(ref)",
+        // 与10063e8稳定基线逐字一致：绝不在VLCLibrary初始化时传--http-cookie（会导致崩溃）
+        // 115网盘需要特定UA，否则CDN返回403；网盘UA/Referer/Cookie统一在media级别设置
+        let options = [
+            "--http-user-agent=\(VLCPlayerManager.cloud115UserAgent)",
+            "--http-referrer=https://115.com/",
             "--no-video-title-show",
             "--network-caching=1000",
             "--live-caching=1000",
             "--file-caching=1000"
         ]
-        // library级别Cookie：同步读取连接时已预加载并缓存的Cookie（纯字符串操作）
-        // 夸克CDN必须library级别--http-cookie，media级别:http-cookie对夸克不生效
-        // 合并所有网盘Cookie（分号分隔），VLC按请求域名自动匹配
-        let merged = preloadedCookies.values.filter { !$0.isEmpty }.joined(separator: "; ")
-        if !merged.isEmpty {
-            options.append("--http-cookie=\"\(merged)\"")
-            log("VLCLibrary注入合并Cookie(\(merged.count)字符,\(preloadedCookies.count)个网盘,library级别)")
-        }
         let lib = VLCLibrary(options: options)
         library = lib
         player = VLCMediaPlayer(library: lib)
         player?.delegate = self
-        log("=== MomoKtvTV v2026.09.13-quark-fix4 ===")
-        log("VLCLibrary初始化成功, driver=\(currentCloudDriver), UA=\(ua.prefix(25))...")
+        log("=== MomoKtvTV v2026.09.13-quark-fix5 ===")
+        log("VLCLibrary初始化成功(无library-cookie), UA=\(VLCPlayerManager.cloud115UserAgent)")
     }
     #endif
 

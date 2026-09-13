@@ -845,8 +845,6 @@ struct ContentView: View {
         guard !serverAddress.isEmpty else { showSetupInput = true; return }
         // updateBaseURL 内部会断开旧 WebSocket、用目标地址重连并 fetchAll 拉取全部数据
         api.updateBaseURL(serverAddress)
-        // 连接成功后预加载所有网盘Cookie（纯网络缓存，供首次建库注入，不影响VLC时序）
-        vlcManager.preloadCookies(baseURL: serverAddress)
         setupControlHandler()
         setupAtmosphereHandler()
         setupPlaybackEndHandler()
@@ -1639,7 +1637,7 @@ struct DebugLogOverlay: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("VLC调试日志 v2026.09.13-quark-fix4 (长按队列按钮关闭)")
+                Text("VLC调试日志 v2026.09.13-quark-fix5 (长按队列按钮关闭)")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.white)
                 Spacer()
