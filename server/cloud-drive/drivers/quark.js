@@ -307,7 +307,7 @@ class QuarkDriver extends CloudDriveBase {
         pr: 'ucpro',
         fr: 'pc',
         uc_param_str: '',
-        parent_fid: String(parentFid),
+        pdir_fid: String(parentFid),
         _page: String(page),
         _size: String(size),
         _fetch_subscribed: 'false',
