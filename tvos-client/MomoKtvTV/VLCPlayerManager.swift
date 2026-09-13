@@ -66,7 +66,9 @@ class VLCPlayerManager: NSObject, ObservableObject {
     /// 预加载所有网盘Cookie（在连接服务器成功后调用）
     /// library级别--http-cookie只能在创建时设置，所以必须提前获取
     func preloadCookies(baseURL: String) {
-        guard let url = URL(string: "\(baseURL)/api/cloud/all-cookies") else { return }
+        // 兼容传入不带http://前缀的地址（与APIClient.init逻辑一致）
+        let normalized = baseURL.hasPrefix("http") ? baseURL : "http://\(baseURL)"
+        guard let url = URL(string: "\(normalized)/api/cloud/all-cookies") else { return }
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
         URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
