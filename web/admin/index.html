@@ -8446,52 +8446,24 @@ async function browseCloudPath(){
 
     (d.folders || []).forEach(f => {
 
-
-
       const row = document.createElement('div');
+      const isDir = f.isDir !== false;
+      row.style.cssText = (isDir ? 'cursor:pointer;' : 'cursor:default;opacity:.55;') + 'padding:4px 8px;border-radius:6px';
+      row.textContent = (isDir ? '📁 ' : '🎵 ') + f.name + (isDir ? '' : '  (' + (f.size ? Math.round(f.size/1024/1024) + 'MB' : '') + ')');
 
-
-
-      row.style.cssText = 'cursor:pointer;padding:4px 8px;border-radius:6px';
-
-
-
-      row.textContent = '📁 ' + f.name;
-
-
-
-      row.onmouseenter = () => row.style.background = 'rgba(255,79,155,.15)';
-
-
-
-      row.onmouseleave = () => row.style.background = '';
-
-
-
-      row.onclick = () => {
-
-
-
-        const base = path.replace(/\/$/, '');
-
-
-
-        document.getElementById('cloud-path-input').value = base + '/' + f.name;
-
-
-
-        browseCloudPath();
-
-
-
-      };
-
-
+      if (isDir) {
+        row.onmouseenter = () => row.style.background = 'rgba(255,79,155,.15)';
+        row.onmouseleave = () => row.style.background = '';
+        row.onclick = () => {
+          const base = path.replace(/\/$/, '');
+          document.getElementById('cloud-path-input').value = base + '/' + f.name;
+          browseCloudPath();
+        };
+      } else {
+        row.title = '文件不可作为曲库根目录，请选择上层文件夹';
+      }
 
       el.appendChild(row);
-
-
-
     });
 
 

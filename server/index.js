@@ -21104,9 +21104,9 @@ app.get('/api/admin/browse-cloud', requireAdminAuth, async (req, res) => {
     if (!cd.manager) return res.status(500).json({ error: 'cloud-drive 未初始化' });
     const driver = cd.manager.getDriverById(accountId);
     const files = await driver.listFiles(remotePath);
-    // 只返回目录(网盘路径选择器用)，保留 name/pickCode/size 供前端展示
-    // pan115 driver isDir 对部分目录误报 false，这里不过滤——网盘选择器需要能进入每个条目
-    const folders = files.map(f => ({ name: f.name, isDir: true }));
+    // 返回真实 isDir：目录可点击进入，文件不可点击（路径选择器只选目录）
+    // 同时返回 size 供前端区分展示
+    const folders = files.map(f => ({ name: f.name, isDir: !!f.isDir, size: f.size || 0 }));
     res.json({ ok: true, path: remotePath, folders });
   } catch (e) {
     res.status(500).json({ error: '浏览115目录失败: ' + e.message });
@@ -21179,11 +21179,21 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
     const dirForType = (String(mediaType || 'mkv').toLowerCase() === 'flac' || String(mediaType || '').toLowerCase() === 'separated')
       ? 'netktv' : 'netktv-mkv';
     const roots = getLibraryRoots();
-    if (roots.some(r => r.dir === dirForType)) {
-      return res.status(409).json({ error: '这个网盘来源已经添加过了(每类只能有一个)，可直接在列表里点"扫描"' });
-    }
     const cloud = { accountId: acct.id, cloudPath: String(cloudPath).trim(), mediaType: dirForType === 'netktv' ? 'flac' : 'mkv' };
     const builtin = BUILTIN_CLOUD_ROOTS[dirForType] || {};
+    const existing = roots.find(r => r.dir === dirForType);
+    if (existing) {
+      // 同类型已存在：更新账号和路径，不拒绝（允许切换网盘/换目录）
+      existing.cloud = cloud;
+      existing.isNetwork = true;
+      existing.enabled = true;
+      if (!cloudLabel || !String(cloudLabel).trim()) {
+        existing.label = builtin.label || (`${acct.name} ${cloud.cloudPath}`);
+      }
+      saveLibraryRoots(roots);
+      log.info('ADMIN', `曲库来源: 更新网络来源 ${dirForType} -> ${cloud.cloudPath} (账号=${cloud.accountId}, 驱动=${acct.driver})`);
+      return res.json({ ok: true, roots, updated: true });
+    }
     roots.push({
       dir: dirForType,
       label: (cloudLabel && String(cloudLabel).trim()) ? String(cloudLabel).trim() : builtin.label || (`${acct.name} ${cloud.cloudPath}`),
