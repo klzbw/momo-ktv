@@ -42,6 +42,9 @@ struct Song: Codable, Identifiable, Hashable {
     /// 网盘直连播放 URL（服务端可能直接返回完整 http URL）
     let cloud_url: String?
 
+    /// 网盘驱动类型：pan115 / quark / aliyun / baidu / cmcc / xunlei（服务端返回）
+    let cloud_driver: String?
+
     var displayTitle: String { title ?? filename ?? "未知歌曲" }
 
     var displayArtist: String { artist ?? "未知歌手" }
@@ -92,11 +95,24 @@ struct Song: Codable, Identifiable, Hashable {
     /// 媒体类型图标：视频用 film，音频用 music.note
     var mediaTypeIcon: String { isVideoFile ? "film" : "music.note" }
 
-    /// 网盘类型标识：根据 source_root 推断网盘名称
+    /// 网盘类型标识：优先用 cloud_driver，其次用 source_root 推断
     var cloudDiskLabel: String {
-        guard isNetworkSong, let sr = source_root else { return "" }
+        guard isNetworkSong else { return "" }
+        // 优先用服务端返回的driver类型
+        if let driver = cloud_driver {
+            switch driver {
+            case "pan115": return "115"
+            case "quark": return "夸克"
+            case "aliyun": return "阿里"
+            case "baidu": return "百度"
+            case "cmcc": return "移动"
+            case "xunlei": return "迅雷"
+            default: break
+            }
+        }
+        guard let sr = source_root else { return "" }
         // 旧版来源
-        if sr.hasPrefix("netktv") { return "115" }
+        if sr.hasPrefix("netktv") { return "云" }
         if sr == "share-115" { return "115" }
         // 新版 cloud-{mkv|flac}-{accountId}
         if sr.hasPrefix("cloud-") {
@@ -167,6 +183,9 @@ struct QueueItem: Codable, Identifiable, Hashable {
     /// 网盘直连播放 URL
     let cloud_url: String?
 
+    /// 网盘驱动类型：pan115 / quark / aliyun / baidu / cmcc / xunlei
+    let cloud_driver: String?
+
     var id: Int { queue_id }
 
     var displayTitle: String { title ?? filename ?? "未知歌曲" }
@@ -202,10 +221,22 @@ struct QueueItem: Codable, Identifiable, Hashable {
     /// 媒体类型图标：视频用 film，音频用 music.note
     var mediaTypeIcon: String { isVideoFile ? "film" : "music.note" }
 
-    /// 网盘类型标识
+    /// 网盘类型标识：优先用 cloud_driver，其次用 source_root 推断
     var cloudDiskLabel: String {
-        guard isNetworkSong, let sr = source_root else { return "" }
-        if sr.hasPrefix("netktv") { return "115" }
+        guard isNetworkSong else { return "" }
+        if let driver = cloud_driver {
+            switch driver {
+            case "pan115": return "115"
+            case "quark": return "夸克"
+            case "aliyun": return "阿里"
+            case "baidu": return "百度"
+            case "cmcc": return "移动"
+            case "xunlei": return "迅雷"
+            default: break
+            }
+        }
+        guard let sr = source_root else { return "" }
+        if sr.hasPrefix("netktv") { return "云" }
         if sr == "share-115" { return "115" }
         if sr.hasPrefix("cloud-") {
             let p = sr.split(separator: "-")
