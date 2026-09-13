@@ -852,7 +852,7 @@ struct ContentView: View {
         showSetupInput = false
         connected = true
         // 连接成功后后台异步预取所有网盘Cookie写jar(不阻塞主线程,不碰VLC)
-        playerManager.refreshCookieJarAsync(baseURL: serverAddress)
+        vlcManager.refreshCookieJarAsync(baseURL: serverAddress)
     }
 
     /// Wire PlayerManager's 1s progress timer to API client's sendProgress.
