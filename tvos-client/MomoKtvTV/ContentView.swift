@@ -840,14 +840,27 @@ struct ContentView: View {
     /// 用当前 serverAddress 建立连接并进入主界面（"直接连接"与"输入新地址后连接"共用）。
     private func connectCurrent() {
         guard !serverAddress.isEmpty else { showSetupInput = true; return }
-        // updateBaseURL 内部会断开旧 WebSocket、用目标地址重连并 fetchAll 拉取全部数据
-        api.updateBaseURL(serverAddress)
-        setupControlHandler()
-        setupAtmosphereHandler()
-        setupPlaybackEndHandler()
-        setupProgressReporting()
-        showSetupInput = false
-        connected = true
+        print("[connectCurrent] start, server=\(serverAddress)")
+        do {
+            // updateBaseURL 内部会断开旧 WebSocket、用目标地址重连并 fetchAll 拉取全部数据
+            print("[connectCurrent] step1: updateBaseURL")
+            api.updateBaseURL(serverAddress)
+            print("[connectCurrent] step2: setupControlHandler")
+            setupControlHandler()
+            print("[connectCurrent] step3: setupAtmosphereHandler")
+            setupAtmosphereHandler()
+            print("[connectCurrent] step4: setupPlaybackEndHandler")
+            setupPlaybackEndHandler()
+            print("[connectCurrent] step5: setupProgressReporting")
+            setupProgressReporting()
+            print("[connectCurrent] step6: showSetupInput=false")
+            showSetupInput = false
+            print("[connectCurrent] step7: connected=true")
+            connected = true
+            print("[connectCurrent] done")
+        } catch {
+            print("[connectCurrent] ERROR: \(error)")
+        }
     }
 
     /// Wire PlayerManager's 1s progress timer to API client's sendProgress.
