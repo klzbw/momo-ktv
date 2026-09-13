@@ -58,15 +58,14 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
     #if canImport(TVVLCKit)
     private func setupLibrary(cookie: String? = nil) {
-        // 如果Cookie变化，需要重新创建library（http-cookie是library级别选项）
-        if libraryInitialized && currentCookie != cookie {
-            log("Cookie变化，重新初始化VLCLibrary")
-            player?.stop()
-            player = nil
-            library = nil
-            libraryInitialized = false
+        // 只在第一次初始化时创建library，避免重新创建导致player被置空而崩溃
+        // Cookie变化时不重建library，依赖media级别的:http-cookie选项
+        guard !libraryInitialized else {
+            if currentCookie != cookie {
+                log("Cookie变化但不重建library(避免崩溃),使用media级别Cookie")
+            }
+            return
         }
-        guard !libraryInitialized else { return }
         libraryInitialized = true
         currentCookie = cookie
         // 115网盘需要特定UA，否则CDN返回403
@@ -196,15 +195,12 @@ class VLCPlayerManager: NSObject, ObservableObject {
     /// 播放URL（支持115/夸克网盘302直连，预解析重定向后VLC直接访问CDN）
     func play(url: URL) {
         #if canImport(TVVLCKit)
-        // 先同步初始化library（无Cookie），确保player已创建，避免异步时序问题
-        setupLibrary(cookie: nil)
-        // 预解析302获取Cookie，如果Cookie变化会在回调中重新初始化library
+        // 预解析302获取最终URL和网盘Cookie，然后一次性初始化library并播放
+        // 注意：不在此处同步初始化library，避免两次创建导致player被置空而崩溃
         resolveRedirect(for: url) { [weak self] finalURL, cloudCookie in
             guard let self = self else { return }
-            // 如果获取到Cookie且与当前不同，重新初始化library
-            if let cookie = cloudCookie, !cookie.isEmpty, cookie != self.currentCookie {
-                self.setupLibrary(cookie: cookie)
-            }
+            // 一次性初始化library（带Cookie），如果已初始化且Cookie相同则直接复用
+            self.setupLibrary(cookie: cloudCookie)
             guard let player = self.player else {
                 self.onError?("VLC播放器未初始化")
                 return
