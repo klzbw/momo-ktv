@@ -22,8 +22,9 @@ class VLCPlayerManager: NSObject, ObservableObject {
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var duration: Double = 0
     @Published var debugLog: String = ""
-    private(set) var audioTrackNames: [String] = []
-    private(set) var currentAudioTrackIndex: Int = 0
+    /// @Published：原唱/伴唱切换后让 mvCtrl / FullPlayerView 的按钮文字即时刷新。
+    @Published private(set) var audioTrackNames: [String] = []
+    @Published private(set) var currentAudioTrackIndex: Int = 0
 
     var onTimeUpdate: ((Double, Double) -> Void)?
     var onStateChange: ((Bool) -> Void)?
@@ -47,6 +48,10 @@ class VLCPlayerManager: NSObject, ObservableObject {
     private var libraryInitialized = false
     private var isRestarting = false
     private var lastReportedState: Int = -1
+    /// 播放令牌：每次 play() 自增。resolveRedirect 是异步的，快切歌时上一首的回调可能
+    /// 在新歌之后才回来，导致对同一个 player 重复 setupLibrary/startPlayback（时序竞态、
+    /// media 被二次赋值，tvOS 上表现为"连上服务器不到1秒闪退"）。用令牌丢弃过期回调。
+    private var playToken: Int = 0
 
     /// 115 网盘专用 UA（必须与 pan115 driver 调用 API 时使用的 UA 一致）
     static let cloud115UserAgent = "Mozilla/5.0 115Browser/23.9.3.2"
@@ -226,17 +231,25 @@ class VLCPlayerManager: NSObject, ObservableObject {
         }
         log("播放网盘类型: \(currentCloudDriver), UA=\(VLCPlayerManager.userAgent(forDriver: currentCloudDriver).prefix(25))...")
 
+        // 递增令牌并记录本次播放：快切歌时，只有令牌仍匹配的最新一次回调才允许真正起播。
+        playToken += 1
+        let token = playToken
+
         // 预解析302重定向，得到最终CDN URL和网盘Cookie
         // 必须先获取Cookie再创建library，因为library级别--http-cookie只能在创建时设置
         resolveRedirect(for: url) { [weak self] finalURL, cloudCookie in
             guard let self = self else { return }
             DispatchQueue.main.async {
-                // 用获取到的Cookie创建library（library级别Cookie对夸克CDN必需）
-                // 如果library已初始化（无Cookie），且当前需要Cookie，则重建
-                if self.libraryInitialized && (cloudCookie ?? "").isEmpty == false {
-                    // 检查是否已有Cookie，如果没有则重建
-                    // 简化处理：第一次播放网盘歌曲时才创建，后续不重建
+                // 关键：过期回调丢弃。若期间又触发了新的 play()（快切歌/自动切歌），
+                // 这里绝不能再 setupLibrary / startPlayback，否则会与新歌的播放链路竞争，
+                // 对同一个 player 重复赋 media → use-after-free → 闪退。
+                guard token == self.playToken else {
+                    self.log("play回调过期(令牌\(token) != 当前\(self.playToken))，丢弃")
+                    return
                 }
+                // 用获取到的Cookie创建library（library级别Cookie对夸克CDN必需）
+                // setupLibrary 内部有 guard !libraryInitialized，只在首次创建，
+                // 不会因为重复调用而重建 library（重建历史上曾导致闪退）。
                 self.setupLibrary(cookie: cloudCookie)
                 guard let player = self.player else {
                     self.onError?("VLC播放器未初始化")
@@ -385,6 +398,9 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
     func stop() {
         #if canImport(TVVLCKit)
+        // 让正在飞行的 resolveRedirect 回调失效（切回AVPlayer/停播时），避免旧回调把
+        // VLC 又拉起来与新播放链路竞争。
+        playToken += 1
         player?.stop()
         isPlaying = false
         activeDrawable = nil
