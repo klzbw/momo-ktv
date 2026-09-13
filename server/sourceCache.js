@@ -526,7 +526,7 @@ function getReadyPathOrNull(songId) {
 function resolvePlaybackPath(song, onCacheError) {
   // 网络KTV歌曲(source_root='netktv')：走DUAL双FLAC 302直连模式，Apple TV直接从115 CDN播放，
   // 不需要本地缓存，跳过source-cache预加载，节省NAS存储空间和115 API调用。
-  if (song && song.source_root === 'netktv') {
+  if (song && (song.source_root === 'netktv' || (song.source_root || '').startsWith('cloud-flac-'))) {
     return { path: song.filepath, cached: true, skipSourceCache: true };
   }
   // 需求(网盘STRM支持)：STRM 曲目跟网络挂载曲目一样需要走本地缓存，但

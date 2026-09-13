@@ -100,7 +100,7 @@ function parseMkvFilename(filename) {
  * @param {string} strmDir - [已废弃] STRM 文件输出目录，保留参数兼容旧调用
  * @param {number} limit - 限制扫描数量（0表示全部）
  */
-async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit = 0) {
+async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit = 0, sourceRoot = 'netktv-mkv') {
   scanStatus = {
     running: true,
     total: 0,
@@ -121,7 +121,7 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
     }
     const driver = manager.getDriver(account);
 
-    console.log(`[NETKTV-MKV-SCAN] 开始扫描: ${basePath} (账号ID=${accountId}, 账号=${account.name})`);
+    console.log(`[NETKTV-MKV-SCAN] 开始扫描: ${basePath} (账号ID=${accountId}, 账号=${account.name}, sourceRoot=${sourceRoot})`);
 
     // 通过 API 列出目录下所有文件（内部已支持分页）
     const allFiles = await driver.listFiles(basePath);
@@ -154,7 +154,7 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
         const existing = db.prepare(`
           SELECT id FROM songs WHERE source_root = ? AND cloud_account_id = ? AND filename = ?
         `).get(
-          'netktv-mkv',
+          sourceRoot,
           accountId,
           filename
         );
@@ -177,8 +177,8 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
           meta.title,
           meta.artist,
           filename,           // 原始 MKV 文件名
-          relativePath,       // 115 相对路径，如 ktv-output/xxx.mkv
-          'netktv-mkv',
+          relativePath,       // 网盘相对路径
+          sourceRoot,
           accountId,
           fileInfo.size ? Math.round(fileInfo.size / 1000) : null, // 粗略估算时长（按1MB≈1秒）
           now

@@ -3215,11 +3215,11 @@ select option{color:#000}
 
 
 
-      <div class="src-col-title" style="margin-bottom:10px">☁️ 添加115网盘网络曲库</div>
+      <div class="src-col-title" style="margin-bottom:10px">☁️ 添加网盘网络曲库</div>
 
 
 
-      <div class="cache-hint" style="margin-bottom:10px">通过 cloud-drive 的 pan115 驱动直接扫描115网盘上的歌曲目录，不需要把网盘挂载到本地。扫描结果出现在下方"已配置的曲库来源"里。</div>
+      <div class="cache-hint" style="margin-bottom:10px">通过 cloud-drive 驱动直接扫描网盘（115/夸克/阿里/百度/移动/迅雷）上的歌曲目录，不需要把网盘挂载到本地。扫描结果出现在下方"已配置的曲库来源"里。</div>
 
 
 
@@ -3227,7 +3227,7 @@ select option{color:#000}
 
 
 
-        <span style="min-width:90px">115账号：</span>
+        <span style="min-width:90px">网盘账号：</span>
 
 
 
@@ -11459,7 +11459,7 @@ async function loadCloudAccounts(){
 
     cloudAccountsCache = d.accounts || [];
 
-    // 填充"添加115网盘网络曲库"下拉框（cloud-acct-sel），数据源与上方列表一致
+    // 填充"添加网盘网络曲库"下拉框（cloud-acct-sel），数据源与上方列表一致
     const acctSel = document.getElementById('cloud-acct-sel');
     if(acctSel){
       acctSel.innerHTML = "";

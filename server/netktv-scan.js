@@ -83,7 +83,7 @@ function isAccompFile(filename) {
  * @param {object} db - 数据库实例
  * @param {string} strmDir - STRM 文件输出目录
  */
-async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir) {
+async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir, sourceRoot = 'netktv') {
   scanStatus = {
     running: true,
     total: 0,
@@ -106,7 +106,7 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir) 
     const driver = manager.getDriver(account);
 
     // 列出根目录下的所有歌曲目录
-    console.log(`[NETKTV-SCAN] 开始扫描: ${basePath} (账号ID=${accountId}, 账号=${account.name})`);
+    console.log(`[NETKTV-SCAN] 开始扫描: ${basePath} (账号ID=${accountId}, 账号=${account.name}, sourceRoot=${sourceRoot})`);
     const rootFiles = await driver.listFiles(basePath);
     console.log(`[NETKTV-SCAN] 根目录下有 ${rootFiles.length} 个条目`);
 
@@ -151,7 +151,7 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir) 
         const existing = db.prepare(
           'SELECT id FROM songs WHERE source_root = ? AND cloud_account_id = ? AND filepath LIKE ?'
         ).get(
-          'netktv',
+          sourceRoot,
           accountId,
           `%${songKey}_vocals.strm%`
         );
@@ -185,7 +185,7 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir) 
           vocalStrmPath,
           vocalStrmPath,
           accompStrmPath,
-          'netktv',
+          sourceRoot,
           accountId,
           null, // duration 暂时为空，播放时探测
           now,

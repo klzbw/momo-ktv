@@ -153,6 +153,7 @@ const BUILTIN_CLOUD_ROOTS = {
 function isCloudRoot(root) {
   if (!root) return false;
   if (root.cloud && root.cloud.cloudPath) return true;
+  if (typeof root.dir === 'string' && root.dir.startsWith('cloud-')) return true;
   return Object.prototype.hasOwnProperty.call(BUILTIN_CLOUD_ROOTS, root.dir);
 }
 
@@ -1362,7 +1363,7 @@ async function ensureProbedOnDemand(song, force = false) {
     // （原来的 resolveProbePath -> sourceCache.ensureCached 会全量下载，浪费带宽）。
     // 这是唯一 source_root 固定为 'netktv-mkv' 的曲目类型；其它网络/STRM 歌曲保持原逻辑不变。
     // 任何失败都回落到下面原有的本地缓存探测路径，保证不破坏已有功能。
-    if (song.source_root === 'netktv-mkv') {
+    if ((song.source_root === 'netktv-mkv' || (song.source_root || '').startsWith('cloud-mkv-'))) {
       try {
         const r = await probeNetktvMkvTracks(song);
         db.prepare('UPDATE songs SET audio_tracks = ?, audio_needs_soft = ?, video_needs_soft = ? WHERE id = ?').run(r.tracks, r.audioNeedsSoft, r.videoNeedsSoft, song.id);
