@@ -92,6 +92,35 @@ struct Song: Codable, Identifiable, Hashable {
     /// 媒体类型图标：视频用 film，音频用 music.note
     var mediaTypeIcon: String { isVideoFile ? "film" : "music.note" }
 
+    /// 网盘类型标识：根据 source_root 推断网盘名称
+    var cloudDiskLabel: String {
+        guard isNetworkSong, let sr = source_root else { return "" }
+        // 旧版来源
+        if sr.hasPrefix("netktv") { return "115" }
+        if sr == "share-115" { return "115" }
+        // 新版 cloud-{mkv|flac}-{accountId}
+        if sr.hasPrefix("cloud-") {
+            let parts = sr.split(separator: "-")
+            if parts.count >= 3, let accountId = Int(parts[2]) {
+                switch accountId {
+                case 1, 58: return "115"
+                case 62: return "夸克"
+                default: return "网盘#\(accountId)"
+                }
+            }
+        }
+        return "云"
+    }
+
+    /// 网盘类型图标
+    var cloudDiskIcon: String {
+        guard isNetworkSong else { return "" }
+        let label = cloudDiskLabel
+        if label == "115" { return "cloud" }
+        if label == "夸克" { return "cloud.fill" }
+        return "cloud"
+    }
+
     var durationText: String {
 
         guard let d = duration else { return "" }
@@ -172,6 +201,28 @@ struct QueueItem: Codable, Identifiable, Hashable {
     var mediaTypeLabel: String { isVideoFile ? "MKV" : "FLAC" }
     /// 媒体类型图标：视频用 film，音频用 music.note
     var mediaTypeIcon: String { isVideoFile ? "film" : "music.note" }
+
+    /// 网盘类型标识
+    var cloudDiskLabel: String {
+        guard isNetworkSong, let sr = source_root else { return "" }
+        if sr.hasPrefix("netktv") { return "115" }
+        if sr == "share-115" { return "115" }
+        if sr.hasPrefix("cloud-") {
+            let p = sr.split(separator: "-")
+            if p.count >= 3, let aid = Int(p[2]) {
+                switch aid {
+                case 1, 58: return "115"
+                case 62: return "夸克"
+                default: return "网盘#\(aid)"
+                }
+            }
+        }
+        return "云"
+    }
+    var cloudDiskIcon: String {
+        guard isNetworkSong else { return "" }
+        return cloudDiskLabel == "115" ? "cloud" : "cloud.fill"
+    }
 
     var hasMultiTrack: Bool { (audio_tracks ?? 1) >= 2 }
 

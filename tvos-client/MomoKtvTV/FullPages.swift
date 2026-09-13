@@ -146,6 +146,14 @@ struct WebSongRow: View {
                                     .background(Color(hex: 0x0288d1).opacity(0.25))
                                     .foregroundColor(Color(hex: 0x4fc3f7))
                                     .cornerRadius(3)
+                                if !song.cloudDiskLabel.isEmpty {
+                                    Label(song.cloudDiskLabel, systemImage: song.cloudDiskIcon)
+                                        .font(.system(size: 12, weight: .medium))
+                                        .padding(.horizontal, 5).padding(.vertical, 0)
+                                        .background(Color(hex: 0x6a1b9a).opacity(0.25))
+                                        .foregroundColor(Color(hex: 0xba68c8))
+                                        .cornerRadius(3)
+                                }
                             }
                             Label(song.mediaTypeLabel, systemImage: song.mediaTypeIcon)
                                 .font(.system(size: 12, weight: .medium))

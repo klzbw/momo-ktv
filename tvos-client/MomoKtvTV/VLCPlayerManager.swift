@@ -120,7 +120,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
     /// - /api/cloud/stream-path/... （cloud-drive AList代理）
     /// 必须在客户端先解析，否则 VLC 自行跟随重定向时可能丢失自定义 UA，
     /// 导致 115 CDN 返回 403 invalid signature。
-    private func resolveRedirect(for url: URL, completion: @escaping (URL) -> Void) {
+    private func resolveRedirect(for url: URL, completion: @escaping (URL, String?) -> Void) {
         let urlStr = url.absoluteString
         // 需要预解析302的端点：
         // - /api/direct-stream/...  (netktv-mkv 115直链)
@@ -131,8 +131,9 @@ class VLCPlayerManager: NSObject, ObservableObject {
             || urlStr.contains("share/stream")
             || urlStr.contains("cloud/115-direct")
             || urlStr.contains("cloud/stream-path")
+            || urlStr.contains("cloud/direct")
         guard needsResolve else {
-            completion(url)
+            completion(url, nil)
             return
         }
 
@@ -146,7 +147,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
         let task = noRedirectSession.dataTask(with: request) { [weak self] _, response, error in
             if let error = error {
                 self?.log("预解析失败(\(error.localizedDescription))，使用原始URL")
-                DispatchQueue.main.async { completion(url) }
+                DispatchQueue.main.async { completion(url, nil) }
                 return
             }
             if let httpResp = response as? HTTPURLResponse {
@@ -155,8 +156,13 @@ class VLCPlayerManager: NSObject, ObservableObject {
                 if (300...399).contains(httpResp.statusCode),
                    let location = httpResp.allHeaderFields["Location"] as? String,
                    let finalURL = URL(string: location) {
-                    self?.log("预解析成功(\(httpResp.statusCode))，最终URL: \(finalURL.absoluteString.prefix(80))...")
-                    DispatchQueue.main.async { completion(finalURL) }
+                    let cloudCookie = httpResp.allHeaderFields["X-Cloud-Cookie"] as? String
+                    if cloudCookie != nil {
+                        self?.log("预解析成功(\(httpResp.statusCode))，捕获到网盘Cookie")
+                    } else {
+                        self?.log("预解析成功(\(httpResp.statusCode))，最终URL: \(finalURL.absoluteString.prefix(80))...")
+                    }
+                    DispatchQueue.main.async { completion(finalURL, cloudCookie) }
                     return
                 }
                 // 200：可能服务端直接返回内容（非重定向模式），用原始URL让VLC处理
@@ -166,7 +172,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
                     self?.log("预解析返回\(httpResp.statusCode)，使用原始URL")
                 }
             }
-            DispatchQueue.main.async { completion(url) }
+            DispatchQueue.main.async { completion(url, nil) }
         }
         task.resume()
     }
@@ -183,10 +189,10 @@ class VLCPlayerManager: NSObject, ObservableObject {
             return
         }
 
-        // 预解析302重定向，得到最终115 CDN URL后再播放
-        resolveRedirect(for: url) { [weak self] finalURL in
+        // 预解析302重定向，得到最终CDN URL和网盘Cookie后再播放
+        resolveRedirect(for: url) { [weak self] finalURL, cloudCookie in
             guard let self = self else { return }
-            self.startPlayback(player: player, url: finalURL, originalURL: url)
+            self.startPlayback(player: player, url: finalURL, originalURL: url, cloudCookie: cloudCookie)
         }
         #else
         onError?("MobileVLCKit未集成")
@@ -194,7 +200,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
     }
 
     #if canImport(TVVLCKit)
-    private func startPlayback(player: VLCMediaPlayer, url: URL, originalURL: URL) {
+    private func startPlayback(player: VLCMediaPlayer, url: URL, originalURL: URL, cloudCookie: String?) {
         cleanup()
         // 保存原始URL供restart使用（115 CDN直链有过期时间，restart时必须用原始URL重新获取）
         self.originalStreamURL = originalURL
@@ -213,7 +219,12 @@ class VLCPlayerManager: NSObject, ObservableObject {
         media.addOption(":http-user-agent=\(VLCPlayerManager.cloud115UserAgent)")
         media.addOption(":http-referrer=https://115.com/")
         media.addOption(":http-accept=*/*")
-        log("已设置media UA: \(VLCPlayerManager.cloud115UserAgent)")
+        if let cookie = cloudCookie, !cookie.isEmpty {
+            media.addOption(":http-cookie=\(cookie)")
+            log("已设置media UA + 网盘Cookie")
+        } else {
+            log("已设置media UA: \(VLCPlayerManager.cloud115UserAgent)")
+        }
         self.media = media
         player.media = media
 
@@ -266,7 +277,8 @@ class VLCPlayerManager: NSObject, ObservableObject {
             guard let self = self, let p = self.player else { return }
             self.log("4秒后状态: \(p.state.rawValue), 视频轨:\(p.videoTrackNames.count), 音频轨:\(p.audioTrackNames.count)")
             if p.state == .error || p.videoTrackNames.count == 0 {
-                self.log("⚠️ VLC播放异常（视频轨0或错误状态），请检查网络和115登录状态")
+                let diskName = self.cloudDiskName(from: self.originalStreamURL)
+                self.log("⚠️ VLC播放异常（视频轨0或错误状态），请检查网络和\(diskName)登录状态")
             }
         }
         log("▶️ 开始播放: \(url.lastPathComponent)")
@@ -274,6 +286,23 @@ class VLCPlayerManager: NSObject, ObservableObject {
         startTimer()
     }
     #endif
+
+    /// 从播放URL中提取网盘名称
+    private func cloudDiskName(from url: URL?) -> String {
+        guard let urlStr = url?.absoluteString else { return "网盘" }
+        if urlStr.contains("cloud/direct/62") || urlStr.contains("quark") { return "夸克网盘" }
+        if urlStr.contains("cloud/direct/1") || urlStr.contains("115") { return "115网盘" }
+        if urlStr.contains("cloud/direct/") {
+            // 尝试提取accountId
+            if let range = urlStr.range(of: "cloud/direct/") {
+                let rest = String(urlStr[range.upperBound...])
+                if let accountId = rest.split(separator: "/").first {
+                    return "网盘#\(accountId)"
+                }
+            }
+        }
+        return "网盘"
+    }
 
     func pause() {
         #if canImport(TVVLCKit)

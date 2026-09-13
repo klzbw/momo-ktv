@@ -1049,6 +1049,14 @@ struct ContentView: View {
                                 .background(Color(hex: 0x0288d1).opacity(0.25))
                                 .foregroundColor(Color(hex: 0x4fc3f7))
                                 .cornerRadius(3)
+                            if !item.cloudDiskLabel.isEmpty {
+                                Label(item.cloudDiskLabel, systemImage: item.cloudDiskIcon)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .padding(.horizontal, 5).padding(.vertical, 0)
+                                    .background(Color(hex: 0x6a1b9a).opacity(0.25))
+                                    .foregroundColor(Color(hex: 0xba68c8))
+                                    .cornerRadius(3)
+                            }
                         }
                         Label(item.mediaTypeLabel, systemImage: item.mediaTypeIcon)
                             .font(.system(size: 12, weight: .medium))
@@ -1554,6 +1562,14 @@ struct OrderSongsPage: View {
                                         .background(Color(hex: 0x0288d1).opacity(0.25))
                                         .foregroundColor(Color(hex: 0x4fc3f7))
                                         .cornerRadius(4)
+                                    if !song.cloudDiskLabel.isEmpty {
+                                        Label(song.cloudDiskLabel, systemImage: song.cloudDiskIcon)
+                                            .font(.system(size: 13, weight: .medium))
+                                            .padding(.horizontal, 6).padding(.vertical, 1)
+                                            .background(Color(hex: 0x6a1b9a).opacity(0.25))
+                                            .foregroundColor(Color(hex: 0xba68c8))
+                                            .cornerRadius(4)
+                                    }
                                 }
                                 Label(song.mediaTypeLabel, systemImage: song.mediaTypeIcon)
                                     .font(.system(size: 13, weight: .medium))

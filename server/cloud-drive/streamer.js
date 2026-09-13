@@ -284,6 +284,19 @@ class CloudDriveStreamer {
       }
 
       console.log('[Streamer] Redirecting to:', directUrl.substring(0, 100) + '...');
+
+      // 夸克等网盘CDN需要Cookie才能访问，通过响应头传给客户端
+      // tvOS端VLC预解析302时捕获此头，设置到:http-cookie选项
+      try {
+        const driver = this.manager.getDriver(this.manager.getAccount(accountId));
+        if (driver && driver.cookie) {
+          res.setHeader('X-Cloud-Cookie', driver.cookie);
+          console.log('[Streamer] Set X-Cloud-Cookie for driver:', driver.constructor.name);
+        }
+      } catch(e) {
+        console.warn('[Streamer] Failed to get driver cookie:', e.message);
+      }
+
       res.redirect(302, directUrl);
 
     } catch (error) {
