@@ -167,12 +167,12 @@ class VLCPlayerManager: NSObject, ObservableObject {
     private func setupLibrary() {
         guard !libraryInitialized else { return }
         libraryInitialized = true
-        // 与10063e8稳定基线逐字一致：绝不在VLCLibrary初始化时传--http-cookie（会导致崩溃）
-        // 115网盘需要特定UA，否则CDN返回403；网盘UA/Referer/Cookie统一在media级别设置
+        // 与10063e8稳定基线逐字一致：绝不在VLCLibrary初始化时传任何--http-cookie*（会导致崩溃）
+        // fix12实证: --http-cookie和--http-cookie-jar在library级别都会致VLCLibrary初始化崩溃
+        // 夸克Cookie改在media级别用:http-header自定义头通道发送(见startPlayback)
         let options = [
             "--http-user-agent=\(VLCPlayerManager.cloud115UserAgent)",
             "--http-referrer=https://115.com/",
-            "--http-cookie-jar=\(cookieJarPath)",
             "--no-video-title-show",
             "--network-caching=1000",
             "--live-caching=1000",
@@ -182,8 +182,8 @@ class VLCPlayerManager: NSObject, ObservableObject {
         library = lib
         player = VLCMediaPlayer(library: lib)
         player?.delegate = self
-        log("=== MomoKtvTV v2026.09.13-quark-fix11 ===")
-        log("VLCLibrary初始化成功, cookie-jar=\(cookieJarPath), UA=\(VLCPlayerManager.cloud115UserAgent)")
+        log("=== MomoKtvTV v2026.09.13-quark-fix12 ===")
+        log("VLCLibrary初始化成功(无任何library cookie,不闪退), UA=\(VLCPlayerManager.cloud115UserAgent)")
     }
     #endif
 
@@ -304,9 +304,6 @@ class VLCPlayerManager: NSObject, ObservableObject {
         }
         log("播放网盘类型: \(currentCloudDriver), UA=\(VLCPlayerManager.userAgent(forDriver: currentCloudDriver).prefix(25))...")
 
-        // 播放前从本地缓存写cookie jar(纯本地毫秒级,不阻塞主线程;cookie由连接时异步预取)
-        loadCachedCookieJar()
-
         setupLibrary()
 
         guard let player = player else {
@@ -355,12 +352,29 @@ class VLCPlayerManager: NSObject, ObservableObject {
         let ref = VLCPlayerManager.referer(forDriver: currentCloudDriver)
         media.addOption(":http-user-agent=\(ua)")
         media.addOption(":http-referrer=\(ref)")
-        // Cookie已由library级别--http-cookie-jar处理(play时loadCachedCookieJar写入文件)
-        // media级别不再设置cookie(对夸克不生效),仅设置UA和Referer
-        if let cookie = cloudCookie, !cookie.isEmpty {
-            log("media仅设UA+Referer, cookie由library级jar处理(\(cookie.count)字符)")
+        // fix12: library级别任何--http-cookie*都会致VLCLibrary崩溃,只能media级别
+        // 实测:http-cookie对夸克不发送Cookie头;改用通用自定义头:http-header=Cookie: xxx(原样发出)
+        // cookie来源: 优先预解析捕获的cloudCookie,兜底连接时缓存到UserDefaults的cookie
+        var cookieToUse = cloudCookie
+        if cookieToUse == nil || cookieToUse!.isEmpty {
+            cookieToUse = (UserDefaults.standard.dictionary(forKey: "momo_cloud_cookies") as? [String: String])?[currentCloudDriver]
+        }
+        if let cookie = cookieToUse, !cookie.isEmpty {
+            if currentCloudDriver == "quark" {
+                // 夸克CDN只需要__puus这一个cookie(curl实证)
+                let puus = cookie.components(separatedBy: "; ").first(where: { $0.hasPrefix("__puus=") }) ?? cookie
+                media.addOption(":http-header=Cookie: \(puus)")
+                log("夸克media用:http-header发送Cookie(\(puus.count)字符)")
+            } else {
+                if cookie.contains(";") {
+                    media.addOption(":http-cookie=\"\(cookie)\"")
+                } else {
+                    media.addOption(":http-cookie=\(cookie)")
+                }
+                log("已设置media Cookie(\(cookie.count)字符,driver=\(currentCloudDriver))")
+            }
         } else {
-            log("已设置media UA: \(ua.prefix(30))...")
+            log("已设置media UA: \(ua.prefix(30))...(无cookie)")
         }
         self.media = media
         player.media = media
