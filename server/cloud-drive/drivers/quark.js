@@ -329,9 +329,9 @@ class QuarkDriver extends CloudDriveBase {
       for (const item of list) {
         all.push(this._normalizeItem(item));
       }
-      const pag = data.pagginate || {};
-      const hasMore = pag.has_more === true || pag.has_more === 1;
-      if (!hasMore || list.length === 0) break;
+      // 夸克 file/sort 接口无 pagginate 字段，用返回数量判断是否翻页：
+      // 返回数量 < 请求size 说明已是最后一页；等于size 说明可能还有下一页
+      if (list.length < size || list.length === 0) break;
       page++;
     }
     return all;
