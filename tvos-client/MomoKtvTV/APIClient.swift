@@ -385,11 +385,14 @@ class KTVAPIClient: ObservableObject {
         let source_type: String?
         /// 网盘直连完整 URL（服务端可能直接返回）
         let cloud_url: String?
+        /// 网盘驱动类型（pan115 / quark / ...）。服务端 netktv-mkv / cloud 分支返回，
+        /// tvOS 据此给 VLC 设置正确的 UA / Referer（夸克 CDN 签名与 UA 绑定）。
+        let cloud_driver: String?
 
         enum CodingKeys: String, CodingKey {
             case dual, hasVocal, hasAccomp, hasAccompaniment, sepStatus, vocalUrl, accompUrl
             case isNetKtv, videoUrl, isNetKtvMkv, isNetworkMkvRaw = "isNetworkMkv", isVideo, audioTracks, source
-            case source_type, cloud_url
+            case source_type, cloud_url, cloud_driver
         }
 
         /// 三者齐备才允许走双FLAC混合

@@ -1,175 +1,106 @@
 /**
- * 网盘直连串流 - 通过 pan115 driver 获取 115 CDN 直链，返回 302 重定向
+ * 网盘直连串流 - 多网盘版
  *
- * 为什么用 pan115 driver 而不是 AList /d/ 端点？
- *   1. AList(小雅定制版v1.0.0)的 115 Cloud 驱动返回的 raw_url 签名无效，
- *      访问 115 CDN 返回 403 invalid signature，导致 VLC/tvOS 播放失败。
- *   2. pan115 driver 使用 115 官方加密API(proapi.115.com/app/chrome/downurl)
- *      获取直链，签名正确，实测返回 206 Partial Content + MKV 数据。
- *   3. pan115 driver 内置限流(5 req/s)和直链缓存(按URL中t参数动态TTL)，
- *      不会频繁调用 115 API，有效防止风控。
+ * 支持网盘：115网盘(pan115)、夸克网盘(quark)、移动云盘(cmcc)
  *
- * 为什么不直接代理媒体数据？
- *   硬性要求：视频不占 NAS 带宽和容量。本端点只做一次轻量 API 调用获取直链，
- *   然后 302 重定向，媒体数据直接从 115 CDN 到客户端，NAS 零转发。
+ * 工作原理：
+ *   1. 根据请求路径或 ?driver= 参数选择对应网盘驱动
+ *   2. 调用 driver.getDownloadUrlByPath(filePath, clientUA) 获取 CDN 直链
+ *   3. 302 重定向到 CDN，媒体数据直接从 CDN 到客户端，NAS 零转发
  *
- * 数据流：客户端 → /api/direct-stream (302) → 115 CDN 直链
+ * 为什么用驱动而不是 AList /d/ 端点？
+ *   1. AList 的 115 Cloud 驱动返回的 raw_url 签名可能无效（403 invalid signature）
+ *   2. 各网盘驱动直接用官方 API 获取直链，签名正确
+ *   3. 内置限流和缓存，防止风控
  *
- * UA 透传（关键）：115 CDN 下载 URL 的签名与调用 downurl API 时的 User-Agent 绑定。
- * 必须用客户端（VLC/tvOS/浏览器）的 UA 调用 API，生成的 URL 客户端才能下载，
- * 否则 CDN 返回 403 invalid signature。这里把 req.get('User-Agent') 透传给驱动。
+ * 数据流：客户端 → /api/direct-stream (302) → 网盘 CDN 直链
  *
- * 修复历史：
- *   - 原硬编码 ALIST_TOKEN 会过期(401)，改为动态登录 Alist + 自动刷新
+ * UA 透传（关键）：部分网盘（如115）CDN URL 的签名与调用 API 时的 User-Agent 绑定。
+ * 必须用客户端（浏览器/VLC）的 UA 调用 API，生成的 URL 客户端才能下载。
+ * 这里把 req.get('User-Agent') 透传给驱动。
+ *
+ * 路由用法：
+ *   /api/direct-stream/<filePath>           — 自动选择驱动（优先 pan115，再尝试其他活跃账号）
+ *   /api/direct-stream/<filePath>?driver=quark  — 指定夸克网盘
+ *   /api/direct-stream/<filePath>?driver=cmcc   — 指定移动云盘
+ *   /api/direct-stream/<filePath>?driver=pan115  — 指定115网盘
  */
 
 const express = require('express');
 const path = require('path');
-const http = require('http');
-const https = require('https');
-const { URL } = require('url');
 const router = express.Router();
 
 // 延迟加载依赖（避免循环引用）
 let _db = null;
-let _Pan115Driver = null;
-let _driverCache = null; // 单例 driver 实例
+let _driverCache = new Map(); // accountId -> driver 实例
 
-// AList 配置（仅作 fallback）
-const ALIST_BASE_URL = process.env.ALIST_URL || process.env.ALIST_BASE_URL || 'http://localhost:5234';
-const ALIST_BASE_PATH = process.env.ALIST_BASE_PATH || '/🥝115网盘/115';
-// 不再硬编码 token，启动后由 _alistLogin() 动态获取
-let _alistToken = null;
-let _alistTokenExpiry = 0;
+// 驱动类映射（与 manager.js 的 DRIVERS 保持一致）
+const DRIVER_CLASSES = {
+  pan115: () => require('./cloud-drive/drivers/pan115'),
+  quark: () => require('./cloud-drive/drivers/quark'),
+  cmcc: () => require('./cloud-drive/drivers/cmcc'),
+};
 
 /**
  * 初始化：传入 db 实例
  */
 function init(db) {
   _db = db;
-  _Pan115Driver = require('./cloud-drive/drivers/pan115');
-
-  // 启动时异步登录 Alist（fallback 用）
-  _alistLogin().catch(e =>
-    console.warn('[DirectStream] AList 初始登录失败，fallback 暂不可用:', e.message)
-  );
-
   return router;
 }
 
 /**
- * 登录 Alist 获取 token（参考 share-import.js / streamer.js 的成熟实现）
+ * 获取活跃的网盘账号列表
+ * @param {string} [driverFilter] - 指定驱动类型筛选，不传则返回所有
  */
-async function _alistLogin(maxRetries = 5) {
-  const password = process.env.ALIST_ADMIN_PASSWORD || 'admin123';
-  const body = JSON.stringify({ username: 'admin', password });
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      const result = await new Promise((resolve, reject) => {
-        const req = http.request(ALIST_BASE_URL + '/api/auth/login', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(body),
-          },
-          timeout: 10000,
-        }, (res) => {
-          let data = '';
-          res.on('data', (c) => { data += c; });
-          res.on('end', () => {
-            try {
-              const r = JSON.parse(data);
-              if (r.code === 200 && r.data && r.data.token) {
-                resolve({ success: true, token: r.data.token });
-              } else {
-                resolve({ success: false, message: r.message || data });
-              }
-            } catch (e) {
-              reject(e);
-            }
-          });
-        });
-        req.on('error', reject);
-        req.on('timeout', () => { req.destroy(); reject(new Error('Alist 登录超时')); });
-        req.write(body);
-        req.end();
-      });
-
-      if (result.success) {
-        _alistToken = result.token;
-        _alistTokenExpiry = Date.now() + 47 * 3600 * 1000;
-        console.log('[DirectStream] AList 登录成功');
-        return _alistToken;
-      }
-
-      if (result.message && result.message.includes('Loading storage')) {
-        console.log(`[DirectStream] AList 正在加载存储，等待 5 秒后重试 (${attempt + 1}/${maxRetries})`);
-        await new Promise(r => setTimeout(r, 5000));
-        continue;
-      }
-
-      throw new Error('Alist 登录失败: ' + result.message);
-    } catch (e) {
-      if (attempt < maxRetries - 1 && (e.message.includes('timeout') || e.message.includes('ECONNREFUSED'))) {
-        await new Promise(r => setTimeout(r, 3000));
-        continue;
-      }
-      throw e;
-    }
+function getActiveAccounts(driverFilter) {
+  if (!_db) return [];
+  if (driverFilter) {
+    return _db.prepare(
+      "SELECT * FROM cloud_accounts WHERE driver=? AND status='active' ORDER BY id DESC"
+    ).all(driverFilter);
   }
-  throw new Error('Alist 登录失败：超过最大重试次数');
-}
-
-async function _getAlistToken() {
-  if (_alistToken && Date.now() < _alistTokenExpiry) {
-    return _alistToken;
-  }
-  return await _alistLogin();
+  return _db.prepare(
+    "SELECT * FROM cloud_accounts WHERE status='active' ORDER BY id DESC"
+  ).all();
 }
 
 /**
- * 获取活跃的 115 账号
+ * 获取或创建指定账号的 driver 实例（按 accountId 缓存）
  */
-function getActiveAccount() {
-  if (!_db) return null;
-  return _db.prepare("SELECT * FROM cloud_accounts WHERE driver='pan115' AND status='active' ORDER BY id DESC LIMIT 1").get();
-}
-
-/**
- * 获取或创建 pan115 driver 单例
- */
-function getDriver() {
-  if (_driverCache) return _driverCache;
-  const account = getActiveAccount();
-  if (!account) return null;
-  if (!_Pan115Driver) {
-    _Pan115Driver = require('./cloud-drive/drivers/pan115');
+function getDriverForAccount(account) {
+  if (_driverCache.has(account.id)) return _driverCache.get(account.id);
+  const loader = DRIVER_CLASSES[account.driver];
+  if (!loader) {
+    console.warn('[DirectStream] 未知驱动类型:', account.driver);
+    return null;
   }
-  _driverCache = new _Pan115Driver(account);
-  return _driverCache;
+  const DriverClass = loader();
+  const instance = new DriverClass(account);
+  _driverCache.set(account.id, instance);
+  return instance;
 }
 
 /**
  * 重置 driver 缓存（账号更新时调用）
  */
 function resetDriverCache() {
-  _driverCache = null;
+  _driverCache.clear();
 }
 
-/**
- * Fallback: 通过 AList /api/fs/get 获取直链
- */
-async function getDirectUrlFromAlist(filePath) {
-  let token;
-  try {
-    token = await _getAlistToken();
-  } catch (e) {
-    console.warn('[DirectStream] 获取 AList token 失败:', e.message);
-    return null;
-  }
+// AList 配置（仅作 fallback，目前只对 115 路径有效）
+const ALIST_BASE_URL = process.env.ALIST_BASE_URL || 'http://localhost:5234';
+const ALIST_BASE_PATH = process.env.ALIST_BASE_PATH || '/🥝115网盘/115';
+const ALIST_TOKEN = process.env.ALIST_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwicHdkX3RzIjoxNzg4NjIzNDA4LCJleHAiOjE4MDU5MDM5ODQsIm5iZiI6MTc4ODYyMzk4NCwiaWF0IjoxNzg4NjIzOTg0fQ.5XzN8q2T1jEaO8yoV8eTj6gZzBmDUtr1ijUuM48QD9w';
 
+/**
+ * Fallback: 通过 AList /api/fs/get 获取直链（仅 115 路径）
+ */
+function getDirectUrlFromAlist(filePath) {
   return new Promise((resolve) => {
+    const http = require('http');
+    const https = require('https');
+    const { URL } = require('url');
     const fullPath = ALIST_BASE_PATH.replace(/\/+$/, '') + '/' + filePath.replace(/^\/+/, '');
     const postData = JSON.stringify({ path: fullPath, password: '' });
     const url = new URL(ALIST_BASE_URL + '/api/fs/get');
@@ -184,7 +115,7 @@ async function getDirectUrlFromAlist(filePath) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(postData),
-        'Authorization': token,
+        'Authorization': ALIST_TOKEN,
       },
       timeout: 10000,
     }, (res) => {
@@ -195,9 +126,7 @@ async function getDirectUrlFromAlist(filePath) {
           const r = JSON.parse(data);
           if (r.code === 200 && r.data && r.data.raw_url) {
             resolve(r.data.raw_url);
-          } else {
-            resolve(null);
-          }
+          } else { resolve(null); }
         } catch (e) { resolve(null); }
       });
     });
@@ -209,39 +138,72 @@ async function getDirectUrlFromAlist(filePath) {
 }
 
 /**
+ * 尝试用指定账号的驱动获取直链
+ * @returns {Promise<{url: string, source: string} | null>}
+ */
+async function tryDriver(account, filePath, clientUA) {
+  try {
+    const driver = getDriverForAccount(account);
+    if (!driver) return null;
+    const result = await driver.getDownloadUrlByPath(filePath, clientUA);
+    if (result && result.url) {
+      return { url: result.url, source: account.driver };
+    }
+  } catch (e) {
+    console.warn('[DirectStream] 驱动 ' + account.driver + ' 失败:', e.message);
+  }
+  return null;
+}
+
+/**
  * 主处理：获取直链并 302 重定向
  */
 router.get('/*', async (req, res) => {
   try {
     let filePath = req.params[0] || '';
     try { filePath = decodeURIComponent(filePath); } catch (e) { /* 已解码 */ }
-    console.log('[DirectStream] 请求:', filePath);
+    const driverFilter = req.query.driver || null;
+    console.log('[DirectStream] 请求:', filePath, 'driver:', driverFilter || 'auto');
 
     if (!filePath) {
       return res.status(400).json({ error: 'File path is required' });
     }
 
     let directUrl = null;
-    let source = 'pan115';
+    let source = null;
 
-    // 方案1: pan115 driver 获取直链（首选，签名有效）
-    const clientUA = req.get('User-Agent') || '';
-    try {
-      const driver = getDriver();
-      if (driver) {
-        const result = await driver.getDownloadUrlByPath(filePath, clientUA);
-        if (result && result.url) {
-          directUrl = result.url;
-          console.log('[DirectStream] pan115直链获取成功 (UA:', clientUA.substring(0, 40) + ')');
-        }
-      } else {
-        console.warn('[DirectStream] 无活跃115账号，跳过pan115');
+    // 收集要尝试的账号列表
+    let accounts;
+    if (driverFilter) {
+      accounts = getActiveAccounts(driverFilter);
+      if (accounts.length === 0) {
+        console.warn('[DirectStream] 指定驱动 ' + driverFilter + ' 无活跃账号');
       }
-    } catch (e) {
-      console.warn('[DirectStream] pan115获取直链失败:', e.message);
+    } else {
+      // 自动模式：优先 pan115（向后兼容），然后其他活跃账号
+      accounts = getActiveAccounts();
+      accounts.sort((a, b) => {
+        if (a.driver === 'pan115') return -1;
+        if (b.driver === 'pan115') return 1;
+        return a.id - b.id;
+      });
     }
 
-    // 方案2: AList fallback（签名可能无效，但保留兜底）
+    // 关键：透传客户端 UA——部分网盘（115）CDN URL 签名与 UA 绑定
+    const clientUA = req.get('User-Agent') || '';
+
+    // 逐个尝试驱动
+    for (const account of accounts) {
+      const result = await tryDriver(account, filePath, clientUA);
+      if (result) {
+        directUrl = result.url;
+        source = result.source;
+        console.log('[DirectStream] ' + source + ' 直链获取成功 (UA:', clientUA.substring(0, 40) + ')');
+        break;
+      }
+    }
+
+    // Fallback: AList（仅 115 路径有效）
     if (!directUrl) {
       source = 'alist';
       try {
@@ -254,10 +216,11 @@ router.get('/*', async (req, res) => {
 
     if (!directUrl) {
       console.error('[DirectStream] 所有方案均失败:', filePath);
-      return res.status(502).json({ error: 'Failed to get direct URL from 115' });
+      return res.status(502).json({ error: 'Failed to get direct URL from cloud drive', path: filePath });
     }
 
-    console.log('[DirectStream] 302 → 115 CDN (来源:' + source + '):', directUrl.substring(0, 80) + '...');
+    // 302 重定向到 CDN 直链
+    console.log('[DirectStream] 302 → CDN (来源:' + source + '):', directUrl.substring(0, 80) + '...');
     res.redirect(302, directUrl);
 
   } catch (error) {
