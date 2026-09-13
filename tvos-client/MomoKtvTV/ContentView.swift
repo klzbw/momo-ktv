@@ -851,6 +851,9 @@ struct ContentView: View {
         setupProgressReporting()
         showSetupInput = false
         connected = true
+        // 连接成功后后台异步预取所有网盘Cookie写jar(不阻塞主线程,不碰VLC,供library级--http-cookie-jar使用)
+        let addr = serverAddress.hasPrefix("http") ? serverAddress : "http://\(serverAddress)"
+        playerManager.refreshCookieJarAsync(baseURL: addr)
     }
 
     /// Wire PlayerManager's 1s progress timer to API client's sendProgress.
@@ -1637,7 +1640,7 @@ struct DebugLogOverlay: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("VLC调试日志 v2026.09.13-quark-fix10 (长按队列按钮关闭)")
+                Text("VLC调试日志 v2026.09.13-quark-fix11 (长按队列按钮关闭)")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.white)
                 Spacer()

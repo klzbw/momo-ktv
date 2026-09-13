@@ -99,30 +99,48 @@ class VLCPlayerManager: NSObject, ObservableObject {
         }
     }
 
-    /// 首次播放前同步获取所有网盘Cookie并写入jar（阻塞最多3秒，仅首次执行）
-    /// 不在连接时调用(避免与fetchAll竞争导致闪退),在play()里setupLibrary之前调用
-    private func ensureCookieJar(baseURL: String) {
-        if let attrs = try? FileManager.default.attributesOfItem(atPath: cookieJarPath),
-           let modDate = attrs[.modificationDate] as? Date,
-           Date().timeIntervalSince(modDate) < 600 { return }
+    /// 播放前从UserDefaults读缓存Cookie同步写jar(纯本地,毫秒级,绝不阻塞主线程)
+    private func loadCachedCookieJar() {
+        let cached = UserDefaults.standard.dictionary(forKey: "momo_cloud_cookies") as? [String: String] ?? [:]
+        if cached.isEmpty {
+            try? "# Netscape HTTP Cookie File\n".write(toFile: cookieJarPath, atomically: true, encoding: .utf8)
+            log("CookieJar: 本地无缓存,写空文件(连接后已异步获取)")
+        } else {
+            writeAllCookiesToJar(cached)
+        }
+    }
+
+    /// 连接成功后后台异步获取所有网盘Cookie,写jar+缓存(全程后台,不阻塞主线程,不碰VLC)
+    func refreshCookieJarAsync(baseURL: String) {
         let normalized = baseURL.hasPrefix("http") ? baseURL : "http://\(baseURL)"
         guard let url = URL(string: "\(normalized)/api/cloud/all-cookies") else { return }
-        let sem = DispatchSemaphore(value: 0)
-        var cookies: [String: String]?
-        let task = URLSession.shared.dataTask(with: url) { data, _, _ in
-            if let data = data,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let c = json["cookies"] as? [String: String] { cookies = c }
-            sem.signal()
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            let sem = DispatchSemaphore(value: 0)
+            var cookies: [String: String]?
+            let task = URLSession.shared.dataTask(with: url) { data, _, _ in
+                if let data = data,
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let c = json["cookies"] as? [String: String] { cookies = c }
+                sem.signal()
+            }
+            task.resume()
+            _ = sem.wait(timeout: .now() + 5)
+            guard let cookies = cookies, !cookies.isEmpty else { return }
+            DispatchQueue.main.async {
+                UserDefaults.standard.set(cookies, forKey: "momo_cloud_cookies")
+                self.writeAllCookiesToJar(cookies)
+            }
         }
-        task.resume()
-        _ = sem.wait(timeout: .now() + 3)
-        if let cookies = cookies {
-            writeAllCookiesToJar(cookies)
-        } else {
-            try? "# Netscape HTTP Cookie File\n".write(toFile: cookieJarPath, atomically: true, encoding: .utf8)
-            log("CookieJar获取超时(3s),写空文件")
-        }
+    }
+
+    /// resolveRedirect拿到单个网盘Cookie后缓存并重写jar(下次播放即可用,不碰VLC初始化)
+    private func cacheCookie(_ cookie: String, driver: String) {
+        var cached = UserDefaults.standard.dictionary(forKey: "momo_cloud_cookies") as? [String: String] ?? [:]
+        cached[driver] = cookie
+        UserDefaults.standard.set(cached, forKey: "momo_cloud_cookies")
+        writeAllCookiesToJar(cached)
+        log("已缓存\(driver) Cookie到本地(\(cookie.count)字符),当前共\(cached.count)个网盘")
     }
 
     /// 根据网盘驱动类型返回对应的UA
@@ -164,7 +182,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
         library = lib
         player = VLCMediaPlayer(library: lib)
         player?.delegate = self
-        log("=== MomoKtvTV v2026.09.13-quark-fix10 ===")
+        log("=== MomoKtvTV v2026.09.13-quark-fix11 ===")
         log("VLCLibrary初始化成功, cookie-jar=\(cookieJarPath), UA=\(VLCPlayerManager.cloud115UserAgent)")
     }
     #endif
@@ -251,8 +269,9 @@ class VLCPlayerManager: NSObject, ObservableObject {
                    let location = httpResp.allHeaderFields["Location"] as? String,
                    let finalURL = URL(string: location) {
                     let cloudCookie = httpResp.allHeaderFields["X-Cloud-Cookie"] as? String
-                    if cloudCookie != nil {
+                    if let ck = cloudCookie, !ck.isEmpty {
                         self?.log("预解析成功(\(httpResp.statusCode))，捕获到网盘Cookie")
+                        self?.cacheCookie(ck, driver: self?.currentCloudDriver ?? "quark")
                     } else {
                         self?.log("预解析成功(\(httpResp.statusCode))，最终URL: \(finalURL.absoluteString.prefix(80))...")
                     }
@@ -285,12 +304,8 @@ class VLCPlayerManager: NSObject, ObservableObject {
         }
         log("播放网盘类型: \(currentCloudDriver), UA=\(VLCPlayerManager.userAgent(forDriver: currentCloudDriver).prefix(25))...")
 
-        // 首次播放前同步获取所有网盘Cookie写入jar(library级--http-cookie-jar需要文件已存在)
-        // 从播放URL提取NAS地址,仅首次执行(后续10分钟内缓存),阻塞最多3秒
-        if let host = url.host {
-            let port = url.port.map { ":\($0)" } ?? ""
-            ensureCookieJar(baseURL: "\(url.scheme ?? "http")://\(host)\(port)")
-        }
+        // 播放前从本地缓存写cookie jar(纯本地毫秒级,不阻塞主线程;cookie由连接时异步预取)
+        loadCachedCookieJar()
 
         setupLibrary()
 
@@ -340,7 +355,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
         let ref = VLCPlayerManager.referer(forDriver: currentCloudDriver)
         media.addOption(":http-user-agent=\(ua)")
         media.addOption(":http-referrer=\(ref)")
-        // Cookie已由library级别--http-cookie-jar处理(play时ensureCookieJar写入文件)
+        // Cookie已由library级别--http-cookie-jar处理(play时loadCachedCookieJar写入文件)
         // media级别不再设置cookie(对夸克不生效),仅设置UA和Referer
         if let cookie = cloudCookie, !cookie.isEmpty {
             log("media仅设UA+Referer, cookie由library级jar处理(\(cookie.count)字符)")
