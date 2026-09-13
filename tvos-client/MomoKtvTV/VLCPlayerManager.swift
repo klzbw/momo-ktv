@@ -311,10 +311,17 @@ class VLCPlayerManager: NSObject, ObservableObject {
             return
         }
 
-        // 预解析302重定向，得到最终CDN URL和网盘Cookie后再播放
-        resolveRedirect(for: url) { [weak self] finalURL, cloudCookie in
-            guard let self = self else { return }
-            self.startPlayback(player: player, url: finalURL, originalURL: url, cloudCookie: cloudCookie)
+        // 夸克: 跳过resolveRedirect预解析,让VLC直接请求NAS的/api/cloud/direct端点,
+        // VLC的HTTP协议栈收到302+Set-Cookie后,跟随重定向到夸克CDN时自动带上cookie
+        // (VLC端所有cookie选项:http-cookie/:http-header/library级均不发送Cookie头,已实证)
+        if currentCloudDriver == "quark" {
+            log("夸克模式: 跳过预解析,VLC直接请求NAS端点(自动处理Set-Cookie)")
+            startPlayback(player: player, url: url, originalURL: url, cloudCookie: nil, skipCookieHeader: true)
+        } else {
+            resolveRedirect(for: url) { [weak self] finalURL, cloudCookie in
+                guard let self = self else { return }
+                self.startPlayback(player: player, url: finalURL, originalURL: url, cloudCookie: cloudCookie, skipCookieHeader: false)
+            }
         }
         #else
         onError?("MobileVLCKit未集成")
@@ -322,7 +329,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
     }
 
     #if canImport(TVVLCKit)
-    private func startPlayback(player: VLCMediaPlayer, url: URL, originalURL: URL, cloudCookie: String?) {
+    private func startPlayback(player: VLCMediaPlayer, url: URL, originalURL: URL, cloudCookie: String?, skipCookieHeader: Bool = false) {
         cleanup()
         // 保存原始URL供restart使用（115 CDN直链有过期时间，restart时必须用原始URL重新获取）
         self.originalStreamURL = originalURL
@@ -359,7 +366,11 @@ class VLCPlayerManager: NSObject, ObservableObject {
         if cookieToUse == nil || cookieToUse!.isEmpty {
             cookieToUse = (UserDefaults.standard.dictionary(forKey: "momo_cloud_cookies") as? [String: String])?[currentCloudDriver]
         }
-        if let cookie = cookieToUse, !cookie.isEmpty {
+        // fix13: 夸克走Set-Cookie方案(VLC直接请求NAS端点,HTTP协议栈自动处理cookie),
+        // 不设置任何media级cookie选项(已实证:http-cookie/http-header均不发送Cookie头)
+        if skipCookieHeader {
+            log("夸克Set-Cookie模式: 不设置media cookie,依赖VLC自动处理302+Set-Cookie")
+        } else if let cookie = cookieToUse, !cookie.isEmpty {
             if currentCloudDriver == "quark" {
                 // 夸克CDN只需要__puus这一个cookie(curl实证)
                 let puus = cookie.components(separatedBy: "; ").first(where: { $0.hasPrefix("__puus=") }) ?? cookie
