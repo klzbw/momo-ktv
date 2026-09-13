@@ -19,6 +19,9 @@ settings:
     INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
     INFOPLIST_KEY_NSAppTransportSecurity:
       NSAllowsArbitraryLoads: YES
+    INFOPLIST_KEY_TVTopShelfImage:
+      TVTopShelfPrimaryImage: "Top Shelf Image"
+      TVTopShelfPrimaryImageWide: "Top Shelf Image Wide"
 targets:
   MomoKtvTV:
     type: application
@@ -32,11 +35,6 @@ targets:
           # Step 1: Set a plain-ASCII placeholder via PlistBuddy
           /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$PLIST" 2>/dev/null
           /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string PLACEHOLDER_CN_NAME" "$PLIST"
-          # Register Top Shelf static images (standard 1920x720 + wide 2320x720)
-          /usr/libexec/PlistBuddy -c "Delete :TVTopShelfImage" "$PLIST" 2>/dev/null
-          /usr/libexec/PlistBuddy -c "Add :TVTopShelfImage dict" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Add :TVTopShelfImage:TVTopShelfPrimaryImage string 'Top Shelf Image'" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Add :TVTopShelfImage:TVTopShelfPrimaryImageWide string 'Top Shelf Image Wide'" "$PLIST"
           # Step 2: Convert to XML format
           plutil -convert xml1 "$PLIST"
           # Step 3: Replace placeholder with XML numeric character references.

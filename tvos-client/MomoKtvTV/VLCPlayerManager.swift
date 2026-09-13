@@ -212,6 +212,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
         let media = VLCMedia(url: url)
         media.addOption(":http-user-agent=\(VLCPlayerManager.cloud115UserAgent)")
         media.addOption(":http-referrer=https://115.com/")
+        media.addOption(":http-accept=*/*")
         log("已设置media UA: \(VLCPlayerManager.cloud115UserAgent)")
         self.media = media
         player.media = media
