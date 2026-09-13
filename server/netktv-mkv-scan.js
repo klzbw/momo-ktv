@@ -100,6 +100,32 @@ function parseMkvFilename(filename) {
  * @param {string} strmDir - [已废弃] STRM 文件输出目录，保留参数兼容旧调用
  * @param {number} limit - 限制扫描数量（0表示全部）
  */
+// 递归收集目录下所有 MKV 文件（含子目录）
+async function collectMkvFilesRecursive(driver, dirPath, basePath, depth = 0, maxDepth = 10) {
+  if (depth > maxDepth) return [];
+  const results = [];
+  try {
+    const items = await driver.listFiles(dirPath);
+    for (const item of items) {
+      if (item.isDir) {
+        // 递归子目录
+        const subPath = dirPath === '/' ? '/' + item.name : dirPath + '/' + item.name;
+        const subFiles = await collectMkvFilesRecursive(driver, subPath, basePath, depth + 1, maxDepth);
+        results.push(...subFiles);
+      } else if (item.name.toLowerCase().endsWith('.mkv')) {
+        // 计算相对于 basePath 的路径
+        const relPath = dirPath.startsWith(basePath)
+          ? dirPath.substring(basePath.length).replace(/^\//, '') + '/' + item.name
+          : item.name;
+        results.push({ ...item, relativePath: relPath.replace(/^\//, '') });
+      }
+    }
+  } catch (e) {
+    console.warn(`[NETKTV-MKV-SCAN] 递归扫描目录失败 ${dirPath}:`, e.message);
+  }
+  return results;
+}
+
 async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit = 0, sourceRoot = 'netktv-mkv') {
   scanStatus = {
     running: true,
@@ -117,28 +143,22 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
     const manager = cloudDrive.manager;
     const account = manager.getAccount(accountId);
     if (!account) {
-      throw new Error(`115 账号不存在: ${accountId}`);
+      throw new Error(`网盘账号不存在: ${accountId}`);
     }
     const driver = manager.getDriver(account);
 
-    console.log(`[NETKTV-MKV-SCAN] 开始扫描: ${basePath} (账号ID=${accountId}, 账号=${account.name}, sourceRoot=${sourceRoot})`);
+    console.log(`[NETKTV-MKV-SCAN] 开始递归扫描: ${basePath} (账号ID=${accountId}, 账号=${account.name}, sourceRoot=${sourceRoot})`);
 
-    // 通过 API 列出目录下所有文件（内部已支持分页）
-    const allFiles = await driver.listFiles(basePath);
-    console.log(`[NETKTV-MKV-SCAN] API 返回 ${allFiles.length} 个条目`);
+    // 递归收集所有子目录中的 MKV 文件
+    const allMkvFiles = await collectMkvFilesRecursive(driver, basePath, basePath);
+    console.log(`[NETKTV-MKV-SCAN] 递归扫描完成，共找到 ${allMkvFiles.length} 个MKV文件（含子目录）`);
 
-    // 筛选 MKV 文件
-    let mkvFiles = allFiles.filter(f => !f.isDir && f.name.toLowerCase().endsWith('.mkv'));
+    let mkvFiles = allMkvFiles;
     if (limit > 0) {
       mkvFiles = mkvFiles.slice(0, limit);
     }
 
     scanStatus.total = mkvFiles.length;
-    console.log(`[NETKTV-MKV-SCAN] 找到 ${mkvFiles.length} 个MKV文件`);
-
-    // basePath 去掉前导 /，用于拼接相对路径
-    // 如 /ktv-output → ktv-output，最终 filepath = ktv-output/xxx.mkv
-    const relativeBase = basePath.replace(/^\//, '');
 
     for (const fileInfo of mkvFiles) {
       const filename = fileInfo.name;
@@ -147,8 +167,6 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
 
       try {
         const meta = parseMkvFilename(filename);
-        // 用 pickCode 作为唯一标识（115每个文件都有唯一pickCode）
-        const songKey = fileInfo.pickCode || Buffer.from(filename).toString('hex').substring(0, 16);
 
         // 检查是否已经入库（同一账号下同一 filename 不重复入库）
         const existing = db.prepare(`
@@ -164,9 +182,8 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
           continue;
         }
 
-        // 115 网盘相对路径（相对于 Alist 挂载点 /115）
-        // 播放时由 /api/direct-stream/<filepath> 302 到 Alist → 115 CDN
-        const relativePath = relativeBase ? `${relativeBase}/${filename}` : filename;
+        // 网盘相对路径（含子目录路径），播放时由 /api/cloud/direct/<accountId>/<filepath> 302 直连
+        const relativePath = fileInfo.relativePath || filename;
 
         // 入库（写入 cloud_account_id 支持多账号）
         const now = new Date().toISOString();
@@ -177,7 +194,7 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
           meta.title,
           meta.artist,
           filename,           // 原始 MKV 文件名
-          relativePath,       // 网盘相对路径
+          relativePath,       // 网盘相对路径（含子目录）
           sourceRoot,
           accountId,
           fileInfo.size ? Math.round(fileInfo.size / 1000) : null, // 粗略估算时长（按1MB≈1秒）

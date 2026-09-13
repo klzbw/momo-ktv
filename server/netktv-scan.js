@@ -83,6 +83,32 @@ function isAccompFile(filename) {
  * @param {object} db - 数据库实例
  * @param {string} strmDir - STRM 文件输出目录
  */
+// 递归查找所有歌曲目录（16位十六进制目录名），支持子目录嵌套
+async function findSongDirsRecursive(driver, dirPath, depth = 0, maxDepth = 5) {
+  if (depth > maxDepth) return [];
+  const results = [];
+  try {
+    const items = await driver.listFiles(dirPath);
+    for (const item of items) {
+      if (item.isDir) {
+        if (/^[a-f0-9]{16}$/i.test(item.name)) {
+          // 找到歌曲目录
+          const fullPath = dirPath === '/' ? '/' + item.name : dirPath + '/' + item.name;
+          results.push({ name: item.name, fullPath });
+        } else {
+          // 递归子目录继续查找
+          const subPath = dirPath === '/' ? '/' + item.name : dirPath + '/' + item.name;
+          const subDirs = await findSongDirsRecursive(driver, subPath, depth + 1, maxDepth);
+          results.push(...subDirs);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`[NETKTV-SCAN] 递归查找歌曲目录失败 ${dirPath}:`, e.message);
+  }
+  return results;
+}
+
 async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir, sourceRoot = 'netktv') {
   scanStatus = {
     running: true,
@@ -105,19 +131,12 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir, 
     }
     const driver = manager.getDriver(account);
 
-    // 列出根目录下的所有歌曲目录
-    console.log(`[NETKTV-SCAN] 开始扫描: ${basePath} (账号ID=${accountId}, 账号=${account.name}, sourceRoot=${sourceRoot})`);
-    const rootFiles = await driver.listFiles(basePath);
-    console.log(`[NETKTV-SCAN] 根目录下有 ${rootFiles.length} 个条目`);
-
-    // 筛选出目录（115 API 可能把目录也返回为文件，isDir 可能不准确）
-    const songDirs = rootFiles.filter(f => {
-      // 目录名应该是 16 位十六进制（sha256 前16位）
-      return /^[a-f0-9]{16}$/i.test(f.name);
-    });
+    // 递归查找所有歌曲目录（支持子目录嵌套）
+    console.log(`[NETKTV-SCAN] 开始递归扫描: ${basePath} (账号ID=${accountId}, 账号=${account.name}, sourceRoot=${sourceRoot})`);
+    const songDirs = await findSongDirsRecursive(driver, basePath);
 
     scanStatus.total = songDirs.length;
-    console.log(`[NETKTV-SCAN] 找到 ${songDirs.length} 个歌曲目录`);
+    console.log(`[NETKTV-SCAN] 递归查找完成，找到 ${songDirs.length} 个歌曲目录`);
 
     // 确保 STRM 目录存在
     if (!fs.existsSync(strmDir)) {
@@ -130,7 +149,7 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir, 
       scanStatus.processed++;
 
       try {
-        const dirPath = `${basePath}/${dirInfo.name}`;
+        const dirPath = dirInfo.fullPath || `${basePath}/${dirInfo.name}`;
         const files = await driver.listFiles(dirPath);
 
         // 查找人声和伴奏文件
