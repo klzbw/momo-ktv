@@ -196,10 +196,15 @@ class VLCPlayerManager: NSObject, ObservableObject {
     /// 播放URL（支持115/夸克网盘302直连，预解析重定向后VLC直接访问CDN）
     func play(url: URL) {
         #if canImport(TVVLCKit)
-        // 先预解析302获取Cookie，再用Cookie初始化library
+        // 先同步初始化library（无Cookie），确保player已创建，避免异步时序问题
+        setupLibrary(cookie: nil)
+        // 预解析302获取Cookie，如果Cookie变化会在回调中重新初始化library
         resolveRedirect(for: url) { [weak self] finalURL, cloudCookie in
             guard let self = self else { return }
-            self.setupLibrary(cookie: cloudCookie)
+            // 如果获取到Cookie且与当前不同，重新初始化library
+            if let cookie = cloudCookie, !cookie.isEmpty, cookie != self.currentCookie {
+                self.setupLibrary(cookie: cookie)
+            }
             guard let player = self.player else {
                 self.onError?("VLC播放器未初始化")
                 return
