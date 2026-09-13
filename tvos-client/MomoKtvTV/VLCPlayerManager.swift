@@ -56,13 +56,12 @@ class VLCPlayerManager: NSObject, ObservableObject {
     }
 
     #if canImport(TVVLCKit)
-    private func setupLibrary(cookie: String? = nil) {
+    private func setupLibrary() {
         guard !libraryInitialized else { return }
         libraryInitialized = true
         // 115网盘需要特定UA，否则CDN返回403
-        // 夸克网盘需要Cookie，否则CDN返回412
-        // 只在第一次初始化时设置，后续不重建library（避免闪退）
-        var options = [
+        // 多重保障：library级别 + 后续media级别
+        let options = [
             "--http-user-agent=\(VLCPlayerManager.cloud115UserAgent)",
             "--http-referrer=https://115.com/",
             "--no-video-title-show",
@@ -70,16 +69,11 @@ class VLCPlayerManager: NSObject, ObservableObject {
             "--live-caching=1000",
             "--file-caching=1000"
         ]
-        if let cookie = cookie, !cookie.isEmpty {
-            options.append("--http-cookie=\(cookie)")
-            log("VLCLibrary初始化(带Cookie, \(cookie.count)字符), UA=\(VLCPlayerManager.cloud115UserAgent)")
-        } else {
-            log("VLCLibrary初始化成功, UA=\(VLCPlayerManager.cloud115UserAgent)")
-        }
         let lib = VLCLibrary(options: options)
         library = lib
         player = VLCMediaPlayer(library: lib)
         player?.delegate = self
+        log("VLCLibrary初始化成功, UA=\(VLCPlayerManager.cloud115UserAgent)")
     }
     #endif
 
@@ -185,19 +179,19 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
     // MARK: - 播放控制
 
-    /// 播放URL（支持115/夸克网盘302直连，预解析重定向后VLC直接访问CDN）
+    /// 播放URL（支持115网盘302直连，预解析重定向后VLC直接访问115 CDN）
     func play(url: URL) {
         #if canImport(TVVLCKit)
-        // 预解析302重定向，得到最终CDN URL和网盘Cookie后再初始化library并播放
-        // 注意：不在此处提前初始化library，确保第一次播放时能带上网盘Cookie（library级别）
+        setupLibrary()
+
+        guard let player = player else {
+            onError?("VLC播放器未初始化")
+            return
+        }
+
+        // 预解析302重定向，得到最终CDN URL和网盘Cookie后再播放
         resolveRedirect(for: url) { [weak self] finalURL, cloudCookie in
             guard let self = self else { return }
-            // 第一次初始化时带上Cookie（如果有），后续不重建
-            self.setupLibrary(cookie: cloudCookie)
-            guard let player = self.player else {
-                self.onError?("VLC播放器未初始化")
-                return
-            }
             self.startPlayback(player: player, url: finalURL, originalURL: url, cloudCookie: cloudCookie)
         }
         #else
@@ -226,9 +220,8 @@ class VLCPlayerManager: NSObject, ObservableObject {
         media.addOption(":http-referrer=https://115.com/")
         media.addOption(":http-accept=*/*")
         if let cookie = cloudCookie, !cookie.isEmpty {
-            // media级别也设置Cookie作为双重保障（不编码，VLC直接使用原始Cookie格式）
             media.addOption(":http-cookie=\(cookie)")
-            log("已设置media UA + 网盘Cookie(\(cookie.count)字符)")
+            log("已设置media UA + 网盘Cookie")
         } else {
             log("已设置media UA: \(VLCPlayerManager.cloud115UserAgent)")
         }
