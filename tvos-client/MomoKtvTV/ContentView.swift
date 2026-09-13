@@ -579,7 +579,9 @@ struct ContentView: View {
                             self.vlcManager.log("▶️ 走VLC直连分支: \(videoPath)")
                             self.isUsingVLC = true
                             self.playerManager.cleanup()
-                            self.vlcManager.play(url: videoURL)
+                            // 传递网盘驱动类型，确保VLC使用正确的UA和Referer
+                            // 夸克CDN直链签名与UA绑定，必须使用夸克客户端UA
+                            self.vlcManager.play(url: videoURL, cloudDriver: playing.cloud_driver)
                             self.vlcManager.onStateChange = { playing in
                                 DispatchQueue.main.async {
                                     self.playerManager.isPlaying = playing

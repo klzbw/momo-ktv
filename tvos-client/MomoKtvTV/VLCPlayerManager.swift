@@ -51,6 +51,30 @@ class VLCPlayerManager: NSObject, ObservableObject {
     /// 115 网盘专用 UA（必须与 pan115 driver 调用 API 时使用的 UA 一致）
     static let cloud115UserAgent = "Mozilla/5.0 115Browser/23.9.3.2"
 
+    /// 夸克网盘专用 UA（必须与 quark driver 调用 API 时使用的 UA 一致）
+    /// 夸克 CDN 直链签名与 UA 绑定，必须使用夸克客户端 UA 才能访问
+    static let cloudQuarkUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch"
+
+    /// 当前播放的网盘驱动类型（用于选择正确的UA和Referer）
+    /// 夸克CDN直链签名与UA绑定，必须使用夸克客户端UA
+    private var currentCloudDriver: String = "pan115"
+
+    /// 根据网盘驱动类型返回对应的UA
+    static func userAgent(forDriver driver: String?) -> String {
+        if driver == "quark" {
+            return cloudQuarkUserAgent
+        }
+        return cloud115UserAgent
+    }
+
+    /// 根据网盘驱动类型返回对应的Referer
+    static func referer(forDriver driver: String?) -> String {
+        if driver == "quark" {
+            return "https://pan.quark.cn/"
+        }
+        return "https://115.com/"
+    }
+
     private override init() {
         super.init()
     }
@@ -141,7 +165,9 @@ class VLCPlayerManager: NSObject, ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 15
-        request.setValue(VLCPlayerManager.cloud115UserAgent, forHTTPHeaderField: "User-Agent")
+        // 根据网盘驱动类型使用对应的UA（夸克直链签名与UA绑定）
+        // 必须与后续VLC访问CDN时使用的UA一致，否则签名不匹配
+        request.setValue(VLCPlayerManager.userAgent(forDriver: currentCloudDriver), forHTTPHeaderField: "User-Agent")
         request.setValue("bytes=0-0", forHTTPHeaderField: "Range")  // 只取1字节，快速获取302
 
         let task = noRedirectSession.dataTask(with: request) { [weak self] _, response, error in
@@ -179,9 +205,18 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
     // MARK: - 播放控制
 
-    /// 播放URL（支持115网盘302直连，预解析重定向后VLC直接访问115 CDN）
-    func play(url: URL) {
+    /// 播放URL（支持多网盘302直连，预解析重定向后VLC直接访问CDN）
+    /// - Parameters:
+    ///   - url: 播放URL（NAS的/api/cloud/direct/端点或完整CDN URL）
+    ///   - cloudDriver: 网盘驱动类型（pan115/quark/aliyun等），用于选择正确的UA和Referer
+    func play(url: URL, cloudDriver: String? = nil) {
         #if canImport(TVVLCKit)
+        // 设置当前网盘驱动类型（必须在resolveRedirect之前设置，确保UA一致）
+        if let driver = cloudDriver {
+            currentCloudDriver = driver
+        }
+        log("播放网盘类型: \(currentCloudDriver), UA=\(VLCPlayerManager.userAgent(forDriver: currentCloudDriver).prefix(25))...")
+
         setupLibrary()
 
         guard let player = player else {
@@ -223,16 +258,19 @@ class VLCPlayerManager: NSObject, ObservableObject {
         // 2. media级别 :http-user-agent
         // 3. 预解析302让VLC直接请求最终URL（避免重定向丢UA）
         let media = VLCMedia(url: url)
-        media.addOption(":http-user-agent=\(VLCPlayerManager.cloud115UserAgent)")
-        media.addOption(":http-referrer=https://115.com/")
-        media.addOption(":http-accept=*/*")
+        // 根据网盘驱动类型使用对应的UA和Referer
+        // 夸克CDN直链签名与UA绑定，必须使用夸克客户端UA
+        // 必须与resolveRedirect中使用的UA一致，否则签名不匹配
+        let ua = VLCPlayerManager.userAgent(forDriver: currentCloudDriver)
+        let ref = VLCPlayerManager.referer(forDriver: currentCloudDriver)
+        media.addOption(":http-user-agent=\(ua)")
+        media.addOption(":http-referrer=\(ref)")
         if let cookie = cloudCookie, !cookie.isEmpty {
             // 用引号包裹Cookie值，避免分号被VLC选项解析器截断
-            // 同时尝试多种格式：原始格式、引号包裹、URL编码
             media.addOption(":http-cookie=\"\(cookie)\"")
-            log("已设置media UA + 网盘Cookie(\(cookie.count)字符,带引号)")
+            log("已设置media UA(\(ua.prefix(20))...) + 网盘Cookie(\(cookie.count)字符,带引号), Referer=\(ref)")
         } else {
-            log("已设置media UA: \(VLCPlayerManager.cloud115UserAgent)")
+            log("已设置media UA: \(ua.prefix(30))...")
         }
         self.media = media
         player.media = media
