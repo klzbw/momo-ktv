@@ -1643,14 +1643,25 @@ extension Notification.Name {
 struct DebugLogOverlay: View {
     let log: String
     let onClose: () -> Void
+    @State private var showCrashLog = false
+    private let crashLogger = CrashLogger.shared
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("VLC调试日志 (长按队列按钮关闭)")
+                Text(showCrashLog ? "崩溃日志" : "VLC调试日志 (长按队列按钮关闭)")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.white)
                 Spacer()
+                if let crash = crashLogger.lastCrash, !crash.isEmpty {
+                    Button(action: { showCrashLog.toggle() }) {
+                        Image(systemName: showCrashLog ? "ladybug.fill" : "ladybug")
+                            .font(.system(size: 18))
+                            .foregroundColor(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 8)
+                }
                 Button(action: onClose) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 20))
@@ -1663,19 +1674,38 @@ struct DebugLogOverlay: View {
             .background(Color(hex: 0x1a1a2e).opacity(0.95))
 
             ScrollView {
-                Text(log)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(.green)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if showCrashLog, let crash = crashLogger.lastCrash {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(crash)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button(action: { crashLogger.clear() }) {
+                            Text("清除崩溃日志")
+                                .font(.system(size: 12))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12).padding(.vertical, 6)
+                                .background(Color.red.opacity(0.6))
+                                .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
+                    }
                     .padding(8)
+                } else {
+                    Text(log)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.green)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                }
             }
-            .frame(maxHeight: 300)
+            .frame(maxHeight: 350)
             .background(Color.black.opacity(0.9))
         }
         .cornerRadius(8)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.green.opacity(0.5), lineWidth: 1)
+                .stroke(showCrashLog ? Color.red.opacity(0.5) : Color.green.opacity(0.5), lineWidth: 1)
         )
         .padding(16)
     }
