@@ -580,8 +580,10 @@ struct ContentView: View {
                             self.isUsingVLC = true
                             self.playerManager.cleanup()
                             // 传递网盘驱动类型，确保VLC使用正确的UA和Referer
+                            // 优先 sep-info 的 cloud_driver，其次队列项的 cloud_driver。
                             // 夸克CDN直链签名与UA绑定，必须使用夸克客户端UA
-                            self.vlcManager.play(url: videoURL, cloudDriver: playing.cloud_driver)
+                            let driver = info.cloud_driver ?? playing.cloud_driver
+                            self.vlcManager.play(url: videoURL, cloudDriver: driver)
                             self.vlcManager.onStateChange = { playing in
                                 DispatchQueue.main.async {
                                     self.playerManager.isPlaying = playing
@@ -1636,7 +1638,7 @@ struct DebugLogOverlay: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("VLC调试日志 v2026.09.13-quark-fix3 (长按队列按钮关闭)")
+                Text("VLC调试日志 v2026.09.13-crash-quark-fix4 (长按队列按钮关闭)")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.white)
                 Spacer()
