@@ -166,14 +166,32 @@ router.get('/info/:dir', (req, res) => {
 function lookupSongAccountId(dir) {
   if (!db) return null;
   try {
+    // 不限制 source_root，支持动态来源(netktv / cloud-flac-*)
     const row = db.prepare(
-      "SELECT cloud_account_id FROM songs WHERE source_root = 'netktv' AND filepath LIKE ? LIMIT 1"
+      "SELECT cloud_account_id, source_root FROM songs WHERE filepath LIKE ? LIMIT 1"
     ).get(`%${dir}_vocals.strm%`);
     if (row && row.cloud_account_id) {
-      return row.cloud_account_id;
+      return { accountId: row.cloud_account_id, sourceRoot: row.source_root };
     }
   } catch (e) {
     console.warn('[NETKTV] 查询歌曲账号ID失败:', e.message);
+  }
+  return null;
+}
+
+// 根据 source_root 查找曲库来源的 cloudPath
+function lookupCloudPathBySourceRoot(sourceRoot) {
+  if (!db || !sourceRoot) return null;
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key='library_roots'").get();
+    if (!row) return null;
+    const roots = JSON.parse(row.value);
+    const root = roots.find(r => r.dir === sourceRoot);
+    if (root && root.cloud && root.cloud.cloudPath) {
+      return root.cloud.cloudPath;
+    }
+  } catch (e) {
+    console.warn('[NETKTV] 查找曲库来源路径失败:', e.message);
   }
   return null;
 }
@@ -231,16 +249,19 @@ async function getCloudDirectUrl(dir, type) {
   const manager = cloudDrive.manager;
   if (!manager) return null;
 
-  // 步骤1：从数据库查询歌曲所属账号
-  const songAccountId = lookupSongAccountId(dir);
-  if (songAccountId) {
+  // 步骤1：从数据库查询歌曲所属账号和 source_root
+  const songInfo = lookupSongAccountId(dir);
+  if (songInfo && songInfo.accountId) {
+    const songAccountId = songInfo.accountId;
+    // 根据 source_root 查找曲库来源的 cloudPath，回退到全局 cloudBasePath
+    const basePath = lookupCloudPathBySourceRoot(songInfo.sourceRoot) || cloudBasePath;
     try {
       const account = manager.getAccount(songAccountId);
       if (account && account.status === 'active') {
         const driver = manager.getDriver(account);
-        const result = await getDirectUrlWithDriver(driver, dir, type, cloudBasePath);
+        const result = await getDirectUrlWithDriver(driver, dir, type, basePath);
         if (result) {
-          console.log(`[NETKTV] 使用数据库记录的账号ID=${songAccountId} 获取直链: ${dir}/${type}`);
+          console.log(`[NETKTV] 使用数据库记录的账号ID=${songAccountId} (sourceRoot=${songInfo.sourceRoot}, path=${basePath}) 获取直链: ${dir}/${type}`);
           return result;
         }
       }
@@ -279,7 +300,7 @@ async function getCloudDirectUrl(dir, type) {
         if (db) {
           try {
             db.prepare(
-              "UPDATE songs SET cloud_account_id = ? WHERE source_root = 'netktv' AND filepath LIKE ? AND (cloud_account_id IS NULL OR cloud_account_id = 0)"
+              "UPDATE songs SET cloud_account_id = ? WHERE filepath LIKE ? AND (cloud_account_id IS NULL OR cloud_account_id = 0)"
             ).run(account.id, `%${dir}_vocals.strm%`);
           } catch (e) { /* 忽略回写失败 */ }
         }
