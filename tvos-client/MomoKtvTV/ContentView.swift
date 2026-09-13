@@ -851,9 +851,8 @@ struct ContentView: View {
         setupProgressReporting()
         showSetupInput = false
         connected = true
-        // 连接成功后后台异步预取所有网盘Cookie写jar(不阻塞主线程,不碰VLC,供library级--http-cookie-jar使用)
-        let addr = serverAddress.hasPrefix("http") ? serverAddress : "http://\(serverAddress)"
-        playerManager.refreshCookieJarAsync(baseURL: addr)
+        // 连接成功后后台异步预取所有网盘Cookie写jar(不阻塞主线程,不碰VLC)
+        playerManager.refreshCookieJarAsync(baseURL: serverAddress)
     }
 
     /// Wire PlayerManager's 1s progress timer to API client's sendProgress.
