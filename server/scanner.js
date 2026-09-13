@@ -766,6 +766,10 @@ async function listAllFiles() {
   const perRoot = []; // { root, files: string[], accessible: boolean }
   const tick = { n: 0 }; // 多个根目录共享同一个让出计数器
   for (const root of getMVRoots()) {
+    // 网络来源(netktv-mkv/netktv/cloud-*)由专门的网盘扫描模块处理，不走本地文件系统遍历
+    if (isCloudRoot(root)) {
+      continue;
+    }
     if (!fs.existsSync(root.dir)) {
       console.error(`曲库目录不可访问，本轮跳过(不影响其它目录，也不会清理这个目录名下已入库的曲目): [${root.tag}] ${root.dir}`);
       perRoot.push({ root, files: [], accessible: false });

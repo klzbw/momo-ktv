@@ -8712,7 +8712,7 @@ function renderSrcRootsList(){
 
 
 
-      ${r.cloud ? `<div class="cache-hint" style="margin:2px 0 4px">☁️ 115网盘${r.cloud.mediaType==='flac'?' FLAC':' MKV'} · 账号#${r.cloud.accountId} · ${r.cloud.cloudPath}</div>` : ''}
+      ${r.cloud ? `<div class="cache-hint" style="margin:2px 0 4px">☁️ ${getCloudAccountLabel(r.cloud.accountId)}${r.cloud.mediaType==='flac'?' FLAC':' MKV'} · ${r.cloud.cloudPath}</div>` : ''}
 
 
 
@@ -11269,6 +11269,17 @@ async function applyClean(onlySelected){
 
 
 let cloudAccountsCache = [];
+// 网盘驱动类型显示名称映射
+function getDriverLabel(driver) {
+  const map = { pan115:'115网盘', quark:'夸克网盘', aliyun:'阿里云盘', baidu:'百度网盘', cmcc:'移动云盘', xunlei:'迅雷云盘', alist:'AList' };
+  return map[driver] || driver || '网盘';
+}
+// 根据 accountId 查找账号显示名
+function getCloudAccountLabel(accountId) {
+  const acc = cloudAccountsCache.find(a => a.id === accountId);
+  if (!acc) return '账号#' + accountId;
+  return getDriverLabel(acc.driver) + ' · ' + acc.name;
+}
 
 
 
