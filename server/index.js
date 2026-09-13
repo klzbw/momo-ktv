@@ -22850,6 +22850,19 @@ function getQueueWithSongs() {
 
 
 
+
+  // 为每首歌添加cloud_driver字段，便于客户端准确选择UA和显示网盘类型
+  try {
+    const accounts = db.prepare('SELECT id, driver FROM cloud_accounts').all();
+    const driverMap = {};
+    for (const a of accounts) { driverMap[a.id] = a.driver; }
+    for (const item of data) {
+      if (item.cloud_account_id && driverMap[item.cloud_account_id]) {
+        item.cloud_driver = driverMap[item.cloud_account_id];
+      }
+    }
+  } catch (e) { /* 忽略，cloud_accounts表可能不存在 */ }
+
   _queueCache.data = data;
 
 
