@@ -97,7 +97,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
         library = lib
         player = VLCMediaPlayer(library: lib)
         player?.delegate = self
-        log("=== MomoKtvTV v2026.09.13-quark-fix7 ===")
+        log("=== MomoKtvTV v2026.09.13-quark-fix8 ===")
         log("VLCLibrary初始化成功(无library cookie), UA=\(VLCPlayerManager.cloud115UserAgent)")
     }
     #endif
@@ -276,9 +276,15 @@ class VLCPlayerManager: NSObject, ObservableObject {
                     effectiveCookie = puus
                 }
             }
-            // 用引号包裹Cookie值，避免分号被VLC选项解析器截断
-            media.addOption(":http-cookie=\"\(effectiveCookie)\"")
-            log("已设置media Cookie(\(effectiveCookie.count)字符,driver=\(currentCloudDriver)), Referer=\(ref)")
+            // 关键：夸克CDN对Cookie头格式严格，带双引号会返回412
+            // curl实测: Cookie: __puus=xxx(无引号)->200, Cookie: "__puus=xxx"(带引号)->412
+            // 单项cookie(无分号)不需要引号保护，直接不加引号；多项cookie(含分号)才需要引号
+            if effectiveCookie.contains(";") {
+                media.addOption(":http-cookie=\"\(effectiveCookie)\"")
+            } else {
+                media.addOption(":http-cookie=\(effectiveCookie)")
+            }
+            log("已设置media Cookie(\(effectiveCookie.count)字符,driver=\(currentCloudDriver),引号=\(effectiveCookie.contains(";"))), Referer=\(ref)")
         } else {
             log("已设置media UA: \(ua.prefix(30))...")
         }
