@@ -207,7 +207,14 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
         log("▶️ 播放URL: \(url.absoluteString.prefix(120))")
         if url != originalURL {
-            log("   (原始URL已预解析为115 CDN直链)")
+            let host = url.host ?? ""
+            if host.contains("quark") {
+                log("   (原始URL已预解析为夸克CDN直链)")
+            } else if host.contains("115") || host.contains("115cdn") {
+                log("   (原始URL已预解析为115 CDN直链)")
+            } else {
+                log("   (原始URL已预解析为网盘CDN直链)")
+            }
         }
         log("URL scheme: \(url.scheme ?? "nil"), host: \(url.host ?? "nil")")
 
@@ -220,8 +227,10 @@ class VLCPlayerManager: NSObject, ObservableObject {
         media.addOption(":http-referrer=https://115.com/")
         media.addOption(":http-accept=*/*")
         if let cookie = cloudCookie, !cookie.isEmpty {
-            media.addOption(":http-cookie=\(cookie)")
-            log("已设置media UA + 网盘Cookie")
+            // 用引号包裹Cookie值，避免分号被VLC选项解析器截断
+            // 同时尝试多种格式：原始格式、引号包裹、URL编码
+            media.addOption(":http-cookie=\"\(cookie)\"")
+            log("已设置media UA + 网盘Cookie(\(cookie.count)字符,带引号)")
         } else {
             log("已设置media UA: \(VLCPlayerManager.cloud115UserAgent)")
         }
