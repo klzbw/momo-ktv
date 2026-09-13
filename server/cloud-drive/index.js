@@ -1356,6 +1356,26 @@ router.get('/accounts', requireManager, (req, res) => {
 
 });
 
+/**
+ * GET /api/cloud/all-cookies
+ * 返回所有网盘账号的Cookie（供tvOS端VLC library级别设置）
+ * 返回格式: { "quark": "cookie_string", "pan115": "cookie_string", ... }
+ */
+router.get('/all-cookies', requireManager, (req, res) => {
+  try {
+    const accounts = manager.listAccounts();
+    const cookies = {};
+    for (const a of accounts) {
+      if (a.access_token && a.driver) {
+        cookies[a.driver] = a.access_token;
+      }
+    }
+    res.json({ cookies });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 
 

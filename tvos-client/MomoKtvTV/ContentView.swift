@@ -844,6 +844,8 @@ struct ContentView: View {
         guard !serverAddress.isEmpty else { showSetupInput = true; return }
         // updateBaseURL 内部会断开旧 WebSocket、用目标地址重连并 fetchAll 拉取全部数据
         api.updateBaseURL(serverAddress)
+        // 预加载所有网盘Cookie（VLC library级别Cookie只能在创建时设置，必须提前获取）
+        vlcManager.preloadCookies(baseURL: serverAddress)
         setupControlHandler()
         setupAtmosphereHandler()
         setupPlaybackEndHandler()
