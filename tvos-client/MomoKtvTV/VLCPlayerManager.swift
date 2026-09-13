@@ -220,8 +220,15 @@ class VLCPlayerManager: NSObject, ObservableObject {
         media.addOption(":http-referrer=https://115.com/")
         media.addOption(":http-accept=*/*")
         if let cookie = cloudCookie, !cookie.isEmpty {
-            media.addOption(":http-cookie=\(cookie)")
-            log("已设置media UA + 网盘Cookie")
+            // 对Cookie进行URL编码，避免分号被VLC选项解析器截断
+            // 夸克Cookie包含多个分号分隔的键值对，不编码会导致VLC只取第一个键值对
+            if let encodedCookie = cookie.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                media.addOption(":http-cookie=\(encodedCookie)")
+                log("已设置media UA + 网盘Cookie(编码后\(encodedCookie.count)字符)")
+            } else {
+                media.addOption(":http-cookie=\(cookie)")
+                log("已设置media UA + 网盘Cookie(原始\(cookie.count)字符)")
+            }
         } else {
             log("已设置media UA: \(VLCPlayerManager.cloud115UserAgent)")
         }
