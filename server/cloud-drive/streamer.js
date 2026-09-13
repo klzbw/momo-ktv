@@ -291,6 +291,15 @@ class CloudDriveStreamer {
         const driver = this.manager.getDriver(this.manager.getAccount(accountId));
         if (driver && driver.cookie) {
           res.setHeader('X-Cloud-Cookie', driver.cookie);
+          // 夸克CDN强制校验Cookie,VLC端所有cookie选项均不生效,
+          // 改用标准Set-Cookie: VLC直接请求本端点时,HTTP协议栈自动保存cookie,跟随302到CDN时自动带上
+          if (driver.constructor.name === 'QuarkDriver') {
+            const puus = String(driver.cookie).split('; ').find(p => p.trim().startsWith('__puus='));
+            if (puus) {
+              res.setHeader('Set-Cookie', puus.trim() + '; Domain=.quark.cn; Path=/; SameSite=None');
+              console.log('[Streamer] Set-Cookie __puus for quark (VLC auto-follow 302)');
+            }
+          }
           console.log('[Streamer] Set X-Cloud-Cookie for driver:', driver.constructor.name);
         }
       } catch(e) {
