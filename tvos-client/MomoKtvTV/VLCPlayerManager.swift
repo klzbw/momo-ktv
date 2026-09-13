@@ -297,9 +297,6 @@ class VLCPlayerManager: NSObject, ObservableObject {
             if p.state == .error || p.videoTrackNames.count == 0 {
                 let diskName = self.cloudDiskName(from: self.originalStreamURL)
                 self.log("⚠️ VLC播放异常（视频轨0或错误状态），请检查网络和\(diskName)登录状态")
-                if let err = p.lastErrorMessage {
-                    self.log("VLC错误详情: \(err)")
-                }
             }
         }
         log("▶️ 开始播放: \(url.lastPathComponent)")

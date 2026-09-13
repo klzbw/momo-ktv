@@ -20,8 +20,6 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
@@ -34,11 +32,7 @@
 		<key>TVTopShelfPrimaryImageWide</key>
 		<string>Top Shelf Image Wide</string>
 	</dict>
-	<key>UIApplicationSceneManifest_Generation</key>
-	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
-	<key>UILaunchScreen_Generation</key>
 	<true/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
