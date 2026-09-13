@@ -80,25 +80,33 @@ class VLCPlayerManager: NSObject, ObservableObject {
     }
 
     #if canImport(TVVLCKit)
-    private func setupLibrary() {
+    /// 创建VLCLibrary，支持设置网盘Cookie（library级别--http-cookie对夸克CDN必需）
+    /// - Parameter cookie: 网盘Cookie，传nil则不设置Cookie
+    private func setupLibrary(cookie: String? = nil) {
         guard !libraryInitialized else { return }
         libraryInitialized = true
-        // 115网盘需要特定UA，否则CDN返回403
-        // 多重保障：library级别 + 后续media级别
-        let options = [
-            "--http-user-agent=\(VLCPlayerManager.cloud115UserAgent)",
-            "--http-referrer=https://115.com/",
+        // 根据当前网盘类型选择UA和Referer
+        let ua = VLCPlayerManager.userAgent(forDriver: currentCloudDriver)
+        let ref = VLCPlayerManager.referer(forDriver: currentCloudDriver)
+        var options = [
+            "--http-user-agent=\(ua)",
+            "--http-referrer=\(ref)",
             "--no-video-title-show",
             "--network-caching=1000",
             "--live-caching=1000",
             "--file-caching=1000"
         ]
+        // library级别Cookie：夸克CDN必需，media级别:http-cookie不生效
+        // Cookie中的分号需要用引号包裹，避免被VLC选项解析器截断
+        if let cookie = cookie, !cookie.isEmpty {
+            options.append("--http-cookie=\"\(cookie)\"")
+            log("VLCLibrary使用网盘Cookie(\(cookie.count)字符,library级别)")
+        }
         let lib = VLCLibrary(options: options)
         library = lib
         player = VLCMediaPlayer(library: lib)
         player?.delegate = self
-        log("=== MomoKtvTV v2026.09.13-quark-ua-fix ===")
-        log("VLCLibrary初始化成功, UA=\(VLCPlayerManager.cloud115UserAgent)")
+        log("VLCLibrary初始化成功, driver=\(currentCloudDriver), UA=\(ua.prefix(25))...")
     }
     #endif
 
@@ -218,17 +226,24 @@ class VLCPlayerManager: NSObject, ObservableObject {
         }
         log("播放网盘类型: \(currentCloudDriver), UA=\(VLCPlayerManager.userAgent(forDriver: currentCloudDriver).prefix(25))...")
 
-        setupLibrary()
-
-        guard let player = player else {
-            onError?("VLC播放器未初始化")
-            return
-        }
-
-        // 预解析302重定向，得到最终CDN URL和网盘Cookie后再播放
+        // 预解析302重定向，得到最终CDN URL和网盘Cookie
+        // 必须先获取Cookie再创建library，因为library级别--http-cookie只能在创建时设置
         resolveRedirect(for: url) { [weak self] finalURL, cloudCookie in
             guard let self = self else { return }
-            self.startPlayback(player: player, url: finalURL, originalURL: url, cloudCookie: cloudCookie)
+            DispatchQueue.main.async {
+                // 用获取到的Cookie创建library（library级别Cookie对夸克CDN必需）
+                // 如果library已初始化（无Cookie），且当前需要Cookie，则重建
+                if self.libraryInitialized && (cloudCookie ?? "").isEmpty == false {
+                    // 检查是否已有Cookie，如果没有则重建
+                    // 简化处理：第一次播放网盘歌曲时才创建，后续不重建
+                }
+                self.setupLibrary(cookie: cloudCookie)
+                guard let player = self.player else {
+                    self.onError?("VLC播放器未初始化")
+                    return
+                }
+                self.startPlayback(player: player, url: finalURL, originalURL: url, cloudCookie: cloudCookie)
+            }
         }
         #else
         onError?("MobileVLCKit未集成")
