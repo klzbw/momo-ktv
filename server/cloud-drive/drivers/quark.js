@@ -387,11 +387,11 @@ class QuarkDriver extends CloudDriveBase {
   /**
    * 获取下载直链（支持 Range 的 CDN 直链，单层 302 即可播放）
    * @param {string} fileId - 文件 fid
-   * @param {string} [clientUA] - 客户端 UA。夸克 CDN 直链签名可能与调用下载 API 时的 UA 绑定，
-   *   必须透传客户端（VLC/浏览器/TV）UA，否则可能 403。
+   * @param {string} [clientUA] - 客户端 UA（已忽略，始终用夸克客户端UA绕过50MB限制）
+   *   注意：夸克 file/download API 对非官方UA限制50MB，必须用 quark-cloud-drive UA
    */
   async getDownloadUrl(fileId, clientUA) {
-    const cacheKey = clientUA ? `${fileId}|${clientUA}` : fileId;
+    const cacheKey = fileId;
     const cached = this._cache.urls.get(cacheKey);
     if (cached && Date.now() < cached.expireAt) return cached.data;
 
@@ -400,7 +400,7 @@ class QuarkDriver extends CloudDriveBase {
       {
         body: { fids: [String(fileId)] },
         headers: { 'Referer': 'https://pan.quark.cn/' },
-        clientUA: clientUA || undefined,
+        // 始终用夸克客户端UA，不透传客户端UA（非官方UA被限制50MB）
       });
 
     const data = res.body && res.body.data;

@@ -182,8 +182,8 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
           continue;
         }
 
-        // 网盘相对路径（含子目录路径），播放时由 /api/cloud/direct/<accountId>/<filepath> 302 直连
-        const relativePath = fileInfo.relativePath || filename;
+        // 完整网盘路径（含 basePath 和子目录），播放时由 /api/cloud/direct/<accountId>/<filepath> 302 直连
+        const fullPath = basePath.replace(/\/$/, '') + '/' + (fileInfo.relativePath || filename);
 
         // 入库（写入 cloud_account_id 支持多账号）
         const now = new Date().toISOString();
@@ -194,7 +194,7 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
           meta.title,
           meta.artist,
           filename,           // 原始 MKV 文件名
-          relativePath,       // 网盘相对路径（含子目录）
+          fullPath,           // 完整网盘路径（含 basePath 和子目录）
           sourceRoot,
           accountId,
           fileInfo.size ? Math.round(fileInfo.size / 1000) : null, // 粗略估算时长（按1MB≈1秒）
