@@ -840,27 +840,14 @@ struct ContentView: View {
     /// 用当前 serverAddress 建立连接并进入主界面（"直接连接"与"输入新地址后连接"共用）。
     private func connectCurrent() {
         guard !serverAddress.isEmpty else { showSetupInput = true; return }
-        print("[connectCurrent] start, server=\(serverAddress)")
-        do {
-            // updateBaseURL 内部会断开旧 WebSocket、用目标地址重连并 fetchAll 拉取全部数据
-            print("[connectCurrent] step1: updateBaseURL")
-            api.updateBaseURL(serverAddress)
-            print("[connectCurrent] step2: setupControlHandler")
-            setupControlHandler()
-            print("[connectCurrent] step3: setupAtmosphereHandler")
-            setupAtmosphereHandler()
-            print("[connectCurrent] step4: setupPlaybackEndHandler")
-            setupPlaybackEndHandler()
-            print("[connectCurrent] step5: setupProgressReporting")
-            setupProgressReporting()
-            print("[connectCurrent] step6: showSetupInput=false")
-            showSetupInput = false
-            print("[connectCurrent] step7: connected=true")
-            connected = true
-            print("[connectCurrent] done")
-        } catch {
-            print("[connectCurrent] ERROR: \(error)")
-        }
+        // updateBaseURL 内部会断开旧 WebSocket、用目标地址重连并 fetchAll 拉取全部数据
+        api.updateBaseURL(serverAddress)
+        setupControlHandler()
+        setupAtmosphereHandler()
+        setupPlaybackEndHandler()
+        setupProgressReporting()
+        showSetupInput = false
+        connected = true
     }
 
     /// Wire PlayerManager's 1s progress timer to API client's sendProgress.
@@ -1643,25 +1630,14 @@ extension Notification.Name {
 struct DebugLogOverlay: View {
     let log: String
     let onClose: () -> Void
-    @State private var showCrashLog = false
-    private let crashLogger = CrashLogger.shared
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(showCrashLog ? "崩溃日志" : "VLC调试日志 (长按队列按钮关闭)")
+                Text("VLC调试日志 (长按队列按钮关闭)")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.white)
                 Spacer()
-                if let crash = crashLogger.lastCrash, !crash.isEmpty {
-                    Button(action: { showCrashLog.toggle() }) {
-                        Image(systemName: showCrashLog ? "ladybug.fill" : "ladybug")
-                            .font(.system(size: 18))
-                            .foregroundColor(.red)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 8)
-                }
                 Button(action: onClose) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 20))
@@ -1674,38 +1650,19 @@ struct DebugLogOverlay: View {
             .background(Color(hex: 0x1a1a2e).opacity(0.95))
 
             ScrollView {
-                if showCrashLog, let crash = crashLogger.lastCrash {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(crash)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.red)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Button(action: { crashLogger.clear() }) {
-                            Text("清除崩溃日志")
-                                .font(.system(size: 12))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 12).padding(.vertical, 6)
-                                .background(Color.red.opacity(0.6))
-                                .cornerRadius(6)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                Text(log)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.green)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
-                } else {
-                    Text(log)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.green)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
-                }
             }
-            .frame(maxHeight: 350)
+            .frame(maxHeight: 300)
             .background(Color.black.opacity(0.9))
         }
         .cornerRadius(8)
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(showCrashLog ? Color.red.opacity(0.5) : Color.green.opacity(0.5), lineWidth: 1)
+                .stroke(Color.green.opacity(0.5), lineWidth: 1)
         )
         .padding(16)
     }
