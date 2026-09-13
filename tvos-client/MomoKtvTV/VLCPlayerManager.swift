@@ -59,23 +59,19 @@ class VLCPlayerManager: NSObject, ObservableObject {
     /// 夸克CDN直链签名与UA绑定，必须使用夸克客户端UA
     private var currentCloudDriver: String = "pan115"
 
-    /// 预加载的所有网盘Cookie（连接服务器成功后获取）
-    /// key=driver类型(pan115/quark等), value=Cookie字符串
+    /// 预加载的所有网盘Cookie（连接服务器成功后获取，仅作纯字符串缓存）
+    /// 不触碰任何VLC实例，绝不因此创建/重建library，从根上避免建库时序闪退
     private var preloadedCookies: [String: String] = [:]
 
-    /// 预加载所有网盘Cookie（在连接服务器成功后调用）
-    /// library级别--http-cookie只能在创建时设置，所以必须提前获取
+    /// 预加载所有网盘Cookie（连接服务器成功后调用一次即可）
+    /// 仅发起网络请求并把Cookie字符串缓存到内存，供首次同步建库时读取
     func preloadCookies(baseURL: String) {
-        // 兼容传入不带http://前缀的地址（与APIClient.init逻辑一致）
         let normalized = baseURL.hasPrefix("http") ? baseURL : "http://\(baseURL)"
         guard let url = URL(string: "\(normalized)/api/cloud/all-cookies") else { return }
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
         URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            guard let data = data, error == nil else {
-                self?.log("预加载Cookie失败: \(error?.localizedDescription ?? "unknown")")
-                return
-            }
+            guard let data = data, error == nil else { return }
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let cookies = json["cookies"] as? [String: String] {
                 DispatchQueue.main.async {
@@ -107,11 +103,10 @@ class VLCPlayerManager: NSObject, ObservableObject {
     }
 
     #if canImport(TVVLCKit)
-    /// 创建VLCLibrary，使用预加载的网盘Cookie（library级别--http-cookie对夸克CDN必需）
-    private func setupLibrary(cookie: String? = nil) {
+    private func setupLibrary() {
         guard !libraryInitialized else { return }
         libraryInitialized = true
-        // 根据当前网盘类型选择UA和Referer
+        // 同步建库：play()开头立即执行，保证player非空（时序与稳定基线一致，不异步、不重建）
         let ua = VLCPlayerManager.userAgent(forDriver: currentCloudDriver)
         let ref = VLCPlayerManager.referer(forDriver: currentCloudDriver)
         var options = [
@@ -122,29 +117,19 @@ class VLCPlayerManager: NSObject, ObservableObject {
             "--live-caching=1000",
             "--file-caching=1000"
         ]
-        // library级别Cookie：合并所有预加载的网盘Cookie
-        // 夸克CDN必需library级别Cookie，media级别:http-cookie不生效
-        // 合并所有网盘Cookie（用分号分隔），VLC会根据域名自动匹配
-        var allCookies: [String] = []
-        for (driver, c) in preloadedCookies {
-            if !c.isEmpty {
-                allCookies.append(c)
-                log("  预加载Cookie: \(driver) (\(c.count)字符)")
-            }
-        }
-        // 参数cookie优先（resolveRedirect获取的最新Cookie）
-        if let cookie = cookie, !cookie.isEmpty {
-            allCookies.insert(cookie, at: 0)
-        }
-        if !allCookies.isEmpty {
-            let merged = allCookies.joined(separator: "; ")
+        // library级别Cookie：同步读取连接时已预加载并缓存的Cookie（纯字符串操作）
+        // 夸克CDN必须library级别--http-cookie，media级别:http-cookie对夸克不生效
+        // 合并所有网盘Cookie（分号分隔），VLC按请求域名自动匹配
+        let merged = preloadedCookies.values.filter { !$0.isEmpty }.joined(separator: "; ")
+        if !merged.isEmpty {
             options.append("--http-cookie=\"\(merged)\"")
-            log("VLCLibrary使用合并Cookie(\(merged.count)字符,\(allCookies.count)个网盘,library级别)")
+            log("VLCLibrary注入合并Cookie(\(merged.count)字符,\(preloadedCookies.count)个网盘,library级别)")
         }
         let lib = VLCLibrary(options: options)
         library = lib
         player = VLCMediaPlayer(library: lib)
         player?.delegate = self
+        log("=== MomoKtvTV v2026.09.13-quark-fix4 ===")
         log("VLCLibrary初始化成功, driver=\(currentCloudDriver), UA=\(ua.prefix(25))...")
     }
     #endif
@@ -265,7 +250,6 @@ class VLCPlayerManager: NSObject, ObservableObject {
         }
         log("播放网盘类型: \(currentCloudDriver), UA=\(VLCPlayerManager.userAgent(forDriver: currentCloudDriver).prefix(25))...")
 
-        // 必须先同步创建library，确保player不为nil（异步创建会导致闪退）
         setupLibrary()
 
         guard let player = player else {
@@ -276,9 +260,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
         // 预解析302重定向，得到最终CDN URL和网盘Cookie后再播放
         resolveRedirect(for: url) { [weak self] finalURL, cloudCookie in
             guard let self = self else { return }
-            DispatchQueue.main.async {
-                self.startPlayback(player: player, url: finalURL, originalURL: url, cloudCookie: cloudCookie)
-            }
+            self.startPlayback(player: player, url: finalURL, originalURL: url, cloudCookie: cloudCookie)
         }
         #else
         onError?("MobileVLCKit未集成")
