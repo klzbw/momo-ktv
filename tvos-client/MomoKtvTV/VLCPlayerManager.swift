@@ -311,17 +311,12 @@ class VLCPlayerManager: NSObject, ObservableObject {
             return
         }
 
-        // 夸克: 跳过resolveRedirect预解析,让VLC直接请求NAS的/api/cloud/direct端点,
-        // VLC的HTTP协议栈收到302+Set-Cookie后,跟随重定向到夸克CDN时自动带上cookie
-        // (VLC端所有cookie选项:http-cookie/:http-header/library级均不发送Cookie头,已实证)
-        if currentCloudDriver == "quark" {
-            log("夸克模式: 跳过预解析,VLC直接请求NAS端点(自动处理Set-Cookie)")
-            startPlayback(player: player, url: url, originalURL: url, cloudCookie: nil, skipCookieHeader: true)
-        } else {
-            resolveRedirect(for: url) { [weak self] finalURL, cloudCookie in
-                guard let self = self else { return }
-                self.startPlayback(player: player, url: finalURL, originalURL: url, cloudCookie: cloudCookie, skipCookieHeader: false)
-            }
+        // fix14: 夸克回到预解析模式(服务端filepath已修复,direct端点稳定302),
+        // 用:http-cookie=__puus=xxx(不带引号)在干净环境下重新测试
+        // (fix8测试时服务端有500bug,结果不可靠)
+        resolveRedirect(for: url) { [weak self] finalURL, cloudCookie in
+            guard let self = self else { return }
+            self.startPlayback(player: player, url: finalURL, originalURL: url, cloudCookie: cloudCookie, skipCookieHeader: false)
         }
         #else
         onError?("MobileVLCKit未集成")
@@ -366,16 +361,16 @@ class VLCPlayerManager: NSObject, ObservableObject {
         if cookieToUse == nil || cookieToUse!.isEmpty {
             cookieToUse = (UserDefaults.standard.dictionary(forKey: "momo_cloud_cookies") as? [String: String])?[currentCloudDriver]
         }
-        // fix13: 夸克走Set-Cookie方案(VLC直接请求NAS端点,HTTP协议栈自动处理cookie),
-        // 不设置任何media级cookie选项(已实证:http-cookie/http-header均不发送Cookie头)
+        // fix14: 夸克用:http-cookie=__puus=xxx(不带引号),服务端已修复direct端点稳定302
+        // 之前fix8测试时服务端有500bug导致结果不可靠,现在在干净环境重新验证
         if skipCookieHeader {
-            log("夸克Set-Cookie模式: 不设置media cookie,依赖VLC自动处理302+Set-Cookie")
+            log("夸克Set-Cookie模式: 不设置media cookie")
         } else if let cookie = cookieToUse, !cookie.isEmpty {
             if currentCloudDriver == "quark" {
-                // 夸克CDN只需要__puus这一个cookie(curl实证)
+                // 夸克CDN只需要__puus这一个cookie(curl实证),不带引号
                 let puus = cookie.components(separatedBy: "; ").first(where: { $0.hasPrefix("__puus=") }) ?? cookie
-                media.addOption(":http-header=Cookie: \(puus)")
-                log("夸克media用:http-header发送Cookie(\(puus.count)字符)")
+                media.addOption(":http-cookie=\(puus)")
+                log("夸克media用:http-cookie(无引号,\(puus.count)字符)")
             } else {
                 if cookie.contains(";") {
                     media.addOption(":http-cookie=\"\(cookie)\"")

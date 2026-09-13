@@ -1639,7 +1639,7 @@ struct DebugLogOverlay: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("VLC调试日志 v2026.09.13-quark-fix13 (长按队列按钮关闭)")
+                Text("VLC调试日志 v2026.09.13-quark-fix14 (长按队列按钮关闭)")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.white)
                 Spacer()
