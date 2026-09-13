@@ -302,17 +302,21 @@ class QuarkDriver extends CloudDriveBase {
     const size = 200;
     // 安全上限，防止异常返回死循环
     for (let guard = 0; guard < 50; guard++) {
-      const res = await this._request('POST',
-        `${API.fileSort}?pr=ucpro&fr=pc&uc_param_str=`,
+      // 夸克 file/sort 接口只支持 GET，参数走 query string（POST 返回 405）
+      const qs = new URLSearchParams({
+        pr: 'ucpro',
+        fr: 'pc',
+        uc_param_str: '',
+        parent_fid: String(parentFid),
+        _page: String(page),
+        _size: String(size),
+        _fetch_subscribed: 'false',
+        _fetch_share: 'true',
+        _sort: 'file_type:asc,file_name:asc',
+      }).toString();
+      const res = await this._request('GET',
+        `${API.fileSort}?${qs}`,
         {
-          body: {
-            parent_fid: parentFid,
-            _page: page,
-            _size: size,
-            _fetch_subscribed: false,
-            _fetch_share: true,
-            _sort: 'file_type:asc,file_name:asc',
-          },
           headers: { 'Referer': 'https://pan.quark.cn/' },
         });
 
@@ -320,13 +324,14 @@ class QuarkDriver extends CloudDriveBase {
       if (!data) {
         throw new Error('夸克列目录失败: ' + JSON.stringify(res.body).slice(0, 200));
       }
-      const meta = data.metadata || [];
-      for (const item of meta) {
+      // 返回数据在 data.list（非 data.metadata）
+      const list = data.list || [];
+      for (const item of list) {
         all.push(this._normalizeItem(item));
       }
       const pag = data.pagginate || {};
       const hasMore = pag.has_more === true || pag.has_more === 1;
-      if (!hasMore || meta.length === 0) break;
+      if (!hasMore || list.length === 0) break;
       page++;
     }
     return all;
@@ -336,8 +341,9 @@ class QuarkDriver extends CloudDriveBase {
    * 把夸克原始 item 转成统一文件结构
    */
   _normalizeItem(item) {
-    const dirFlag = item.dir === true || item.dir === '1' || item.dir === 1;
-    const modifiedTs = parseInt(item.modified_at || item.updated_at || '0', 10);
+    // 夸克 file/sort 返回：file_type=0 为目录，file_type=1 为文件
+    const dirFlag = item.file_type === 0 || item.dir === true || item.dir === '1' || item.dir === 1;
+    const modifiedTs = parseInt(item.modified_at || item.updated_at || item.l_created_at || '0', 10) / 1000;
     return {
       fileId: String(item.fid || ''),
       name: item.file_name || item.name || '',

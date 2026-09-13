@@ -21163,7 +21163,7 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
   if (req.body && (req.body.cloud === true || req.body.cloudPath)) {
     const { accountId, cloudPath, mediaType, label: cloudLabel } = req.body;
     if (!cloudPath || !String(cloudPath).trim()) {
-      return res.status(400).json({ error: '请填写115网盘路径(cloudPath)，如 /momo-ktv/ktv-output' });
+      return res.status(400).json({ error: '请填写网盘路径(cloudPath)，如 /momo-ktv/ktv-output' });
     }
     // 校验账号存在
     let acct = null;
@@ -21171,27 +21171,28 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
       const cd = require('./cloud-drive');
       acct = cd.manager ? cd.manager.getAccount(Number(accountId)) : null;
     } catch (e) { acct = null; }
-    if (!acct || acct.driver !== 'pan115') {
-      return res.status(400).json({ error: '115账号不存在或不可用，请先在网盘设置里登录' });
+    const SUPPORTED_DRIVERS = ['pan115', 'quark', 'aliyun', 'baidu', 'cmcc', 'xunlei'];
+    if (!acct || !SUPPORTED_DRIVERS.includes(acct.driver)) {
+      return res.status(400).json({ error: '网盘账号不存在或不支持，请先在网盘设置里登录' });
     }
     // mediaType -> 内置 source_root dir
     const dirForType = (String(mediaType || 'mkv').toLowerCase() === 'flac' || String(mediaType || '').toLowerCase() === 'separated')
       ? 'netktv' : 'netktv-mkv';
     const roots = getLibraryRoots();
     if (roots.some(r => r.dir === dirForType)) {
-      return res.status(409).json({ error: '这个115网盘来源已经添加过了(每类只能有一个)，可直接在列表里点"扫描"' });
+      return res.status(409).json({ error: '这个网盘来源已经添加过了(每类只能有一个)，可直接在列表里点"扫描"' });
     }
     const cloud = { accountId: acct.id, cloudPath: String(cloudPath).trim(), mediaType: dirForType === 'netktv' ? 'flac' : 'mkv' };
     const builtin = BUILTIN_CLOUD_ROOTS[dirForType] || {};
     roots.push({
       dir: dirForType,
-      label: (cloudLabel && String(cloudLabel).trim()) ? String(cloudLabel).trim() : builtin.label || ('115网盘 ' + cloudPath),
+      label: (cloudLabel && String(cloudLabel).trim()) ? String(cloudLabel).trim() : builtin.label || (`${acct.name} ${cloud.cloudPath}`),
       isNetwork: true,
       enabled: true,
       cloud,
     });
     saveLibraryRoots(roots);
-    log.info('ADMIN', `曲库来源: 新增115网络来源 ${dirForType} -> ${cloud.cloudPath} (账号=${cloud.accountId})`);
+    log.info('ADMIN', `曲库来源: 新增网络来源 ${dirForType} -> ${cloud.cloudPath} (账号=${cloud.accountId}, 驱动=${acct.driver})`);
     return res.json({ ok: true, roots });
   }
 
