@@ -47,6 +47,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
     private var libraryInitialized = false
     private var isRestarting = false
     private var lastReportedState: Int = -1
+    private var currentCookie: String? = nil
 
     /// 115 网盘专用 UA（必须与 pan115 driver 调用 API 时使用的 UA 一致）
     static let cloud115UserAgent = "Mozilla/5.0 115Browser/23.9.3.2"
@@ -56,12 +57,21 @@ class VLCPlayerManager: NSObject, ObservableObject {
     }
 
     #if canImport(TVVLCKit)
-    private func setupLibrary() {
+    private func setupLibrary(cookie: String? = nil) {
+        // 如果Cookie变化，需要重新创建library（http-cookie是library级别选项）
+        if libraryInitialized && currentCookie != cookie {
+            log("Cookie变化，重新初始化VLCLibrary")
+            player?.stop()
+            player = nil
+            library = nil
+            libraryInitialized = false
+        }
         guard !libraryInitialized else { return }
         libraryInitialized = true
+        currentCookie = cookie
         // 115网盘需要特定UA，否则CDN返回403
-        // 多重保障：library级别 + 后续media级别
-        let options = [
+        // 夸克网盘需要Cookie，否则CDN返回412
+        var options = [
             "--http-user-agent=\(VLCPlayerManager.cloud115UserAgent)",
             "--http-referrer=https://115.com/",
             "--no-video-title-show",
@@ -69,6 +79,10 @@ class VLCPlayerManager: NSObject, ObservableObject {
             "--live-caching=1000",
             "--file-caching=1000"
         ]
+        if let cookie = cookie, !cookie.isEmpty {
+            options.append("--http-cookie=\(cookie)")
+            log("VLCLibrary设置Cookie(\(cookie.count)字符)")
+        }
         let lib = VLCLibrary(options: options)
         library = lib
         player = VLCMediaPlayer(library: lib)
@@ -179,19 +193,17 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
     // MARK: - 播放控制
 
-    /// 播放URL（支持115网盘302直连，预解析重定向后VLC直接访问115 CDN）
+    /// 播放URL（支持115/夸克网盘302直连，预解析重定向后VLC直接访问CDN）
     func play(url: URL) {
         #if canImport(TVVLCKit)
-        setupLibrary()
-
-        guard let player = player else {
-            onError?("VLC播放器未初始化")
-            return
-        }
-
-        // 预解析302重定向，得到最终CDN URL和网盘Cookie后再播放
+        // 先预解析302获取Cookie，再用Cookie初始化library
         resolveRedirect(for: url) { [weak self] finalURL, cloudCookie in
             guard let self = self else { return }
+            self.setupLibrary(cookie: cloudCookie)
+            guard let player = self.player else {
+                self.onError?("VLC播放器未初始化")
+                return
+            }
             self.startPlayback(player: player, url: finalURL, originalURL: url, cloudCookie: cloudCookie)
         }
         #else
@@ -220,8 +232,14 @@ class VLCPlayerManager: NSObject, ObservableObject {
         media.addOption(":http-referrer=https://115.com/")
         media.addOption(":http-accept=*/*")
         if let cookie = cloudCookie, !cookie.isEmpty {
-            media.addOption(":http-cookie=\(cookie)")
-            log("已设置media UA + 网盘Cookie")
+            // 双重保障：library级别已设置--http-cookie，media级别再设置一次
+            // 对Cookie进行URL编码，避免分号被VLC选项解析器截断
+            if let encodedCookie = cookie.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+                media.addOption(":http-cookie=\(encodedCookie)")
+            } else {
+                media.addOption(":http-cookie=\(cookie)")
+            }
+            log("已设置media UA + 网盘Cookie(\(cookie.count)字符)")
         } else {
             log("已设置media UA: \(VLCPlayerManager.cloud115UserAgent)")
         }
@@ -279,6 +297,9 @@ class VLCPlayerManager: NSObject, ObservableObject {
             if p.state == .error || p.videoTrackNames.count == 0 {
                 let diskName = self.cloudDiskName(from: self.originalStreamURL)
                 self.log("⚠️ VLC播放异常（视频轨0或错误状态），请检查网络和\(diskName)登录状态")
+                if let err = p.lastErrorMessage {
+                    self.log("VLC错误详情: \(err)")
+                }
             }
         }
         log("▶️ 开始播放: \(url.lastPathComponent)")

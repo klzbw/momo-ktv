@@ -1042,21 +1042,13 @@ struct ContentView: View {
                             .font(.system(size: 20, weight: .medium))
                             .foregroundColor(focused ? Color(hex: 0x1a1a2e).opacity(0.7) : WebColors.sub)
                             .lineLimit(1)
-                        if item.isNetworkSong {
-                            Label("云", systemImage: "cloud.fill")
+                        if item.isNetworkSong && !item.cloudDiskLabel.isEmpty {
+                            Label(item.cloudDiskLabel, systemImage: item.cloudDiskIcon)
                                 .font(.system(size: 12, weight: .medium))
                                 .padding(.horizontal, 5).padding(.vertical, 0)
-                                .background(Color(hex: 0x0288d1).opacity(0.25))
-                                .foregroundColor(Color(hex: 0x4fc3f7))
+                                .background(Color(hex: 0x6a1b9a).opacity(0.25))
+                                .foregroundColor(Color(hex: 0xba68c8))
                                 .cornerRadius(3)
-                            if !item.cloudDiskLabel.isEmpty {
-                                Label(item.cloudDiskLabel, systemImage: item.cloudDiskIcon)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .padding(.horizontal, 5).padding(.vertical, 0)
-                                    .background(Color(hex: 0x6a1b9a).opacity(0.25))
-                                    .foregroundColor(Color(hex: 0xba68c8))
-                                    .cornerRadius(3)
-                            }
                         }
                         Label(item.mediaTypeLabel, systemImage: item.mediaTypeIcon)
                             .font(.system(size: 12, weight: .medium))
@@ -1555,21 +1547,13 @@ struct OrderSongsPage: View {
                                     .font(.system(size: 24))
                                     .foregroundColor(WebColors.sub)
                                     .lineLimit(1)
-                                if song.isNetworkSong {
-                                    Label("云", systemImage: "cloud.fill")
+                                if song.isNetworkSong && !song.cloudDiskLabel.isEmpty {
+                                    Label(song.cloudDiskLabel, systemImage: song.cloudDiskIcon)
                                         .font(.system(size: 13, weight: .medium))
                                         .padding(.horizontal, 6).padding(.vertical, 1)
-                                        .background(Color(hex: 0x0288d1).opacity(0.25))
-                                        .foregroundColor(Color(hex: 0x4fc3f7))
+                                        .background(Color(hex: 0x6a1b9a).opacity(0.25))
+                                        .foregroundColor(Color(hex: 0xba68c8))
                                         .cornerRadius(4)
-                                    if !song.cloudDiskLabel.isEmpty {
-                                        Label(song.cloudDiskLabel, systemImage: song.cloudDiskIcon)
-                                            .font(.system(size: 13, weight: .medium))
-                                            .padding(.horizontal, 6).padding(.vertical, 1)
-                                            .background(Color(hex: 0x6a1b9a).opacity(0.25))
-                                            .foregroundColor(Color(hex: 0xba68c8))
-                                            .cornerRadius(4)
-                                    }
                                 }
                                 Label(song.mediaTypeLabel, systemImage: song.mediaTypeIcon)
                                     .font(.system(size: 13, weight: .medium))

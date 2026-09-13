@@ -10,18 +10,8 @@ settings:
     SWIFT_VERSION: "5.0"
     TARGETED_DEVICE_FAMILY: "3"
     SDKROOT: appletvos
-    GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: "1.0"
     CURRENT_PROJECT_VERSION: "1"
-    INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-    INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
-    INFOPLIST_KEY_UILaunchScreen_Generation: YES
-    INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-    INFOPLIST_KEY_NSAppTransportSecurity:
-      NSAllowsArbitraryLoads: YES
-    INFOPLIST_KEY_TVTopShelfImage:
-      TVTopShelfPrimaryImage: "Top Shelf Image"
-      TVTopShelfPrimaryImageWide: "Top Shelf Image Wide"
 targets:
   MomoKtvTV:
     type: application
@@ -32,21 +22,15 @@ targets:
       - name: Set Chinese Display Name
         script: |
           PLIST="${CODESIGNING_FOLDER_PATH:-$BUILT_PRODUCTS_DIR/$FULL_PRODUCT_NAME}/Info.plist"
-          # Step 1: Set a plain-ASCII placeholder via PlistBuddy
-          /usr/libexec/PlistBuddy -c "Delete :CFBundleDisplayName" "$PLIST" 2>/dev/null
-          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string PLACEHOLDER_CN_NAME" "$PLIST"
-          # Step 2: Convert to XML format
-          plutil -convert xml1 "$PLIST"
-          # Step 3: Replace placeholder with XML numeric character references.
-          # 墨=U+58A8, 爱=U+7231, 歌=U+6B4C  ->  墨墨爱K歌
-          # plumesign sees pure ASCII (no filtering); tvOS XML parser decodes to Chinese.
-          sed -i '' 's/PLACEHOLDER_CN_NAME/\&#x58a8;\&#x58a8;\&#x7231;K\&#x6b4c;/g' "$PLIST"
-          echo "CFBundleName=$( /usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$PLIST" )"
+          # Top Shelf配置已在Info.plist中静态定义，此处仅确保中文显示名正确
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 墨墨爱K歌" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string 墨墨爱K歌" "$PLIST"
           echo "CFBundleDisplayName=$( /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$PLIST" )"
+          echo "TVTopShelfImage=$( /usr/libexec/PlistBuddy -c 'Print :TVTopShelfImage:TVTopShelfPrimaryImage' "$PLIST" 2>/dev/null || echo 'NOT FOUND' )"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.momo.ktv.tv
         PRODUCT_NAME: "MomoKtvTV"
+        INFOPLIST_FILE: MomoKtvTV/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: "AppIcon"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_STYLE: Automatic
