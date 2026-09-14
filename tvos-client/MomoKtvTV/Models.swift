@@ -1,3 +1,4 @@
+import SwiftUI
 import Foundation
 
 
@@ -91,9 +92,34 @@ struct Song: Codable, Identifiable, Hashable {
     }
 
     /// 媒体类型标签：视频歌曲显示"MKV"，音频歌曲显示"FLAC"
-    var mediaTypeLabel: String { isVideoFile ? "MKV" : "FLAC" }
-    /// 媒体类型图标：视频用 film，音频用 music.note
-    var mediaTypeIcon: String { isVideoFile ? "film" : "music.note" }
+    /// 媒体格式标签：根据文件扩展名判断（MKV/FLAC/WAV/MP3/M4A等）
+    var mediaTypeLabel: String {
+        guard let fn = filename?.lowercased() else { return isVideoFile ? "MKV" : "FLAC" }
+        if fn.hasSuffix(".mkv") { return "MKV" }
+        if fn.hasSuffix(".flac") { return "FLAC" }
+        if fn.hasSuffix(".wav") { return "WAV" }
+        if fn.hasSuffix(".mp3") { return "MP3" }
+        if fn.hasSuffix(".m4a") { return "M4A" }
+        if fn.hasSuffix(".ape") { return "APE" }
+        if fn.hasSuffix(".aac") { return "AAC" }
+        if fn.hasSuffix(".ogg") { return "OGG" }
+        if fn.hasSuffix(".mp4") { return "MP4" }
+        if fn.hasSuffix(".strm") { return isVideoFile ? "MKV" : "FLAC" }
+        return isVideoFile ? "VIDEO" : "AUDIO"
+    }
+    /// 媒体格式颜色：不同格式不同颜色
+    var mediaTypeColor: Color {
+        switch mediaTypeLabel {
+        case "MKV", "MP4", "VIDEO": return Color(red: 1.0, green: 0.3, blue: 0.3)   // 红色 - 视频
+        case "FLAC": return Color(red: 0.0, green: 0.6, blue: 1.0)                  // 蓝色 - 无损
+        case "WAV": return Color(red: 0.0, green: 0.7, blue: 0.5)                   // 青色 - 无损
+        case "APE": return Color(red: 0.5, green: 0.4, blue: 0.9)                   // 紫色 - 无损
+        case "MP3": return Color(red: 1.0, green: 0.6, blue: 0.0)                   // 橙色 - 有损
+        case "M4A", "AAC": return Color(red: 0.9, green: 0.5, blue: 0.2)            // 棕橙
+        case "OGG": return Color(red: 0.3, green: 0.7, blue: 0.3)                   // 绿色
+        default: return Color.gray
+        }
+    }
 
     /// 网盘类型标识：优先用 cloud_driver，其次用 source_root 推断
     var cloudDiskLabel: String {
@@ -121,6 +147,7 @@ struct Song: Codable, Identifiable, Hashable {
                 switch accountId {
                 case 1, 58: return "115"
                 case 62: return "夸克"
+                case 64, 66: return "移动"
                 default: return "网盘#\(accountId)"
                 }
             }
@@ -128,13 +155,17 @@ struct Song: Codable, Identifiable, Hashable {
         return "云"
     }
 
-    /// 网盘类型图标
-    var cloudDiskIcon: String {
-        guard isNetworkSong else { return "" }
-        let label = cloudDiskLabel
-        if label == "115" { return "cloud" }
-        if label == "夸克" { return "cloud.fill" }
-        return "cloud"
+    /// 网盘颜色：不同网盘用不同颜色区分
+    var cloudDiskColor: Color {
+        switch cloudDiskLabel {
+        case "115": return Color(red: 1.0, green: 0.55, blue: 0.0)  // 橙色
+        case "夸克": return Color(red: 0.0, green: 0.5, blue: 1.0)   // 蓝色
+        case "移动": return Color(red: 0.0, green: 0.7, blue: 0.3)   // 绿色
+        case "阿里": return Color(red: 0.6, green: 0.3, blue: 0.9)   // 紫色
+        case "百度": return Color(red: 0.1, green: 0.4, blue: 0.9)   // 深蓝
+        case "迅雷": return Color(red: 0.9, green: 0.2, blue: 0.2)   // 红色
+        default: return Color.gray
+        }
     }
 
     var durationText: String {
@@ -217,9 +248,34 @@ struct QueueItem: Codable, Identifiable, Hashable {
         return sr.hasPrefix("netktv") || sr == "share-115" || sr.hasPrefix("cloud")
     }
 
-    var mediaTypeLabel: String { isVideoFile ? "MKV" : "FLAC" }
-    /// 媒体类型图标：视频用 film，音频用 music.note
-    var mediaTypeIcon: String { isVideoFile ? "film" : "music.note" }
+    /// 媒体格式标签：根据文件扩展名判断
+    var mediaTypeLabel: String {
+        guard let fn = filename?.lowercased() else { return isVideoFile ? "MKV" : "FLAC" }
+        if fn.hasSuffix(".mkv") { return "MKV" }
+        if fn.hasSuffix(".flac") { return "FLAC" }
+        if fn.hasSuffix(".wav") { return "WAV" }
+        if fn.hasSuffix(".mp3") { return "MP3" }
+        if fn.hasSuffix(".m4a") { return "M4A" }
+        if fn.hasSuffix(".ape") { return "APE" }
+        if fn.hasSuffix(".aac") { return "AAC" }
+        if fn.hasSuffix(".ogg") { return "OGG" }
+        if fn.hasSuffix(".mp4") { return "MP4" }
+        if fn.hasSuffix(".strm") { return isVideoFile ? "MKV" : "FLAC" }
+        return isVideoFile ? "VIDEO" : "AUDIO"
+    }
+    /// 媒体格式颜色
+    var mediaTypeColor: Color {
+        switch mediaTypeLabel {
+        case "MKV", "MP4", "VIDEO": return Color(red: 1.0, green: 0.3, blue: 0.3)
+        case "FLAC": return Color(red: 0.0, green: 0.6, blue: 1.0)
+        case "WAV": return Color(red: 0.0, green: 0.7, blue: 0.5)
+        case "APE": return Color(red: 0.5, green: 0.4, blue: 0.9)
+        case "MP3": return Color(red: 1.0, green: 0.6, blue: 0.0)
+        case "M4A", "AAC": return Color(red: 0.9, green: 0.5, blue: 0.2)
+        case "OGG": return Color(red: 0.3, green: 0.7, blue: 0.3)
+        default: return Color.gray
+        }
+    }
 
     /// 网盘类型标识：优先用 cloud_driver，其次用 source_root 推断
     var cloudDiskLabel: String {
@@ -244,15 +300,24 @@ struct QueueItem: Codable, Identifiable, Hashable {
                 switch aid {
                 case 1, 58: return "115"
                 case 62: return "夸克"
+                case 64, 66: return "移动"
                 default: return "网盘#\(aid)"
                 }
             }
         }
         return "云"
     }
-    var cloudDiskIcon: String {
-        guard isNetworkSong else { return "" }
-        return cloudDiskLabel == "115" ? "cloud" : "cloud.fill"
+    /// 网盘颜色：不同网盘用不同颜色区分
+    var cloudDiskColor: Color {
+        switch cloudDiskLabel {
+        case "115": return Color(red: 1.0, green: 0.55, blue: 0.0)
+        case "夸克": return Color(red: 0.0, green: 0.5, blue: 1.0)
+        case "移动": return Color(red: 0.0, green: 0.7, blue: 0.3)
+        case "阿里": return Color(red: 0.6, green: 0.3, blue: 0.9)
+        case "百度": return Color(red: 0.1, green: 0.4, blue: 0.9)
+        case "迅雷": return Color(red: 0.9, green: 0.2, blue: 0.2)
+        default: return Color.gray
+        }
     }
 
     var hasMultiTrack: Bool { (audio_tracks ?? 1) >= 2 }

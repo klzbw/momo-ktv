@@ -140,14 +140,14 @@ struct WebSongRow: View {
                                 .foregroundColor(WebColors.sub)
                                 .lineLimit(1)
                             if song.isNetworkSong && !song.cloudDiskLabel.isEmpty {
-                                Label(song.cloudDiskLabel, systemImage: song.cloudDiskIcon)
+                                Text(song.cloudDiskLabel).foregroundColor(song.cloudDiskColor)
                                     .font(.system(size: 12, weight: .medium))
                                     .padding(.horizontal, 5).padding(.vertical, 0)
                                     .background(Color(hex: 0x6a1b9a).opacity(0.25))
                                     .foregroundColor(Color(hex: 0xba68c8))
                                     .cornerRadius(3)
                             }
-                            Label(song.mediaTypeLabel, systemImage: song.mediaTypeIcon)
+                            Text(song.mediaTypeLabel).foregroundColor(song.mediaTypeColor)
                                 .font(.system(size: 12, weight: .medium))
                                 .padding(.horizontal, 5).padding(.vertical, 0)
                                 .background(song.isVideoFile ? Color(hex: 0x0288d1).opacity(0.2) : Color(hex: 0x2e7d32).opacity(0.2))
