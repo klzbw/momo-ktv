@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 
 
 
@@ -4044,9 +4044,9 @@ select option{color:#000}
 <!-- 115分享链接管理 Modal -->
 <div id="share-modal-overlay" onclick="if(event.target===this)closeShareModal()">
   <div id="share-modal" onclick="event.stopPropagation()">
-    <h3>🔗 115分享链接管理</h3>
+    <h3>🔗 全网盘分享链接管理</h3>
     <div style="font-size:12px;color:var(--sub);margin:-10px 0 16px;line-height:1.7">
-      添加115网盘分享链接后，系统会自动在 Alist 中创建对应存储，并可一键扫描入库歌曲。使用分享者的账号，自己的115账号零API调用。
+      支持 <b style="color:var(--cyan)">115/百度/夸克/阿里/迅雷/123/天翼/移动/UC/PikPak/光芽</b> 共11种网盘分享链接。添加后自动在内置 AList 中创建对应存储，可一键扫描入库。使用分享者的账号，自己网盘零API调用、零风控。
     </div>
     <div style="background:rgba(255,255,255,.03);border-radius:12px;padding:14px;margin-bottom:16px;border:1px solid rgba(255,255,255,.06)">
       <div style="font-size:13px;font-weight:600;margin-bottom:10px">➕ 添加分享链接</div>
@@ -11381,8 +11381,77 @@ function closeCloudModal(){ document.getElementById('cloud-modal-overlay').class
 function openShareModal(){
   document.getElementById('share-modal-overlay').classList.add('open');
   loadShareLinks();
+  pollShareScanState();
 }
 function closeShareModal(){ document.getElementById('share-modal-overlay').classList.remove('open'); }
+
+let _shareScanPollTimer = null;
+function pollShareScanState(){
+  if(_shareScanPollTimer) clearInterval(_shareScanPollTimer);
+  _shareScanPollTimer = setInterval(async ()=>{
+    try{
+      const r = await fetch('/api/share/scan-state');
+      const d = await r.json();
+      if(d.success && d.state){
+        const el = document.getElementById('share-scan-status');
+        if(el){
+          if(d.state.running){
+            el.textContent = `扫描中: ${d.state.done}/${d.state.total} - ${d.state.message || ''}`;
+          } else if(d.state.message){
+            el.textContent = d.state.message;
+          } else {
+            el.textContent = '';
+          }
+        }
+      }
+    }catch(e){}
+  }, 2000);
+}
+
+const PLATFORM_NAMES = {
+  '115':'115网盘','baidu':'百度网盘','quark':'夸克网盘','ali':'阿里云盘',
+  'thunder':'迅雷云盘','123':'123网盘','189':'天翼云盘','139':'移动云盘',
+  'uc':'UC网盘','pikpak':'PikPak','guangya':'光芽网盘'
+};
+
+async function onShareUrlInput(){
+  const url = document.getElementById('share-url').value.trim();
+  if(!url || url.length < 10) return;
+  try{
+    const r = await fetch('/api/share/parse-link', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({url})
+    });
+    const d = await r.json();
+    if(d.success && d.data){
+      document.getElementById('share-platform').value = d.data.platform;
+      document.getElementById('share-id').value = d.data.share_id;
+      if(d.data.password) document.getElementById('share-pwd').value = d.data.password;
+      if(d.data.folder_id) document.getElementById('share-folder').value = d.data.folder_id;
+      onSharePlatformChange();
+    }
+  }catch(e){}
+}
+
+function onSharePlatformChange(){
+  const p = document.getElementById('share-platform').value;
+  const folderRow = document.getElementById('share-folder-row');
+  if(p === 'ali' || p === '115' || p === 'baidu'){
+    folderRow.style.display = 'flex';
+  } else {
+    folderRow.style.display = 'none';
+  }
+}
+
+function clearShareForm(){
+  document.getElementById('share-url').value = '';
+  document.getElementById('share-platform').value = '';
+  document.getElementById('share-name').value = '';
+  document.getElementById('share-id').value = '';
+  document.getElementById('share-pwd').value = '';
+  document.getElementById('share-folder').value = '';
+  document.getElementById('share-folder-row').style.display = 'none';
+}
 
 async function loadShareLinks(){
   const listEl = document.getElementById('share-list');
@@ -11397,21 +11466,22 @@ async function loadShareLinks(){
     listEl.innerHTML = d.data.map(link => {
       const statusClass = link.status === 'active' ? 'active' : (link.status === 'scanning' ? 'scanning' : 'error');
       const fileCount = link.file_count || 0;
-      const mountPath = link.alist_mount_path || `/share-${link.id}`;
-      const receiveCode = link.receive_code ? link.receive_code : '无';
+      const mountPath = link.alist_mount_path || '-';
+      const pwd = link.password ? link.password : '无';
+      const pname = PLATFORM_NAMES[link.platform] || link.platform;
       const lastScan = link.last_scan_at ? new Date(link.last_scan_at).toLocaleString('zh-CN') : '未扫描';
       return `
         <div class="share-item">
           <div class="share-item-info">
-            <div class="share-item-name">${escapeHtml(link.name)} <span class="share-status ${statusClass}">${link.status}</span></div>
+            <div class="share-item-name">${escapeHtml(link.name)} <span style="font-size:11px;background:rgba(54,217,247,.15);color:var(--cyan);padding:1px 8px;border-radius:999px;margin-left:6px">${pname}</span> <span class="share-status ${statusClass}">${link.status}</span></div>
             <div class="share-item-meta">
-              分享码：<b>${escapeHtml(link.pickcode)}</b> · 提取码：<b>${escapeHtml(receiveCode)}</b><br>
-              挂载路径：<b>${escapeHtml(mountPath)}</b> · 歌曲数：<b>${fileCount}</b><br>
+              分享ID：<b>${escapeHtml(link.share_id || '-')}</b> · 提取码：<b>${escapeHtml(pwd)}</b><br>
+              挂载路径：<b>${escapeHtml(mountPath)}</b> · 媒体数：<b>${fileCount}</b><br>
               最后扫描：${lastScan}
             </div>
           </div>
           <div class="share-item-actions">
-            <button class="share-btn-sm success" onclick="scanShareLink(${link.id})" title="扫描分享链接中的视频文件入库">🔄 扫描入库</button>
+            <button class="share-btn-sm success" onclick="scanShareLink(${link.id})" title="扫描分享链接中的媒体文件入库">🔄 扫描入库</button>
             <button class="share-btn-sm danger" onclick="deleteShareLink(${link.id}, '${escapeHtml(link.name)}')" title="删除分享链接及对应的Alist存储">🗑️ 删除</button>
           </div>
         </div>
@@ -11423,22 +11493,34 @@ async function loadShareLinks(){
 }
 
 async function addShareLink(){
+  const url = document.getElementById('share-url').value.trim();
+  const platform = document.getElementById('share-platform').value;
   const name = document.getElementById('share-name').value.trim();
-  const pickcode = document.getElementById('share-pickcode').value.trim();
-  const receiveCode = document.getElementById('share-receive-code').value.trim();
-  if(!pickcode){ alert('请输入分享码 pickcode'); return; }
+  const share_id = document.getElementById('share-id').value.trim();
+  const password = document.getElementById('share-pwd').value.trim();
+  const folder_id = document.getElementById('share-folder').value.trim();
+
+  if(!url && !platform){ alert('请粘贴分享链接或选择网盘类型'); return; }
+  if(!url && !share_id){ alert('请输入分享ID'); return; }
+
+  const body = {};
+  if(url) body.url = url;
+  if(platform) body.platform = platform;
+  if(name) body.name = name;
+  if(share_id) body.share_id = share_id;
+  if(password) body.password = password;
+  if(folder_id) body.folder_id = folder_id;
+
   try{
     const r = await fetch('/api/share/links', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, pickcode, receive_code: receiveCode }),
+      body: JSON.stringify(body),
     });
     const d = await r.json();
     if(d.success){
       alert('添加成功！正在创建Alist存储...');
-      document.getElementById('share-pickcode').value = '';
-      document.getElementById('share-receive-code').value = '';
-      document.getElementById('share-name').value = '';
+      clearShareForm();
       loadShareLinks();
     } else {
       alert('添加失败: ' + (d.error || '未知错误'));
@@ -11457,7 +11539,6 @@ async function deleteShareLink(id, name){
       const deletedCount = d.deletedSongs || 0;
       alert('删除成功' + (deletedCount > 0 ? '，已清理 ' + deletedCount + ' 首歌曲' : ''));
       loadShareLinks();
-      // 刷新顶部统计和歌曲列表，确保歌曲总数实时更新
       if (typeof loadAll === 'function') loadAll();
     } else {
       alert('删除失败: ' + (d.error || '未知错误'));
@@ -11468,13 +11549,14 @@ async function deleteShareLink(id, name){
 }
 
 async function scanShareLink(id){
-  if(!confirm('开始扫描该分享链接中的所有视频文件？\n扫描过程可能需要几分钟。')) return;
+  if(!confirm('开始扫描该分享链接中的所有媒体文件？\n扫描过程可能需要几分钟。')) return;
   try{
     const r = await fetch(`/api/share/links/${id}/scan`, { method: 'POST' });
     const d = await r.json();
     if(d.success){
-      alert('扫描已启动，请稍候刷新列表查看结果');
-      setTimeout(loadShareLinks, 3000);
+      alert('扫描已启动，可在下方查看进度');
+      pollShareScanState();
+      setTimeout(loadShareLinks, 5000);
     } else {
       alert('启动扫描失败: ' + (d.error || '未知错误'));
     }
@@ -11482,7 +11564,6 @@ async function scanShareLink(id){
     alert('启动扫描失败: ' + e.message);
   }
 }
-
 function escapeHtml(str){
   const div = document.createElement('div');
   div.textContent = str || '';

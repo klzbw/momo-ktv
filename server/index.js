@@ -178,6 +178,7 @@ const cloudDrive = require('./cloud-drive');
 
 const directStream = require('./direct-stream');
 const shareImport = require('./share-import');
+const alistManager = require('./alist-manager');
 
 const cloud115Login = require('./cloud-115-login');
 
@@ -589,6 +590,21 @@ app.use('/api/cloud', cloudDrive.init(db));
 
 app.use('/api/direct-stream', directStream.init(db));
 app.use('/api/share', shareImport.init(db, process.env.DATA_DIR || '/data'));
+
+// AList 进程管理（自动启动内置 AList，用于共享链接 strm 方案）
+alistManager.init(process.env.DATA_DIR || '/data');
+app.get('/api/alist/status', (req, res) => {
+  res.json({ success: true, data: alistManager.getStatus() });
+});
+app.post('/api/alist/restart', async (req, res) => {
+  try {
+    alistManager.stop();
+    setTimeout(() => alistManager.start().catch(e => console.warn(e)), 2000);
+    res.json({ success: true, message: 'AList 重启中' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
 
 app.use('/api/115', cloud115Login);
 
@@ -10262,6 +10278,31 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
         artist: song.artist,
         audioTracks: song.audio_tracks || 2,
         source: 'share-115',
+      });
+    }
+  }
+
+  // 共享链接 strm 来源（全网盘，零风控，通过 AList 各网盘 Share 驱动）
+  if (song.source_root === 'strm-shared' || song.is_strm === 1) {
+    const filepath = song.filepath || '';
+    if (filepath.startsWith('alist:')) {
+      const alistPath = filepath.substring(6);
+      const videoUrl = '/api/share/stream' + alistPath;
+      console.log('[SEP-INFO] strm共享直链(Alist):', videoUrl);
+
+      return res.json({
+        dual: false,
+        hasVocal: true,
+        hasAccompaniment: true,
+        isNetworkMkv: true,
+        videoUrl: videoUrl,
+        vocalUrl: videoUrl,
+        accompUrl: videoUrl,
+        songId: song.id,
+        title: song.title,
+        artist: song.artist,
+        audioTracks: song.audio_tracks || 2,
+        source: 'strm-shared',
       });
     }
   }
@@ -20276,7 +20317,7 @@ function findOrphanSongIds() {
 
 
   // 分享链接导入的歌曲（source_root 以 share- 开头）不属于曲库来源配置，不算孤儿
-  return rows.filter(r => !knownDirs.has(r.source_root) && !r.source_root.startsWith('share-')).map(r => r.id);
+  return rows.filter(r => !knownDirs.has(r.source_root) && !r.source_root.startsWith('share-') && r.source_root !== 'strm-shared').map(r => r.id);
 
 
 
