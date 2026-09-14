@@ -348,6 +348,17 @@ router.post('/apply', async (req, res) => {
 
     const mount = mountPath || '/🍒夸克网盘/' + (nickname || 'quark');
 
+    // 同时在本地 cloud_accounts 表创建 quark 账号（供曲库浏览/扫描/直链使用）
+    try {
+      const cd = require('./cloud-drive');
+      if (cd.manager) {
+        const accName = nickname || '我的夸克网盘';
+        await cd.manager.createAccountWithCookie('quark', accName, cookie, cookie);
+      }
+    } catch (e) {
+      console.warn('[QuarkLogin] 创建本地 quark 账号失败（不影响 Alist）:', e.message);
+    }
+
     // 检查是否已存在
     const storages = await alistApi('GET', '/api/admin/storage/list');
     if (storages.code === 200) {

@@ -411,6 +411,15 @@ class BaiduDriver extends CloudDriveBase {
       vip_type: result.vip_type,
     };
   }
+
+  async testConnection() {
+    try {
+      await this.getUserInfo();
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
 }
 
 module.exports = BaiduDriver;

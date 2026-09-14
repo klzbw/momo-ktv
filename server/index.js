@@ -181,6 +181,7 @@ const shareImport = require('./share-import');
 const alistManager = require('./alist-manager');
 
 const cloud115Login = require('./cloud-115-login');
+const cloudQuarkLogin = require('./cloud-quark-login');
 
 
 
@@ -607,6 +608,7 @@ app.post('/api/alist/restart', async (req, res) => {
 });
 
 app.use('/api/115', cloud115Login);
+app.use('/api/quark', cloudQuarkLogin.init(db));
 
 
 

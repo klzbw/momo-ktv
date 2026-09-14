@@ -20,6 +20,7 @@ const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 const CloudDriveBase = require('./base');
+const gbox = require('../gbox');
 
 // API 端点
 const API_URLS = {
@@ -185,11 +186,32 @@ class QuarkDriver extends CloudDriveBase {
   }
 
   async getQRCode() {
-    throw new Error('夸克暂不支持扫码登录，请使用 Cookie 登录');
+    // 扫码登录代理到 G-Box：GET /api/qrcode_quark 返回 PNG，token 在响应头；
+    // GET /api/status_quark?token=xxx 轮询，成功时返回 cookie。
+    const r = await gbox.call('/api/qrcode_quark', 'GET', null, { raw: true });
+    const qrToken = r.headers && (r.headers.token || r.headers.Token);
+    if (!qrToken || !Buffer.isBuffer(r.body) || r.body.length < 100) {
+      throw new Error('获取夸克二维码失败，请检查 G-Box 是否正常');
+    }
+    return {
+      qrId: qrToken,
+      qrImage: 'data:image/png;base64,' + r.body.toString('base64'),
+      expiresIn: 120,
+    };
   }
 
-  async checkQRStatus() {
-    throw new Error('夸克暂不支持扫码登录，请使用 Cookie 登录');
+  async checkQRStatus(qrId) {
+    if (!qrId) return { status: 'waiting' };
+    const r = await gbox.call('/api/status_quark?token=' + encodeURIComponent(qrId), 'GET');
+    const j = r.json || {};
+    if (j.status === 'success' && j.cookie) {
+      return {
+        status: 'confirmed',
+        tokens: { access_token: j.cookie, refresh_token: j.cookie, expires_in: 0 },
+      };
+    }
+    if (j.status === 'expired') return { status: 'expired' };
+    return { status: 'waiting' };
   }
 
   async refreshToken() {
