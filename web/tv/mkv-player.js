@@ -420,6 +420,13 @@
       const b = await this.readBytes(4);
       return new DataView(b.buffer).getFloat32(0);
     }
+    async readFloatSize(n) {
+      const b = await this.readBytes(n);
+      const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+      if (n === 8) return dv.getFloat64(0, false);
+      if (n === 4) return dv.getFloat32(0, false);
+      return n >= 4 ? dv.getFloat32(0, false) : NaN;
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -667,11 +674,12 @@
         const s = r.tell();
         const e = s + size.value;
         if (id.value === ID.TIMECODE_SCALE) {
-          this._timecodeScale = await r.readUint(4);
+          this._timecodeScale = await r.readUint(Math.min(8, Math.max(1, size.value)));
         } else if (id.value === ID.DURATION) {
-          const f = await r.readFloat();
-          // Duration 单位是 TimecodeScale ns，转秒
-          this._duration = (f * this._timecodeScale) / 1e9;
+          const f = await r.readFloatSize(size.value);
+          // Duration 按元素真实长度读 float32/64，单位是 TimecodeScale(ns) 个 tick，转秒
+          const _sec = (f * this._timecodeScale) / 1e9;
+          this._duration = (isFinite(_sec) && _sec > 0) ? _sec : 0;
         } else {
           r._pos += size.value;
         }

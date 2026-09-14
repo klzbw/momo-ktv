@@ -84,13 +84,22 @@ struct AudioBackgroundView: View {
                                startPoint: .top, endPoint: .bottom)
                     .frame(width: sw, height: sh)
                 if photoOnly {
-                    // 全屏播放页：✨闪光按钮三模式照片背景
-                    if photoMode == .flow {
-                        PhotosBg(server: server, w: sw, h: sh)
-                    } else if photoMode == .photoWall {
-                        PhotoWallBg(server: server, w: sw, h: sh)
+                    // 全屏播放页：确认键循环14种效果；仅"我的图片(photos)"时上下键切照片三模式
+                    if mode == .photos {
+                        if photoMode == .flow {
+                            PhotosBg(server: server, w: sw, h: sh)
+                        } else if photoMode == .photoWall {
+                            PhotoWallBg(server: server, w: sw, h: sh)
+                        } else {
+                            MemoryBg(server: server, w: sw, h: sh)
+                        }
                     } else {
-                        MemoryBg(server: server, w: sw, h: sh)
+                        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { tl in
+                            Canvas { ctx, size in
+                                render(mode, t: tl.date.timeIntervalSince1970, size: size, ctx: &ctx)
+                            }
+                        }
+                        .frame(width: sw, height: sh)
                     }
                 } else if mode == .photos {
                     PhotosBg(server: server, w: sw, h: sh)
@@ -403,7 +412,8 @@ struct PhotoWallBg: View {
             AsyncImage(url: u, transaction: Transaction(animation: .easeInOut(duration: 1.0))) { phase in
                 switch phase {
                 case .success(let img):
-                    img.resizable().scaledToFill()
+                    // contain：整张照片完整显示，不再按 cell 比例裁切(cover)导致四宫格缺边
+                    img.resizable().scaledToFit()
                 default:
                     Color(white: 0.1)
                 }

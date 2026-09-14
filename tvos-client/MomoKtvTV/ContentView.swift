@@ -31,6 +31,9 @@ struct ContentView: View {
     @State private var showingPlayer = false
     @State private var activePanel: PanelType? = nil
     @State private var activePage: PageType? = nil
+    // 每次进入/切换页面时递增，配合 .id() 强制 SwiftUI 重建页面视图，
+    // 使搜索输入文字、筛选结果、分页等 @State 在每次进入时回到初始值、onAppear 重新触发
+    @State private var pageOpenToken: Int = 0
     @State private var selectedArtist: String = ""
     @State private var currentTheme: AppTheme = .theme1
     @State private var isPlaying = false
@@ -69,6 +72,7 @@ struct ContentView: View {
 
                     if let page = activePage {
                         pageView(page)
+                            .id(pageOpenToken)
                             .zIndex(1)
                     }
 
@@ -135,6 +139,11 @@ struct ContentView: View {
             }
             // VLC使用共享单例视图(VLCSharedVideoView)，大小屏切换时只是把
             // 同一个UIView在容器间移动，视频输出完全不中断，无需软重启。
+        }
+        .onChange(of: activePage) { newPage in
+            // 每次进入/切到任一子页面时递增 token，配合上面的 .id(pageOpenToken)
+            // 强制重建页面视图：清空键盘输入与筛选结果等 @State，并重新触发 onAppear 加载全量目录
+            if newPage != nil { pageOpenToken += 1 }
         }
         .fullScreenCover(isPresented: $showingPlayer) {
             if let playing = api.queue.first(where: { $0.isPlaying }) {
@@ -1523,11 +1532,13 @@ struct OrderSongsPage: View {
             lastFilterQuery = ""
             lastFilterIndices = []
             currentPage = 0
-            filteredSongs = api.songs
-            if api.songs.isEmpty {
-                api.fetchSongs { buildCache() }
-            } else {
-                buildCache()
+            keyboardMode = .abc
+            // Always reload the full catalog on entry: after leaving an artist page, api.songs
+            // may still hold that artist's subset, so force /api/songs and refresh list + pinyin cache.
+            filteredSongs = []
+            api.fetchSongs {
+                self.filteredSongs = self.api.songs
+                self.buildCache()
             }
         }
         .onChange(of: api.songs.count) { _ in buildCache() }

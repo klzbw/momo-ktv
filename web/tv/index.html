@@ -3623,7 +3623,7 @@ function handlePlayerChanged(m){
 // 播放端周期上报的进度广播，控制端(!isActivePlayer)靠它做本地插值展示，
 // 见下面 tickCtrlProgress()；播放端自己收到这条不需要处理(它的进度条
 // 直接由 <video> 的 timeupdate 事件驱动，更准更实时)。
-function handleProgressBroadcast(m){ctrlProgress={queueId:m.queueId,currentTime:Number(m.currentTime)||0,updatedAt:Date.now(),paused:!!m.paused};}
+function handleProgressBroadcast(m){ctrlProgress={queueId:m.queueId,currentTime:Number(m.currentTime)||0,updatedAt:Date.now(),paused:!!m.paused,duration:Number(m.duration)||0};}
 // 非播放端标签页同步播放/暂停图标、原伴唱高亮：本机没有 <video> 在真的
 // 播放，按钮点了之后本地立刻能看到的反馈只能靠服务端广播回来的这份
 // "播放端真实状态"（跟手机遥控端 applyPlaybackState() 是同一套思路），
@@ -3717,7 +3717,7 @@ function tickCtrlProgress(){
   const playing=queueData.find(q=>q.status==='playing');
   const fillEl=document.getElementById('prog-fill'),curEl=document.getElementById('tcur'),totEl=document.getElementById('ttot');
   if(!playing||!fillEl){if(fillEl)fillEl.style.width='0%';if(curEl)curEl.textContent='0:00';if(totEl)totEl.textContent='0:00';return;}
-  const total=ctrlSongDuration||0;
+  const total=saneDur(ctrlProgress.duration)||ctrlSongDuration||0; // 优先用播放端回传的真实时长；否则退回已清洗的曲库时长
   let cur=ctrlProgress.currentTime;
   if(ctrlProgress.queueId===playing.queue_id&&!ctrlProgress.paused)cur+=(Date.now()-ctrlProgress.updatedAt)/1000;
   if(total>0)cur=Math.min(cur,total);
@@ -3731,7 +3731,7 @@ setInterval(tickCtrlProgress,500);
 // 逐帧上报制造无意义的 WS 流量。
 setInterval(()=>{
   if(!isActivePlayer||!curSong)return;
-  sendWS({type:'progress',deviceId:myDeviceId,queueId:curSong.queue_id,currentTime:video.currentTime||0,paused:video.paused,voice:VoiceManager.isOriginal?'original':'accompaniment'});
+  sendWS({type:'progress',deviceId:myDeviceId,queueId:curSong.queue_id,currentTime:video.currentTime||0,duration:(isFinite(video.duration)?video.duration:0),paused:video.paused,voice:VoiceManager.isOriginal?'original':'accompaniment'});
 },1000);
 function renderAll(){
   const playing=queueData.find(q=>q.status==='playing');
@@ -3757,7 +3757,7 @@ function renderAll(){
     document.getElementById('ni-meta').textContent=`${playing.artist||''} · ${playing.nickname}`;
     document.getElementById('ov-title').textContent=playing.title;
     document.getElementById('ov-artist').textContent=`${playing.artist||''} · ${playing.nickname}`;
-    ctrlSongDuration=playing.duration||0; // 控制端的进度条分母用曲库元数据里的时长，播放端仍以video.duration为准
+    ctrlSongDuration=saneDur(playing.duration); // 控制端进度条分母：曲库元数据时长(经 saneDur 清洗，剔除字节数误算/未探测的脏值)；播放端仍以video.duration为准
     if(isActivePlayer){
       // 需求(多终端播放进度同步)：只有被服务端认定为"播放端"的这台设备
       // 才真正加载媒体流解码播放，其余分支(下面 else)保持 MV 框在品牌
@@ -4012,7 +4012,7 @@ setInterval(()=>{
   let dur=video.duration;
   if(!isFinite(dur)||dur<=0){
     const playing=queueData.find(q=>q.status==='playing');
-    dur=ctrlSongDuration||(curSong&&curSong.duration)||(playing&&playing.duration)||0;
+    dur=ctrlSongDuration||saneDur(curSong&&curSong.duration)||saneDur(playing&&playing.duration)||0;
   }
   const cur=isFinite(video.currentTime)?video.currentTime:0;
   fillEl.style.width=dur>0?Math.min(100,cur/dur*100)+'%':'0%';
@@ -4132,13 +4132,19 @@ function armFsBannerTimer(){
   else window.addEventListener('resize',sync);
 })();
 function fmt(s){return`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;}
+// 时长(秒)合法性/合理性校正：曲库元数据里的 duration 对网络 MKV 是用文件字节数
+// 粗略估算的(size/1000)，一首歌几十MB会算出几万秒(几百分钟)；FLAC 分离曲入库时
+// duration 常为 null。这里把不可信/越界的值当成"未知"返回 0，由播放端经 progress
+// 广播回传的真实 video.duration 兜底(见 handleProgressBroadcast / tickCtrlProgress)。
+// KTV 歌曲正常 2~8 分钟，>1800s(30分钟) 的一律视为脏数据。
+function saneDur(s){s=Number(s);return (isFinite(s)&&s>0&&s<1800)?s:0;}
 // 需求(已点列表后台预加载)：后端现在会在队列变化时后台异步探测每首歌的
 // 时长(songs.duration，见 server/queuePreload.js)，探测完成后通过 WebSocket
 // 广播新的队列数据。这里加一个小helper，在已点列表(#rq-list/#fsq-list/
 // #pl-queue 三处都在用)里把 q.duration 渲染成"· 3:45"这种小字标签；探测
 // 还没完成/探测失败时 q.duration 是 null，直接不显示这一截，不占位、不显示
 // "0:00"这种误导性的假时长。
-function qDurLabel(q){return (q.duration!=null&&isFinite(q.duration))?` · ${fmt(q.duration)}`:'';}
+function qDurLabel(q){return saneDur(q.duration)?` · ${fmt(saneDur(q.duration))}`:'';}
 // 需求(多终端播放进度同步)：拖动进度条要能在任意控制端操作、全局同步
 // 生效，不能再像以前一样只允许本机(播放端)直接改 video.currentTime——
 // 控制端根本没有 <video> 在播放，没有本地时间轴可改。统一改成"计算出
@@ -4147,7 +4153,7 @@ function qDurLabel(q){return (q.duration!=null&&isFinite(q.duration))?` · ${fmt
 // 时除了发消息，也顺手直接本地 set 一次，省去一次消息往返的等待感。
 function seekVideo(e){
   const b=document.getElementById('prog-bar');
-  const total=isActivePlayer?(video.duration||0):(ctrlSongDuration||0);
+  const total=isActivePlayer?(video.duration||0):(saneDur(ctrlProgress.duration)||ctrlSongDuration||0);
   if(!total)return;
   const t=(e.offsetX/b.clientWidth)*total;
   if(isActivePlayer)video.currentTime=t;

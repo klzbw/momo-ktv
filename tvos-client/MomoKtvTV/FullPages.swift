@@ -487,6 +487,9 @@ struct ArtistsPage: View {
         }
         .background(WebColors.bg.ignoresSafeArea())
         .onAppear {
+            // 每次进入清空上次的拼音输入并回到第1页，避免搜索框残留文字、列表停留在上次过滤结果
+            inputLetters = ""
+            currentPage = 1
             isLoading = true
             filteredArtists = api.artists
             api.fetchArtists {
@@ -800,6 +803,13 @@ struct CategoryPage: View {
                 .focusSection()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .onAppear {
+            // Reset lang/genre chips + page on entry; load full catalog (api.songs may be polluted by artist view)
+            selectedLang = nil
+            selectedGenre = nil
+            currentPage = 1
+            api.fetchSongs()
         }
     }
 }

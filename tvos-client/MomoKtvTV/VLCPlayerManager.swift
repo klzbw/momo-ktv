@@ -54,6 +54,9 @@ class VLCPlayerManager: NSObject, ObservableObject {
     private var libraryInitialized = false
     private var isRestarting = false
     private var lastReportedState: Int = -1
+    /// 播放代数：每次 play()/stop() 自增。慢于切歌的 302 预解析回调据此失效，
+    /// 防止旧 MKV 网络流在切到纯音频(FLAC)歌后仍被 startPlayback 拉起，造成两路声音叠加。
+    private var playbackGeneration: Int = 0
 
     /// 115 网盘专用 UA（必须与 pan115 driver 调用 API 时使用的 UA 一致）
     static let cloud115UserAgent = "Mozilla/5.0 115Browser/23.9.3.2"
@@ -313,6 +316,10 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
         setupLibrary()
 
+        // 新一次起播：自增播放代数，使任何慢于本次的旧预解析回调失效
+        playbackGeneration += 1
+        let gen = playbackGeneration
+
         guard let player = player else {
             onError?("VLC播放器未初始化")
             return
@@ -323,6 +330,12 @@ class VLCPlayerManager: NSObject, ObservableObject {
         // (fix8测试时服务端有500bug,结果不可靠)
         resolveRedirect(for: url) { [weak self] finalURL, cloudCookie in
             guard let self = self else { return }
+            // 切歌保护：预解析期间若已 stop()/换歌(代数变化)，丢弃这次过期起播，
+            // 否则旧 MKV 网络流会在纯音频歌底下继续出声(两路声音叠加)
+            guard gen == self.playbackGeneration else {
+                self.log("⚠️ 过期的302预解析回调(代数\(gen)≠当前\(self.playbackGeneration))，丢弃起播: \(finalURL.absoluteString.prefix(60))")
+                return
+            }
             self.startPlayback(player: player, url: finalURL, originalURL: url, cloudCookie: cloudCookie, skipCookieHeader: false)
         }
         #else
@@ -486,6 +499,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
 
     func stop() {
         #if canImport(TVVLCKit)
+        playbackGeneration += 1   // 使在途的302预解析回调失效，杜绝旧MKV音轨泄漏
         player?.stop()
         isPlaying = false
         activeDrawable = nil
