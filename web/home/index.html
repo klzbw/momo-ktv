@@ -292,6 +292,64 @@ body{
   .cloud-card-body{flex-direction:column}
   .cloud-panel{max-width:360px}
 }
+
+/* ===== 曲库来源管理区域 ===== */
+.cloud-library-section{margin-top:20px;padding-top:18px;border-top:1px solid rgba(255,255,255,.08);position:relative;z-index:1}
+.cloud-library-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.cloud-library-title{font-size:15px;font-weight:700;background:linear-gradient(90deg,var(--cyan),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
+.cloud-library-badge{font-size:10px;padding:2px 8px;border-radius:999px;background:rgba(54,217,247,.12);color:var(--cyan);border:1px solid rgba(54,217,247,.25)}
+.cloud-add-root-row{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.cloud-add-root-row select,.cloud-add-root-row input{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:8px 10px;color:var(--text);font-size:12px;outline:none}
+.cloud-add-root-row select{flex:0 0 140px;cursor:pointer}
+.cloud-add-root-row select option{background:#10102a;color:var(--text)}
+.cloud-add-root-row input[type=text]{flex:1;min-width:160px}
+.cloud-browse-btn{padding:8px 14px;border-radius:9px;border:1px solid rgba(54,217,247,.35);background:rgba(54,217,247,.1);color:var(--cyan);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:.15s}
+.cloud-browse-btn:hover{background:rgba(54,217,247,.22)}
+.cloud-browse-btn:disabled{opacity:.5;cursor:not-allowed}
+.cloud-browser-list{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:6px;max-height:160px;overflow-y:auto;margin-bottom:10px;display:none}
+.cloud-browser-list.show{display:block}
+.cloud-browser-item{padding:6px 10px;border-radius:7px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:.12s}
+.cloud-browser-item:hover{background:rgba(199,54,247,.15)}
+.cloud-browser-item.dir{color:var(--text)}
+.cloud-browser-item.file{color:var(--sub);cursor:default;opacity:.6}
+.cloud-browser-item.file:hover{background:transparent}
+.cloud-browser-icon{font-size:14px;flex-shrink:0}
+.cloud-browser-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cloud-browser-size{font-size:10px;color:var(--sub);flex-shrink:0}
+.cloud-browser-empty{text-align:center;padding:16px;color:var(--sub);font-size:11px}
+.cloud-browser-loading{text-align:center;padding:12px;color:var(--cyan);font-size:12px}
+.cloud-root-action-row{display:flex;gap:8px;align-items:center;margin-bottom:14px}
+.cloud-root-action-row select{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:8px 10px;color:var(--text);font-size:12px;outline:none;cursor:pointer}
+.cloud-root-action-row select option{background:#10102a;color:var(--text)}
+.cloud-add-root-btn{flex:1;padding:9px;border-radius:10px;font-size:12px;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--cyan));border:none;color:#07071a;cursor:pointer;transition:.2s;white-space:nowrap}
+.cloud-add-root-btn:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(199,54,247,.3)}
+.cloud-add-root-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.cloud-roots-list{display:flex;flex-direction:column;gap:8px}
+.cloud-root-item{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px 14px;transition:.15s}
+.cloud-root-item:hover{border-color:rgba(199,54,247,.3);background:rgba(199,54,247,.06)}
+.cloud-root-item.scanning{border-color:rgba(54,217,247,.5);background:rgba(54,217,247,.06)}
+.cloud-root-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.cloud-root-label{font-size:13px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cloud-root-driver-tag{font-size:10px;padding:2px 7px;border-radius:999px;background:rgba(199,54,247,.15);color:var(--accent);border:1px solid rgba(199,54,247,.25);flex-shrink:0}
+.cloud-root-path{font-size:11px;color:var(--sub);margin-bottom:8px;font-family:monospace;word-break:break-all}
+.cloud-root-meta{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--sub);margin-bottom:8px}
+.cloud-root-song-count{color:var(--cyan);font-weight:600}
+.cloud-root-actions{display:flex;gap:6px;flex-wrap:wrap}
+.cloud-root-scan-btn{padding:5px 12px;border-radius:7px;font-size:11px;font-weight:600;background:linear-gradient(135deg,rgba(54,217,247,.2),rgba(199,54,247,.2));border:1px solid rgba(54,217,247,.35);color:var(--cyan);cursor:pointer;transition:.15s}
+.cloud-root-scan-btn:hover{background:rgba(54,217,247,.3)}
+.cloud-root-scan-btn:disabled{opacity:.5;cursor:not-allowed}
+.cloud-root-del-btn{padding:5px 12px;border-radius:7px;font-size:11px;background:rgba(255,79,155,.1);border:1px solid rgba(255,79,155,.25);color:var(--pink);cursor:pointer;transition:.15s}
+.cloud-root-del-btn:hover{background:rgba(255,79,155,.2)}
+.cloud-scan-progress{margin-top:8px;display:none}
+.cloud-scan-progress.show{display:block}
+.cloud-scan-bar-bg{height:6px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden}
+.cloud-scan-bar-fill{height:100%;background:linear-gradient(90deg,var(--cyan),var(--accent));border-radius:999px;transition:width .5s ease;width:0%}
+.cloud-scan-info{display:flex;justify-content:space-between;font-size:10px;color:var(--sub);margin-top:5px}
+.cloud-scan-status-text{color:var(--cyan)}
+.cloud-roots-empty{text-align:center;padding:20px;color:var(--sub);font-size:12px;background:rgba(255,255,255,.02);border:1px dashed rgba(255,255,255,.1);border-radius:12px}
+.cloud-roots-empty-icon{font-size:28px;margin-bottom:6px;opacity:.5}
+.cloud-hint{font-size:10px;color:var(--sub);line-height:1.6;margin-bottom:8px}
+.cloud-hint a{color:var(--cyan);text-decoration:none}
 </style>
 <link rel="stylesheet" href="/cartoon-theme.css">
 </head>
@@ -430,6 +488,44 @@ body{
               </div>
               <div class="cloud-tip" style="text-align:center;margin-top:6px;margin-bottom:0">Alist：192.168.3.16:5236</div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 曲库来源管理 ===== -->
+      <div class="cloud-library-section">
+        <div class="cloud-library-header">
+          <div class="cloud-library-title">🎵 曲库来源与扫描</div>
+          <span class="cloud-library-badge" id="home-roots-count-badge">0 个来源</span>
+        </div>
+
+        <div class="cloud-hint">选择网盘账号 → 浏览歌曲目录 → 添加为曲库来源 → 扫描入库后即可在大屏/手机端点歌播放</div>
+
+        <div class="cloud-add-root-row">
+          <select id="home-root-acct-sel" onchange="onHomeRootAcctChange()">
+            <option value="">选择网盘账号</option>
+          </select>
+          <input id="home-root-path-input" type="text" placeholder="/ 歌曲目录路径（点浏览选择）">
+          <button class="cloud-browse-btn" id="home-browse-btn" onclick="browseHomeCloudPath()">📂 浏览</button>
+        </div>
+
+        <div class="cloud-browser-list" id="home-cloud-browser">
+          <div class="cloud-browser-empty">选择账号后点"浏览"查看网盘目录</div>
+        </div>
+
+        <div class="cloud-root-action-row">
+          <select id="home-root-media-type">
+            <option value="mkv">MKV视频(多音轨)</option>
+            <option value="flac">分离FLAC(人声+伴奏)</option>
+          </select>
+          <button class="cloud-add-root-btn" onclick="addHomeCloudRoot()">+ 添加为曲库来源</button>
+        </div>
+
+        <div class="cloud-roots-list" id="home-roots-list">
+          <div class="cloud-roots-empty">
+            <div class="cloud-roots-empty-icon">📭</div>
+            还没有曲库来源<br>
+            <span style="font-size:11px;opacity:.7">选择网盘路径后点"添加为曲库来源"</span>
           </div>
         </div>
       </div>
@@ -984,6 +1080,290 @@ async function deleteCloudAccount(id, name){
     else{ alert('删除失败'); }
   }catch(e){ alert('删除请求失败'); }
 }
+
+// ========== 曲库来源管理 ==========
+let homeSrcRootsCache = [];
+let homeScanPollTimer = null;
+let homeScanningRootIdx = -1;
+
+const HOME_CLOUD_COMMON_PATHS = {
+  pan115: ['/momo-ktv/ktv-output', '/ktv-output', '/KTV', '/music', '/歌曲', '/ktv'],
+  cmcc: ['/KTV/music', '/KTV', '/music', '/歌曲', '/ktv'],
+  quark: ['/KTV', '/music', '/歌曲', '/ktv', '/momo-ktv/ktv-output'],
+  aliyun: ['/KTV', '/music', '/歌曲'],
+  baidu: ['/KTV', '/music', '/歌曲'],
+  xunlei: ['/KTV', '/music', '/歌曲'],
+};
+
+function populateHomeRootAcctSelect(){
+  const sel = document.getElementById('home-root-acct-sel');
+  if(!sel) return;
+  const curVal = sel.value;
+  sel.innerHTML = '<option value="">选择网盘账号</option>' +
+    cloudAccountsCache.map(a => '<option value="' + a.id + '">' + escHtml(a.name) + ' (' + (HOME_DRIVER_NAMES[a.driver]||a.driver) + ')</option>').join('');
+  if(curVal && cloudAccountsCache.some(a => String(a.id) === curVal)) sel.value = curVal;
+}
+
+async function loadHomeLibrarySources(){
+  try{
+    const r = await fetch('/api/admin/library-sources');
+    if(!r.ok) return;
+    const d = await r.json();
+    homeSrcRootsCache = d.roots || [];
+    renderHomeSrcRoots();
+  }catch(e){}
+}
+
+function renderHomeSrcRoots(){
+  const listEl = document.getElementById('home-roots-list');
+  const badgeEl = document.getElementById('home-roots-count-badge');
+  if(!listEl) return;
+  const cloudRoots = homeSrcRootsCache.filter(r => r.cloud);
+  if(badgeEl) badgeEl.textContent = cloudRoots.length + ' 个来源';
+  if(!cloudRoots.length){
+    listEl.innerHTML = '<div class="cloud-roots-empty"><div class="cloud-roots-empty-icon">📭</div>还没有曲库来源<br><span style="font-size:11px;opacity:.7">选择网盘路径后点"添加为曲库来源"</span></div>';
+    return;
+  }
+  listEl.innerHTML = cloudRoots.map((r) => {
+    const globalIdx = homeSrcRootsCache.indexOf(r);
+    const acct = cloudAccountsCache.find(a => String(a.id) === String(r.cloud.accountId));
+    const driverName = acct ? (HOME_DRIVER_NAMES[acct.driver]||acct.driver) : '网盘';
+    const isScanning = homeScanningRootIdx === globalIdx;
+    const songCount = r.songCount || 0;
+    return '<div class="cloud-root-item' + (isScanning ? ' scanning' : '') + '">' +
+      '<div class="cloud-root-top">' +
+        '<div class="cloud-root-label">' + escHtml(r.label || r.dir) + '</div>' +
+        '<span class="cloud-root-driver-tag">☁️ ' + driverName + '</span>' +
+      '</div>' +
+      '<div class="cloud-root-path">' + escHtml(r.cloud.cloudPath || r.dir) + '</div>' +
+      '<div class="cloud-root-meta">' +
+        '<span>类型: ' + (r.cloud.mediaType==='flac' ? 'FLAC分离' : 'MKV视频') + '</span>' +
+        '<span class="cloud-root-song-count">' + songCount + ' 首歌曲</span>' +
+        (r.enabled === false ? '<span style="color:var(--pink)">已禁用</span>' : '') +
+      '</div>' +
+      '<div class="cloud-root-actions">' +
+        '<button class="cloud-root-scan-btn' + (isScanning ? ' disabled' : '') + '" onclick="scanHomeCloudRoot(' + globalIdx + ')">' + (isScanning ? '⏳ 扫描中...' : '▶ 扫描入库') + '</button>' +
+        '<button class="cloud-root-del-btn" onclick="deleteHomeCloudRoot(' + globalIdx + ',\'' + escJs(r.label||r.dir) + '\')">🗑️ 移除</button>' +
+      '</div>' +
+      (isScanning ? '<div class="cloud-scan-progress show" id="home-scan-progress-' + globalIdx + '"><div class="cloud-scan-bar-bg"><div class="cloud-scan-bar-fill" id="home-scan-fill-' + globalIdx + '"></div></div><div class="cloud-scan-info"><span class="cloud-scan-status-text" id="home-scan-status-' + globalIdx + '">正在扫描...</span><span id="home-scan-count-' + globalIdx + '">0 首</span></div></div>' : '') +
+    '</div>';
+  }).join('');
+}
+
+async function onHomeRootAcctChange(){
+  const acctId = document.getElementById('home-root-acct-sel').value;
+  document.getElementById('home-root-path-input').value = '';
+  document.getElementById('home-cloud-browser').classList.remove('show');
+  if(!acctId) return;
+  const acct = cloudAccountsCache.find(a => String(a.id) === String(acctId));
+  if(!acct) return;
+  const driver = acct.driver || 'pan115';
+  const commonPaths = HOME_CLOUD_COMMON_PATHS[driver] || ['/KTV', '/music'];
+  for(const p of commonPaths){
+    try{
+      const r = await fetch('/api/admin/browse-cloud?accountId=' + encodeURIComponent(acctId) + '&path=' + encodeURIComponent(p));
+      const d = await r.json();
+      if(r.ok && d.folders && d.folders.length > 0){
+        document.getElementById('home-root-path-input').value = p;
+        browseHomeCloudPath();
+        return;
+      }
+    }catch(e){}
+  }
+}
+
+async function browseHomeCloudPath(){
+  const acctId = document.getElementById('home-root-acct-sel').value;
+  const path = document.getElementById('home-root-path-input').value.trim() || '/';
+  const browserEl = document.getElementById('home-cloud-browser');
+  const btn = document.getElementById('home-browse-btn');
+  if(!acctId){ alert('请先选择网盘账号'); return; }
+  btn.disabled = true; btn.textContent = '浏览中...';
+  browserEl.classList.add('show');
+  browserEl.innerHTML = '<div class="cloud-browser-loading">⏳ 正在加载网盘目录（移动云盘可能较慢，请耐心等待）...</div>';
+  try{
+    const r = await fetch('/api/admin/browse-cloud?accountId=' + encodeURIComponent(acctId) + '&path=' + encodeURIComponent(path));
+    const d = await r.json();
+    if(!r.ok){ browserEl.innerHTML = '<div class="cloud-browser-empty">❌ ' + escHtml(d.error||'浏览失败') + '</div>'; return; }
+    renderHomeBrowserList(d.folders || [], path);
+  }catch(e){
+    browserEl.innerHTML = '<div class="cloud-browser-empty">❌ 浏览失败：网络错误</div>';
+  }finally{
+    btn.disabled = false; btn.textContent = '📂 浏览';
+  }
+}
+
+function renderHomeBrowserList(folders, currentPath){
+  const browserEl = document.getElementById('home-cloud-browser');
+  const cleanPath = currentPath.replace(/\/$/, '');
+  let html = '';
+  if(cleanPath && cleanPath !== '/'){
+    const parent = cleanPath.substring(0, cleanPath.lastIndexOf('/')) || '/';
+    html += '<div class="cloud-browser-item dir" onclick="homeBrowserNavigate(\'' + escJs(parent) + '\')">' +
+      '<span class="cloud-browser-icon">📁</span><span class="cloud-browser-name">.. 返回上级</span></div>';
+  }
+  if(!folders.length){
+    html += '<div class="cloud-browser-empty">这一级没有子目录了</div>';
+  }else{
+    folders.forEach(f => {
+      const isDir = f.isDir !== false;
+      const fullPath = (cleanPath === '/' ? '' : cleanPath) + '/' + f.name;
+      if(isDir){
+        html += '<div class="cloud-browser-item dir" onclick="homeBrowserNavigate(\'' + escJs(fullPath) + '\')">' +
+          '<span class="cloud-browser-icon">📁</span><span class="cloud-browser-name">' + escHtml(f.name) + '</span></div>';
+      }else{
+        const sizeStr = f.size ? (f.size > 1048576 ? Math.round(f.size/1048576) + 'MB' : Math.round(f.size/1024) + 'KB') : '';
+        html += '<div class="cloud-browser-item file" title="文件不可作为曲库根目录，请选择上层文件夹">' +
+          '<span class="cloud-browser-icon">🎵</span><span class="cloud-browser-name">' + escHtml(f.name) + '</span>' +
+          (sizeStr ? '<span class="cloud-browser-size">' + sizeStr + '</span>' : '') + '</div>';
+      }
+    });
+  }
+  browserEl.innerHTML = html;
+}
+
+function homeBrowserNavigate(path){
+  document.getElementById('home-root-path-input').value = path;
+  browseHomeCloudPath();
+}
+
+async function addHomeCloudRoot(){
+  const accountId = document.getElementById('home-root-acct-sel').value;
+  const cloudPath = document.getElementById('home-root-path-input').value.trim();
+  const mediaType = document.getElementById('home-root-media-type').value;
+  const btn = event.target;
+  if(!accountId){ alert('请先选择网盘账号'); return; }
+  if(!cloudPath){ alert('请填写网盘路径'); return; }
+  btn.disabled = true; btn.textContent = '添加中...';
+  try{
+    const res = await fetch('/api/admin/library-sources/roots', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cloud: true, accountId: Number(accountId), cloudPath, mediaType }),
+    });
+    const d = await res.json();
+    if(!res.ok){ alert('添加失败：' + (d.error || '未知错误')); return; }
+    alert('✅ 曲库来源添加成功！\n\n路径：' + cloudPath + '\n\n接下来点击列表中的"扫描入库"按钮开始扫描歌曲。');
+    document.getElementById('home-root-path-input').value = '';
+    document.getElementById('home-cloud-browser').classList.remove('show');
+    await loadHomeLibrarySources();
+  }catch(e){
+    alert('添加失败：网络错误');
+  }finally{
+    btn.disabled = false; btn.textContent = '+ 添加为曲库来源';
+  }
+}
+
+async function scanHomeCloudRoot(idx){
+  const r = homeSrcRootsCache[idx];
+  if(!r) return;
+  if(!confirm('开始扫描网盘曲库「' + (r.label||r.dir) + '」?\n\n扫描会遍历网盘目录下的歌曲文件并入库。大批量扫描需要较长时间，扫描过程中可看到进度提示。\n\n移动云盘API响应较慢，请耐心等待。')) return;
+  homeScanningRootIdx = idx;
+  renderHomeSrcRoots();
+  try{
+    const res = await fetch('/api/admin/library-sources/roots/' + idx + '/scan', { method: 'POST' });
+    const d = await res.json();
+    if(!res.ok){
+      alert('触发扫描失败：' + (d.error || '未知错误'));
+      homeScanningRootIdx = -1;
+      renderHomeSrcRoots();
+      return;
+    }
+    startHomeScanPolling(idx);
+  }catch(e){
+    alert('扫描请求失败：网络错误');
+    homeScanningRootIdx = -1;
+    renderHomeSrcRoots();
+  }
+}
+
+function startHomeScanPolling(idx){
+  if(homeScanPollTimer){ clearInterval(homeScanPollTimer); }
+  let pollCount = 0;
+  let lastSongCount = -1;
+  let stableCount = 0;
+  const maxPolls = 600;
+  homeScanPollTimer = setInterval(async () => {
+    pollCount++;
+    if(pollCount > maxPolls){
+      clearInterval(homeScanPollTimer); homeScanPollTimer = null;
+      homeScanningRootIdx = -1;
+      renderHomeSrcRoots();
+      return;
+    }
+    try{
+      const r = await fetch('/api/admin/library-sources');
+      if(!r.ok) return;
+      const d = await r.json();
+      homeSrcRootsCache = d.roots || [];
+      const cur = homeSrcRootsCache[idx];
+      const fillEl = document.getElementById('home-scan-fill-' + idx);
+      const statusEl = document.getElementById('home-scan-status-' + idx);
+      const countEl = document.getElementById('home-scan-count-' + idx);
+      if(cur){
+        const songCount = cur.songCount || 0;
+        if(countEl) countEl.textContent = songCount + ' 首已入库';
+        if(statusEl) statusEl.textContent = '正在扫描目录... ' + songCount + ' 首';
+        if(fillEl){
+          const pct = (pollCount % 20) * 5;
+          fillEl.style.width = pct + '%';
+        }
+        if(songCount === lastSongCount && songCount > 0){
+          stableCount++;
+          if(stableCount >= 10){
+            clearInterval(homeScanPollTimer); homeScanPollTimer = null;
+            homeScanningRootIdx = -1;
+            if(statusEl) statusEl.textContent = '✅ 扫描完成！共 ' + songCount + ' 首歌曲';
+            if(fillEl) fillEl.style.width = '100%';
+            setTimeout(() => { renderHomeSrcRoots(); }, 3000);
+            return;
+          }
+        }else{
+          stableCount = 0;
+        }
+        lastSongCount = songCount;
+      }
+    }catch(e){}
+  }, 3000);
+}
+
+function stopHomeScanPolling(){
+  if(homeScanPollTimer){ clearInterval(homeScanPollTimer); homeScanPollTimer = null; }
+  homeScanningRootIdx = -1;
+  renderHomeSrcRoots();
+}
+
+async function deleteHomeCloudRoot(idx, name){
+  if(!confirm('确认移除曲库来源「' + name + '」？\n\n移除后该来源的歌曲将从库中清除，但网盘上的文件不会被删除。')) return;
+  try{
+    const res = await fetch('/api/admin/library-sources/roots/' + idx, { method: 'DELETE' });
+    if(res.ok){
+      alert('曲库来源已移除');
+      await loadHomeLibrarySources();
+    }else{
+      const d = await res.json().catch(()=>({}));
+      alert('移除失败：' + (d.error || '未知错误'));
+    }
+  }catch(e){ alert('移除失败：网络错误'); }
+}
+
+const _origToggleCloudPanel = toggleCloudPanel;
+toggleCloudPanel = function(){
+  _origToggleCloudPanel();
+  const panel = document.getElementById('cloud-panel');
+  if(panel.classList.contains('open')){
+    populateHomeRootAcctSelect();
+    loadHomeLibrarySources();
+  }else{
+    stopHomeScanPolling();
+  }
+};
+
+const _origLoadCloudAccounts = loadCloudAccounts;
+loadCloudAccounts = async function(){
+  await _origLoadCloudAccounts();
+  populateHomeRootAcctSelect();
+};
+
 </script>
 </body>
 </html>
