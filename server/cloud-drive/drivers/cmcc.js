@@ -33,8 +33,9 @@ const CMCC_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (K
  * 5. 再 MD5 并转大写
  */
 function calSign(body, ts, randStr) {
-  // encodeURIComponent（与 JS 内置一致）
-  const encoded = encodeURIComponent(body);
+  // encodeURIComponent（与 AList Go 实现对齐：~ 编码为 %7E）
+  let encoded = encodeURIComponent(body);
+  encoded = encoded.replace(/~/g, '%7E');
   // 按 code point 拆分，按 UTF-8 字节序排序（与 Go sort.Strings 对齐）
   const chars = Array.from(encoded);
   chars.sort((a, b) => Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8')));
@@ -409,12 +410,78 @@ class CmccDriver extends CloudDriveBase {
   }
 
   /**
-   * Token 刷新（简化版：移动云盘 token 有效期较长，过期提示重新添加）
+   * Token 刷新（移植自 AList 139 驱动 refreshToken）
+   * - 有效期 > 15 天：不刷新
+   * - 已过期：报错，需重新登录
+   * - 否则：POST aas.caiyun.feixin.10086.cn/tellin/authTokenRefresh.do 刷新
    */
   async refreshToken() {
-    // TODO: 完整实现 aas.caiyun.feixin.10086.cn/tellin/authTokenRefresh.do
-    // 当前 token 通常有效期较长，过期后让用户重新在管理后台添加
-    return { accessToken: this.authorization, expiresAt: new Date(Date.now() + 15 * 24 * 3600 * 1000) };
+    try {
+      const raw = this.authorization.replace(/^Basic\s+/i, '').trim();
+      const decoded = Buffer.from(raw, 'base64').toString('utf8');
+      const parts = decoded.split(':');
+      if (parts.length < 3) throw new Error('authorization 格式无效');
+      const account = parts[1];
+      const tokenFields = parts[2].split('|');
+      if (tokenFields.length < 4) throw new Error('authorization token 字段不足');
+      const expiration = parseInt(tokenFields[3], 10);
+      const now = Date.now();
+      const remainMs = expiration - now;
+      if (remainMs > 15 * 24 * 3600 * 1000) {
+        return { accessToken: this.authorization, expiresAt: new Date(expiration), skipped: true };
+      }
+      if (remainMs < 0) {
+        throw new Error('移动云盘 Authorization 已过期，请重新登录获取 Token');
+      }
+      // 调用刷新端点
+      const xmlBody = `<root><token>${parts[2]}</token><account>${account}</account><clienttype>656</clienttype></root>`;
+      const res = await this._httpXml('POST',
+        'https://aas.caiyun.feixin.10086.cn:443/tellin/authTokenRefresh.do', xmlBody);
+      const match = res.match(/<token>([^<]+)<\/token>/);
+      const returnMatch = res.match(/<return>([^<]+)<\/return>/);
+      if (returnMatch && returnMatch[1] !== '0') {
+        throw new Error('移动云盘 Token 刷新失败: ' + (res.match(/<desc>([^<]+)<\/desc>/)?.[1] || returnMatch[1]));
+      }
+      if (!match) throw new Error('移动云盘 Token 刷新响应无 token: ' + res.slice(0, 200));
+      const newToken = match[1];
+      const newAuth = Buffer.from(`${parts[0]}:${account}:${newToken}`).toString('base64');
+      this.authorization = newAuth;
+      this._parseAuthorization();
+      console.log('[CMCC] Token 刷新成功');
+      return { accessToken: newAuth, expiresAt: new Date(now + 30 * 24 * 3600 * 1000) };
+    } catch (e) {
+      console.warn('[CMCC] refreshToken 失败:', e.message);
+      throw e;
+    }
+  }
+
+  /**
+   * XML 请求（用于 Token 刷新）
+   */
+  async _httpXml(method, urlStr, bodyStr) {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(urlStr);
+      const opts = {
+        method,
+        hostname: parsed.hostname,
+        port: parsed.port || 443,
+        path: parsed.pathname + parsed.search,
+        headers: {
+          'User-Agent': CMCC_UA,
+          'Content-Type': 'application/xml',
+          'Content-Length': Buffer.byteLength(bodyStr),
+        },
+      };
+      const req = https.request(opts, (res) => {
+        let chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      });
+      req.on('error', reject);
+      req.setTimeout(20000, () => req.destroy(new Error('CMCC XML 请求超时')));
+      req.write(bodyStr);
+      req.end();
+    });
   }
 
   // ==================== 扫码登录（暂不支持，用 Token 输入） ====================
