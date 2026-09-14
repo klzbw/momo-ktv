@@ -31,6 +31,30 @@ enum AudioBgMode: String, CaseIterable {
     static func from(_ raw: String) -> AudioBgMode { AudioBgMode(rawValue: raw) ?? .flow }
 }
 
+// MARK: - 照片背景三模式（仅全屏播放页✨闪光按钮使用，存独立 @AppStorage "momoPhotoBgMode"，
+// 不再复用 momoBgMode，避免污染首页14种程序化效果循环）。顺序即方向：下键 flow→photoWall→memory。
+enum PhotoBgMode: String, CaseIterable {
+    case flow, photoWall, memory
+    var display: String {
+        switch self {
+        case .flow: return "轮播"
+        case .photoWall: return "照片墙"
+        case .memory: return "回忆"
+        }
+    }
+    /// 遥控器下键：轮播→照片墙→回忆→轮播
+    var next: PhotoBgMode {
+        let all = PhotoBgMode.allCases
+        return all[((all.firstIndex(of: self) ?? 0) + 1) % all.count]
+    }
+    /// 遥控器上键：往回切
+    var prev: PhotoBgMode {
+        let all = PhotoBgMode.allCases
+        return all[((all.firstIndex(of: self) ?? 0) - 1 + all.count) % all.count]
+    }
+    static func from(_ raw: String) -> PhotoBgMode { PhotoBgMode(rawValue: raw) ?? .flow }
+}
+
 /// 确定性伪随机（同一索引每次得到稳定值，避免逐帧闪烁）
 @inline(__always) private func bgRand(_ i: Int) -> Double {
     let s = sin(Double(i) * 12.9898) * 43758.5453
@@ -39,9 +63,14 @@ enum AudioBgMode: String, CaseIterable {
 
 struct AudioBackgroundView: View {
     @AppStorage("momoBgMode") private var modeRaw: String = AudioBgMode.flow.rawValue
+    /// 照片背景三模式（轮播/照片墙/回忆），✨闪光按钮上下键切换，独立存储不污染首页模式
+    @AppStorage("momoPhotoBgMode") private var photoModeRaw: String = PhotoBgMode.flow.rawValue
     /// 用于"我的图片"模式拉取用户上传背景图
     var server: String = ""
+    /// 全屏播放页(FullPlayerView)专用：纯音频歌按 PhotoBgMode 渲染照片背景，不再走14种程序化效果
+    var photoOnly: Bool = false
     private var mode: AudioBgMode { .from(modeRaw) }
+    private var photoMode: PhotoBgMode { .from(photoModeRaw) }
 
     var body: some View {
         // GeometryReader 自适应容器：全屏铺满屏幕，首页小窗铺满小窗，不再硬编码物理尺寸
@@ -54,7 +83,16 @@ struct AudioBackgroundView: View {
                                         Color(red: 0.01, green: 0.01, blue: 0.05)],
                                startPoint: .top, endPoint: .bottom)
                     .frame(width: sw, height: sh)
-                if mode == .photos {
+                if photoOnly {
+                    // 全屏播放页：✨闪光按钮三模式照片背景
+                    if photoMode == .flow {
+                        PhotosBg(server: server, w: sw, h: sh)
+                    } else if photoMode == .photoWall {
+                        PhotoWallBg(server: server, w: sw, h: sh)
+                    } else {
+                        MemoryBg(server: server, w: sw, h: sh)
+                    }
+                } else if mode == .photos {
                     PhotosBg(server: server, w: sw, h: sh)
                 } else {
                     TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { tl in
@@ -292,6 +330,192 @@ struct PhotosBg: View {
             DispatchQueue.main.async {
                 withAnimation(.easeInOut(duration: 1.0)) { idx = n }
             }
+        }
+    }
+
+    private func load() {
+        let host = server.hasPrefix("http") ? (server.hasSuffix("/") ? String(server.dropLast()) : server)
+               : "http://\(server)"
+        guard let u = URL(string: host + "/api/backgrounds/images") else { return }
+        URLSession.shared.dataTask(with: u) { data, _, _ in
+            guard let data,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let arr = obj["images"] as? [Any] else { return }
+            let list: [String] = arr.compactMap { item in
+                if let dict = item as? [String: Any], let urlPath = dict["url"] as? String {
+                    return urlPath.hasPrefix("http") ? urlPath : host + urlPath
+                }
+                if let s = item as? String { return s.hasPrefix("http") ? s : host + s }
+                return nil
+            }
+            DispatchQueue.main.async {
+                self.urls = list
+                self.idx = list.isEmpty ? 0 : Int.random(in: 0..<list.count)
+            }
+        }.resume()
+    }
+}
+
+// MARK: - 照片墙：2×2 四图拼贴，每7秒随机换一批，圆角小分隔
+struct PhotoWallBg: View {
+    let server: String
+    var w: CGFloat = 0
+    var h: CGFloat = 0
+    @State private var urls: [String] = []
+    @State private var batch: [String] = []   // 当前一批4张
+    @State private var timer: Timer?
+
+    var body: some View {
+        ZStack {
+            Color(red: 0.03, green: 0.03, blue: 0.08)
+                .frame(width: w, height: h)
+            if batch.isEmpty {
+                LinearGradient(colors: [Color(red: 0.12, green: 0.1, blue: 0.3), Color(red: 0.04, green: 0.02, blue: 0.12)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(width: w, height: h)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(0..<2, id: \.self) { row in
+                        HStack(spacing: 8) {
+                            ForEach(0..<2, id: \.self) { col in
+                                let i = row * 2 + col
+                                cellView(batch.indices.contains(i) ? batch[i] : nil)
+                            }
+                        }
+                    }
+                }
+                .padding(8)
+                .frame(width: w, height: h)
+                .clipped()
+                .id(batch.joined(separator: "|"))
+                .transition(.opacity)
+            }
+        }
+        .frame(width: w, height: h)
+        .allowsHitTesting(false)
+        .onAppear { load(); pickBatch(); startCycle() }
+        .onDisappear { timer?.invalidate(); timer = nil }
+    }
+
+    @ViewBuilder
+    private func cellView(_ path: String?) -> some View {
+        if let path, let u = URL(string: path) {
+            AsyncImage(url: u, transaction: Transaction(animation: .easeInOut(duration: 1.0))) { phase in
+                switch phase {
+                case .success(let img):
+                    img.resizable().scaledToFill()
+                default:
+                    Color(white: 0.1)
+                }
+            }
+            .clipped()
+            .cornerRadius(10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Color(white: 0.1)
+        }
+    }
+
+    private func startCycle() {
+        timer?.invalidate()
+        timer = Timer(timeInterval: 7, repeats: true) { _ in
+            DispatchQueue.main.async { withAnimation(.easeInOut(duration: 1.0)) { pickBatch() } }
+        }
+        if let t = timer { RunLoop.main.add(t, forMode: .common) }
+    }
+
+    /// 随机取4张（不足4张则全用），与上一批尽量不同避免视觉跳变
+    private func pickBatch() {
+        guard !urls.isEmpty else { batch = []; return }
+        if urls.count <= 4 { batch = urls; return }
+        let old = Set(batch)
+        var picked = Array(urls.shuffled().filter { !old.contains($0) }.prefix(4))
+        if picked.count < 4 {
+            let rest = urls.shuffled().filter { !picked.contains($0) }
+            picked += rest.prefix(4 - picked.count)
+        }
+        batch = picked
+    }
+
+    private func load() {
+        let host = server.hasPrefix("http") ? (server.hasSuffix("/") ? String(server.dropLast()) : server)
+               : "http://\(server)"
+        guard let u = URL(string: host + "/api/backgrounds/images") else { return }
+        URLSession.shared.dataTask(with: u) { data, _, _ in
+            guard let data,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let arr = obj["images"] as? [Any] else { return }
+            let list: [String] = arr.compactMap { item in
+                if let dict = item as? [String: Any], let urlPath = dict["url"] as? String {
+                    return urlPath.hasPrefix("http") ? urlPath : host + urlPath
+                }
+                if let s = item as? String { return s.hasPrefix("http") ? s : host + s }
+                return nil
+            }
+            DispatchQueue.main.async { self.urls = list; pickBatch() }
+        }.resume()
+    }
+}
+
+// MARK: - 回忆：单图全屏 + Ken Burns 缓慢推拉/随机漂移 + 随机切换（服务端无视频接口，用图片混合）
+struct MemoryBg: View {
+    let server: String
+    var w: CGFloat = 0
+    var h: CGFloat = 0
+    @State private var urls: [String] = []
+    @State private var idx = 0
+    @State private var timer: Timer?
+    @State private var scale: CGFloat = 1.0
+    @State private var drift: CGSize = .zero
+
+    var body: some View {
+        ZStack {
+            Color(red: 0.03, green: 0.03, blue: 0.08)
+                .frame(width: w, height: h)
+            if !urls.isEmpty, let u = URL(string: urls[idx % urls.count]) {
+                AsyncImage(url: u, transaction: Transaction(animation: .easeInOut(duration: 1.2))) { phase in
+                    switch phase {
+                    case .success(let img):
+                        img.resizable().scaledToFill().transition(.opacity)
+                    default:
+                        Color.clear
+                    }
+                }
+                .frame(width: w, height: h)
+                .clipped()
+                .scaleEffect(scale)
+                .offset(drift)
+                .id(idx)
+                .allowsHitTesting(false)
+            }
+        }
+        .frame(width: w, height: h)
+        .allowsHitTesting(false)
+        .onAppear { load(); startCycle() }
+        .onDisappear { timer?.invalidate(); timer = nil }
+    }
+
+    private func startCycle() {
+        timer?.invalidate()
+        // 0.6s 后先推一次 Ken Burns（不等首个切换周期）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { applyTransition() }
+        timer = Timer(timeInterval: 6, repeats: true) { _ in applyTransition() }
+        if let t = timer { RunLoop.main.add(t, forMode: .common) }
+    }
+
+    /// 切一张随机图，先复位再缓慢推拉漂移（Ken Burns）
+    private func applyTransition() {
+        guard !urls.isEmpty else { return }
+        var n = Int.random(in: 0..<urls.count)
+        if urls.count > 1 && n == idx { n = (n + 1) % urls.count }
+        withAnimation(.easeInOut(duration: 1.2)) {
+            idx = n
+            scale = 1.0
+            drift = .zero
+        }
+        withAnimation(.easeInOut(duration: 5.5)) {
+            scale = CGFloat.random(in: 1.08...1.22)
+            drift = CGSize(width: CGFloat.random(in: -30...30), height: CGFloat.random(in: -30...30))
         }
     }
 

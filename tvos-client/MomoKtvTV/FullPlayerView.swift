@@ -65,6 +65,7 @@ struct FullPlayerView: View {
     @AppStorage("momoLyricsMode") private var lyricsModeRaw: String = LyricsDisplayMode.dual.rawValue
 
     @AppStorage("momoBgMode") private var bgModeRaw: String = AudioBgMode.flow.rawValue
+@AppStorage("momoPhotoBgMode") private var photoBgModeRaw: String = PhotoBgMode.flow.rawValue
 
     @State private var lyricsOffset: Double = 0          // 当前歌词时间轴偏移（秒），即时预览
 
@@ -150,6 +151,9 @@ struct FullPlayerView: View {
                 sepPolling = false
                 currentSepStatus = nil
 
+                // 切歌后上次焦点按钮可能已不可见(纯音频→视频歌)，校验回退避免焦点落空
+                if !availableFocusTags().contains(lastFocusedBtn) { lastFocusedBtn = 2 }
+
                 // Song changed, re-attach layer to ensure video shows
                 if isUsingVLC {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -187,9 +191,13 @@ struct FullPlayerView: View {
 
                         // 控制条显示后，焦点落在最后操作的按钮上（不再固定跳到播放键）
 
+                        // 恢复前校验：若 lastFocusedBtn 因切歌(FLAC→MKV/分离完成)已不可见，回退到播放键(2)
+
                         focusedBtn = nil
 
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { focusedBtn = lastFocusedBtn }
+                        let restoreTag = availableFocusTags().contains(lastFocusedBtn) ? lastFocusedBtn : 2
+
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { focusedBtn = restoreTag }
 
                     } else if !showQueue && !showQR {
 
@@ -219,7 +227,7 @@ struct FullPlayerView: View {
 
             if !currentItem.isVideoFile {
 
-                AudioBackgroundView(server: api.serverAddress)
+                AudioBackgroundView(server: api.serverAddress, photoOnly: true)
 
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -317,7 +325,7 @@ struct FullPlayerView: View {
 
                         HStack(spacing: 14) {
 
-                            TVTightButton(action: { lastFocusedBtn = 0; FeedbackCenter.shared.show("返回主页", icon: "house.fill"); onClose() }, focusedTag: $focusedBtn, focusTag: 0, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                            TVTightButton(action: { lastFocusedBtn = 0; FeedbackCenter.shared.show("返回主页", icon: "house.fill"); onClose() }, focusedTag: $focusedBtn, focusTag: 0, onFocusChange: { if $0 { lastFocusedBtn = 0; resetHideTimer() } }) { focused in
 
                                 controlContent(icon: "house", title: "主页", focused: focused)
 
@@ -325,7 +333,7 @@ struct FullPlayerView: View {
 
 
 
-                            TVTightButton(action: { lastFocusedBtn = 1; if isUsingVLC { vlcManager.restart() } else { playerManager.restart() }; api.restartSong(); FeedbackCenter.shared.show("重新演唱", icon: "gobackward") }, focusedTag: $focusedBtn, focusTag: 1, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                            TVTightButton(action: { lastFocusedBtn = 1; if isUsingVLC { vlcManager.restart() } else { playerManager.restart() }; api.restartSong(); FeedbackCenter.shared.show("重新演唱", icon: "gobackward") }, focusedTag: $focusedBtn, focusTag: 1, onFocusChange: { if $0 { lastFocusedBtn = 1; resetHideTimer() } }) { focused in
 
                                 controlContent(icon: "gobackward", title: "重唱", focused: focused)
 
@@ -347,7 +355,7 @@ struct FullPlayerView: View {
                                                               icon: playerManager.isPlaying ? "play.fill" : "pause.fill")
                                 }
 
-                            }, focusedTag: $focusedBtn, focusTag: 2, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                            }, focusedTag: $focusedBtn, focusTag: 2, onFocusChange: { if $0 { lastFocusedBtn = 2; resetHideTimer() } }) { focused in
 
                                 controlContent(
 
@@ -371,7 +379,7 @@ struct FullPlayerView: View {
                                     toggleVoice()
                                 }
                                 showVocalHUD()
-                            }, focusedTag: $focusedBtn, focusTag: 3, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                            }, focusedTag: $focusedBtn, focusTag: 3, onFocusChange: { if $0 { lastFocusedBtn = 3; resetHideTimer() } }) { focused in
 
                                 controlContent(icon: "mic.fill", title: isUsingVLC ? vlcManager.voiceLabel : playerManager.vocalTrackLabel, focused: focused)
 
@@ -383,9 +391,11 @@ struct FullPlayerView: View {
                                 if direction == .up {
                                     playerManager.nudgeVocalLevel(+0.34)
                                     showVocalHUD()
+                                    resetHideTimer()
                                 } else if direction == .down {
                                     playerManager.nudgeVocalLevel(-0.34)
                                     showVocalHUD()
+                                    resetHideTimer()
                                 }
                             }
 
@@ -395,7 +405,7 @@ struct FullPlayerView: View {
                                 TVTightButton(action: {
                                     lastFocusedBtn = 12
                                     triggerSeparation()
-                                }, focusedTag: $focusedBtn, focusTag: 12, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                                }, focusedTag: $focusedBtn, focusTag: 12, onFocusChange: { if $0 { lastFocusedBtn = 12; resetHideTimer() } }) { focused in
                                     controlContent(icon: sepPolling ? "waveform" : "wand.and.stars",
                                                    title: sepPolling ? "分离中" : "人声分离",
                                                    focused: focused)
@@ -403,7 +413,7 @@ struct FullPlayerView: View {
                                 .disabled(sepPolling)
                             }
 
-                            TVTightButton(action: { lastFocusedBtn = 4; FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill"); onNext() }, focusedTag: $focusedBtn, focusTag: 4, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                            TVTightButton(action: { lastFocusedBtn = 4; FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill"); onNext() }, focusedTag: $focusedBtn, focusTag: 4, onFocusChange: { if $0 { lastFocusedBtn = 4; resetHideTimer() } }) { focused in
 
                                 controlContent(icon: "forward.end.fill", title: "切歌", focused: focused)
 
@@ -411,7 +421,7 @@ struct FullPlayerView: View {
 
 
 
-                            TVTightButton(action: { lastFocusedBtn = 5; showQueue = true }, focusedTag: $focusedBtn, focusTag: 5, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                            TVTightButton(action: { lastFocusedBtn = 5; showQueue = true }, focusedTag: $focusedBtn, focusTag: 5, onFocusChange: { if $0 { lastFocusedBtn = 5; resetHideTimer() } }) { focused in
 
                                 controlContent(icon: "list.bullet", title: "队列", focused: focused)
 
@@ -419,13 +429,13 @@ struct FullPlayerView: View {
 
 
 
-                            TVTightButton(action: { lastFocusedBtn = 6; showQR = true }, focusedTag: $focusedBtn, focusTag: 6, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                            TVTightButton(action: { lastFocusedBtn = 6; showQR = true }, focusedTag: $focusedBtn, focusTag: 6, onFocusChange: { if $0 { lastFocusedBtn = 6; resetHideTimer() } }) { focused in
 
                                 controlContent(icon: "qrcode", title: "扫码", focused: focused)
 
                             }
 
-                            TVTightButton(action: { lastFocusedBtn = 13; showDebugLog.toggle() }, focusedTag: $focusedBtn, focusTag: 13, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                            TVTightButton(action: { lastFocusedBtn = 13; showDebugLog.toggle() }, focusedTag: $focusedBtn, focusTag: 13, onFocusChange: { if $0 { lastFocusedBtn = 13; resetHideTimer() } }) { focused in
 
                                 controlContent(icon: "ladybug", title: showDebugLog ? "关闭调试" : "调试", focused: focused)
 
@@ -447,7 +457,7 @@ struct FullPlayerView: View {
 
                                                               icon: "text.alignleft")
 
-                                }, focusedTag: $focusedBtn, focusTag: 7, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                                }, focusedTag: $focusedBtn, focusTag: 7, onFocusChange: { if $0 { lastFocusedBtn = 7; resetHideTimer() } }) { focused in
 
                                     controlContent(icon: "text.alignleft",
 
@@ -459,7 +469,7 @@ struct FullPlayerView: View {
 
                                 // 歌词提前 0.05s（字比声音快）
 
-                                TVTightButton(action: { lastFocusedBtn = 8; adjustLyricsOffset(by: -0.05) }, focusedTag: $focusedBtn, focusTag: 8, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                                TVTightButton(action: { lastFocusedBtn = 8; adjustLyricsOffset(by: -0.05) }, focusedTag: $focusedBtn, focusTag: 8, onFocusChange: { if $0 { lastFocusedBtn = 8; resetHideTimer() } }) { focused in
 
                                     controlContent(icon: "text.badge.minus", title: "词提前", focused: focused)
 
@@ -467,7 +477,7 @@ struct FullPlayerView: View {
 
                                 // 歌词延后 0.05s（字比声音慢）
 
-                                TVTightButton(action: { lastFocusedBtn = 9; adjustLyricsOffset(by: 0.05) }, focusedTag: $focusedBtn, focusTag: 9, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                                TVTightButton(action: { lastFocusedBtn = 9; adjustLyricsOffset(by: 0.05) }, focusedTag: $focusedBtn, focusTag: 9, onFocusChange: { if $0 { lastFocusedBtn = 9; resetHideTimer() } }) { focused in
 
                                     controlContent(icon: "text.badge.plus", title: "词延后", focused: focused)
 
@@ -491,11 +501,17 @@ struct FullPlayerView: View {
                                         if let playing = api.queue.first(where: { $0.isPlaying }) {
 
                                             if lyricsLoader.aiGenerating {
+
                                                 // AI 逐字对齐任务已在服务端排队/生成中，避免重复触发
+
                                                 FeedbackCenter.shared.show("AI逐字歌词生成中，请稍候...", icon: "waveform")
+
                                             } else {
+
                                                 lyricsLoader.forceFetch(server: api.serverAddress, songId: playing.song_id)
+
                                                 FeedbackCenter.shared.show("正在请求AI生成逐字歌词...", icon: "waveform")
+
                                             }
 
                                         }
@@ -507,7 +523,7 @@ struct FullPlayerView: View {
 
                                     }
 
-                                }, focusedTag: $focusedBtn, focusTag: 11, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                                }, focusedTag: $focusedBtn, focusTag: 11, onFocusChange: { if $0 { lastFocusedBtn = 11; resetHideTimer() } }) { focused in
 
                                     controlContent(icon: "arrow.counterclockwise", title: "复位", focused: focused)
 
@@ -523,21 +539,43 @@ struct FullPlayerView: View {
 
                                 TVTightButton(action: {
 
+                                    // 仅记录焦点，不再循环14种程序化效果；三模式照片背景由上下键切换
+
                                     lastFocusedBtn = 10
 
-                                    bgModeRaw = AudioBgMode.from(bgModeRaw).next.rawValue
-
-                                    FeedbackCenter.shared.show("背景：\(AudioBgMode.from(bgModeRaw).display)",
-
-                                                              icon: "sparkles")
-
-                                }, focusedTag: $focusedBtn, focusTag: 10, onFocusChange: { if $0 { resetHideTimer() } }) { focused in
+                                }, focusedTag: $focusedBtn, focusTag: 10, onFocusChange: { if $0 { lastFocusedBtn = 10; resetHideTimer() } }) { focused in
 
                                     controlContent(icon: "sparkles",
 
-                                                   title: "背景·\(AudioBgMode.from(bgModeRaw).display)",
+                                                   title: "背景·\(PhotoBgMode.from(photoBgModeRaw).display)",
 
                                                    focused: focused)
+
+                                }
+
+                                .onMoveCommand { direction in
+
+                                    // 焦点在✨按钮时，遥控器上下键在 轮播/照片墙/回忆 间循环；其他按钮不受影响
+
+                                    if direction == .up {
+
+                                        photoBgModeRaw = PhotoBgMode.from(photoBgModeRaw).prev.rawValue
+
+                                    } else if direction == .down {
+
+                                        photoBgModeRaw = PhotoBgMode.from(photoBgModeRaw).next.rawValue
+
+                                    } else {
+
+                                        return
+
+                                    }
+
+                                    FeedbackCenter.shared.show("背景：\(PhotoBgMode.from(photoBgModeRaw).display)",
+
+                                                              icon: "sparkles")
+
+                                    resetHideTimer()
 
                                 }
 
@@ -552,6 +590,10 @@ struct FullPlayerView: View {
 
 
                     }
+
+                    // 控件条顶层：任意方向键(上/下/左/右)都重置5秒隐藏计时，避免滑动选按钮时控件条立即收起
+
+                    .onMoveCommand { _ in resetHideTimer() }
 
                     .padding(.horizontal, 24)
 
@@ -1620,11 +1662,26 @@ struct FullPlayerView: View {
         }
     }
 
+    /// 当前实际可见、可接收焦点的按钮 tag 集合（随 视频歌/人声分离状态 变化）
+    /// 恢复/校验焦点前用它判断，避免切歌(FLAC→MKV 13控件→8控件)后焦点落到不存在的按钮上
+    private func availableFocusTags() -> Set<Int> {
+        var tags: Set<Int> = [0, 1, 2, 3, 4, 5, 6, 13]   // 固定常驻按钮
+        if !currentItem.isVideoFile {
+            tags.formUnion([7, 8, 9, 10, 11])             // 纯音频歌：歌词微调/复位/✨闪光
+            if !playerManager.dualEnabled && currentSepStatus != "done" {
+                tags.insert(12)                           // 人声分离(条件显示)
+            }
+        }
+        return tags
+    }
+
     private func resetHideTimer() {
 
         hideTimer?.invalidate()
 
-        hideTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { _ in
+        // 用 RunLoop.common 模式调度：避免 tvOS 遥控器滑动追踪(tracking)模式下计时器不触发
+
+        let t = Timer(timeInterval: 5, repeats: false) { _ in
 
             DispatchQueue.main.async {
 
@@ -1637,6 +1694,10 @@ struct FullPlayerView: View {
             }
 
         }
+
+        hideTimer = t
+
+        RunLoop.main.add(t, forMode: .common)
 
     }
 
