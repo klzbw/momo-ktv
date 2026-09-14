@@ -412,8 +412,7 @@ struct PhotoWallBg: View {
             AsyncImage(url: u, transaction: Transaction(animation: .easeInOut(duration: 1.0))) { phase in
                 switch phase {
                 case .success(let img):
-                    // contain：整张照片完整显示，不再按 cell 比例裁切(cover)导致四宫格缺边
-                    img.resizable().scaledToFit()
+                    img.resizable().scaledToFill()
                 default:
                     Color(white: 0.1)
                 }

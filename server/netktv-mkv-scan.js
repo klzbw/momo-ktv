@@ -197,7 +197,7 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
           fullPath,           // 完整网盘路径（含 basePath 和子目录）
           sourceRoot,
           accountId,
-          fileInfo.size ? Math.round(fileInfo.size / 1000) : null, // 粗略估算时长（按1MB≈1秒）
+          null, // duration 先留空：点歌/预热时由 ensureProbedOnDemand 用115直链ffprobe真实探测回写。旧版误写 size/1000 把字节数当秒(几十MB算出几万秒/几百分钟)污染进度条，已废弃。
           now
         );
 

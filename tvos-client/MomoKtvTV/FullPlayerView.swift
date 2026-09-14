@@ -561,7 +561,9 @@ struct FullPlayerView: View {
 
                                 .onMoveCommand { direction in
 
-                                    // 焦点在✨按钮时，遥控器上下键在 轮播/照片墙/回忆 间循环；其他按钮不受影响
+                                    // 焦点在✨按钮时：仅当当前背景已是"我的照片(photos)"档，上下键才在 轮播/照片墙/回忆 间循环；
+                                    // 停留在程序化动画效果(非 photos)时，上下键直接忽略，不产生照片跳转。
+                                    guard AudioBgMode.from(bgModeRaw) == .photos else { return }
 
                                     if direction == .up {
 

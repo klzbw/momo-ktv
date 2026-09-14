@@ -492,7 +492,10 @@ struct ArtistsPage: View {
             currentPage = 1
             isLoading = true
             filteredArtists = api.artists
-            api.fetchArtists {
+            // Cache-first: reuse in-memory artists, only fetch on first launch; build pinyin cache locally
+            if api.artists.isEmpty {
+                api.fetchArtists { buildCache() }
+            } else {
                 buildCache()
             }
         }
@@ -585,18 +588,21 @@ struct ArtistSongsPage: View {
     let onBack: () -> Void
     let onAdd: (Song) -> Void
     @State private var currentPage = 1
+    // Artist songs live in a local @State list: fetch /api/songs?artist= directly,
+    // never write the shared api.songs, so the full-catalog cache stays intact for order/category pages.
+    @State private var songs: [Song] = []
     private let pageSize = 50
 
     var pagedSongs: [Song] {
         let start = (currentPage - 1) * pageSize
-        let end = min(start + pageSize, api.songs.count)
-        return start < api.songs.count ? Array(api.songs[start..<end]) : []
+        let end = min(start + pageSize, songs.count)
+        return start < songs.count ? Array(songs[start..<end]) : []
     }
 
     var body: some View {
         FullPageContainer(title: artist, onBack: onBack,
                          showPagination: true, currentPage: currentPage,
-                         totalPages: max(1, (api.songs.count + pageSize - 1) / pageSize),
+                         totalPages: max(1, (songs.count + pageSize - 1) / pageSize),
                          onPageChange: { currentPage = $0 }) {
             ScrollView {
                 TwoColSongList(songs: pagedSongs, startIndex: (currentPage - 1) * pageSize,
@@ -605,7 +611,19 @@ struct ArtistSongsPage: View {
             }
             .focusSection()
         }
-        .onAppear { api.fetchSongs(artist: artist) }
+        .onAppear { loadSongs() }
+    }
+
+    private func loadSongs() {
+        let encoded = artist.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? artist
+        guard let url = api.apiURL("/api/songs?artist=\(encoded)") else { return }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            DispatchQueue.main.async {
+                if let data = data {
+                    self.songs = (try? JSONDecoder().decode([Song].self, from: data)) ?? []
+                }
+            }
+        }.resume()
     }
 }
 
@@ -805,11 +823,11 @@ struct CategoryPage: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear {
-            // Reset lang/genre chips + page on entry; load full catalog (api.songs may be polluted by artist view)
+            // Cache-first: reset chips + page, show in-memory api.songs immediately; only fetch on first launch
             selectedLang = nil
             selectedGenre = nil
             currentPage = 1
-            api.fetchSongs()
+            if api.songs.isEmpty { api.fetchSongs() }
         }
     }
 }

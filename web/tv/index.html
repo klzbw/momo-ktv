@@ -2805,6 +2805,15 @@ const VoiceManager = (() => {
       return labelForIndex(_trackIndex, n);
     },
     /** 当前模式 */
+    getRealDuration() {
+      try {
+        if (mode === MODE.DUAL) {
+          const cands = [dualVocalEl && dualVocalEl.duration, dualAccEl && dualAccEl.duration];
+          for (const d of cands) { if (isFinite(d) && d > 0) return d; }
+        }
+      } catch (e) {}
+      return NaN;
+    },
     get mode() { return mode; },
     /** 应用均衡器预设；未初始化(还没播放过歌)时返回 false，由调用方决定怎么提示 */
     setEQPreset(name) {
@@ -3731,7 +3740,7 @@ setInterval(tickCtrlProgress,500);
 // 逐帧上报制造无意义的 WS 流量。
 setInterval(()=>{
   if(!isActivePlayer||!curSong)return;
-  sendWS({type:'progress',deviceId:myDeviceId,queueId:curSong.queue_id,currentTime:video.currentTime||0,duration:(isFinite(video.duration)?video.duration:0),paused:video.paused,voice:VoiceManager.isOriginal?'original':'accompaniment'});
+  sendWS({type:'progress',deviceId:myDeviceId,queueId:curSong.queue_id,currentTime:video.currentTime||0,duration:(isFinite(realMediaDuration())?realMediaDuration():0),paused:video.paused,voice:VoiceManager.isOriginal?'original':'accompaniment'});
 },1000);
 function renderAll(){
   const playing=queueData.find(q=>q.status==='playing');
@@ -4009,7 +4018,7 @@ setInterval(()=>{
   if(!isActivePlayer||!curSong)return;
   const fillEl=document.getElementById('prog-fill'),curEl=document.getElementById('tcur'),totEl=document.getElementById('ttot');
   if(!fillEl||!curEl||!totEl)return;
-  let dur=video.duration;
+  let dur=realMediaDuration();
   if(!isFinite(dur)||dur<=0){
     const playing=queueData.find(q=>q.status==='playing');
     dur=ctrlSongDuration||saneDur(curSong&&curSong.duration)||saneDur(playing&&playing.duration)||0;
@@ -4138,6 +4147,11 @@ function fmt(s){return`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2
 // 广播回传的真实 video.duration 兜底(见 handleProgressBroadcast / tickCtrlProgress)。
 // KTV 歌曲正常 2~8 分钟，>1800s(30分钟) 的一律视为脏数据。
 function saneDur(s){s=Number(s);return (isFinite(s)&&s>0&&s<1800)?s:0;}
+// 当前播放媒体的真实总时长(秒)：DUAL双FLAC模式取子Audio元素duration，其余取video.duration。
+function realMediaDuration(){
+  try{ const d=VoiceManager.getRealDuration(); if(isFinite(d)&&d>0) return d; }catch(e){}
+  return video.duration;
+}
 // 需求(已点列表后台预加载)：后端现在会在队列变化时后台异步探测每首歌的
 // 时长(songs.duration，见 server/queuePreload.js)，探测完成后通过 WebSocket
 // 广播新的队列数据。这里加一个小helper，在已点列表(#rq-list/#fsq-list/
@@ -4153,7 +4167,7 @@ function qDurLabel(q){return saneDur(q.duration)?` · ${fmt(saneDur(q.duration))
 // 时除了发消息，也顺手直接本地 set 一次，省去一次消息往返的等待感。
 function seekVideo(e){
   const b=document.getElementById('prog-bar');
-  const total=isActivePlayer?(video.duration||0):(saneDur(ctrlProgress.duration)||ctrlSongDuration||0);
+  const total=isActivePlayer?(realMediaDuration()||0):(saneDur(ctrlProgress.duration)||ctrlSongDuration||0);
   if(!total)return;
   const t=(e.offsetX/b.clientWidth)*total;
   if(isActivePlayer)video.currentTime=t;

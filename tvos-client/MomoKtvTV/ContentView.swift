@@ -1533,12 +1533,12 @@ struct OrderSongsPage: View {
             lastFilterIndices = []
             currentPage = 0
             keyboardMode = .abc
-            // Always reload the full catalog on entry: after leaving an artist page, api.songs
-            // may still hold that artist's subset, so force /api/songs and refresh list + pinyin cache.
-            filteredSongs = []
-            api.fetchSongs {
-                self.filteredSongs = self.api.songs
-                self.buildCache()
+            // Cache-first: show the in-memory full catalog immediately, only fetch when never loaded
+            filteredSongs = api.songs
+            if api.songs.isEmpty {
+                api.fetchSongs { buildCache() }
+            } else {
+                buildCache()
             }
         }
         .onChange(of: api.songs.count) { _ in buildCache() }

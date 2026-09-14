@@ -435,20 +435,27 @@ async function probeNetktvMkvTracks(song) {
   const { stdout } = await execFileAsync('ffprobe', [
     '-v', 'error',
     '-user_agent', PROBE_UA,
-    '-show_entries', 'stream=index,codec_type,codec_name',
+    '-show_entries', 'stream=index,codec_type,codec_name:format=duration',
     '-of', 'json',
     url,
   ], { timeout: 30000 });
-  const streams = JSON.parse(stdout).streams || [];
+  const parsed = JSON.parse(stdout);
+  const streams = parsed.streams || [];
   const audioRows = streams.filter(s => s.codec_type === 'audio');
   const videoRows = streams.filter(s => s.codec_type === 'video');
   const count = audioRows.length > 0 ? audioRows.length : 1;
   const firstAudioCodec = audioRows.length > 0 ? audioRows[0].codec_name : null;
   const firstVideoCodec = videoRows.length > 0 ? videoRows[0].codec_name : null;
+  let duration = null;
+  if (parsed.format && isFinite(parseFloat(parsed.format.duration))) {
+    const sec = Math.round(parseFloat(parsed.format.duration));
+    if (sec > 0 && sec < 7200) duration = sec;
+  }
   return {
     tracks: count,
     audioNeedsSoft: isProblemAudioCodec(firstAudioCodec) ? 1 : 0,
     videoNeedsSoft: isProblemVideoCodec(firstVideoCodec) ? 1 : 0,
+    duration,
   };
 }
 
@@ -1370,7 +1377,9 @@ async function ensureProbedOnDemand(song, force = false) {
     if ((song.source_root === 'netktv-mkv' || (song.source_root || '').startsWith('cloud-mkv-'))) {
       try {
         const r = await probeNetktvMkvTracks(song);
-        db.prepare('UPDATE songs SET audio_tracks = ?, audio_needs_soft = ?, video_needs_soft = ? WHERE id = ?').run(r.tracks, r.audioNeedsSoft, r.videoNeedsSoft, song.id);
+        // 顺手把 ffprobe 拿到的真实时长回写：旧扫描写入的 size/1000 垃圾值(几百分钟)会被真实值覆盖。
+        if (r.duration) { db.prepare('UPDATE songs SET audio_tracks = ?, audio_needs_soft = ?, video_needs_soft = ?, duration = ? WHERE id = ?').run(r.tracks, r.audioNeedsSoft, r.videoNeedsSoft, r.duration, song.id); }
+        else { db.prepare('UPDATE songs SET audio_tracks = ?, audio_needs_soft = ?, video_needs_soft = ? WHERE id = ?').run(r.tracks, r.audioNeedsSoft, r.videoNeedsSoft, song.id); }
         return r.tracks;
       } catch (e) {
         console.warn('[Probe] netktv-mkv 直链探测失败，回退本地缓存探测:', e.message);

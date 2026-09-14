@@ -83,6 +83,16 @@ function pickPreloadTargets() {
 
 function preloadTranscode(song) {
   const songTag = `id=${song.id} "${song.title || song.filename}"`;
+  // 网络MKV(netktv-mkv)：filepath 是115云相对路径，本地 ffprobe 读不了；走
+  // ensureProbedOnDemand 的115直链ffprobe(只取文件头、不全量下载)，该函数会把
+  // ffprobe 拿到的真实 format.duration 一并回写 songs.duration。
+  if (song.source_root === 'netktv-mkv' || (song.source_root || '').startsWith('cloud-mkv-')) {
+    ensureProbedOnDemand(song, true)
+      .then(() => { log.info('PRELOAD', `网络MKV时长探测完成(${songTag})`); if (onUpdate) onUpdate(); })
+      .catch(e => log.warn('PRELOAD', `网络MKV时长探测失败(${songTag}): ${e.message}`))
+      .finally(() => probingDuration.delete(song.id));
+    return;
+  }
   Promise.resolve()
     .then(async () => {
       // Bug修复(双音轨被误判成单音轨的竞态，第二处触发点)：后台预热转码
@@ -101,7 +111,10 @@ function preloadTranscode(song) {
 }
 
 function preloadDuration(song) {
-  if (song.duration != null) return; // 已经探测过，不用重复读
+  // 已有合理时长(5~1800秒)才跳过；旧扫描写入的 size/1000 垃圾值(几千~几万秒)或从未
+  // 探测(NULL)的歌都要重新探测真实时长，不能直接 return。
+  const plausible = song.duration != null && song.duration > 5 && song.duration < 1800;
+  if (plausible) return;
   if (probingDuration.has(song.id)) return; // 上一次探测还没落地，先不重复起进程
   probingDuration.add(song.id);
   const songTag = `id=${song.id} "${song.title || song.filename}"`;
