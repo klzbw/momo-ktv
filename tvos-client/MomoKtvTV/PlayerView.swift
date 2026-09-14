@@ -399,7 +399,7 @@ struct PlayerView: View {
 
     private func resetHideTimer() {
         hideTimer?.invalidate()
-        hideTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { _ in
+        hideTimer = Timer.scheduledTimer(withTimeInterval: 8, repeats: false) { _ in
             DispatchQueue.main.async { showControls = false }
         }
     }
