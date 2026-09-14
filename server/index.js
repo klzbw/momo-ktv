@@ -10266,34 +10266,19 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
     }
   }
 
-  if (song.source_root === 'netktv-mkv') {
+  if (song.cloud_account_id && song.filepath && (song.source_root === 'netktv-mkv' || song.source_root.startsWith('cloud-mkv-'))) {
 
-
-
-    // 使用 direct-stream 端点（302重定向到115 CDN直链，不占NAS带宽）
-
-
-
-    // song.filepath 是 115 网盘上的相对路径，如 ktv-output/xxx.mkv
-
-
+    // 使用 115-direct 端点（302重定向到网盘CDN直链，不占NAS带宽）
+    // 根据 song.cloud_account_id 选择对应网盘驱动（115/夸克/移动等）
+    // song.filepath 是网盘上的相对路径，如 ktv-output/xxx.mkv
 
     let videoUrl = null;
 
-
-
     if (song.filepath) {
-
-
-
-      videoUrl = '/api/direct-stream/' + encodeURIComponent(song.filepath).replace(/%2F/g, '/');
-
-
-
-      console.log('[SEP-INFO] 网络MKV直链:', videoUrl);
-
-
-
+      const acctId = song.cloud_account_id || 1;
+      const cleanPath = song.filepath.startsWith('/') ? song.filepath.substring(1) : song.filepath;
+      videoUrl = '/api/cloud/115-direct/' + acctId + '/' + encodeURIComponent(cleanPath).replace(/%2F/g, '/');
+      console.log('[SEP-INFO] 网络MKV直链(账号=' + acctId + '):', videoUrl);
     }
 
 
@@ -21144,17 +21129,19 @@ app.post('/api/admin/library-sources/roots/:idx/scan', requireAdminAuth, async (
   const cloudPath = cloud.cloudPath || (BUILTIN_CLOUD_ROOTS[root.dir] || {}).defaultCloudPath;
   try {
     const cd = require('./cloud-drive');
-    if (root.dir === 'netktv-mkv') {
+    // 根据cloud.mediaType或dir判断扫描类型（支持所有网盘驱动）
+    const mediaType = (cloud.mediaType || 'mkv').toLowerCase();
+    const isFlac = mediaType === 'flac' || mediaType === 'separated' || root.dir === 'netktv';
+    if (isFlac) {
+      const { scanSeparatedFiles } = require('./netktv-scan');
+      scanSeparatedFiles(cd, accountId, cloudPath, db, path.join(process.env.DATA_DIR || '/data', 'netseparated-strm'), root.dir).catch(e => console.error('[ADMIN-SCAN-FLAC]', e.message));
+      return res.json({ ok: true, message: '分离FLAC扫描已开始', sourceRoot: root.dir, accountId, cloudPath });
+    } else {
       const { scanMkvFiles } = require('./netktv-mkv-scan');
       // 异步触发，立即返回状态(扫描可能很长，不阻塞 HTTP)
-      scanMkvFiles(cd, accountId, cloudPath, db, null, 0).catch(e => console.error('[ADMIN-SCAN-MKV]', e.message));
+      scanMkvFiles(cd, accountId, cloudPath, db, null, 0, root.dir).catch(e => console.error('[ADMIN-SCAN-MKV]', e.message));
       return res.json({ ok: true, message: 'MKV扫描已开始', sourceRoot: root.dir, accountId, cloudPath });
-    } else if (root.dir === 'netktv') {
-      const { scanSeparatedFiles } = require('./netktv-scan');
-      scanSeparatedFiles(cd, accountId, cloudPath, db, path.join(process.env.DATA_DIR || '/data', 'netseparated-strm')).catch(e => console.error('[ADMIN-SCAN-FLAC]', e.message));
-      return res.json({ ok: true, message: '分离FLAC扫描已开始', sourceRoot: root.dir, accountId, cloudPath });
     }
-    return res.status(400).json({ error: '未知的网络来源类型: ' + root.dir });
   } catch (e) {
     res.status(500).json({ error: '触发扫描失败: ' + e.message });
   }
@@ -21182,35 +21169,38 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
   if (req.body && (req.body.cloud === true || req.body.cloudPath)) {
     const { accountId, cloudPath, mediaType, label: cloudLabel } = req.body;
     if (!cloudPath || !String(cloudPath).trim()) {
-      return res.status(400).json({ error: '请填写115网盘路径(cloudPath)，如 /momo-ktv/ktv-output' });
+      return res.status(400).json({ error: '请填写网盘路径(cloudPath)，如 /momo-ktv/ktv-output' });
     }
-    // 校验账号存在
+    // 校验账号存在（支持所有网盘驱动：115/夸克/移动/阿里/百度/迅雷）
     let acct = null;
     try {
       const cd = require('./cloud-drive');
       acct = cd.manager ? cd.manager.getAccount(Number(accountId)) : null;
     } catch (e) { acct = null; }
-    if (!acct || acct.driver !== 'pan115') {
-      return res.status(400).json({ error: '115账号不存在或不可用，请先在网盘设置里登录' });
+    if (!acct) {
+      return res.status(400).json({ error: '网盘账号不存在或不可用，请先在网盘设置里登录' });
     }
-    // mediaType -> 内置 source_root dir
+    // mediaType -> source_root dir（允许多个网盘共用同一dir，入库时用 cloud_account_id 区分）
     const dirForType = (String(mediaType || 'mkv').toLowerCase() === 'flac' || String(mediaType || '').toLowerCase() === 'separated')
       ? 'netktv' : 'netktv-mkv';
     const roots = getLibraryRoots();
-    if (roots.some(r => r.dir === dirForType)) {
-      return res.status(409).json({ error: '这个115网盘来源已经添加过了(每类只能有一个)，可直接在列表里点"扫描"' });
+    // 检查是否已添加相同账号+相同路径（避免重复）
+    const dup = roots.find(r => r.cloud && r.cloud.accountId === acct.id && r.cloud.cloudPath === String(cloudPath).trim());
+    if (dup) {
+      return res.status(409).json({ error: '该网盘账号的此路径已添加过了，可直接在列表里点"扫描"' });
     }
-    const cloud = { accountId: acct.id, cloudPath: String(cloudPath).trim(), mediaType: dirForType === 'netktv' ? 'flac' : 'mkv' };
-    const builtin = BUILTIN_CLOUD_ROOTS[dirForType] || {};
+    const cloud = { accountId: acct.id, cloudPath: String(cloudPath).trim(), mediaType: dirForType === 'netktv' ? 'flac' : 'mkv', driver: acct.driver };
+    const driverNames = { pan115: '115网盘', quark: '夸克网盘', cmcc: '移动云盘', aliyun: '阿里云盘', baidu: '百度网盘', xunlei: '迅雷网盘' };
+    const driverName = driverNames[acct.driver] || acct.driver;
     roots.push({
       dir: dirForType,
-      label: (cloudLabel && String(cloudLabel).trim()) ? String(cloudLabel).trim() : builtin.label || ('115网盘 ' + cloudPath),
+      label: (cloudLabel && String(cloudLabel).trim()) ? String(cloudLabel).trim() : (driverName + ' ' + cloudPath),
       isNetwork: true,
       enabled: true,
       cloud,
     });
     saveLibraryRoots(roots);
-    log.info('ADMIN', `曲库来源: 新增115网络来源 ${dirForType} -> ${cloud.cloudPath} (账号=${cloud.accountId})`);
+    log.info('ADMIN', `曲库来源: 新增网络来源 ${dirForType} -> ${cloud.cloudPath} (账号=${cloud.accountId}, 驱动=${acct.driver})`);
     return res.json({ ok: true, roots });
   }
 
