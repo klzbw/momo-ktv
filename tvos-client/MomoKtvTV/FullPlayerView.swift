@@ -539,15 +539,21 @@ struct FullPlayerView: View {
 
                                 TVTightButton(action: {
 
-                                    // 仅记录焦点，不再循环14种程序化效果；三模式照片背景由上下键切换
+                                    // 确认键：循环切换14种程序化效果；上下键：切换照片三模式(轮播/照片墙/回忆)
 
                                     lastFocusedBtn = 10
+
+                                    bgModeRaw = AudioBgMode.from(bgModeRaw).next.rawValue
+
+                                    FeedbackCenter.shared.show("背景：\(AudioBgMode.from(bgModeRaw).display)",
+
+                                                              icon: "sparkles")
 
                                 }, focusedTag: $focusedBtn, focusTag: 10, onFocusChange: { if $0 { lastFocusedBtn = 10; resetHideTimer() } }) { focused in
 
                                     controlContent(icon: "sparkles",
 
-                                                   title: "背景·\(PhotoBgMode.from(photoBgModeRaw).display)",
+                                                   title: "背景·\(AudioBgMode.from(bgModeRaw).display) | \(PhotoBgMode.from(photoBgModeRaw).display)",
 
                                                    focused: focused)
 
