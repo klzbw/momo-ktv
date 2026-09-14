@@ -3071,12 +3071,15 @@ const Lyrics = (()=>{
 const BG_VIDEO_RE=/\.(mkv|mp4|m4v|mov|ts|m2ts|webm|avi|rmvb|rm|wmv|flv|mpg|mpeg|mts)$/i; // 视频歌不显示动态背景
 const BgStage=(()=>{
   const cv=document.getElementById('bg-stage'); const ctx=cv?cv.getContext('2d'):null;
-  const NAMES=['流动渐变','水波纹','璀璨星空','流星雨','粒子星云','频谱光环','频谱柱','梦幻极光','夜雨','上升气泡','声波射线','旋转漩涡','暖焰','我的图片'];
-  const KEYS=['flow','ripple','stars','meteor','nebula','ring','bars','aurora','rain','bubbles','rays','vortex','flame','photos'];
+  const NAMES=['流动渐变','水波纹','璀璨星空','流星雨','粒子星云','频谱光环','频谱柱','梦幻极光','夜雨','上升气泡','声波射线','旋转漩涡','暖焰','我的图片','照片墙','回忆'];
+  const KEYS=['flow','ripple','stars','meteor','nebula','ring','bars','aurora','rain','bubbles','rays','vortex','flame','photos','wall','memory'];
   let mode=Math.max(0,Math.min(NAMES.length-1,parseInt(localStorage.getItem('momoBgMode')||'0',10)||0));
   let W=2,H=2,raf=0,running=false,active=false,t0=performance.now(),last=0;
   let stars=[],mets=[],parts=[],drops=[],bubs=[],rings=[];
   let photos=[],photoImgs=[],photoIdx=-1,photoAt=0,kbt=0;
+  let bgVideos=[]; // 回忆模式：预加载的 <video> 片段（静音、循环）
+  let wallSet=[],wallAt=0; // 照片墙：当前一组拼贴图 + 下次换组时间
+  let memClock=0,memSeg=0,memFade=1,memVid=-1; // 回忆：段计时/当前段类型(0图1视频)/淡入/视频下标
   const PAL=[[199,54,247],[54,217,247],[255,79,155],[96,120,255],[255,190,80],[80,230,170]];
   const rgb=(i,a)=>{const c=PAL[((i%PAL.length)+PAL.length)%PAL.length];return`rgba(${c[0]},${c[1]},${c[2]},${a})`;};
   function seed(){
@@ -3088,6 +3091,21 @@ const BgStage=(()=>{
   function resize(){ if(!cv||!cv.parentElement)return; const r=cv.parentElement.getBoundingClientRect();
     W=cv.width=Math.max(2,Math.floor(r.width)); H=cv.height=Math.max(2,Math.floor(r.height)); seed(); }
   function dark(c){ctx.fillStyle=c||'#0a0a1c';ctx.fillRect(0,0,W,H);}
+  // cover 裁剪绘制：把一张图/视频以"填满"方式画到画布，带轻微 Ken Burns 缩放；alpha 控制淡入
+  function drawCover(el,t,bass,alpha,crop){
+    const cw=(crop&&crop.w)||W, ch=(crop&&crop.h)||H, cx0=(crop&&crop.x)||0, cy0=(crop&&crop.y)||0;
+    const iw=el.width||el.videoWidth, ih=el.height||el.videoHeight;
+    if(!iw||!ih)return;
+    const sc=1.06+0.05*Math.sin(t*.6)+(bass||0)*.02;
+    const ir=iw/ih, cr=cw/ch;let dw,dh;
+    if(ir>cr){dh=ch*sc;dw=dh*ir;}else{dw=cw*sc;dh=dw/ir;}
+    const dx=cx0+(cw-dw)/2, dy=cy0+(ch-dh)/2;
+    ctx.globalAlpha=(alpha==null)?1:alpha;
+    ctx.drawImage(el,dx,dy,dw,dh);
+    ctx.globalAlpha=1;
+  }
+  // 底部歌词暗角（照片/视频背景统一保证歌词可读）
+  function bottomShade(a){ const g=ctx.createLinearGradient(0,H*.5,0,H); g.addColorStop(0,'rgba(5,5,18,0)'); g.addColorStop(1,'rgba(5,5,18,'+(a||.7)+')'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
   const D={
     flow(t,dt,s){ dark();
       for(let i=0;i<3;i++){ const cx=W*(.5+.36*Math.cos(t*.16+i*2.1))+s.bass*30; const cy=H*(.5+.32*Math.sin(t*.13+i*1.7));
@@ -3159,6 +3177,40 @@ const BgStage=(()=>{
       ctx.imageSmoothingEnabled=true; ctx.drawImage(img,dx,dy,dw,dh);
       const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'rgba(8,8,24,.55)');g.addColorStop(.5,'rgba(8,8,24,.28)');g.addColorStop(1,'rgba(8,8,24,.6)');
       ctx.fillStyle=g;ctx.fillRect(0,0,W,H); },
+    wall(t,dt,s){ // 照片墙：2x2 拼贴多图同时上屏，炫彩渐变叠层 + 缓慢推拉；无图退回 flow
+      if(photoImgs.length<1){D.flow(t,dt,s);return;}
+      dark('#050512');
+      const now=performance.now();
+      if(!wallSet.length||now>wallAt)pickWall();
+      const cols=2,rows=2,cw=W/cols,ch=H/rows;
+      for(let i=0;i<4;i++){
+        const img=wallSet[i]; if(!img)continue;
+        const cx=(i%cols)*cw, cy=Math.floor(i/cols)*ch;
+        ctx.save(); ctx.beginPath(); ctx.rect(cx,cy,cw,ch); ctx.clip();
+        drawCover(img,t+i,s.bass,1,{x:cx,y:cy,w:cw,h:ch});
+        const g=ctx.createLinearGradient(cx,cy,cx+cw,cy+ch);
+        g.addColorStop(0,rgb(i,.12+s.bass*.12)); g.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=g; ctx.fillRect(cx,cy,cw,ch);
+        ctx.restore();
+        ctx.strokeStyle='rgba(255,255,255,.18)'; ctx.lineWidth=2; ctx.strokeRect(cx+1,cy+1,cw-2,ch-2);
+      }
+      bottomShade(.6);
+    },
+    memory(t,dt,s){ // 回忆：照片与视频片段交替轮播，淡入过渡，像 Apple 照片"回忆"
+      if(!photoImgs.length && !bgVideos.length){D.flow(t,dt,s);return;}
+      memClock+=dt; const SEG=7, FADE=1.4;
+      if(memClock>=SEG){ memClock=0; memSeg=(bgVideos.length&&Math.random()>0.4)?1:0; memFade=0;
+        if(memSeg===1)memVid=Math.floor(Math.random()*bgVideos.length);
+        else photoImgs.length&&(photoIdx=Math.floor(Math.random()*photoImgs.length)); }
+      memFade=Math.min(1,memFade+dt/FADE);
+      dark('#050512');
+      if(memSeg===1){
+        const v=bgVideos[memVid]; if(v){ ensureVideoPlay(v); drawCover(v,t,s.bass,memFade); }
+      } else {
+        const img=photoImgs[photoIdx]; if(img)drawCover(img,t,s.bass,memFade);
+      }
+      bottomShade(.65);
+    },
   };
   function frame(now){
     raf=requestAnimationFrame(frame);
@@ -3167,20 +3219,35 @@ const BgStage=(()=>{
     const fn=D[KEYS[mode]]||D.flow;
     ctx.save&&ctx.save(); fn(t,dt,sp); if(ctx.restore)ctx.restore();
     if(KEYS[mode]==='photos' && now>photoAt){ pickPhoto(); }
+    if(KEYS[mode]==='wall' && now>wallAt){ pickWall(); }
   }
   function pickPhoto(){ if(!photoImgs.length)return; photoIdx=Math.floor(Math.random()*photoImgs.length); kbt=0; photoAt=performance.now()+15000; }
+  function pickWall(){ // 照片墙：随机抽 4 张拼一组，约 14s 后换一组
+    wallSet=[]; const n=photoImgs.length; if(!n)return;
+    for(let i=0;i<4;i++)wallSet.push(photoImgs[Math.floor(Math.random()*n)]);
+    wallAt=performance.now()+14000;
+  }
+  function ensureVideoPlay(v){ try{ if(v.paused&&v.play)v.play().catch(()=>{}); }catch(e){} }
   function start(){ if(running)return; running=true;t0=performance.now();last=0;raf=requestAnimationFrame(frame); }
   function stop(){ running=false;cancelAnimationFrame(raf); }
   function show(isAudio){ active=!!isAudio; if(!cv)return;
     cv.style.display=active?'block':'none';
-    if(active){ if(KEYS[mode]==='photos')pickPhoto(); resize(); start(); } else stop(); }
+    if(active){ if(KEYS[mode]==='photos')pickPhoto(); if(KEYS[mode]==='wall')pickWall(); if(KEYS[mode]==='memory'){memClock=999;memFade=1;} resize(); start(); }
+    else { stop(); bgVideos.forEach(v=>{try{v.pause&&v.pause();}catch(e){}}); } }
   function syncBtn(){const b=document.getElementById('bg-mode-btn');if(b)b.textContent='✦ '+NAMES[mode];}
-  function setMode(i){ mode=(i+NAMES.length)%NAMES.length; localStorage.setItem('momoBgMode',mode); seed(); photoAt=0; syncBtn(); }
+  function setMode(i){ mode=(i+NAMES.length)%NAMES.length; localStorage.setItem('momoBgMode',mode); seed(); photoAt=0; wallAt=0; memClock=999; syncBtn(); }
   function next(){ setMode(mode+1); try{showToast('动态背景：'+NAMES[mode]);}catch(e){} }
   async function loadPhotos(){
     try{ const r=await fetch(BASE+'/api/backgrounds/images'); const d=await r.json();
-      const list=d.images||d||[]; photoImgs=(await Promise.all(list.map(u=>new Promise(res=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>res(null);im.src=(u.url||u).startsWith('http')?(u.url||u):BASE+(u.url||u);})))).filter(Boolean);
+      const list=d.images||d||[]; photoImgs=[]; bgVideos=[];
+      await Promise.all(list.map(u=>new Promise(res=>{
+        const url=(u.url||u).startsWith('http')?(u.url||u):BASE+(u.url||u);
+        if(u.type==='video'){ const v=document.createElement('video'); v.src=url; v.muted=true; v.loop=true; v.playsInline=true; v.preload='auto';
+          v.oncanplay=()=>{bgVideos.push(v); try{v.play&&v.play().catch(()=>{});}catch(e){} res();}; v.onerror=()=>res();
+        } else { const im=new Image(); im.onload=()=>{photoImgs.push(im);res();}; im.onerror=()=>res(); im.src=url; }
+      })));
       if(KEYS[mode]==='photos')pickPhoto();
+      if(KEYS[mode]==='wall')pickWall();
     }catch(e){ photoImgs=[]; }
   }
   if(cv){window.addEventListener('resize',resize);syncBtn();setTimeout(()=>{try{loadPhotos();}catch(e){}},800);}
@@ -3930,6 +3997,28 @@ function adjVolume(delta){
 }
 video.addEventListener('timeupdate',()=>{if(!video.duration)return;document.getElementById('prog-fill').style.width=(video.currentTime/video.duration*100)+'%';document.getElementById('tcur').textContent=fmt(video.currentTime);document.getElementById('ttot').textContent=fmt(video.duration);try{Lyrics.render(video.currentTime);}catch(e){}
 });
+// Bug修复(网页遥控端播网络MKV/MSE时进度条一直0:00不动)：上面 timeupdate 回调里
+// `if(!video.duration)return` 在 MSE 流还没把 ms.duration 设好(video.duration 为
+// NaN/0/Infinity)时会整段跳过，进度条/时间戳从此不再更新。本地 HLS 因为有完整
+// duration 所以正常，网络 MKV 走 MSE/直连时 duration 常常拿不到。这里加一个
+// 250ms 兜底定时器，不依赖 timeupdate 事件，主动读 video.currentTime；duration
+// 无效时用曲库元数据时长兜底(ctrlSongDuration / curSong.duration / playing.duration)。
+// 仅在本机是播放端时生效——控制端进度由 tickCtrlProgress() 走 WS 插值，互不干扰；
+// 歌词逐字扫色仍由下面那行 requestAnimationFrame 驱动，这里不重复渲染。
+setInterval(()=>{
+  if(!isActivePlayer||!curSong)return;
+  const fillEl=document.getElementById('prog-fill'),curEl=document.getElementById('tcur'),totEl=document.getElementById('ttot');
+  if(!fillEl||!curEl||!totEl)return;
+  let dur=video.duration;
+  if(!isFinite(dur)||dur<=0){
+    const playing=queueData.find(q=>q.status==='playing');
+    dur=ctrlSongDuration||(curSong&&curSong.duration)||(playing&&playing.duration)||0;
+  }
+  const cur=isFinite(video.currentTime)?video.currentTime:0;
+  fillEl.style.width=dur>0?Math.min(100,cur/dur*100)+'%':'0%';
+  curEl.textContent=fmt(cur);
+  totEl.textContent=fmt(dur>0?dur:0);
+},250);
 // 逐字歌词高频驱动：timeupdate 仅约 4Hz 会让卡拉OK横向扫色一顿一顿，改用 requestAnimationFrame
 // 按真实播放时间每帧刷新（render 内部在行没变时只更新当前行逐字宽度，开销很小），扫色流畅走完。
 (function lyricsFrame(){ try{ if(typeof Lyrics!=='undefined' && !video.paused && !video.ended){ Lyrics.render(video.currentTime||0);} }catch(e){} requestAnimationFrame(lyricsFrame); })();

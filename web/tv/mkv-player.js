@@ -530,6 +530,29 @@
         });
     }
 
+    // 当 MKV 头里没有 Duration 字段(this._duration===0)时，_onSourceOpen 不会去设
+    // ms.duration，于是 <video>.duration 一直是 NaN，播放端进度条 timeupdate 被
+    // `if(!video.duration)return` 整段跳过，表现就是播网络 MKV 进度条卡在 0:00。
+    // 这里在流式追加过程中根据已缓冲区间末尾把 ms.duration 逐步撑大(只增不减，
+    // 符合 MSE 规范)，让 <video>.duration 随播放推进变成一个有效、可 seek 的值；
+    // 真正的总时长等 endOfStream() 时由浏览器按已 append 的数据最终确定。
+    _extendDurationIfUnknown() {
+      if (this._duration > 0) return; // 已知时长，_onSourceOpen 已设过，不用动
+      const ms = this._ms;
+      const v = this._videoEl;
+      if (!ms || ms.readyState !== 'open' || !v) return;
+      try {
+        const buf = v.buffered;
+        if (!buf || buf.length === 0) return;
+        const bufEnd = buf.end(buf.length - 1);
+        if (!isFinite(bufEnd) || bufEnd <= 0) return;
+        const cur = ms.duration;
+        if (!isFinite(cur) || bufEnd > cur) {
+          ms.duration = Math.floor(bufEnd * 1000) / 1000;
+        }
+      } catch (e) {}
+    }
+
     /** 切换音轨（index: 0=原唱, 1=伴唱） */
     async setAudioTrack(index) {
       if (index === this._currentAudioIdx) return;
@@ -868,6 +891,7 @@
         if (hasA && self._audioSB) {
           await self._appendQueue(seg, self._audioSB);
         }
+        self._extendDurationIfUnknown();
       }
 
       try {

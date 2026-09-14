@@ -439,7 +439,11 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .onAppear {
                                 playerManager.vocalTrackCount = playing.audio_tracks ?? 1
-                                playerManager.setupPlayer(for: hlsURL)
+                                // 大小屏切换时 SharedVideoView 重建会再触发 onAppear；
+                                // 已在播同一首歌则只重挂视频层，避免 setupPlayer 回曲首把进度重置到 0
+                                if !playerManager.isPlayingURL(hlsURL) {
+                                    playerManager.setupPlayer(for: hlsURL)
+                                }
                                 playerManager.setVolume(volume)
                                 prepareDualIfNeeded(playing)
                                 if playing.isVideoFile { previewLyrics.lyrics = .empty }
@@ -594,6 +598,9 @@ struct ContentView: View {
                                     self.playerManager.duration = total
                                 }
                             }
+                            // cleanup() 已停掉 AVPlayer 的进度定时器；VLC 模式下 player==nil，
+                            // 重启一个读 currentTime/isPlaying 的上报定时器，否则网页遥控端收不到进度
+                            self.playerManager.startProgressTimer()
                             print("[ContentView] 网络MKV直连(VLC): \(videoPath)")
                             return
                         }

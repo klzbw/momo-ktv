@@ -279,6 +279,15 @@ class PlayerManager: ObservableObject {
     /// 记录当前歌曲的 HLS 地址：DUAL 升级后 asset 变为 Composition，重唱判断仍需它
     private var currentHLSURL: URL?
 
+    /// 外部查询：播放器是否已在播放指定 URL。用于大小屏切换时 SharedVideoView
+    /// 重新触发 onAppear——若已在播同一首歌，只重新挂载视频层，不要走 setupPlayer
+    /// 的“回曲首”分支，否则播放进度会被重置到 0。
+    func isPlayingURL(_ url: URL) -> Bool {
+        guard player != nil else { return false }
+        let sameByAsset = (player?.currentItem?.asset as? AVURLAsset)?.url == url
+        return sameByAsset || currentHLSURL == url
+    }
+
     /// 兼容旧代码的二元语义：是否处于原唱档
     var isOriginalVoice: Bool {
         dualEnabled ? vocalLevel > 0.5 : vocalTrackIndex == 0
@@ -551,12 +560,23 @@ class PlayerManager: ObservableObject {
         }
     }
 
-    private func startProgressTimer() {
+    /// 启动（或重启）1 秒一次的进度上报定时器。AVPlayer 模式读 player.currentTime；
+    /// 网络 MKV 走 VLC 直连时 AVPlayer 已 cleanup（player==nil），此时 currentTime/isPlaying
+    /// 由 VlcManager 回调驱动，直接读它们——否则网页遥控端收不到进度广播，进度条一直 0:00。
+    func startProgressTimer() {
         progressTimer?.invalidate()
         progressTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self, self.player != nil else { return }
-            let cur = self.player?.currentTime().seconds ?? self.currentTime
-            let paused = !(self.player?.timeControlStatus == .playing)
+            guard let self = self else { return }
+            let cur: Double
+            let paused: Bool
+            if let p = self.player {
+                cur = p.currentTime().seconds
+                paused = !(p.timeControlStatus == .playing)
+            } else {
+                // VLC 直连模式：AVPlayer 已释放，currentTime 由 VlcManager.onTimeUpdate 更新
+                cur = self.currentTime
+                paused = !self.isPlaying
+            }
             let voice: String = self.voiceStateString
             self.onProgressReport?(cur, paused, voice)
         }

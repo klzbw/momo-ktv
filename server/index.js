@@ -263,6 +263,42 @@ const sepUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 
 
 const log = require('./logger');
 
+// ---------- cloud_driver 字段透传（新增，不改业务逻辑） ----------
+function attachCloudDriver(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+  const ids = [];
+  const seen = new Set();
+  for (const r of rows) {
+    const cid = r && r.cloud_account_id;
+    if (cid != null && cid !== '' && !seen.has(cid)) { seen.add(cid); ids.push(cid); }
+  }
+  if (ids.length === 0) return rows;
+  const placeholders = ids.map(() => '?').join(',');
+  const map = new Map();
+  try {
+    for (const row of db.prepare(`SELECT id, driver FROM cloud_accounts WHERE id IN (${placeholders})`).all(...ids)) {
+      map.set(row.id, row.driver);
+    }
+  } catch (e) {
+    try { console.error('[cloud_driver] lookup error:', e && e.message); } catch (_) {}
+  }
+  for (const r of rows) {
+    const cid = r && r.cloud_account_id;
+    r.cloud_driver = (cid != null && cid !== '' && map.get(cid)) ? map.get(cid) : null;
+  }
+  return rows;
+}
+function getCloudDriver(cloudAccountId) {
+  if (cloudAccountId == null || cloudAccountId === '') return null;
+  try {
+    const row = db.prepare('SELECT driver FROM cloud_accounts WHERE id=?').get(cloudAccountId);
+    return (row && row.driver) ? row.driver : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+
 
 
 
@@ -10146,6 +10182,7 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
   const song = db.prepare('SELECT * FROM songs WHERE id=?').get(parseInt(req.params.id, 10));
+  const cloud_driver = getCloudDriver(song.cloud_account_id);
 
 
 
@@ -10199,6 +10236,7 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
       console.log('[SEP-INFO] 分享链接直链(Alist):', videoUrl);
 
       return res.json({
+    cloud_driver,
         dual: false,
         hasVocal: true,
         hasAccompaniment: true,
@@ -10224,6 +10262,7 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
       console.log('[SEP-INFO] strm共享直链(Alist):', videoUrl);
 
       return res.json({
+    cloud_driver,
         dual: false,
         hasVocal: true,
         hasAccompaniment: true,
@@ -10266,6 +10305,7 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
     return res.json({
+    cloud_driver,
 
 
 
@@ -10410,6 +10450,7 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
       return res.json({
+    cloud_driver,
 
 
 
@@ -10550,6 +10591,7 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
   res.json({
+    cloud_driver,
 
 
 
@@ -11290,6 +11332,8 @@ const BG_IMG_DIR = path.join(process.env.DATA_DIR || '/data', 'backgrounds');
 
 
 const BG_IMG_RE = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
+const BG_VID_RE = /\.(mp4|webm|mov|m4v)$/i;
+const BG_FILE_RE = /\.(jpe?g|png|webp|gif|bmp|avif|mp4|webm|mov|m4v)$/i;
 
 
 
@@ -11309,7 +11353,7 @@ function listBgImages() {
 
 
 
-  try { fs.mkdirSync(BG_IMG_DIR, { recursive: true }); return fs.readdirSync(BG_IMG_DIR).filter(f => BG_IMG_RE.test(f)).sort(); }
+  try { fs.mkdirSync(BG_IMG_DIR, { recursive: true }); return fs.readdirSync(BG_IMG_DIR).filter(f => BG_FILE_RE.test(f)).sort(); }
 
 
 
@@ -11349,7 +11393,7 @@ app.get('/api/backgrounds/images', (req, res) => {
 
 
 
-  res.json({ images: listBgImages().map(name => ({ name, url: '/bg-images/' + encodeURIComponent(name) })) });
+  res.json({ images: listBgImages().map(name => ({ name, url: '/bg-images/' + encodeURIComponent(name), type: BG_VID_RE.test(name) ? 'video' : 'image' })) });
 
 
 
@@ -11429,7 +11473,7 @@ const bgUpload = multer({
 
 
 
-  limits: { fileSize: 20 * 1024 * 1024, files: 12 },
+  limits: { fileSize: 60 * 1024 * 1024, files: 12 },
 
 
 
@@ -11459,7 +11503,7 @@ app.post('/api/backgrounds/upload', bgUpload.array('images', 12), (req, res) => 
 
 
 
-  const files = (req.files || []).map(f => ({ name: f.filename, url: '/bg-images/' + encodeURIComponent(f.filename) }));
+  const files = (req.files || []).map(f => ({ name: f.filename, url: '/bg-images/' + encodeURIComponent(f.filename), type: BG_VID_RE.test(f.filename) ? 'video' : 'image' }));
 
 
 
@@ -11519,7 +11563,7 @@ app.delete('/api/backgrounds/images/:name', (req, res) => {
 
 
 
-  if (!BG_IMG_RE.test(name)) return res.status(400).json({ error: '非法文件名' });
+  if (!BG_FILE_RE.test(name)) return res.status(400).json({ error: '非法文件名' });
 
 
 
@@ -12699,7 +12743,9 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    return res.json(db.prepare(baseSql).all(...params));
+    const _searchRows = db.prepare(baseSql).all(...params);
+    attachCloudDriver(_searchRows);
+    return res.json(_searchRows);
 
 
 
@@ -12760,6 +12806,7 @@ app.get('/api/songs', (req, res) => {
 
 
   const items = db.prepare(`${baseSql} LIMIT ? OFFSET ?`).all(...params, pageSize, offset);
+  attachCloudDriver(items);
 
 
 
@@ -12840,6 +12887,7 @@ app.get('/api/songs/newest', (req, res) => {
 
 
     const rows = db.prepare('SELECT * FROM songs ORDER BY id DESC LIMIT ?').all(limit);
+    attachCloudDriver(rows);
 
 
 
@@ -12950,6 +12998,7 @@ app.get('/api/songs/letter/:letter', (req, res) => {
 
 
   const rows = db.prepare('SELECT * FROM songs WHERE UPPER(SUBSTR(title,1,1)) = ? ORDER BY title LIMIT 100').all(letter);
+  attachCloudDriver(rows);
 
 
 
@@ -14260,6 +14309,7 @@ app.get('/api/history', (req, res) => {
 
 
   `).all();
+  attachCloudDriver(rows);
 
 
 
@@ -14320,6 +14370,7 @@ app.get('/api/charts', (req, res) => {
 
 
   const rows = db.prepare('SELECT * FROM songs WHERE play_count > 0 ORDER BY play_count DESC LIMIT 50').all();
+  attachCloudDriver(rows);
 
 
 
@@ -14430,6 +14481,7 @@ app.get('/api/favorites', (req, res) => {
 
 
   `).all(device);
+  attachCloudDriver(rows);
 
 
 
@@ -22607,7 +22659,7 @@ function getQueueWithSongs() {
 
 
 
-           s.audio_tracks, s.audio_needs_soft, s.video_needs_soft, s.is_network, s.is_strm
+           s.audio_tracks, s.audio_needs_soft, s.video_needs_soft, s.is_network, s.is_strm, s.cloud_account_id
 
 
 
@@ -22817,6 +22869,7 @@ function getQueueWithSongs() {
 
 
 
+  attachCloudDriver(data);
   _queueCache.data = data;
 
 
