@@ -140,6 +140,7 @@ struct Song: Codable, Identifiable, Hashable {
         // 旧版来源
         if sr.hasPrefix("netktv") { return "云" }
         if sr == "share-115" { return "115" }
+        if sr == "strm-shared" { return "共享" }
         // 新版 cloud-{mkv|flac}-{accountId}
         if sr.hasPrefix("cloud-") {
             let parts = sr.split(separator: "-")
@@ -164,6 +165,7 @@ struct Song: Codable, Identifiable, Hashable {
         case "阿里": return Color(red: 0.6, green: 0.3, blue: 0.9)   // 紫色
         case "百度": return Color(red: 0.1, green: 0.4, blue: 0.9)   // 深蓝
         case "迅雷": return Color(red: 0.9, green: 0.2, blue: 0.2)   // 红色
+        case "共享": return Color(red: 0.6, green: 0.3, blue: 0.9)   // 紫色-共享
         default: return Color.gray
         }
     }
@@ -294,6 +296,7 @@ struct QueueItem: Codable, Identifiable, Hashable {
         guard let sr = source_root else { return "" }
         if sr.hasPrefix("netktv") { return "云" }
         if sr == "share-115" { return "115" }
+        if sr == "strm-shared" { return "共享" }
         if sr.hasPrefix("cloud-") {
             let p = sr.split(separator: "-")
             if p.count >= 3, let aid = Int(p[2]) {
@@ -316,6 +319,7 @@ struct QueueItem: Codable, Identifiable, Hashable {
         case "阿里": return Color(red: 0.6, green: 0.3, blue: 0.9)
         case "百度": return Color(red: 0.1, green: 0.4, blue: 0.9)
         case "迅雷": return Color(red: 0.9, green: 0.2, blue: 0.2)
+        case "共享": return Color(red: 0.6, green: 0.3, blue: 0.9)
         default: return Color.gray
         }
     }
