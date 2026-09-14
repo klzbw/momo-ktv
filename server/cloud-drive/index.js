@@ -1,4 +1,4 @@
-/**
+[sudo] password for klzbw: /**
 
 
  * 网盘曲库集成模块入口
@@ -2750,15 +2750,14 @@ function probe115Cors(cdnUrl, origin) {
 
 
 
-/**
 
 // 直链缓存：key=accountId:filePath, value={url, expiresAt}
 // 移动云盘等API响应慢，缓存直链可显著加速切歌
 const directUrlCache = new Map();
 const DIRECT_CACHE_MAX_TTL = 300 * 1000; // 最长缓存5分钟
 
-function getCachedDirectUrl(accountId, filePath) {
-  const key = accountId + ':' + filePath;
+function getCachedDirectUrl(accountId, filePath, userAgent) {
+  const key = accountId + ':' + filePath + ':' + (userAgent || '');
   const cached = directUrlCache.get(key);
   if (!cached) return null;
   if (Date.now() > cached.expiresAt) {
@@ -2768,8 +2767,8 @@ function getCachedDirectUrl(accountId, filePath) {
   return cached.url;
 }
 
-function setCachedDirectUrl(accountId, filePath, url, expiresAt) {
-  const key = accountId + ':' + filePath;
+function setCachedDirectUrl(accountId, filePath, url, expiresAt, userAgent) {
+  const key = accountId + ':' + filePath + ':' + (userAgent || '');
   const ttl = expiresAt ? Math.min(expiresAt - Date.now() - 60000, DIRECT_CACHE_MAX_TTL) : DIRECT_CACHE_MAX_TTL;
   if (ttl <= 0) return;
   directUrlCache.set(key, { url, expiresAt: Date.now() + ttl });
@@ -2796,7 +2795,8 @@ router.get('/115-direct/:accountId/*', requireManager, async (req, res) => {
     try { filePath = decodeURIComponent(filePath); } catch (e) { /* 已是解码后 */ }
 
     // 先查缓存（加速移动网盘等API慢的驱动）
-    const cachedUrl = getCachedDirectUrl(accountId, filePath);
+    const clientUA = req.get('User-Agent') || '';
+    const cachedUrl = getCachedDirectUrl(accountId, filePath, clientUA);
     if (cachedUrl) {
       console.log('[115Direct] cache hit account=' + accountId + ' path=' + filePath);
       return res.redirect(302, cachedUrl);
@@ -2804,10 +2804,10 @@ router.get('/115-direct/:accountId/*', requireManager, async (req, res) => {
 
     const driver = manager.getDriverById(accountId);
 
-    const { url, expiresAt } = await driver.getDownloadUrlByPath(filePath);
+    const { url, expiresAt } = await driver.getDownloadUrlByPath(filePath, clientUA);
 
     // 存入缓存
-    setCachedDirectUrl(accountId, filePath, url, expiresAt);
+    setCachedDirectUrl(accountId, filePath, url, expiresAt, clientUA);
 
     console.log('[115Direct] account=' + accountId + ' path=' + filePath + ' -> 单层302到CDN (cached)');
 
@@ -2844,8 +2844,9 @@ router.get('/115-url/:accountId/*', requireManager, async (req, res) => {
     try { filePath = decodeURIComponent(filePath); } catch (e) { /* 已是解码后 */ }
 
     const driver = manager.getDriverById(accountId);
+    const clientUA = req.get('User-Agent') || '';
 
-    const { url, expiresAt } = await driver.getDownloadUrlByPath(filePath);
+    const { url, expiresAt } = await driver.getDownloadUrlByPath(filePath, clientUA);
 
     res.json({ url, expiresAt });
 
@@ -2886,8 +2887,9 @@ router.get('/115-cors-check/:accountId/*', requireManager, async (req, res) => {
     const origin = req.query.origin || 'http://localhost:8080';
 
     const driver = manager.getDriverById(accountId);
+    const clientUA = req.get('User-Agent') || '';
 
-    const { url, expiresAt } = await driver.getDownloadUrlByPath(filePath);
+    const { url, expiresAt } = await driver.getDownloadUrlByPath(filePath, clientUA);
 
     const result = await probe115Cors(url, origin);
 
