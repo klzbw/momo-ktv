@@ -1689,7 +1689,7 @@ struct FullPlayerView: View {
 
         // 用 RunLoop.common 模式调度：避免 tvOS 遥控器滑动追踪(tracking)模式下计时器不触发
 
-        let t = Timer(timeInterval: 8, repeats: false) { _ in
+        let t = Timer(timeInterval: 5, repeats: false) { _ in
 
             DispatchQueue.main.async {
 
