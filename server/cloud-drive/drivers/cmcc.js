@@ -406,9 +406,9 @@ class CmccDriver extends CloudDriveBase {
   async testConnection() {
     try {
       await this.getUserInfo();
-      return true;
+      return { success: true };
     } catch (e) {
-      return false;
+      return { success: false, error: e.message };
     }
   }
 
