@@ -8404,10 +8404,47 @@ let srcRootsCache = [];
 
 
 
-function onCloudAccountChange(){
-  // 切换网盘账号时清空路径和文件夹列表，避免显示其他网盘的路径
+// 各网盘常见歌曲目录（按驱动类型），选择账号后自动检测并填充第一个存在的路径
+const CLOUD_COMMON_PATHS = {
+  pan115: ['/momo-ktv/ktv-output', '/ktv-output', '/KTV', '/music', '/歌曲', '/ktv'],
+  cmcc: ['/KTV/music', '/KTV', '/music', '/歌曲', '/ktv'],
+  quark: ['/KTV', '/music', '/歌曲', '/ktv', '/momo-ktv/ktv-output'],
+  aliyun: ['/KTV', '/music', '/歌曲'],
+  baidu: ['/KTV', '/music', '/歌曲'],
+  xunlei: ['/KTV', '/music', '/歌曲'],
+};
+
+async function onCloudAccountChange(){
+  // 切换网盘账号时清空路径和文件夹列表
   document.getElementById('cloud-path-input').value = '';
   document.getElementById('cloud-folder-list').innerHTML = '';
+
+  const acctId = document.getElementById('cloud-acct-sel').value;
+  if(!acctId) return;
+
+  // 获取账号的驱动类型
+  const acct = (cloudAccountsCache || []).find(a => String(a.id) === String(acctId));
+  if(!acct) return;
+
+  const driver = acct.driver || 'pan115';
+  const commonPaths = CLOUD_COMMON_PATHS[driver] || ['/KTV', '/music'];
+
+  // 异步检测常见路径是否存在，自动填充第一个存在的
+  srcHint('正在检测常见歌曲目录...');
+  for(const p of commonPaths){
+    try{
+      const r = await fetch('/api/admin/browse-cloud?accountId=' + encodeURIComponent(acctId) + '&path=' + encodeURIComponent(p));
+      const d = await r.json();
+      if(r.ok && d.folders && d.folders.length > 0){
+        document.getElementById('cloud-path-input').value = p;
+        srcHint('已自动填充常见路径: ' + p + '（可手动修改或点浏览选择）');
+        // 自动浏览该路径
+        browseCloudPath();
+        return;
+      }
+    }catch(e){ /* 路径不存在，继续下一个 */ }
+  }
+  srcHint('未检测到常见歌曲目录，请手动输入或点浏览选择');
 }
 
 async function browseCloudPath(){
@@ -8422,7 +8459,7 @@ async function browseCloudPath(){
 
 
 
-  if(!acctId){ srcHint('请先选择115账号'); return; }
+  if(!acctId){ srcHint('请先选择网盘账号'); return; }
 
 
 
