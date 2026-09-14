@@ -2752,6 +2752,31 @@ function probe115Cors(cdnUrl, origin) {
 
 /**
 
+// 直链缓存：key=accountId:filePath, value={url, expiresAt}
+// 移动云盘等API响应慢，缓存直链可显著加速切歌
+const directUrlCache = new Map();
+const DIRECT_CACHE_MAX_TTL = 300 * 1000; // 最长缓存5分钟
+
+function getCachedDirectUrl(accountId, filePath) {
+  const key = accountId + ':' + filePath;
+  const cached = directUrlCache.get(key);
+  if (!cached) return null;
+  if (Date.now() > cached.expiresAt) {
+    directUrlCache.delete(key);
+    return null;
+  }
+  return cached.url;
+}
+
+function setCachedDirectUrl(accountId, filePath, url, expiresAt) {
+  const key = accountId + ':' + filePath;
+  const ttl = expiresAt ? Math.min(expiresAt - Date.now() - 60000, DIRECT_CACHE_MAX_TTL) : DIRECT_CACHE_MAX_TTL;
+  if (ttl <= 0) return;
+  directUrlCache.set(key, { url, expiresAt: Date.now() + ttl });
+}
+
+/**
+
  * GET /api/cloud/115-direct/:accountId/*
 
  * 用指定账号的 pan115 驱动换取 115 CDN 直链，直接 302（单层跳转）。
@@ -2770,11 +2795,21 @@ router.get('/115-direct/:accountId/*', requireManager, async (req, res) => {
 
     try { filePath = decodeURIComponent(filePath); } catch (e) { /* 已是解码后 */ }
 
+    // 先查缓存（加速移动网盘等API慢的驱动）
+    const cachedUrl = getCachedDirectUrl(accountId, filePath);
+    if (cachedUrl) {
+      console.log('[115Direct] cache hit account=' + accountId + ' path=' + filePath);
+      return res.redirect(302, cachedUrl);
+    }
+
     const driver = manager.getDriverById(accountId);
 
-    const { url } = await driver.getDownloadUrlByPath(filePath);
+    const { url, expiresAt } = await driver.getDownloadUrlByPath(filePath);
 
-    console.log('[115Direct] account=' + accountId + ' path=' + filePath + ' -> 单层302到CDN');
+    // 存入缓存
+    setCachedDirectUrl(accountId, filePath, url, expiresAt);
+
+    console.log('[115Direct] account=' + accountId + ' path=' + filePath + ' -> 单层302到CDN (cached)');
 
     res.redirect(302, url);
 
