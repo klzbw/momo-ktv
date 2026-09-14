@@ -261,7 +261,7 @@ class Pan115Driver extends CloudDriveBase {
       fileId: String(f.fid || f.cid || f.id),
       name: f.n || f.name,
       path: this._joinPath(remotePath, f.n || f.name),
-      isDir: f.fid === 0 || f.ica === 1 || f.is_dir === 1,
+      isDir: !f.fid || f.fid === 0 || f.ica === 1 || f.is_dir === 1,
       size: parseInt(f.s || f.size || 0, 10),
       modifiedAt: f.te ? new Date(f.te * 1000) : new Date(),
       pickCode: f.pc || f.pickcode,
@@ -597,7 +597,7 @@ class Pan115Driver extends CloudDriveBase {
     const result = allFiles.map((f) => ({
       fileId: String(f.fid || f.cid || f.id),
       name: f.n || f.name,
-      isDir: f.fid === 0 || f.ica === 1 || f.is_dir === 1,
+      isDir: !f.fid || f.fid === 0 || f.ica === 1 || f.is_dir === 1,
       size: parseInt(f.s || f.size || 0, 10),
       pickCode: f.pc || f.pickcode,
       cid: String(f.cid || f.id || '0'),
