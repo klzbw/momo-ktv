@@ -80,7 +80,7 @@ class CmccDriver extends CloudDriveBase {
       urls: new Map(),     // fileId|ua -> {url, expireAt}
       fidPaths: new Map(), // path -> fileId
     };
-    this._cacheTTL = 2 * 60 * 1000; // 2 分钟
+    this._cacheTTL = 30 * 60 * 1000; // 30 分钟（移动云盘曲库不常变，延长目录列表缓存）
     this._hostLock = null; // ensureHost 去重
   }
 

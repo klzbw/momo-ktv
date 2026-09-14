@@ -202,7 +202,29 @@ class CloudDriveManager {
 
     }
 
-    return new DriverClass(account);
+    // 缓存驱动实例（单例），使驱动内部缓存（目录列表、直链等）跨请求持久化。
+    // 移动云盘等API响应慢，若每次 new 实例则内部缓存全部失效，每首歌都要重新列目录。
+    if (!this._driverCache) this._driverCache = new Map();
+
+    const cached = this._driverCache.get(account.id);
+
+    if (cached) return cached;
+
+    const instance = new DriverClass(account);
+
+    this._driverCache.set(account.id, instance);
+
+    return instance;
+
+  }
+
+
+
+  /** 失效驱动单例缓存（token 更新/账号删除时调用） */
+
+  invalidateDriver(accountId) {
+
+    if (this._driverCache) this._driverCache.delete(accountId);
 
   }
 
@@ -404,6 +426,8 @@ class CloudDriveManager {
 
     this.db.prepare(`UPDATE cloud_accounts SET ${sets.join(', ')} WHERE id = ?`).run(...values);
 
+    this.invalidateDriver(id);
+
   }
 
 
@@ -417,6 +441,8 @@ class CloudDriveManager {
     this.db.prepare('DELETE FROM cloud_libraries WHERE account_id = ?').run(id);
 
     this.db.prepare('DELETE FROM cloud_accounts WHERE id = ?').run(id);
+
+    this.invalidateDriver(id);
 
   }
 
