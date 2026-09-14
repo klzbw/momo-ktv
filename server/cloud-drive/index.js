@@ -1,4 +1,4 @@
-[sudo] password for klzbw: /**
+/**
 
 
  * 网盘曲库集成模块入口

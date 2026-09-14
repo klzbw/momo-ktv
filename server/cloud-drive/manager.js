@@ -22,6 +22,8 @@ const XunleiDriver = require('./drivers/xunlei');
 const CMCCDriver = require('./drivers/cmcc');
 const QuarkDriver = require('./drivers/quark');
 const AlistDriver = require('./drivers/alist');
+// AList 自动挂载辅助（登录缓存 token / createStorage / deleteByPath / 驱动映射）
+const alistMount = require('./alist-mount');
 
 const DRIVERS = {
   pan115: Pan115Driver,
@@ -48,6 +50,9 @@ class CloudDriveManager {
     this.db = db;
 
     this._initTables();
+
+    // 启动后异步对账：补挂所有 active 但未记录 alist_storage_id 的账号（不阻塞构造）
+    this.reconcileAlistMounts().catch(() => {});
 
   }
 
@@ -183,6 +188,19 @@ class CloudDriveManager {
       this.db.exec("ALTER TABLE songs ADD COLUMN cloud_account_id INTEGER");
 
     } catch (e) { /* 已存在 */ }
+
+    // AList 自动挂载：记录已创建的存储 id 与挂载路径（重复 ALTER 会抛错，忽略）
+    try {
+
+      this.db.exec("ALTER TABLE cloud_accounts ADD COLUMN alist_storage_id INTEGER");
+
+    } catch (e) { /* 列已存在 */ }
+
+    try {
+
+      this.db.exec("ALTER TABLE cloud_accounts ADD COLUMN alist_mount_path TEXT");
+
+    } catch (e) { /* 列已存在 */ }
 
   }
 
@@ -400,6 +418,13 @@ class CloudDriveManager {
 
 
 
+    // 登录成功变 active 后自动挂载到内置 AList（await 但失败不影响返回）
+    const finalAccount = this.getAccount(account.id);
+    if (finalAccount && finalAccount.status === 'active') {
+      await this._mountAccountSafe(finalAccount);
+    }
+
+
     return this.getAccount(account.id);
 
   }
@@ -441,6 +466,14 @@ class CloudDriveManager {
 
 
   deleteAccount(id) {
+
+    // 删除前先移除对应的 AList 存储（best-effort，失败不阻断主流程）
+    try {
+      const acc = this.getAccount(id);
+      alistMount.unmountAccount(acc);
+    } catch (e) {
+      console.warn('[AList] 删除前卸载失败（忽略）:', e.message);
+    }
 
     // 删除关联的曲库和文件
 
@@ -590,6 +623,11 @@ class CloudDriveManager {
       });
 
       const userInfo = liveUserInfo;
+
+      // 扫码登录成功且连接正常 -> 自动挂载到 AList
+      if (connOk) {
+        await this._mountAccountSafe(this.getAccount(session.accountId));
+      }
 
       qrSessions.delete(qrId);
 
@@ -775,6 +813,68 @@ class CloudDriveManager {
       { type: 'alist', name: 'Alist（统一网盘）', authMethod: 'token', authHint: '填写 Alist 地址和管理员账号（格式：URL|用户名|密码），可连接任意 Alist 实例（含 gbox）' },
     ];
   }
+
+  // ==================== AList 自动挂载 ====================
+
+
+  /**
+   * 安全地为账号挂载到内置 AList（失败仅记录，不抛错）
+   * 成功后回写 alist_storage_id / alist_mount_path
+   */
+  async _mountAccountSafe(account) {
+
+    if (!account) return;
+
+    try {
+      const result = await alistMount.mountAccount(account);
+      if (result && result.id != null) {
+        this.db.prepare(
+          'UPDATE cloud_accounts SET alist_storage_id = ?, alist_mount_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        ).run(result.id, result.mountPath, account.id);
+      }
+    } catch (e) {
+      console.error(`[AList] 自动挂载失败（账号 ${account.name}, driver=${account.driver}）:`, e.message);
+    }
+
+  }
+
+
+  /**
+   * 启动对账：把所有 active 但 alist_storage_id 为空的账号补挂一次（容错）
+   */
+  async reconcileAlistMounts(attempt = 1) {
+
+    let hadLoadingError = false;
+    try {
+      const rows = this.db.prepare(
+        "SELECT * FROM cloud_accounts WHERE status = 'active' AND (alist_storage_id IS NULL OR alist_storage_id = '')"
+      ).all();
+
+      for (const acc of rows) {
+        try {
+          await this._mountAccountSafe(acc);
+        } catch (e) {
+          console.warn('[AList] 对账挂载失败（忽略）:', acc.name, e.message);
+          if (/Loading storage|Loading|登录失败|500/i.test(e.message)) hadLoadingError = true;
+        }
+      }
+
+      const still = this.db.prepare(
+        "SELECT COUNT(*) AS n FROM cloud_accounts WHERE status = 'active' AND (alist_storage_id IS NULL OR alist_storage_id = '')"
+      ).get();
+      if ((hadLoadingError || (still && still.n > 0)) && attempt < 6) {
+        console.log(`[AList] 对账第 ${attempt} 轮后仍有 ${still ? still.n : 0} 个账号未挂载，10s 后重试...`);
+        setTimeout(() => this.reconcileAlistMounts(attempt + 1).catch(() => {}), 10000);
+      }
+    } catch (e) {
+      console.warn('[AList] 启动对账失败（忽略）:', e.message);
+      if (attempt < 6) {
+        setTimeout(() => this.reconcileAlistMounts(attempt + 1).catch(() => {}), 10000);
+      }
+    }
+
+  }
+
 
 }
 

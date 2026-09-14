@@ -28,6 +28,8 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
+const { URL } = require('url');
 const crypto = require('crypto');
 const router = express.Router();
 
@@ -36,6 +38,8 @@ let _dataDir = '/data';
 let _alistUrl = 'http://localhost:5234';
 let _alistToken = null;
 let _alistTokenExpiry = 0;
+// strm 文件对外基础地址（由 init() 读环境变量 SHARE_PUBLIC_BASE 填充）
+let _sharePublicBase = '';
 
 // 扫描状态
 let _scanState = {
@@ -131,6 +135,7 @@ const DRIVE_CONFIGS = {
     name: '夸克',
     driver: 'QuarkShare',
     webdavPolicy: 'native_proxy',
+    proxyBytes: true, // CDN 校验 Referer/UA，需服务端字节中转（裸 302 会 403）
     mountPrefix: '/我的夸克分享/',
     addition: (share) => ({
       share_id: share.share_id,
@@ -166,6 +171,7 @@ const DRIVE_CONFIGS = {
     name: 'UC网盘',
     driver: 'UCShare',
     webdavPolicy: 'native_proxy',
+    proxyBytes: true, // CDN 校验 Referer/UA，需服务端字节中转（裸 302 会 403）
     mountPrefix: '/我的UC分享/',
     addition: (share) => ({
       share_id: share.share_id,
@@ -183,6 +189,7 @@ const DRIVE_CONFIGS = {
     name: '115网盘',
     driver: '115 Share',
     webdavPolicy: '302_redirect',
+    proxyBytes: true, // CDN 校验 UA/Referer，需服务端字节中转（裸 302 会 403）
     mountPrefix: '/我的115分享/',
     addition: (share) => ({
       cookie: share.cookie || '',
@@ -287,6 +294,23 @@ function init(db, dataDir) {
   _db = db;
   _dataDir = dataDir || '/data';
   _alistUrl = process.env.ALIST_URL || 'http://localhost:5234';
+
+  // strm 文件对外基础地址。
+  // 【部署必配】播放端（VLC/浏览器）不在容器内，必须设为 NAS 对外可访问的地址，
+  // 例如 http://192.168.3.16:8083 （NAS_IP : WEB_PORT）。
+  // 缺省时降级为相对路径 /api/share/stream...（VLC 对相对路径不友好，生产环境务必配置）。
+  _sharePublicBase = (process.env.SHARE_PUBLIC_BASE || '').replace(/\/+$/, '');
+  // 环境变量未设置时，从持久化文件读取（容器无法在不重建的情况下注入 env，
+  // 直接把对外地址写入 /data/share_public_base.txt 即可，例如 http://192.168.3.16:8083）
+  if (!_sharePublicBase) {
+    try {
+      const cfgFile = path.join(_dataDir, 'share_public_base.txt');
+      if (fs.existsSync(cfgFile)) {
+        _sharePublicBase = fs.readFileSync(cfgFile, 'utf-8').trim().replace(/\/+$/, '');
+        console.log('[ShareImport] 从文件读取 strm 对外地址:', _sharePublicBase);
+      }
+    } catch (e) { /* ignore */ }
+  }
 
   _initDB();
 
@@ -456,12 +480,14 @@ async function _alistAddShareStorage(link) {
   const mountPath = config.mountPrefix + link.id;
   const addition = JSON.stringify(config.addition(link));
 
+  // P0-1: webdav_policy 必须放 body 顶层（quark/uc=native_proxy，其余=302_redirect）
   const result = await _alistApi('POST', '/api/admin/storage/create', {
     mount_path: mountPath,
     order: link.id,
     driver: config.driver,
     cache_expiration: 30,
     status: 'work',
+    webdav_policy: config.webdavPolicy,
     addition: addition,
   });
 
@@ -469,11 +495,24 @@ async function _alistAddShareStorage(link) {
     throw new Error('Alist 添加存储失败: ' + (result.message || JSON.stringify(result)));
   }
 
+  // P0-2: 新建成功拿到存储 id 后，调用 /storage/enable 启用。
+  // 若存储本就已启用，AList 返回 "this storage have enabled"，属正常，忽略即可；其余异常仅告警。
+  const newStorageId = result.data && result.data.id;
+  if (result.code === 200 && newStorageId) {
+    try {
+      await _alistApi('POST', '/api/admin/storage/enable?id=' + newStorageId, null);
+    } catch (e) {
+      console.warn('[ShareImport] 启用存储失败（忽略）:', e.message);
+    }
+  }
+
   return mountPath;
 }
 
 async function _alistDeleteStorage(storageId) {
-  return await _alistApi('POST', '/api/admin/storage/delete', { id: storageId });
+  // AList v3.39 删除存储要求 id 走 query 参数（POST 空 body）；
+  // 原来用 POST JSON body {id} 会报 strconv.Atoi 错误，故改为 ?id=<storageId>。
+  return await _alistApi('POST', '/api/admin/storage/delete?id=' + storageId, null);
 }
 
 async function _alistListDir(dirPath, page = 1, perPage = 100) {
@@ -764,9 +803,11 @@ async function _scanShareLink(link) {
 
       const { title, artist } = _parseFilename(file.name);
 
-      // 生成 STRM 文件（指向 momo-ktv 的分享流代理端点）
+      // 生成 STRM 文件（指向 momo-ktv 的分享流代理端点）。
+      // P0-4: 不再硬编码 http://127.0.0.1:8080。使用环境变量 SHARE_PUBLIC_BASE 作为对外基础地址；
+      // 未配置时降级为相对路径（VLC 对相对路径不友好，部署时务必把 SHARE_PUBLIC_BASE 设为 http://<NAS_IP>:<WEB_PORT>）。
       const strmPath = path.join(strmDir, `${pathHash}.strm`);
-      const strmContent = `http://127.0.0.1:8080/api/share/stream${file.path}`;
+      const strmContent = `${_sharePublicBase}/api/share/stream${file.path}`;
       try { fs.writeFileSync(strmPath, strmContent, 'utf-8'); }
       catch (e) { console.warn(`[ShareImport] STRM 写入失败 ${file.name}: ${e.message}`); }
 
@@ -800,8 +841,82 @@ function _parseFilename(filename) {
 
 // ==================== 分享流播放端点（代理 Alist /d/） ====================
 
+// 夸克 cloud-drive Electron 桌面端 UA（与 server/cloud-drive/drivers/quark.js 的 USER_AGENT 保持一致）
+const QUARK_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch';
+// 115 浏览器 UA（与 server/cloud-drive/drivers/pan115.js 的 USER_AGENT 保持一致）
+const PAN115_UA = 'Mozilla/5.0 115Browser/23.9.3.2';
+
+// 需要服务端字节中转的盘：其 CDN 校验 Referer / UA，把 302 裸给播放端（VLC/浏览器）必 403。
+// Referer / UA 对照：
+//   quark : Referer = https://pan.quark.cn/   UA = QUARK_UA（夸克 cloud-drive Electron）
+//   uc    : Referer = https://drive.uc.cn/    UA = QUARK_UA（UC 与夸克同源桌面端 UA）
+//   115   : Referer = https://115.com         UA = PAN115_UA（115Browser）
+const CDN_PROXY_RULES = {
+  quark: { referer: 'https://pan.quark.cn/', userAgent: QUARK_UA },
+  uc: { referer: 'https://drive.uc.cn/', userAgent: QUARK_UA },
+  '115': { referer: 'https://115.com', userAgent: PAN115_UA },
+};
+
 /**
- * 分享文件直链播放（代理 Alist /d/ 端点，302 重定向到网盘 CDN）
+ * 根据 AList 挂载路径反查所属网盘（用于决定是否需要服务端字节中转）
+ * 挂载路径形如 /我的夸克分享/<link.id>/xxx，按 mountPrefix 前缀匹配即可唯一确定。
+ */
+function _findDriveByPath(alistPath) {
+  for (const [platform, config] of Object.entries(DRIVE_CONFIGS)) {
+    if (alistPath.startsWith(config.mountPrefix)) return { platform, config };
+  }
+  return null;
+}
+
+/**
+ * 服务端字节中转：向 CDN 拉取文件流并 pipe 给客户端。
+ * 用于 quark/uc/115 等 CDN 校验 Referer/UA 的场景。
+ * - 透传客户端 Range 请求头（拖动进度条/分段加载），CDN 返回 206 时一并透传 content-range
+ * - 透传 content-type / content-length / 状态码等关键响应头
+ * - 仅用 Node 内置 http/https，无新增依赖
+ */
+function _proxyCdnToClient(cdnUrl, clientReq, clientRes, rule) {
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try { parsed = new URL(cdnUrl); } catch (e) { return reject(e); }
+
+    const lib = parsed.protocol === 'https:' ? https : http;
+    const headers = {
+      'User-Agent': rule.userAgent,
+      'Referer': rule.referer,
+    };
+    // 透传 Range（客户端发了 Range 就转发给 CDN，响应 206）
+    if (clientReq.headers.range) {
+      headers['Range'] = clientReq.headers.range;
+    }
+
+    const upReq = lib.request(cdnUrl, { method: 'GET', headers, timeout: 30000 }, (upRes) => {
+      // 只透传必要的响应头，避免把 CDN 的安全相关头原样带给客户端
+      const passHeaders = {};
+      for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control', 'etag', 'last-modified']) {
+        if (upRes.headers[h] !== undefined) passHeaders[h] = upRes.headers[h];
+      }
+      clientRes.writeHead(upRes.statusCode, passHeaders);
+      upRes.pipe(clientRes);
+      upRes.on('end', resolve);
+      upRes.on('error', resolve);
+    });
+    upReq.on('error', (e) => {
+      if (!clientRes.headersSent) {
+        clientRes.status(502).json({ error: 'CDN 中转失败: ' + e.message });
+      }
+      resolve();
+    });
+    upReq.on('timeout', () => { upReq.destroy(new Error('CDN 中转超时')); });
+    upReq.end();
+  });
+}
+
+/**
+ * 分享文件直链播放（代理 Alist /d/ 端点）
+ * - webdav_policy=native_proxy 时 AList 直接返回 200，保持原有 pipe 逻辑
+ * - 302 到 CDN 后：quark/uc/115（CDN 校验 Referer/UA）由服务端带正确 Referer/UA 字节中转；
+ *   其余盘 CDN 不校验 Referer，仍直接 res.redirect(302) 给播放端
  * GET /api/share/stream/*
  */
 router.get('/stream/*', async (req, res) => {
@@ -810,38 +925,56 @@ router.get('/stream/*', async (req, res) => {
     const alistUrl = _alistUrl + '/d' + alistPath;
     const userAgent = req.get('User-Agent') || 'Mozilla/5.0';
 
+    // 反查该路径属于哪个网盘，决定 302 后是否需要服务端字节中转
+    const drive = _findDriveByPath(alistPath);
+
     const redirectUrl = await new Promise((resolve, reject) => {
-      const req = http.get(alistUrl, {
+      const upReq = http.get(alistUrl, {
         headers: { 'User-Agent': userAgent },
         timeout: 15000,
-      }, (res) => {
-        if (res.statusCode === 302 || res.statusCode === 301) {
-          resolve(res.headers.location);
-        } else if (res.statusCode === 200) {
-          resolve(null); // web_proxy 模式直接返回流
+      }, (alistRes) => {
+        if (alistRes.statusCode === 302 || alistRes.statusCode === 301) {
+          resolve(alistRes.headers.location);
+        } else if (alistRes.statusCode === 200) {
+          resolve(null); // native_proxy 模式 AList 已自己代理字节
         } else {
-          reject(new Error('Alist 返回状态码: ' + res.statusCode));
+          reject(new Error('Alist 返回状态码: ' + alistRes.statusCode));
         }
-        res.resume();
+        alistRes.resume();
       });
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Alist 请求超时')); });
+      upReq.on('error', reject);
+      upReq.on('timeout', () => { upReq.destroy(); reject(new Error('Alist 请求超时')); });
     });
 
-    if (redirectUrl) {
-      console.log(`[ShareStream] 302 → CDN: ${alistPath.substring(0, 60)}...`);
-      res.redirect(302, redirectUrl);
-    } else {
+    // AList 直接返回 200（native_proxy 已代理字节）：保持原有 pipe 逻辑
+    if (!redirectUrl) {
       console.log(`[ShareStream] Alist 直连代理: ${alistPath.substring(0, 60)}...`);
       const proxyReq = http.get(alistUrl, { headers: { 'User-Agent': userAgent } }, (proxyRes) => {
         res.writeHead(proxyRes.statusCode, proxyRes.headers);
         proxyRes.pipe(res);
       });
       proxyReq.on('error', (e) => res.status(502).json({ error: e.message }));
+      return;
     }
+
+    const cdnUrl = redirectUrl;
+
+    // 302 到 CDN：需要 Referer/UA 中转的盘，服务端拉 CDN 字节再 pipe 给客户端
+    if (drive && drive.config.proxyBytes && CDN_PROXY_RULES[drive.platform]) {
+      const rule = CDN_PROXY_RULES[drive.platform];
+      console.log(`[ShareStream] 字节中转(${drive.platform}) → CDN: ${alistPath.substring(0, 60)}...`);
+      await _proxyCdnToClient(cdnUrl, req, res, rule);
+      return;
+    }
+
+    // 其余盘（302_redirect 且 CDN 不校验 Referer）：直接 302 给播放端
+    console.log(`[ShareStream] 302 → CDN: ${alistPath.substring(0, 60)}...`);
+    res.redirect(302, cdnUrl);
   } catch (e) {
     console.error('[ShareStream] 获取直链失败:', e.message);
-    res.status(502).json({ error: '获取直链失败: ' + e.message });
+    if (!res.headersSent) {
+      res.status(502).json({ error: '获取直链失败: ' + e.message });
+    }
   }
 });
 
