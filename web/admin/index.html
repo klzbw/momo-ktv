@@ -3231,7 +3231,7 @@ select option{color:#000}
 
 
 
-        <select id="cloud-acct-sel" style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid #444;background:#222;color:#eee"></select>
+        <select id="cloud-acct-sel" style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid #444;background:#222;color:#eee" onchange="onCloudAccountChange()"></select>
 
 
 
@@ -3251,7 +3251,7 @@ select option{color:#000}
 
 
 
-        <input id="cloud-path-input" type="text" placeholder="/momo-ktv/ktv-output" style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid #444;background:#222;color:#eee">
+        <input id="cloud-path-input" type="text" placeholder="/ 选择或输入网盘歌曲目录（可点浏览选择）" style="flex:1;padding:6px 8px;border-radius:8px;border:1px solid #444;background:#222;color:#eee">
 
 
 
@@ -8404,6 +8404,12 @@ let srcRootsCache = [];
 
 
 
+function onCloudAccountChange(){
+  // 切换网盘账号时清空路径和文件夹列表，避免显示其他网盘的路径
+  document.getElementById('cloud-path-input').value = '';
+  document.getElementById('cloud-folder-list').innerHTML = '';
+}
+
 async function browseCloudPath(){
 
 
@@ -8441,6 +8447,22 @@ async function browseCloudPath(){
 
 
     el.innerHTML = '';
+
+    // 返回上级（非根目录时显示）
+    const cleanPath = path.replace(/\/$/, '');
+    if (cleanPath && cleanPath !== '/') {
+      const upRow = document.createElement('div');
+      upRow.style.cssText = 'cursor:pointer;padding:4px 8px;border-radius:6px;color:var(--cyan);';
+      upRow.textContent = '📁 .. 返回上级';
+      upRow.onmouseenter = () => upRow.style.background = 'rgba(255,79,155,.15)';
+      upRow.onmouseleave = () => upRow.style.background = '';
+      upRow.onclick = () => {
+        const parent = cleanPath.substring(0, cleanPath.lastIndexOf('/')) || '/';
+        document.getElementById('cloud-path-input').value = parent;
+        browseCloudPath();
+      };
+      el.appendChild(upRow);
+    }
 
 
 
