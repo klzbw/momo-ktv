@@ -1,4 +1,4 @@
-/**
+[sudo] password for klzbw: /**
  * 115 网盘驱动（v2 - 参考 115drive-webdav 实现）
  *
  * 认证方式：Cookie 登录（UID + CID + SEID + KID）
@@ -244,6 +244,7 @@ class Pan115Driver extends CloudDriveBase {
         record_open_time: '1',
         format: 'json',
         fc_mix: '0',
+        type: '0',
       });
 
       const res = await this._request('GET', `${API_URLS.getFiles}?${params.toString()}`);
