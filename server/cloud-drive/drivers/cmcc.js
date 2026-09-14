@@ -76,10 +76,13 @@ class CmccDriver extends CloudDriveBase {
 
     // 缓存
     this._cache = {
-      files: new Map(),    // path -> {items, expireAt}
-      urls: new Map(),     // fileId|ua -> {url, expireAt}
-      fidPaths: new Map(), // path -> fileId
+      files: new Map(),      // path -> {items, expireAt}
+      urls: new Map(),       // fileId|ua -> {url, expireAt}
+      fidPaths: new Map(),   // dir path -> fileId
+      filePathFids: new Map(), // file path -> fileId (P4: 避免播放时重新列目录)
     };
+    // P4: 文件路径->fid 持久化缓存文件路径
+    this._fidCacheFile = null;
     this._cacheTTL = 30 * 60 * 1000; // 30 分钟（移动云盘曲库不常变，延长目录列表缓存）
     this._hostLock = null; // ensureHost 去重
   }
@@ -284,6 +287,12 @@ class CmccDriver extends CloudDriveBase {
       pageCursor = resp.data?.nextPageCursor || '';
     } while (pageCursor);
 
+    // P4: 填充文件路径 -> fid 映射（播放时直接查映射，不重新列目录）
+    for (const item of allItems) {
+      if (!item.isDir) {
+        this._setCache('filePathFids', item.path, item.fileId, 24 * 60 * 60 * 1000);
+      }
+    }
     this._setCache('files', remotePath, allItems);
     return allItems;
   }
@@ -378,6 +387,13 @@ class CmccDriver extends CloudDriveBase {
    */
   async getDownloadUrlByPath(filePath, clientUA) {
     filePath = this._normalizePath(filePath);
+
+    // P4: 优先查文件路径 -> fid 缓存，命中则直接取直链，不重新列目录
+    const cachedFid = this._getCache('filePathFids', filePath);
+    if (cachedFid) {
+      return this.getDownloadUrl(cachedFid);
+    }
+
     const dir = filePath.substring(0, filePath.lastIndexOf('/')) || '/';
     const fileName = filePath.substring(filePath.lastIndexOf('/') + 1);
 
@@ -386,6 +402,8 @@ class CmccDriver extends CloudDriveBase {
     if (!file) {
       throw new Error(`移动云盘文件不存在: ${filePath}`);
     }
+    // listFiles 已填充 filePathFids，这里兜底再存一次
+    this._setCache('filePathFids', filePath, file.fileId, 24 * 60 * 60 * 1000);
     return this.getDownloadUrl(file.fileId);
   }
 
@@ -485,6 +503,109 @@ class CmccDriver extends CloudDriveBase {
       req.write(bodyStr);
       req.end();
     });
+  }
+
+  // ==================== P4: 冷启动优化：目录预加载 & fid 映射持久化 ====================
+
+  /**
+   * 递归预加载所有目录列表，填充 filePathFids 映射。
+   * 在账号启用时/容器启动后后台调用，避免首次播放时冷启动列目录慢。
+   * @param {number} [maxDepth=10] - 最大递归深度
+   * @returns {Promise<{dirs: number, files: number}>}
+   */
+  async preloadAll(maxDepth = 10) {
+    const stats = { dirs: 0, files: 0 };
+    const visited = new Set();
+
+    const walk = async (dirPath, depth) => {
+      if (depth > maxDepth) return;
+      if (visited.has(dirPath)) return;
+      visited.add(dirPath);
+
+      let items;
+      try {
+        items = await this.listFiles(dirPath);
+      } catch (e) {
+        console.warn('[CMCC preload] 列目录失败 ' + dirPath + ': ' + e.message);
+        return;
+      }
+      stats.dirs++;
+
+      for (const item of items) {
+        if (item.isDir) {
+          await walk(item.path, depth + 1);
+        } else {
+          stats.files++;
+        }
+      }
+    };
+
+    console.log('[CMCC preload] 开始预加载目录列表...');
+    const startTime = Date.now();
+    await walk('/', 0);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log('[CMCC preload] 完成: 目录=' + stats.dirs + ' 文件=' + stats.files + ' 耗时=' + elapsed + 's');
+
+    // 持久化 fid 映射
+    try {
+      this._saveFidCache();
+    } catch (e) {
+      console.warn('[CMCC preload] 持久化 fid 缓存失败:', e.message);
+    }
+
+    return stats;
+  }
+
+  /**
+   * 设置持久化缓存文件路径（由 manager 调用，传入 data 目录）
+   */
+  setFidCacheFile(dataDir) {
+    const accountId = this.account ? this.account.id : 'unknown';
+    this._fidCacheFile = require('path').join(dataDir, 'cmcc-fid-cache-' + accountId + '.json');
+    // 启动时尝试加载已有缓存
+    this._loadFidCache();
+  }
+
+  /**
+   * 从磁盘加载 filePathFids 缓存
+   */
+  _loadFidCache() {
+    if (!this._fidCacheFile || !fs.existsSync(this._fidCacheFile)) return;
+    try {
+      const data = JSON.parse(fs.readFileSync(this._fidCacheFile, 'utf8'));
+      const ttl = 24 * 60 * 60 * 1000;
+      let count = 0;
+      for (const [filePath, fid] of Object.entries(data.mappings || {})) {
+        this._setCache('filePathFids', filePath, fid, ttl);
+        count++;
+      }
+      // 同时恢复目录路径 -> fid 映射
+      for (const [dirPath, fid] of Object.entries(data.dirFids || {})) {
+        this._setCache('fidPaths', dirPath, fid, ttl);
+      }
+      console.log('[CMCC fid-cache] 从磁盘加载 ' + count + ' 条文件路径映射');
+    } catch (e) {
+      console.warn('[CMCC fid-cache] 加载失败:', e.message);
+    }
+  }
+
+  /**
+   * 保存 filePathFids 缓存到磁盘
+   */
+  _saveFidCache() {
+    if (!this._fidCacheFile) return;
+    const mappings = {};
+    const dirFids = {};
+    const now = Date.now();
+    for (const [key, entry] of this._cache.filePathFids.entries()) {
+      if (entry.expireAt > now) mappings[key] = entry.value;
+    }
+    for (const [key, entry] of this._cache.fidPaths.entries()) {
+      if (entry.expireAt > now) dirFids[key] = entry.value;
+    }
+    const data = { savedAt: new Date().toISOString(), mappings, dirFids };
+    fs.writeFileSync(this._fidCacheFile, JSON.stringify(data), 'utf8');
+    console.log('[CMCC fid-cache] 保存 ' + Object.keys(mappings).length + ' 条文件映射到 ' + this._fidCacheFile);
   }
 
   // ==================== 扫码登录（暂不支持，用 Token 输入） ====================

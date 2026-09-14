@@ -230,6 +230,14 @@ class CloudDriveManager {
 
     const instance = new DriverClass(account);
 
+    // P4: cmcc 驱动设置持久化 fid 缓存，并后台预加载目录列表
+    if (account.driver === 'cmcc' && typeof instance.setFidCacheFile === 'function') {
+      const dataDir = process.env.DATA_DIR || '/data';
+      instance.setFidCacheFile(dataDir);
+      // 后台预加载，不阻塞启动
+      instance.preloadAll().catch(e => console.warn('[CMCC preload] 后台预加载失败:', e.message));
+    }
+
     this._driverCache.set(account.id, instance);
 
     return instance;
@@ -847,7 +855,7 @@ class CloudDriveManager {
     let hadLoadingError = false;
     try {
       const rows = this.db.prepare(
-        "SELECT * FROM cloud_accounts WHERE status = 'active' AND (alist_storage_id IS NULL OR alist_storage_id = '')"
+        "SELECT * FROM cloud_accounts WHERE status = 'active' AND (alist_storage_id IS NULL OR alist_storage_id = '') AND driver NOT IN ('xunlei', 'alist', 'aliyun', 'baidu')"
       ).all();
 
       for (const acc of rows) {
@@ -860,7 +868,7 @@ class CloudDriveManager {
       }
 
       const still = this.db.prepare(
-        "SELECT COUNT(*) AS n FROM cloud_accounts WHERE status = 'active' AND (alist_storage_id IS NULL OR alist_storage_id = '')"
+        "SELECT COUNT(*) AS n FROM cloud_accounts WHERE status = 'active' AND (alist_storage_id IS NULL OR alist_storage_id = '') AND driver NOT IN ('xunlei', 'alist', 'aliyun', 'baidu')"
       ).get();
       if ((hadLoadingError || (still && still.n > 0)) && attempt < 6) {
         console.log(`[AList] 对账第 ${attempt} 轮后仍有 ${still ? still.n : 0} 个账号未挂载，10s 后重试...`);

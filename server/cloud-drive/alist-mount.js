@@ -252,6 +252,14 @@ async function mountAccount(account) {
     console.warn(`[AList] 跳过 xunlei 账号 "${account.name}"：Thunder 驱动需要用户名密码，无法用 Bearer token 自动挂载。`);
     return null;
   }
+  if (account.driver === 'aliyun') {
+    console.warn(`[AList] 跳过 aliyun 账号 "${account.name}"：阿里云 token 走 gbox 私有 OAuth，AList 公共驱动不认，仅走 cloud-drive 驱动。`);
+    return null;
+  }
+  if (account.driver === 'baidu') {
+    console.warn(`[AList] 跳过 baidu 账号 "${account.name}"：百度 token 走 gbox 私有 OAuth，AList 公共驱动不认，仅走 cloud-drive 驱动。`);
+    return null;
+  }
   if (account.driver === 'alist') {
     console.warn(`[AList] 跳过 alist 外部连接账号 "${account.name}"：该类型不自动挂载。`);
     return null;

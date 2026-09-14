@@ -2774,6 +2774,64 @@ function setCachedDirectUrl(accountId, filePath, url, expiresAt, userAgent) {
   directUrlCache.set(key, { url, expiresAt: Date.now() + ttl });
 }
 
+// ==================== CDN byte proxy (quark/uc CDN checks Referer) ====================
+
+const CDN_QUARK_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch';
+
+const BYTE_PROXY_DRIVERS = new Set(['quark', 'uc']);
+
+const CDN_PROXY_RULES = {
+  quark: { referer: 'https://pan.quark.cn/', userAgent: CDN_QUARK_UA },
+  uc: { referer: 'https://drive.uc.cn/', userAgent: CDN_QUARK_UA },
+};
+
+function driverNeedsByteProxy(driverType) {
+  return BYTE_PROXY_DRIVERS.has(driverType);
+}
+
+function proxyCdnToClient(cdnUrl, clientReq, clientRes, rule) {
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try { parsed = new URL(cdnUrl); } catch (e) { return reject(e); }
+
+    const lib = parsed.protocol === 'https:' ? https : http;
+    const headers = {
+      'User-Agent': rule.userAgent,
+      'Referer': rule.referer,
+    };
+    if (clientReq.headers.range) {
+      headers['Range'] = clientReq.headers.range;
+    }
+
+    const upReq = lib.request(cdnUrl, { method: 'GET', headers, timeout: 30000 }, (upRes) => {
+      if (upRes.statusCode === 403) {
+        upRes.resume();
+        if (!clientRes.headersSent) {
+          clientRes.status(502).json({ error: 'CDN returned 403 (Referer/UA check failed)' });
+        }
+        return resolve();
+      }
+      const passHeaders = {};
+      for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control', 'etag', 'last-modified']) {
+        if (upRes.headers[h] !== undefined) passHeaders[h] = upRes.headers[h];
+      }
+      clientRes.writeHead(upRes.statusCode, passHeaders);
+      upRes.pipe(clientRes);
+      upRes.on('end', resolve);
+      upRes.on('error', resolve);
+    });
+    upReq.on('error', (e) => {
+      if (!clientRes.headersSent) {
+        clientRes.status(502).json({ error: 'CDN proxy failed: ' + e.message });
+      }
+      resolve();
+    });
+    upReq.on('timeout', () => { upReq.destroy(new Error('CDN proxy timeout')); });
+    upReq.end();
+  });
+}
+
+
 /**
 
  * GET /api/cloud/115-direct/:accountId/*
@@ -2792,12 +2850,25 @@ router.get('/115-direct/:accountId/*', requireManager, async (req, res) => {
 
     let filePath = req.params[0] || '';
 
-    try { filePath = decodeURIComponent(filePath); } catch (e) { /* 已是解码后 */ }
+    try { filePath = decodeURIComponent(filePath); } catch (e) { /* already decoded */ }
 
-    // 先查缓存（加速移动网盘等API慢的驱动）
+    // Query account to get driver type (decides 302 vs byte proxy)
+    const account = manager.getAccount(accountId);
+    if (!account) {
+      return res.status(404).json({ error: 'cloud account not found: ' + accountId });
+    }
+    const needsProxy = driverNeedsByteProxy(account.driver);
+
+    // Check cache first (speeds up slow drivers like CMCC)
     const clientUA = req.get('User-Agent') || '';
     const cachedUrl = getCachedDirectUrl(accountId, filePath, clientUA);
     if (cachedUrl) {
+      if (needsProxy) {
+        const rule = CDN_PROXY_RULES[account.driver];
+        console.log('[115Direct] cache hit (byte-proxy ' + account.driver + ') account=' + accountId + ' path=' + filePath);
+        await proxyCdnToClient(cachedUrl, req, res, rule);
+        return;
+      }
       console.log('[115Direct] cache hit account=' + accountId + ' path=' + filePath);
       return res.redirect(302, cachedUrl);
     }
@@ -2806,16 +2877,25 @@ router.get('/115-direct/:accountId/*', requireManager, async (req, res) => {
 
     const { url, expiresAt } = await driver.getDownloadUrlByPath(filePath, clientUA);
 
-    // 存入缓存
+    // Cache direct URL (keyed by UA)
     setCachedDirectUrl(accountId, filePath, url, expiresAt, clientUA);
 
-    console.log('[115Direct] account=' + accountId + ' path=' + filePath + ' -> 单层302到CDN (cached)');
+    if (needsProxy) {
+      // quark/uc: server-side byte proxy with correct Referer + UA, supports Range
+      const rule = CDN_PROXY_RULES[account.driver];
+      console.log('[115Direct] byte-proxy (' + account.driver + ') account=' + accountId + ' path=' + filePath);
+      await proxyCdnToClient(url, req, res, rule);
+      return;
+    }
+
+    // pan115/cmcc/baidu/aliyun/xunlei: CDN does not check Referer, keep bare 302
+    console.log('[115Direct] account=' + accountId + ' path=' + filePath + ' -> 302 to CDN (cached)');
 
     res.redirect(302, url);
 
   } catch (e) {
 
-    console.error('[115Direct] 取直链失败:', e.message);
+    console.error('[115Direct] get direct url failed:', e.message);
 
     res.status(500).json({ error: e.message });
 
