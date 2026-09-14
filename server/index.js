@@ -98,7 +98,7 @@ const db = require('./db');
 
 
 
-const { scanLibrary, syncSongArtists, ensureProbedOnDemand, deleteSongCascade, isProblemAudioCodec, isProblemVideoCodec, getMVDir, getMVRoots, getLibraryRoots, saveLibraryRoots, resolveLibraryRootPath, BASE_MOUNTS } = require('./scanner');
+const { scanLibrary, syncSongArtists, ensureProbedOnDemand, deleteSongCascade, isProblemAudioCodec, isProblemVideoCodec, getMVDir, getMVRoots, getLibraryRoots, saveLibraryRoots, resolveLibraryRootPath, BASE_MOUNTS, isCloudRoot, ensureDefaultCloudRoots, getActivePan115AccountId, BUILTIN_CLOUD_ROOTS } = require('./scanner');
 
 
 
@@ -177,6 +177,7 @@ const cloudDrive = require('./cloud-drive');
 
 
 const directStream = require('./direct-stream');
+const shareImport = require('./share-import');
 
 const cloud115Login = require('./cloud-115-login');
 
@@ -238,7 +239,7 @@ const multer = require('multer');
 
 
 
-// 鍒嗙浜х墿鍗曢鍑犲崄 MB锛岀敤鍐呭瓨瀛樺偍鏀跺畬鍗宠惤鐩樺埌 /data/separated锛堜竴棣栦竴棣栦紶锛屽唴瀛樺彲鎺э級
+// 分离产物单首几十 MB，用内存存储收完即落盘到 /data/separated（一首一首传，内存可控）
 
 
 
@@ -278,7 +279,7 @@ const log = require('./logger');
 
 
 
-// ---------- 杩涚▼绾у厹搴曪細鍗曚釜鍚庡彴浠诲姟鐨勬剰澶栭敊璇笉璇ユ嫋鍨暣涓湇鍔?----------
+// ---------- 进程级兜底：单个后台任务的意外错误不该拖垮整个服务 ----------
 
 
 
@@ -288,7 +289,7 @@ const log = require('./logger');
 
 
 
-// Bug淇("瀹瑰櫒鏃犻檺閲嶅惎")鐨勬暀璁細ensureHLS() 鍚庡彴杞爜閭ｆ潯 Promise 閾句箣鍓?
+// Bug修复("容器无限重启")的教训：ensureHLS() 后台转码那条 Promise 链之前
 
 
 
@@ -297,8 +298,8 @@ const log = require('./logger');
 
 
 
-// 瀛樺湪涓€涓?娌′汉娑堣垂"鐨?rejected Promise锛孨ode 閬囧埌 unhandledRejection 榛樿
 
+// 存在一个"没人消费"的 rejected Promise，Node 遇到 unhandledRejection 默认
 
 
 
@@ -307,8 +308,8 @@ const log = require('./logger');
 
 
 
-// 鐩存帴缁堟鏁翠釜杩涚▼锛涘鍣?restart:unless-stopped 鍙堜細鎶婂畠鎷夎捣鏉ワ紝闃熷垪閲岄偅棣?
 
+// 直接终止整个进程；容器 restart:unless-stopped 又会把它拉起来，队列里那首
 
 
 
@@ -316,62 +317,61 @@ const log = require('./logger');
 
 
 
-// 澶辫触鐨勬瓕绔嬪埢鍐嶆瑙﹀彂鍚屾牱鐨勫け璐モ€斺€旀棤闄愰噸鍚寰幆銆傞偅澶勫叿浣撶殑鍧戞湰韬凡缁?
 
 
+// 失败的歌立刻再次触发同样的失败——无限重启死循环。那处具体的坑本身已经
 
 
 
 
 
 
-// 淇帀浜嗭紝浣嗚繖閲屽啀鍔犱竴灞傝繘绋嬬骇鍏滃簳锛氫竾涓€浠ュ悗鍒殑鍦版柟锛堣浆鐮併€佹壂鎻忋€佺紦瀛?
 
 
 
+// 修掉了，但这里再加一层进程级兜底：万一以后别的地方（转码、扫描、缓存
 
 
 
 
 
-// 娓呯悊绛変换浣曞悗鍙板紓姝ヤ换鍔★級涔熶笉灏忓績鐣欎簡绫讳技娌′汉 catch 鐨?rejected Promise锛?
 
 
 
 
+// 清理等任何后台异步任务）也不小心留了类似没人 catch 的 rejected Promise，
 
 
 
 
-// 鎴栬€呮姏鍑轰簡鍚屾鐨勬湭鎹曡幏寮傚父锛屽彧璁版棩蹇椼€佷笉璁╁畠鏈夋満浼氱粓姝㈡暣涓繘绋嬧€斺€旀瘯绔?
 
 
 
 
 
+// 或者抛出了同步的未捕获异常，只记日志、不让它有机会终止整个进程——毕竟
 
 
 
-// 杩欐槸涓€涓椤剁潃鎾斁銆佺偣姝屻€佹洸搴撶鐞嗕竴璧疯窇鐨勯暱鏈熸湇鍔¤繘绋嬶紝鍥犱负鏌愪竴棣栨瓕
 
 
 
 
 
 
+// 这是一个要顶着播放、点歌、曲库管理一起跑的长期服务进程，因为某一首歌
 
 
 
-// 杞爜澶辫触锛堝挨鍏剁綉鐩?缃戠粶鎸傝浇鏇插簱鍦烘櫙涓嬶紝婧愭枃浠跺伓鍙戣闂笉鍒版湰灏辨槸浼氬彂鐢?
 
 
 
 
 
 
+// 转码失败（尤其网盘/网络挂载曲库场景下，源文件偶发访问不到本就是会发生
 
 
-// 鐨勬甯告儏鍐碉級灏辨妸鏁翠釜鏈嶅姟鎷栦笅姘撮噸鍚紝浠ｄ环杩滃ぇ浜?鎵撲釜閿欒鏃ュ織銆佽繖涓€娆?
 
 
 
@@ -379,8 +379,18 @@ const log = require('./logger');
 
 
 
+// 的正常情况）就把整个服务拖下水重启，代价远大于"打个错误日志、这一次
 
-// 鎿嶄綔澶辫触銆佸叾瀹冨姛鑳界户缁甯?銆?
+
+
+
+
+
+
+
+
+// 操作失败、其它功能继续正常"。
+
 
 
 
@@ -399,7 +409,7 @@ process.on('unhandledRejection', (reason) => {
 
 
 
-  log.error('PROCESS', `鎹曡幏鍒版湭澶勭悊鐨?Promise rejection(宸查樆姝㈣繘绋嬪穿婧冿紝浣嗚鏄庝唬鐮侀噷鏈夌被浼?ensureHLS 閭ｆ鐨勫潙锛岄渶瑕佹壘鏃堕棿琛ヤ笂瀵瑰簲鐨?.catch)锛?{reason && reason.stack ? reason.stack : reason}`);
+  log.error('PROCESS', `捕获到未处理的 Promise rejection(已阻止进程崩溃，但说明代码里有类似 ensureHLS 那次的坑，需要找时间补上对应的 .catch)：${reason && reason.stack ? reason.stack : reason}`);
 
 
 
@@ -429,7 +439,7 @@ process.on('uncaughtException', (err) => {
 
 
 
-  log.error('PROCESS', `鎹曡幏鍒版湭澶勭悊鐨勫悓姝ュ紓甯?宸查樆姝㈣繘绋嬪穿婧冿紝鍚屾牱闇€瑕佹壘鏃堕棿瀹氫綅鏍瑰洜)锛?{err && err.stack ? err.stack : err}`);
+  log.error('PROCESS', `捕获到未处理的同步异常(已阻止进程崩溃，同样需要找时间定位根因)：${err && err.stack ? err.stack : err}`);
 
 
 
@@ -459,7 +469,7 @@ process.on('uncaughtException', (err) => {
 
 
 
-// 闇€姹傦細璁剧疆闈㈡澘(TV绔?銆佸鑸〉銆佹洸搴撶鐞嗗悗鍙伴兘瑕佹樉绀哄綋鍓嶇増鏈彿銆傜増鏈彿鍙湪
+// 需求：设置面板(TV端)、导航页、曲库管理后台都要显示当前版本号。版本号只在
 
 
 
@@ -469,16 +479,7 @@ process.on('uncaughtException', (err) => {
 
 
 
-// 杩欎竴澶勫畾涔?鍙栬嚜 package.json 鐨?version 瀛楁锛岃窡 fnOS 搴旂敤鍖?manifest 閲?
-
-
-
-
-
-
-
-
-// 鐨?version 淇濇寔鍚屾缁存姢)锛岄€氳繃 /api/stats 鎺ュ彛涓嬪彂缁欎笁涓墠绔〉闈紝涓嶅湪
+// 这一处定义(取自 package.json 的 version 字段，跟 fnOS 应用包 manifest 里
 
 
 
@@ -488,7 +489,18 @@ process.on('uncaughtException', (err) => {
 
 
 
-// 姣忎釜椤甸潰鍚勮嚜纭紪鐮佷竴浠姐€佷互鍚庡崌绾у鏄撴紡鏀广€?
+// 的 version 保持同步维护)，通过 /api/stats 接口下发给三个前端页面，不在
+
+
+
+
+
+
+
+
+
+// 每个页面各自硬编码一份、以后升级容易漏改。
+
 
 
 
@@ -557,7 +569,7 @@ app.use(express.json());
 
 
 
-// 缃戠洏鏇插簱闆嗘垚妯″潡
+// 网盘曲库集成模块
 
 
 
@@ -576,6 +588,7 @@ app.use('/api/cloud', cloudDrive.init(db));
 
 
 app.use('/api/direct-stream', directStream.init(db));
+app.use('/api/share', shareImport.init(db, process.env.DATA_DIR || '/data'));
 
 app.use('/api/115', cloud115Login);
 
@@ -597,7 +610,8 @@ app.use('/api/115', cloud115Login);
 
 
 
-// 缃戠粶KTV妯″潡锛堟敮鎸?cloud-drive 302 鐩撮摼 + 鎸傝浇璺緞鍥為€€锛?
+// 网络KTV模块（支持 cloud-drive 302 直链 + 挂载路径回退）
+
 
 
 
@@ -676,7 +690,7 @@ app.use('/api/netktv', netktvRouter);
 
 
 
-// 缃戠粶KTV鎵弿妯″潡锛堟壂鎻?15鍒嗙鏂囦欢锛岀敓鎴怱TRM骞跺叆搴擄級
+// 网络KTV扫描模块（扫描115分离文件，生成STRM并入库）
 
 
 
@@ -706,7 +720,7 @@ app.use('/api/netktv', netktvScan.init(db, cloudDrive));
 
 
 
-// 缃戠粶KTV MKV瑙嗛鎵弿妯″潡锛堟壂鎻?15缃戠洏MKV瑙嗛锛岀敓鎴怱TRM骞跺叆搴擄級
+// 网络KTV MKV视频扫描模块（扫描115网盘MKV视频，生成STRM并入库）
 
 
 
@@ -736,7 +750,7 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
-// ---------- 銆岀鐞嗗悗鍙般€嶇鐞嗗憳鐧诲綍 ----------
+// ---------- 「管理后台」管理员登录 ----------
 
 
 
@@ -746,7 +760,7 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
-// 闇€姹傚彉鏇达細绠＄悊鍛樺瘑鐮佷笉鍐嶇敱鐢ㄦ埛棣栨鎵撳紑銆岀鐞嗗悗鍙般€?/admin) 鏃惰嚜宸辫缃€?
+// 需求变更：管理员密码不再由用户首次打开「管理后台」(/admin) 时自己设置、
 
 
 
@@ -755,8 +769,8 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
-// 瀛樿繘 SQLite锛岃€屾槸鏀规垚鍦?docker-compose.yml 鐨?environment 閲岀敤
 
+// 存进 SQLite，而是改成在 docker-compose.yml 的 environment 里用
 
 
 
@@ -765,8 +779,8 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
-// ADMIN_PASSWORD 瀹氫箟鈥斺€旇繍缁村湪閮ㄧ讲杩欎竴姝ュ氨鎶婂瘑鐮佸畾涓嬫潵锛岃窡鏁版嵁搴撹В鑰︼紝
 
+// ADMIN_PASSWORD 定义——运维在部署这一步就把密码定下来，跟数据库解耦，
 
 
 
@@ -775,8 +789,8 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
-// 鎹㈠簱/閲嶅缓瀹瑰櫒閮戒笉鐢ㄦ媴蹇?瀵嗙爜涓簡"锛屼篃涓嶉渶瑕佸啀璧颁竴閬?棣栨璁剧疆瀵嗙爜"鐨?
 
+// 换库/重建容器都不用担心"密码丢了"，也不需要再走一遍"首次设置密码"的
 
 
 
@@ -784,9 +798,9 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
-// 寮曞娴佺▼銆傛病鏈夊湪 compose 閲岄厤缃?ADMIN_PASSWORD 鏃讹紝鍥為€€鍒颁竴涓浐瀹氱殑
 
 
+// 引导流程。没有在 compose 里配置 ADMIN_PASSWORD 时，回退到一个固定的
 
 
 
@@ -794,54 +808,60 @@ app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
 
 
 
-// 榛樿瀵嗙爜锛屼繚璇佽€佺敤鎴风洿鎺ュ崌绾ч暅鍍忎篃鑳界収甯哥櫥褰曪紝浣嗘瘡娆″惎鍔ㄩ兘浼氭墦涓€鏉?
 
 
+// 默认密码，保证老用户直接升级镜像也能照常登录，但每次启动都会打一条
 
 
 
 
 
 
-// 閱掔洰鐨勮鍛婃棩蹇楋紝鎻愰啋灏藉揩鍦?compose 閲岃缃垚鑷繁鐨勫瘑鐮併€?
 
 
 
+// 醒目的警告日志，提醒尽快在 compose 里设置成自己的密码。
 
 
 
 
 
-// 娉ㄦ剰锛氱櫥褰曠姸鎬佸彧鐢ㄦ潵淇濇姢銆岀鐞嗗悗鍙般€嶉〉闈㈤噷鐪熸鐨勭鐞嗘搷浣滐紙缂栬緫/鍒犻櫎
 
 
 
 
+// 注意：登录状态只用来保护「管理后台」页面里真正的管理操作（编辑/删除
 
 
 
 
 
-// 姝屾洸銆佺敤鎴风鐞嗙瓑锛夛紱/api/scan銆?api/songs 绛夌數瑙嗙銆佹墜鏈虹偣姝岄〉闈㈠悓鏍峰湪鐢?
 
 
 
 
+// 歌曲、用户管理等）；/api/scan、/api/songs 等电视端、手机点歌页面同样在用
 
 
 
 
-// 鐨勫叕鍏辨帴鍙ｄ笉鍙楀奖鍝嶁€斺€旂數瑙嗙"鎵弿鏇插簱"鏈潵灏遍渶瑕佹湁浜哄湪鐢佃鏃佽竟鐢ㄩ仴鎺у櫒
 
 
 
 
 
+// 的公共接口不受影响——电视端"扫描曲库"本来就需要有人在电视旁边用遥控器
 
 
 
 
-// 鎿嶄綔锛岄闄╁拰绠＄悊鍚庡彴缃戦〉绔８闇插湪灞€鍩熺綉閲屼笉鏄竴鍥炰簨銆?
+
+
+
+
+
+// 操作，风险和管理后台网页端裸露在局域网里不是一回事。
+
 
 
 
@@ -880,7 +900,7 @@ if (!process.env.ADMIN_PASSWORD) {
 
 
 
-  log.warn('ADMIN', `鏈湪 docker-compose 涓缃?ADMIN_PASSWORD 鐜鍙橀噺锛屽綋鍓嶄娇鐢ㄩ粯璁ょ鐞嗗憳瀵嗙爜銆?{DEFAULT_ADMIN_PASSWORD}銆嶏紝寮虹儓寤鸿灏藉揩鍦?compose 閲岃缃垚鑷繁鐨勫瘑鐮佸苟閲嶅缓瀹瑰櫒`);
+  log.warn('ADMIN', `未在 docker-compose 中设置 ADMIN_PASSWORD 环境变量，当前使用默认管理员密码「${DEFAULT_ADMIN_PASSWORD}」，强烈建议尽快在 compose 里设置成自己的密码并重建容器`);
 
 
 
@@ -1030,7 +1050,8 @@ function hashesMatch(a, b) {
 
 
 
-// 娌℃湁寮曞叆 cookie-parser锛屾墜鍔ㄨВ鏋?Cookie 璇锋眰澶村嵆鍙紝閬垮厤澶氬紩鍏ヤ竴涓緷璧栥€?
+// 没有引入 cookie-parser，手动解析 Cookie 请求头即可，避免多引入一个依赖。
+
 
 
 
@@ -1249,7 +1270,7 @@ function requireAdminAuth(req, res, next) {
 
 
 
-  res.status(401).json({ error: '璇峰厛鐧诲綍绠＄悊鍛樿处鍙? });
+  res.status(401).json({ error: '请先登录管理员账号' });
 
 
 
@@ -1459,7 +1480,7 @@ app.post('/api/admin/login', (req, res) => {
 
 
 
-    log.warn('ADMIN', '绠＄悊鍚庡彴鐧诲綍澶辫触锛氬瘑鐮侀敊璇?);
+    log.warn('ADMIN', '管理后台登录失败：密码错误');
 
 
 
@@ -1469,7 +1490,7 @@ app.post('/api/admin/login', (req, res) => {
 
 
 
-    return res.status(401).json({ error: '瀵嗙爜閿欒' });
+    return res.status(401).json({ error: '密码错误' });
 
 
 
@@ -1499,7 +1520,7 @@ app.post('/api/admin/login', (req, res) => {
 
 
 
-  log.info('ADMIN', '绠＄悊鍚庡彴鐧诲綍鎴愬姛');
+  log.info('ADMIN', '管理后台登录成功');
 
 
 
@@ -1609,7 +1630,7 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
-// ---------- 銆孠姝屼富椤甸潰銆?TV澶у睆 /tv銆?tv/clean.html) 鐧诲綍 ----------
+// ---------- 「K歌主页面」(TV大屏 /tv、/tv/clean.html) 登录 ----------
 
 
 
@@ -1619,16 +1640,7 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
-// 闇€姹傦細浠ュ墠 TV 澶у睆椤甸潰鎵撳紑鍗崇敤锛岃皝閮借兘鎵撳紑灞€鍩熺綉鍦板潃鐩存帴鐪?鎿嶄綔锛涚幇鍦?
-
-
-
-
-
-
-
-
-// 鏀规垚闇€瑕佽处鍙峰瘑鐮佺櫥褰曟墠鑳借繘鍏ワ紝璐﹀彿鍦ㄣ€岀鐞嗗悗鍙?路 鐢ㄦ埛绠＄悊銆嶉噷鐢辩鐞嗗憳
+// 需求：以前 TV 大屏页面打开即用，谁都能打开局域网地址直接看/操作；现在
 
 
 
@@ -1638,7 +1650,7 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
-// 鍒涘缓(瑙佷笅鏂?/api/admin/tv-users)锛岃窡銆岀鐞嗗悗鍙般€嶈嚜宸辩殑 ADMIN_PASSWORD
+// 改成需要账号密码登录才能进入，账号在「管理后台 · 用户管理」里由管理员
 
 
 
@@ -1648,7 +1660,7 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
-// 鏄畬鍏ㄧ嫭绔嬬殑涓ゅ韬唤鈥斺€斾竴涓鐨勬槸"鑳戒笉鑳借繘绠＄悊鍚庡彴鏀归厤缃?锛屼竴涓鐨勬槸
+// 创建(见下方 /api/admin/tv-users)，跟「管理后台」自己的 ADMIN_PASSWORD
 
 
 
@@ -1658,7 +1670,18 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
-// "鑳戒笉鑳芥墦寮€K姝屽ぇ灞忕偣姝屽敱姝?銆?
+// 是完全独立的两套身份——一个管的是"能不能进管理后台改配置"，一个管的是
+
+
+
+
+
+
+
+
+
+// "能不能打开K歌大屏点歌唱歌"。
+
 
 
 
@@ -1677,7 +1700,7 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
-// 浼氳瘽瀹炵幇鐗规剰涓嶈窡绠＄悊鍚庡彴涓€鏍风敤"鍐呭瓨 Set 瀛?token"锛歍V 澶у睆缁忓父鏄父骞?
+// 会话实现特意不跟管理后台一样用"内存 Set 存 token"：TV 大屏经常是常年
 
 
 
@@ -1686,8 +1709,8 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
-// 寮€鏈恒€佸鍣ㄩ殧涓夊樊浜斾細閲嶅惎(闀滃儚鍗囩骇/瀹夸富鏈洪噸鍚?锛屽鏋滅櫥褰曠姸鎬佽窡鐫€杩涚▼
 
+// 开机、容器隔三差五会重启(镜像升级/宿主机重启)，如果登录状态跟着进程
 
 
 
@@ -1696,8 +1719,8 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
-// 鍐呭瓨璧帮紝姣忔閲嶅惎閮借鏈変汉鎷跨潃閬ユ帶鍣ㄩ噸鏂扮櫥褰曚竴娆★紝浣撻獙寰堝樊锛屼篃鏄?璁颁綇
 
+// 内存走，每次重启都要有人拿着遥控器重新登录一次，体验很差，也是"记住
 
 
 
@@ -1706,8 +1729,8 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
-// 鐧诲綍"杩欎釜闇€姹傛湰韬殑鎰忎箟鎵€鍦ㄣ€傛敼鎴愮鍙戜竴涓嚜鍖呭惈鐨勭鍚?token(绫讳技杞婚噺鐗?
 
+// 登录"这个需求本身的意义所在。改成签发一个自包含的签名 token(类似轻量版
 
 
 
@@ -1715,53 +1738,60 @@ app.post('/api/admin/logout', (req, res) => {
 
 
 
-// JWT)锛歱ayload 閲屽甫鐢ㄦ埛鍚嶃€佽繃鏈熸椂闂存埑銆佷互鍙婂綋鍓嶅瘑鐮佸搱甯岀殑鐭寚绾癸紝鐢?
 
 
+// JWT)：payload 里带用户名、过期时间戳、以及当前密码哈希的短指纹，用
 
 
 
 
 
 
-// HMAC-SHA256 绛惧悕锛屽瘑閽ユ槸鍚姩鏃剁敓鎴愪竴娆″苟鎸佷箙鍖栧埌 settings 琛ㄧ殑闅忔満涓?
 
 
 
+// HMAC-SHA256 签名，密钥是启动时生成一次并持久化到 settings 表的随机串
 
 
 
 
 
-// (session_secret锛岃涓嬫柟)锛屼笉闅忚繘绋嬮噸鍚け鏁堬紝鍙 token 娌¤繃鏈熴€佸搴旂殑
 
 
 
 
+// (session_secret，见下方)，不随进程重启失效，只要 token 没过期、对应的
 
 
 
 
 
-// 鐢ㄦ埛鍚嶅拰瀵嗙爜鎸囩汗鍦?tv_users 琛ㄩ噷杩樺寰椾笂锛屽氨璁や负鐧诲綍鏈夋晥鈥斺€旇繖鏍峰垹闄?
 
 
 
 
+// 用户名和密码指纹在 tv_users 表里还对得上，就认为登录有效——这样删除
 
 
 
 
-// 璐﹀彿銆佹垨鑰呯鐞嗗憳甯敤鎴烽噸缃簡瀵嗙爜锛屾棫 token 浼氳嚜鐒跺け鏁堬紝涓嶉渶瑕侀澶栫淮鎶?
 
 
 
 
 
+// 账号、或者管理员帮用户重置了密码，旧 token 会自然失效，不需要额外维护
 
 
 
-// 涓€寮?宸插悐閿€"鍚嶅崟銆?
+
+
+
+
+
+
+// 一张"已吊销"名单。
+
 
 
 
@@ -1790,7 +1820,7 @@ const TV_SESSION_SECRET_KEY = 'session_secret';
 
 
 
-const TV_SESSION_REMEMBER_MS = 30 * 24 * 60 * 60 * 1000; // "璁颁綇鎴?锛?0 澶?
+const TV_SESSION_REMEMBER_MS = 30 * 24 * 60 * 60 * 1000; // "记住我"：30 天
 
 
 
@@ -1799,7 +1829,8 @@ const TV_SESSION_REMEMBER_MS = 30 * 24 * 60 * 60 * 1000; // "璁颁綇鎴?锛?0 
 
 
 
-const TV_SESSION_DEFAULT_MS = 12 * 60 * 60 * 1000;       // 涓嶅嬀閫?璁颁綇鎴?锛?2 灏忔椂
+
+const TV_SESSION_DEFAULT_MS = 12 * 60 * 60 * 1000;       // 不勾选"记住我"：12 小时
 
 
 
@@ -2209,7 +2240,7 @@ function verifyTvToken(token) {
 
 
 
-  if (!user || user.password_hash.slice(0, 8) !== payload.pv) return null; // 璐﹀彿宸插垹闄ゆ垨瀵嗙爜宸叉敼锛屾棫token澶辨晥
+  if (!user || user.password_hash.slice(0, 8) !== payload.pv) return null; // 账号已删除或密码已改，旧token失效
 
 
 
@@ -2359,7 +2390,7 @@ function startTvSession(res, username, remember) {
 
 
 
-    // 涓嶅嬀閫?璁颁綇鎴?鏃朵笉璁剧疆 maxAge锛氭祻瑙堝櫒鍏抽棴鍗虫竻鎺夎繖涓?cookie锛岃窡
+    // 不勾选"记住我"时不设置 maxAge：浏览器关闭即清掉这个 cookie，跟
 
 
 
@@ -2369,7 +2400,7 @@ function startTvSession(res, username, remember) {
 
 
 
-    // token 鑷韩 12 灏忔椂杩囨湡鏃堕棿鏄袱閬撶嫭绔嬬殑淇濋櫓锛屼换涓€涓厛鍒伴兘浼氳姹?
+    // token 自身 12 小时过期时间是两道独立的保险，任一个先到都会要求
 
 
 
@@ -2378,7 +2409,9 @@ function startTvSession(res, username, remember) {
 
 
 
-    // 閲嶆柊鐧诲綍銆?
+
+    // 重新登录。
+
 
 
 
@@ -2567,7 +2600,7 @@ app.post('/api/tv-auth/login', (req, res) => {
 
 
 
-    log.warn('TV_AUTH', `K姝屼富椤甸潰鐧诲綍澶辫触锛氳处鍙锋垨瀵嗙爜閿欒(璐﹀彿="${username || ''}")`);
+    log.warn('TV_AUTH', `K歌主页面登录失败：账号或密码错误(账号="${username || ''}")`);
 
 
 
@@ -2577,7 +2610,7 @@ app.post('/api/tv-auth/login', (req, res) => {
 
 
 
-    return res.status(401).json({ error: '璐﹀彿鎴栧瘑鐮侀敊璇? });
+    return res.status(401).json({ error: '账号或密码错误' });
 
 
 
@@ -2607,7 +2640,7 @@ app.post('/api/tv-auth/login', (req, res) => {
 
 
 
-  log.info('TV_AUTH', `K姝屼富椤甸潰鐧诲綍鎴愬姛锛氳处鍙?"${row.username}"${remember ? '(宸茶浣忕櫥褰?' : ''}`);
+  log.info('TV_AUTH', `K歌主页面登录成功：账号="${row.username}"${remember ? '(已记住登录)' : ''}`);
 
 
 
@@ -2697,7 +2730,7 @@ app.post('/api/tv-auth/logout', (req, res) => {
 
 
 
-// ---------- 绠＄悊鍚庡彴 路 鐢ㄦ埛绠＄悊(K姝屼富椤甸潰鐧诲綍璐﹀彿) ----------
+// ---------- 管理后台 · 用户管理(K歌主页面登录账号) ----------
 
 
 
@@ -2787,7 +2820,7 @@ app.post('/api/admin/tv-users', requireAdminAuth, (req, res) => {
 
 
 
-  if (!name) return res.status(400).json({ error: '璇疯緭鍏ヨ处鍙峰悕' });
+  if (!name) return res.status(400).json({ error: '请输入账号名' });
 
 
 
@@ -2797,7 +2830,7 @@ app.post('/api/admin/tv-users', requireAdminAuth, (req, res) => {
 
 
 
-  if (!password || password.length < 4) return res.status(400).json({ error: '瀵嗙爜鑷冲皯 4 浣? });
+  if (!password || password.length < 4) return res.status(400).json({ error: '密码至少 4 位' });
 
 
 
@@ -2817,7 +2850,7 @@ app.post('/api/admin/tv-users', requireAdminAuth, (req, res) => {
 
 
 
-  if (exists) return res.status(409).json({ error: '璇ヨ处鍙峰悕宸插瓨鍦? });
+  if (exists) return res.status(409).json({ error: '该账号名已存在' });
 
 
 
@@ -2837,7 +2870,7 @@ app.post('/api/admin/tv-users', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `鐢ㄦ埛绠＄悊: 鏂板K姝屼富椤甸潰鐧诲綍璐﹀彿銆?{name}銆峘);
+  log.info('ADMIN', `用户管理: 新增K歌主页面登录账号「${name}」`);
 
 
 
@@ -2877,7 +2910,7 @@ app.post('/api/admin/tv-users', requireAdminAuth, (req, res) => {
 
 
 
-// 閲嶇疆鏌愪釜璐﹀彿鐨勫瘑鐮併€傛敼鐢ㄦ埛鍚嶅鏄撹窡"鍒犱簡閲嶅缓"娣锋穯銆佹剰涔変篃涓嶅ぇ锛岃繖閲屽彧
+// 重置某个账号的密码。改用户名容易跟"删了重建"混淆、意义也不大，这里只
 
 
 
@@ -2887,7 +2920,8 @@ app.post('/api/admin/tv-users', requireAdminAuth, (req, res) => {
 
 
 
-// 鏀寔鏀瑰瘑鐮侊紝鏀圭敤鎴峰悕鐨勫満鏅洿鎺ュ垹鎺夋棫璐﹀彿銆佹柊澧炰竴涓柊鐨勫嵆鍙€?
+// 支持改密码，改用户名的场景直接删掉旧账号、新增一个新的即可。
+
 
 
 
@@ -2916,7 +2950,7 @@ app.put('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
-  if (!password || password.length < 4) return res.status(400).json({ error: '瀵嗙爜鑷冲皯 4 浣? });
+  if (!password || password.length < 4) return res.status(400).json({ error: '密码至少 4 位' });
 
 
 
@@ -2936,7 +2970,7 @@ app.put('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
-  if (!row) return res.status(404).json({ error: '璐﹀彿涓嶅瓨鍦? });
+  if (!row) return res.status(404).json({ error: '账号不存在' });
 
 
 
@@ -2956,7 +2990,7 @@ app.put('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `鐢ㄦ埛绠＄悊: 宸查噸缃处鍙枫€?{row.username}銆嶇殑瀵嗙爜(璇ヨ处鍙锋鍓嶅凡鐧诲綍鐨勬祻瑙堝櫒浼氬湪涓嬫鏍￠獙鏃惰嚜鍔ㄨ姹傞噸鏂扮櫥褰?`);
+  log.info('ADMIN', `用户管理: 已重置账号「${row.username}」的密码(该账号此前已登录的浏览器会在下次校验时自动要求重新登录)`);
 
 
 
@@ -3016,7 +3050,7 @@ app.delete('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
-  if (!row) return res.status(404).json({ error: '璐﹀彿涓嶅瓨鍦? });
+  if (!row) return res.status(404).json({ error: '账号不存在' });
 
 
 
@@ -3036,7 +3070,7 @@ app.delete('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `鐢ㄦ埛绠＄悊: 宸插垹闄姝屼富椤甸潰鐧诲綍璐﹀彿銆?{row.username}銆峘);
+  log.info('ADMIN', `用户管理: 已删除K歌主页面登录账号「${row.username}」`);
 
 
 
@@ -3076,34 +3110,7 @@ app.delete('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
-// K姝屼富椤甸潰(/tv銆?tv/clean.html)鐧诲綍闂ㄧ锛氭湭鐧诲綍鏃朵笉涓嬪彂鐪熷疄椤甸潰鍐呭锛?
-
-
-
-
-
-
-
-
-// 鏀规垚閲嶅畾鍚戝埌鐧诲綍椤碉紱鐧诲綍椤垫湰韬€佷互鍙?/tv 鐩綍涓嬬殑鍥剧墖/瀛椾綋绛夐潤鎬佽祫婧?
-
-
-
-
-
-
-
-
-// 涓嶅彈褰卞搷(涓嬮潰杩欐鍙嫤鎴?椤甸潰鏈韩"杩欏嚑涓叿浣撹矾寰勶紝鍏跺畠璺緞鍘熸牱鏀捐缁?
-
-
-
-
-
-
-
-
-// 鍚庨潰鐨?express.static 澶勭悊)銆傜敤 302 閲嶅畾鍚戣€屼笉鏄洿鎺ュ湪杩欓噷 res.send
+// K歌主页面(/tv、/tv/clean.html)登录门禁：未登录时不下发真实页面内容，
 
 
 
@@ -3113,7 +3120,7 @@ app.delete('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
-// 鐧诲綍椤?HTML锛屾槸涓轰簡璁╂祻瑙堝櫒鍦板潃鏍忋€佷互鍙婄櫥褰曟垚鍔熷悗"鍥炶烦鍒板垰鎵嶆兂鐪嬬殑
+// 改成重定向到登录页；登录页本身、以及 /tv 目录下的图片/字体等静态资源
 
 
 
@@ -3123,7 +3130,38 @@ app.delete('/api/admin/tv-users/:id', requireAdminAuth, (req, res) => {
 
 
 
-// 椤甸潰"杩欎欢浜嬮兘鑳界敤鏍囧噯鐨?URL 璺宠浆瀹屾垚锛屼笉闇€瑕侀澶栧啓涓€濂楀墠绔矾鐢遍€昏緫銆?
+// 不受影响(下面这段只拦截"页面本身"这几个具体路径，其它路径原样放行给
+
+
+
+
+
+
+
+
+
+// 后面的 express.static 处理)。用 302 重定向而不是直接在这里 res.send
+
+
+
+
+
+
+
+
+
+// 登录页 HTML，是为了让浏览器地址栏、以及登录成功后"回跳到刚才想看的
+
+
+
+
+
+
+
+
+
+// 页面"这件事都能用标准的 URL 跳转完成，不需要额外写一套前端路由逻辑。
+
 
 
 
@@ -3192,7 +3230,7 @@ app.get(['/tv', '/tv/', '/tv/index.html', '/tv/clean.html'], (req, res, next) =>
 
 
 
-// ---------- 闈欐€佽祫婧?----------
+// ---------- 静态资源 ----------
 
 
 
@@ -3202,16 +3240,7 @@ app.get(['/tv', '/tv/', '/tv/index.html', '/tv/clean.html'], (req, res, next) =>
 
 
 
-// 鏍硅矾寰?"/" 鐜板湪鏄竴涓鑸椤碉紙澧ㄥⅷ鐖盞姝屽搧鐗岄〉 + 绮掑瓙鍔ㄧ敾鑳屾櫙锛夛紝鎻愪緵鍒?
-
-
-
-
-
-
-
-
-// TV 鎾斁绔€佹洸搴撶鐞嗗悗鍙般€佹墜鏈洪仴鎺т笁涓叆鍙ｇ殑閾炬帴锛屾柟渚跨洿鎺ユ墦寮€
+// 根路径 "/" 现在是一个导航首页（墨墨爱K歌品牌页 + 粒子动画背景），提供到
 
 
 
@@ -3221,25 +3250,7 @@ app.get(['/tv', '/tv/', '/tv/index.html', '/tv/clean.html'], (req, res, next) =>
 
 
 
-// http://<NAS-IP>:8083 灏辫兘璺宠浆鍒版兂鐢ㄧ殑鍔熻兘锛屼笉鐢ㄨ鍏蜂綋瀛愯矾寰勩€?
-
-
-
-
-
-
-
-
-// express.static 鍙湪璇锋眰璺緞鍛戒腑 web/home 鐩綍涓嬬殑鐪熷疄鏂囦欢鏃舵墠浼氬鐞?
-
-
-
-
-
-
-
-
-// 锛堟瘮濡?"/" 鍛戒腑 index.html锛夛紝鍏跺畠璺緞锛堝 /api/xxx銆?tv銆?admin锛変細
+// TV 播放端、曲库管理后台、手机遥控三个入口的链接，方便直接打开
 
 
 
@@ -3249,7 +3260,38 @@ app.get(['/tv', '/tv/', '/tv/index.html', '/tv/clean.html'], (req, res, next) =>
 
 
 
-// 鑷姩 next() 浜ょ粰涓嬮潰瀵瑰簲鐨勮矾鐢卞鐞嗭紝涓嶄細浜掔浉鍐茬獊銆?
+// http://<NAS-IP>:8083 就能跳转到想用的功能，不用记具体子路径。
+
+
+
+
+
+
+
+
+
+// express.static 只在请求路径命中 web/home 目录下的真实文件时才会处理
+
+
+
+
+
+
+
+
+
+// （比如 "/" 命中 index.html），其它路径（如 /api/xxx、/tv、/admin）会
+
+
+
+
+
+
+
+
+
+// 自动 next() 交给下面对应的路由处理，不会互相冲突。
+
 
 
 
@@ -3288,7 +3330,7 @@ app.use('/m',     express.static(path.join(__dirname, '../web/mobile')));
 
 
 
-// /mobile 鏄?/m 鐨勫埆鍚嶏紝涓や釜璺緞鎸囧悜鍚屼竴浠芥墜鏈虹偣姝岄〉闈紝绾补鏄洜涓?
+// /mobile 是 /m 的别名，两个路径指向同一份手机点歌页面，纯粹是因为
 
 
 
@@ -3297,7 +3339,8 @@ app.use('/m',     express.static(path.join(__dirname, '../web/mobile')));
 
 
 
-// "/mobile" 鏇寸洿瑙傘€佸鏄撹锛?/m" 鏇寸煭銆佸師鏉ョ殑浜岀淮鐮?鏀惰棌閾炬帴鍙兘宸茬粡鍦ㄧ敤锛?
+
+// "/mobile" 更直观、容易记，"/m" 更短、原来的二维码/收藏链接可能已经在用，
 
 
 
@@ -3306,7 +3349,9 @@ app.use('/m',     express.static(path.join(__dirname, '../web/mobile')));
 
 
 
-// 涓や釜閮界暀鐫€锛屼笉寮哄埗杩佺Щ銆?
+
+// 两个都留着，不强制迁移。
+
 
 
 
@@ -3345,7 +3390,8 @@ app.use('/mic',   express.static(path.join(__dirname, '../web/mic')));
 
 
 
-// 姘涘洿闊虫晥(鎺屽０/骞叉澂/鍠濆僵/鍊掑僵)闈欐€佺洰褰曪細缃戦〉 <audio> 涓?tvOS AVAudioPlayer 閮戒粠杩欓噷鍙?
+// 氛围音效(掌声/干杯/喝彩/倒彩)静态目录：网页 <audio> 与 tvOS AVAudioPlayer 都从这里取
+
 
 
 
@@ -3364,7 +3410,7 @@ app.use('/sounds',express.static(path.join(__dirname, '../web/sounds')));
 
 
 
-// 瀹㈡埛绔畨瑁呭寘鍐呯疆涓嬭浇锛圓pple TV/iPad 鐨?IPA銆佸畨鍗撶數瑙嗙殑 APK锛夈€傞鐗涗竴閿寘瑁呭畬鍚庯紝
+// 客户端安装包内置下载（Apple TV/iPad 的 IPA、安卓电视的 APK）。飞牛一键包装完后，
 
 
 
@@ -3374,7 +3420,8 @@ app.use('/sounds',express.static(path.join(__dirname, '../web/sounds')));
 
 
 
-// 鐢佃/鎵嬫満/骞虫澘璁块棶 http://NAS_IP:8083/clients 鍗冲彲鐩存帴涓嬭浇锛屼笉鐢ㄥ啀鍘?GitHub 鎵俱€?
+// 电视/手机/平板访问 http://NAS_IP:8083/clients 即可直接下载，不用再去 GitHub 找。
+
 
 
 
@@ -3403,7 +3450,8 @@ app.use('/cover', express.static('/data/covers'));
 
 
 
-// 鐢ㄦ埛涓婁紶鐨勫姩鎬佽儗鏅浘鐗囷紙缃戦〉閬ユ帶绔笂浼犮€佺函闊抽姝?鎴戠殑鍥剧墖"鑳屾櫙妯″紡闅忔満杞挱锛?
+// 用户上传的动态背景图片（网页遥控端上传、纯音频歌"我的图片"背景模式随机轮播）
+
 
 
 
@@ -3432,7 +3480,7 @@ app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 
 
 
 
-// ---------- HLS 鎾斁 (闊宠建鍒囨崲涓嶄腑鏂挱鏀俱€佽繘搴﹀彲瀵诲潃) ----------
+// ---------- HLS 播放 (音轨切换不中断播放、进度可寻址) ----------
 
 
 
@@ -3442,7 +3490,7 @@ app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 
 
 
 
-// 鍙栦唬浜嗘棫鐨??track=0/1 鐜板満 ffmpeg 閲嶆柊灏佽"鏂规锛氶偅涓柟妗堝悙鍑虹殑鏂版祦娌℃湁
+// 取代了旧的"?track=0/1 现场 ffmpeg 重新封装"方案：那个方案吐出的新流没有
 
 
 
@@ -3452,7 +3500,7 @@ app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 
 
 
 
-// Content-Length/Range 鏀寔锛屾墍浠ュ垏闊宠建銆佷互鍙婂垏瀹岄煶杞ㄥ悗鎷栬繘搴︽潯锛岄兘鍙兘浠?
+// Content-Length/Range 支持，所以切音轨、以及切完音轨后拖进度条，都只能从
 
 
 
@@ -3461,8 +3509,8 @@ app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 
 
 
 
-// 澶存挱鏀俱€傜幇鍦ㄦ妸瑙嗛杞ㄥ拰姣忔潯闊抽杞ㄥ垎鍒垏鎴愮嫭绔嬬殑 HLS 鍒嗙墖(.ts)锛岀敤涓€浠?
 
+// 头播放。现在把视频轨和每条音频轨分别切成独立的 HLS 分片(.ts)，用一份
 
 
 
@@ -3470,94 +3518,100 @@ app.use('/bg-images', express.static(path.join(process.env.DATA_DIR || '/data', 
 
 
 
-// master.m3u8 閫氳繃 EXT-X-MEDIA 鎶婃墍鏈夐煶棰戣建澹版槑鎴愬悓涓€涓?AUDIO group銆傚墠绔?
 
 
+// master.m3u8 通过 EXT-X-MEDIA 把所有音频轨声明成同一个 AUDIO group。前端
 
 
 
 
 
 
-// hls.js 鍔犺浇瀹冨悗锛屽垏闊宠建鍙槸 hls.audioTrack = 0/1锛屽彧閲嶆柊鎷夐煶棰戝垎鐗囷紝瑙嗛
 
 
 
+// hls.js 加载它后，切音轨只是 hls.audioTrack = 0/1，只重新拉音频分片，视频
 
 
 
 
 
 
-// 鎾斁浣嶇疆銆佽繛缁€у畬鍏ㄤ笉鍙楀奖鍝嶏紱HLS 鍒嗙墖鏈韩澶╃劧鍙鍧€锛屾嫋杩涘害鏉″浠绘剰闊宠建
 
 
 
+// 播放位置、连续性完全不受影响；HLS 分片本身天然可寻址，拖进度条对任意音轨
 
 
 
 
 
 
-// 閮芥甯稿伐浣溿€傚崟闊宠建鏂囦欢璧板悓涓€濂楅€昏緫锛宮aster.m3u8 閲屽彧澹版槑 1 鏉￠煶棰戣建鍗冲彲锛?
 
 
 
+// 都正常工作。单音轨文件走同一套逻辑，master.m3u8 里只声明 1 条音频轨即可，
 
 
 
 
 
-// 鍏蜂綋鐢熸垚閫昏緫瑙?hlsgen.js銆?
 
 
 
 
+// 具体生成逻辑见 hlsgen.js。
 
 
 
 
-// 娓愯繘寮忥細ensureHLS 涓嶄細绛夋暣棣栨瓕杞爜瀹屾垚鎵?resolve 鈥斺€?濡傛灉杩欓姝岃繕娌¤浆杩囷紝
 
 
 
 
 
+// 渐进式：ensureHLS 不会等整首歌转码完成才 resolve —— 如果这首歌还没转过，
 
 
 
 
-// 瀹冧細绔嬪埢鍒涘缓杈撳嚭鐩綍銆佹妸 master.m3u8 鍐欏嚭鏉ワ紝鐒跺悗鎶婄湡姝ｈ€楁椂鐨?ffmpeg 杞爜
 
 
 
 
 
+// 它会立刻创建输出目录、把 master.m3u8 写出来，然后把真正耗时的 ffmpeg 转码
 
 
 
 
-// 涓㈠埌鍚庡彴寮傛鎵ц锛屽嚱鏁版湰韬嚑涔庣珛鍗宠繑鍥炪€傛墍浠ヨ繖涓矾鐢辩殑鍝嶅簲鏃堕棿鍙彇鍐充簬
 
 
 
 
 
+// 丢到后台异步执行，函数本身几乎立即返回。所以这个路由的响应时间只取决于
 
 
 
 
-// "鏈夋病鏈夋煡鍒版瓕"鍜?纾佺洏 IO"锛岃窡杩欓姝岃杞涔呮病鏈夊叧绯伙紝涓嶄細鍐嶅嚭鐜扮偣姝屽悗
 
 
 
 
 
+// "有没有查到歌"和"磁盘 IO"，跟这首歌要转多久没有关系，不会再出现点歌后
 
 
 
 
-// 鍗″湪杩欎竴姝ヨ浆鍦堢殑鎯呭喌銆?
+
+
+
+
+
+// 卡在这一步转圈的情况。
+
 
 
 
@@ -3596,7 +3650,7 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
-  log.info('HLS', `璇锋眰鎾斁 master.m3u8: id=${song.id} "${song.title || song.filename}"`);
+  log.info('HLS', `请求播放 master.m3u8: id=${song.id} "${song.title || song.filename}"`);
 
 
 
@@ -3616,25 +3670,7 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
-    // Bug淇(鍙岄煶杞ㄨ璇垽鎴愬崟闊宠建鐨勭珵鎬?锛氱偣姝屽姞鍏ラ槦鍒楄Е鍙戠殑闊宠建鎺㈡祴鏄?
-
-
-
-
-
-
-
-
-    // 寮傛銆佷笉绛夊緟鐨?瑙?POST /api/queue)锛屽鏋滆繖涓姹傝窇寰楁瘮鎺㈡祴杩樺揩锛?
-
-
-
-
-
-
-
-
-    // song.audio_tracks 杩欐椂杩樻槸 null锛屼笅闈?ensureHLS() 浼氭妸瀹冨綋鍗曢煶杞ㄥ鐞嗭紝
+    // Bug修复(双音轨被误判成单音轨的竞态)：点歌加入队列触发的音轨探测是
 
 
 
@@ -3644,7 +3680,7 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
-    // 鑰屼笖杩欐杞爜缁撴灉涓€鏃︾敓鎴愬氨涓嶄細鍥犱负鎺㈡祴缁撴灉绋嶅悗钀藉湴鑰岄噸鍋氾紝杩欐鎾斁
+    // 异步、不等待的(见 POST /api/queue)，如果这个请求跑得比探测还快，
 
 
 
@@ -3654,7 +3690,7 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
-    // 浼氳瘽浼氫竴鐩村仠鍦ㄩ敊璇殑铏氭嫙澹伴亾鍒嗙涓娿€傝繖閲屽湪鐪熸瑙﹀彂杞爜涔嬪墠锛屽彧瑕佹槸
+    // song.audio_tracks 这时还是 null，下面 ensureHLS() 会把它当单音轨处理，
 
 
 
@@ -3664,7 +3700,7 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
-    // STRM/缃戠粶鎸傝浇鏇茬洰涓旇繕娌℃帰娴嬭繃锛屽厛鑰佽€佸疄瀹?await 涓€娆℃帰娴嬪畬鎴愨€斺€?
+    // 而且这次转码结果一旦生成就不会因为探测结果稍后落地而重做，这次播放
 
 
 
@@ -3673,7 +3709,29 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
-    // 宸茬粡鎺㈡祴杩囩殑姝?audio_tracks != null)瀹屽叏涓嶅彈褰卞搷锛屼笉浼氬绛夎繖涓€涓嬨€?
+
+    // 会话会一直停在错误的虚拟声道分离上。这里在真正触发转码之前，只要是
+
+
+
+
+
+
+
+
+
+    // STRM/网络挂载曲目且还没探测过，先老老实实 await 一次探测完成——
+
+
+
+
+
+
+
+
+
+    // 已经探测过的歌(audio_tracks != null)完全不受影响，不会多等这一下。
+
 
 
 
@@ -3732,7 +3790,7 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
-    // 鍘熺敓HLS鍏煎(iPad iOS12/tvOS 绛夋棤 MSE銆佺敤涓嶄簡 hls.js 鐨勭)锛氬畠浠棤娉曠敤 JS 鍒囨崲
+    // 原生HLS兼容(iPad iOS12/tvOS 等无 MSE、用不了 hls.js 的端)：它们无法用 JS 切换
 
 
 
@@ -3742,7 +3800,7 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
-    // EXT-X-MEDIA 闊宠建銆傚甫 ?voice=N 鏃跺彧淇濈暀绗?N 鏉￠煶杞ㄥ苟璁句负榛樿锛屽墠绔€氳繃鏇存崲
+    // EXT-X-MEDIA 音轨。带 ?voice=N 时只保留第 N 条音轨并设为默认，前端通过更换
 
 
 
@@ -3752,7 +3810,8 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
-    // video.src 鍒?master?voice=N 骞舵柇鐐圭画鎾潵瀹炵幇鍘熷敱/浼村鍒囨崲銆俬ls.js(MSE)绔笉甯︽鍙傛暟銆?
+    // video.src 到 master?voice=N 并断点续播来实现原唱/伴奏切换。hls.js(MSE)端不带此参数。
+
 
 
 
@@ -3931,7 +3990,7 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
-    log.error('HLS', `master.m3u8 鐢熸垚澶辫触: id=${song.id} "${song.filename}": ${e.message}`);
+    log.error('HLS', `master.m3u8 生成失败: id=${song.id} "${song.filename}": ${e.message}`);
 
 
 
@@ -3981,7 +4040,7 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
-// 鍘熺敓HLS绔?鏃燤SE鐨刬Pad/tvOS)鏌ヨ鏈瓕婕斿敱妗ｄ綅鏁颁笌妗ｄ綅鍚嶏細鐩存帴瑙ｆ瀽宸茬敓鎴?master.m3u8
+// 原生HLS端(无MSE的iPad/tvOS)查询本歌演唱档位数与档位名：直接解析已生成 master.m3u8
 
 
 
@@ -3991,7 +4050,8 @@ app.get('/hls/:id/master.m3u8', async (req, res) => {
 
 
 
-// 閲岀殑 EXT-X-MEDIA锛屽拰瀹為檯涓嬪彂瀹屽叏涓€鑷淬€俬ls.js 绔粠 audioTracks 鑷彇锛屾棤闇€璋冪敤銆?
+// 里的 EXT-X-MEDIA，和实际下发完全一致。hls.js 端从 audioTracks 自取，无需调用。
+
 
 
 
@@ -4120,7 +4180,7 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
-      names.push(m ? m[1] : ('闊宠建' + (names.length + 1)));
+      names.push(m ? m[1] : ('音轨' + (names.length + 1)));
 
 
 
@@ -4160,7 +4220,7 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
-    log.error('HLS', `voice-tracks 鏌ヨ澶辫触: id=${song.id}: ${e.message}`);
+    log.error('HLS', `voice-tracks 查询失败: id=${song.id}: ${e.message}`);
 
 
 
@@ -4210,7 +4270,7 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
-// 瀛愭挱鏀惧垪琛?video.m3u8/audioN.m3u8)涓庡垎鐗?.ts)銆俧ile 鍚嶅仛鐧藉悕鍗曟牎楠岄槻姝㈣矾寰勭┛瓒婏紝
+// 子播放列表(video.m3u8/audioN.m3u8)与分片(.ts)。file 名做白名单校验防止路径穿越，
 
 
 
@@ -4220,7 +4280,8 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
-// id 涔熷己鍒惰姹傜函鏁板瓧锛岄伩鍏嶆嫾鎺ュ嚭 outDir 涔嬪鐨勮矾寰勩€?
+// id 也强制要求纯数字，避免拼接出 outDir 之外的路径。
+
 
 
 
@@ -4239,34 +4300,7 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
-// 娓愯繘寮忚浆鐮佷笅锛岃繖浜涙枃浠舵槸闅忕潃鍚庡彴 ffmpeg 杩涚▼鎸佺画浜у嚭鐨勶細鎾斁鍣ㄥ彲鑳戒細鍦?
-
-
-
-
-
-
-
-
-// 鏌愪釜鍒嗙墖鍒氬ソ杩樻病杞嚭鏉ョ殑鐬棿鍙戝嚭璇锋眰銆傝繖閲屼笉鍐?鏂囦欢涓嶅瓨鍦ㄥ氨鐩存帴 404"锛?
-
-
-
-
-
-
-
-
-// 鑰屾槸鐭殏杞绛夊緟瀹冨嚭鐜帮紙waitForFile锛夛紝涓€鏃﹁浆鐮佽繘搴﹁拷涓婂氨绔嬪嵆鍝嶅簲鈥斺€?
-
-
-
-
-
-
-
-
-// 鐪熸鍋氬埌"闅忓嚭闅忔挱"锛岃€屼笉鏄鎾斁鍣ㄨ嚜宸遍噸璇曟垨鑰呭共绛夋暣棣栨瓕杞畬銆傚鏋滆繖
+// 渐进式转码下，这些文件是随着后台 ffmpeg 进程持续产出的：播放器可能会在
 
 
 
@@ -4276,7 +4310,7 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
-// 棣栨瓕鐨勮浆鐮佷换鍔℃湰韬凡缁忓け璐ワ紝鎴栬€呯瓑寰呭お涔呴兘娌＄瓑鍒帮紙姣斿婧愭枃浠舵崯鍧忋€佸崱鍦?
+// 某个分片刚好还没转出来的瞬间发出请求。这里不再"文件不存在就直接 404"，
 
 
 
@@ -4285,7 +4319,39 @@ app.get('/api/songs/:id/voice-tracks', async (req, res) => {
 
 
 
-// 鏋佺鎯呭喌锛夛紝鎵嶄細鏄庣‘鍦版姤閿欒€屼笉鏄棤闄愭湡鎸傝捣璇锋眰銆?
+
+// 而是短暂轮询等待它出现（waitForFile），一旦转码进度追上就立即响应——
+
+
+
+
+
+
+
+
+
+// 真正做到"随出随播"，而不是让播放器自己重试或者干等整首歌转完。如果这
+
+
+
+
+
+
+
+
+
+// 首歌的转码任务本身已经失败，或者等待太久都没等到（比如源文件损坏、卡在
+
+
+
+
+
+
+
+
+
+// 极端情况），才会明确地报错而不是无限期挂起请求。
+
 
 
 
@@ -4414,7 +4480,7 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
-        log.error('HLS', `鍒嗙墖鐢熸垚澶辫触: id=${id}, file=${file}: ${e.cause && e.cause.message}`);
+        log.error('HLS', `分片生成失败: id=${id}, file=${file}: ${e.cause && e.cause.message}`);
 
 
 
@@ -4444,7 +4510,7 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
-      log.warn('HLS', `绛夊緟鍒嗙墖瓒呮椂: id=${id}, file=${file}`);
+      log.warn('HLS', `等待分片超时: id=${id}, file=${file}`);
 
 
 
@@ -4454,7 +4520,8 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
-      return res.status(404).end(); // 绛夊緟瓒呮椂锛岃涓虹‘瀹炰笉瀛樺湪锛堜緥濡傞潪娉曟枃浠跺悕/宸茶娓呯悊锛?
+      return res.status(404).end(); // 等待超时，视为确实不存在（例如非法文件名/已被清理）
+
 
 
 
@@ -4543,7 +4610,7 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
-// ---------- 纭В(瀹㈡埛绔В鐮?璇婃柇锛氭簮鏂囦欢缂栬В鐮佷俊鎭帰娴?----------
+// ---------- 硬解(客户端解码)诊断：源文件编解码信息探测 ----------
 
 
 
@@ -4553,7 +4620,7 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
-// Android 瀹㈡埛绔湪"纭В妯″紡"涓嬩笉璧版湇鍔＄杞爜锛岃€屾槸鐩存帴璇锋眰 /stream/:id 鎷垮埌
+// Android 客户端在"硬解模式"下不走服务端转码，而是直接请求 /stream/:id 拿到
 
 
 
@@ -4563,16 +4630,7 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
-// 鍘熷鏂囦欢瀛楄妭锛屼氦缁欒澶囪嚜甯︾殑纭欢瑙ｇ爜鍣?MediaCodec)瑙ｇ爜鎾斁銆傝繖鏉¤矾寰勫畬鍏?
-
-
-
-
-
-
-
-
-// 鍦ㄥ鎴风璁惧涓婂畬鎴愯В鐮侊紝鏈嶅姟绔湰韬?鐪嬩笉瑙?瑙ｇ爜杩囩▼鏈韩鏄惁姝ｅ父鈥斺€斾絾寰堝
+// 原始文件字节，交给设备自带的硬件解码器(MediaCodec)解码播放。这条路径完全
 
 
 
@@ -4582,25 +4640,7 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
-// 纭В鎾斁澶辫触鐨勬牴鏈師鍥?婧愭枃浠剁紪鐮佷笉鏄澶囩‖浠惰В鐮佸櫒鏀寔鐨勬牸寮?鐢昏川銆佽壊褰?
-
-
-
-
-
-
-
-
-// 绌洪棿銆佺爜鐜囪繃楂樺鑷寸殑鍏煎鎬ч棶棰樼瓑)鍏跺疄鍙互鍦ㄦ湇鍔＄鎻愬墠鐢?ffprobe 鎺㈡祴鍑烘潵锛?
-
-
-
-
-
-
-
-
-// 鎵撹繘鏃ュ織锛屾柟渚跨鐞嗗憳鎺掓煡"鏌愰姝屽湪纭В妯″紡涓嬫斁涓嶅嚭鏉?鍒板簳鏄笉鏄枃浠舵湰韬殑
+// 在客户端设备上完成解码，服务端本身"看不见"解码过程本身是否正常——但很多
 
 
 
@@ -4610,7 +4650,38 @@ app.get('/hls/:id/:file', async (req, res) => {
 
 
 
-// 闂銆俻robeCodecInfo 缁撴灉鎸夋瓕鏇?id 缂撳瓨锛岄伩鍏嶅悓涓€棣栨瓕琚弽澶嶈姹傛椂閲嶅鎺㈡祴銆?
+// 硬解播放失败的根本原因(源文件编码不是设备硬件解码器支持的格式/画质、色彩
+
+
+
+
+
+
+
+
+
+// 空间、码率过高导致的兼容性问题等)其实可以在服务端提前用 ffprobe 探测出来，
+
+
+
+
+
+
+
+
+
+// 打进日志，方便管理员排查"某首歌在硬解模式下放不出来"到底是不是文件本身的
+
+
+
+
+
+
+
+
+
+// 问题。probeCodecInfo 结果按歌曲 id 缓存，避免同一首歌被反复请求时重复探测。
+
 
 
 
@@ -4779,7 +4850,7 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
-      videoCodec: v.codec_name || '鏈煡', videoProfile: v.profile || '鏈煡',
+      videoCodec: v.codec_name || '未知', videoProfile: v.profile || '未知',
 
 
 
@@ -4799,7 +4870,7 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
-      audioCodec: a.codec_name || '鏈煡', audioChannels: a.channels || 0,
+      audioCodec: a.codec_name || '未知', audioChannels: a.channels || 0,
 
 
 
@@ -4859,7 +4930,7 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
-    log.warn('STREAM', `[姝屾洸 id=${song.id}] ffprobe 缂栬В鐮佷俊鎭帰娴嬪け璐ワ紝涓嶅奖鍝嶇洿杩炴挱鏀炬湰韬紝浠呯己灏戣瘖鏂俊鎭? ${e.message.split('\n')[0]}`);
+    log.warn('STREAM', `[歌曲 id=${song.id}] ffprobe 编解码信息探测失败，不影响直连播放本身，仅缺少诊断信息: ${e.message.split('\n')[0]}`);
 
 
 
@@ -4909,7 +4980,7 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
-// ---------- 瀹㈡埛绔?Android/TV绛?瑙ｇ爜妯″紡涓婃姤 ----------
+// ---------- 客户端(Android/TV等)解码模式上报 ----------
 
 
 
@@ -4919,7 +4990,7 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
-// 纭В(瀹㈡埛绔В鐮侊紝璧?/stream/:id 鐩磋繛鍘熷鏂囦欢)涓庤蒋瑙?鏈嶅姟绔В鐮?杞爜锛岃蛋
+// 硬解(客户端解码，走 /stream/:id 直连原始文件)与软解(服务端解码/转码，走
 
 
 
@@ -4929,7 +5000,7 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
-// /hls/:id/master.m3u8)瀹屽叏鐢卞鎴风鑷閫夋嫨銆佽嚜琛屽垏鎹紝鏈嶅姟绔湰韬笉鍙備笌鍐崇瓥锛?
+// /hls/:id/master.m3u8)完全由客户端自行选择、自行切换，服务端本身不参与决策，
 
 
 
@@ -4938,8 +5009,8 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
-// 涔熷氨鏃犱粠鐭ユ檽鏌愬彴璁惧褰撳墠鐢ㄧ殑鏄摢绉嶆ā寮忋€傝繖閲屽姞涓€涓交閲忎笂鎶ユ帴鍙ｏ紝鐢?Android
 
+// 也就无从知晓某台设备当前用的是哪种模式。这里加一个轻量上报接口，由 Android
 
 
 
@@ -4948,8 +5019,8 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
-// 瀹㈡埛绔湪璁剧疆閲屽垏鎹㈡ā寮忋€佹垨鑰呮瘡娆″紑濮嬫挱鏀句竴棣栨柊姝屾椂璋冪敤涓€娆★紝鎶婂喅绛栫粨鏋滃拰
 
+// 客户端在设置里切换模式、或者每次开始播放一首新歌时调用一次，把决策结果和
 
 
 
@@ -4958,8 +5029,8 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
-// 鍏抽敭涓婁笅鏂?璁惧鍨嬪彿銆丄ndroid 鐗堟湰銆佹槸鍚﹀懡涓簮鏂囦欢缂栬В鐮佸吋瀹规€ч棶棰樼瓑)涓€璧?
 
+// 关键上下文(设备型号、Android 版本、是否命中源文件编解码兼容性问题等)一起
 
 
 
@@ -4967,9 +5038,9 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
-// 鎵撹繘 docker 鍚庡彴鏃ュ織锛屾柟渚跨鐞嗗憳鎺掓煡"杩欏彴鐢佃/鐩掑瓙鎾笉鍑烘潵锛屽埌搴曟槸纭В
 
 
+// 打进 docker 后台日志，方便管理员排查"这台电视/盒子播不出来，到底是硬解
 
 
 
@@ -4977,16 +5048,20 @@ async function probeCodecInfo(song, srcPath) {
 
 
 
-// 瑙ｇ爜鍣ㄤ笉鏀寔杩欎釜婧愭枃浠讹紝杩樻槸搴旇鍒囧埌杞В"杩欑被闂銆備笂鎶ュけ璐ヤ笉褰卞搷鎾斁鏈韩锛?
 
 
+// 解码器不支持这个源文件，还是应该切到软解"这类问题。上报失败不影响播放本身，
 
 
 
 
 
 
-// 瀹㈡埛绔寜 fire-and-forget 鏂瑰紡璋冪敤鍗冲彲銆?
+
+
+
+// 客户端按 fire-and-forget 方式调用即可。
+
 
 
 
@@ -5015,7 +5090,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-  const modeName = mode === 'hardware' ? '纭В(瀹㈡埛绔В鐮?' : mode === 'software' ? '杞В(鏈嶅姟绔В鐮?杞爜)' : (mode || '鏈煡');
+  const modeName = mode === 'hardware' ? '硬解(客户端解码)' : mode === 'software' ? '软解(服务端解码/转码)' : (mode || '未知');
 
 
 
@@ -5025,7 +5100,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-  // Bug淇锛氭妸瀹㈡埛绔笂鎶ョ殑瑙ｇ爜妯″紡鍚屾缁?queuePreload锛岃"宸茬偣闃熷垪鍚庡彴棰勭儹
+  // Bug修复：把客户端上报的解码模式同步给 queuePreload，让"已点队列后台预热
 
 
 
@@ -5035,7 +5110,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-  // 杞爜"鎰熺煡鍒板綋鍓嶆槸纭В杩樻槸杞В锛岀‖瑙ｆā寮忎笅涓嶅啀瀵归鐑獥鍙ｉ噷鐨勬瓕鏃犳潯浠?
+  // 转码"感知到当前是硬解还是软解，硬解模式下不再对预热窗口里的歌无条件
 
 
 
@@ -5044,7 +5119,9 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-  // 瑙﹀彂 ensureHLS 杞爜(鍏蜂綋鍘熷洜瑙?queuePreload.js 閲?setDecodeMode 鐨勬敞閲?銆?
+
+  // 触发 ensureHLS 转码(具体原因见 queuePreload.js 里 setDecodeMode 的注释)。
+
 
 
 
@@ -5073,7 +5150,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-  const songTag = song ? `id=${song.id} "${song.title || song.filename}"` : `id=${song_id || '鏈煡'}`;
+  const songTag = song ? `id=${song.id} "${song.title || song.filename}"` : `id=${song_id || '未知'}`;
 
 
 
@@ -5083,7 +5160,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-  const deviceTag = device ? `璁惧[${device}]` : '璁惧[鏈煡]';
+  const deviceTag = device ? `设备[${device}]` : '设备[未知]';
 
 
 
@@ -5143,7 +5220,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      extra = ` | 婧愭枃浠? 瑙嗛=${codec.videoCodec}/${codec.videoProfile} ${codec.width}x${codec.height}, 闊抽=${codec.audioCodec} ${codec.audioChannels}澹伴亾, 闊宠建鏁?${song.audio_tracks || 1}`;
+      extra = ` | 源文件: 视频=${codec.videoCodec}/${codec.videoProfile} ${codec.width}x${codec.height}, 音频=${codec.audioCodec} ${codec.audioChannels}声道, 音轨数=${song.audio_tracks || 1}`;
 
 
 
@@ -5153,7 +5230,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // h264 High/Main 4K 浠ヤ笅銆丄AC 闊抽閫氬父缁濆ぇ澶氭暟 Android 璁惧纭欢瑙ｇ爜鍣ㄩ兘鑳芥敮鎸侊紱
+      // h264 High/Main 4K 以下、AAC 音频通常绝大多数 Android 设备硬件解码器都能支持；
 
 
 
@@ -5163,7 +5240,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // 鍏跺畠缂栫爜(HEVC 楂樿鏍?AV1 绛?鍦ㄩ儴鍒嗕綆绔澶囦笂鍙兘娌℃湁瀵瑰簲纭欢瑙ｇ爜鍣紝鍙槸
+      // 其它编码(HEVC 高规格/AV1 等)在部分低端设备上可能没有对应硬件解码器，只是
 
 
 
@@ -5173,16 +5250,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // 鎻愮ず锛屼笉浠ｈ〃涓€瀹氭斁涓嶅嚭鏉ワ紝鍏蜂綋浠嶄互瀹㈡埛绔疄闄呭弽棣堢殑鎾斁缁撴灉涓哄噯銆?
-
-
-
-
-
-
-
-
-      if (!/^h264$/i.test(codec.videoCodec) && codec.videoCodec !== '鏈煡') {
+      // 提示，不代表一定放不出来，具体仍以客户端实际反馈的播放结果为准。
 
 
 
@@ -5192,7 +5260,17 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-        extra += ' | 鎻愮ず: 闈?H.264 缂栫爜锛岄儴鍒嗚€佹棫/浣庣 Android 璁惧纭欢瑙ｇ爜鍣ㄥ彲鑳戒笉鏀寔锛岃嫢璇ヨ澶囧弽棣堢‖瑙ｆ挱鏀惧け璐ユ垨鑺卞睆锛屽缓璁垏鎹㈠埌杞В妯″紡';
+      if (!/^h264$/i.test(codec.videoCodec) && codec.videoCodec !== '未知') {
+
+
+
+
+
+
+
+
+
+        extra += ' | 提示: 非 H.264 编码，部分老旧/低端 Android 设备硬件解码器可能不支持，若该设备反馈硬解播放失败或花屏，建议切换到软解模式';
 
 
 
@@ -5212,7 +5290,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // 闇€姹備慨澶?"纭В鐩磋繛娌″０闊筹紝鍒囬煶杞ㄦ墠鎶ョ‖瑙ｅけ璐ヨ嚜鍔ㄥ垏杞В")锛歮p2 闊抽鍦?
+      // 需求修复("硬解直连没声音，切音轨才报硬解失败自动切软解")：mp2 音频在
 
 
 
@@ -5221,7 +5299,8 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // 涓嶅皯 Android 璁惧涓婃病鏈夊搴?MediaCodec锛岀敾闈㈣兘鍑轰絾娌″０闊筹紝鐩村埌鍒囬煶杞?
+
+      // 不少 Android 设备上没有对应 MediaCodec，画面能出但没声音，直到切音轨
 
 
 
@@ -5230,7 +5309,8 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // 鎵嶆姤閿欍€傝繖閲岄櫎浜嗘墦鎻愮ず鏃ュ織锛岃繕椤烘墜鎶婃帰娴嬬粨鏋滃洖鍐欒繘 songs 琛ㄢ€斺€斿鏋?
+
+      // 才报错。这里除了打提示日志，还顺手把探测结果回写进 songs 表——如果
 
 
 
@@ -5239,7 +5319,8 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // 杩欓姝屾槸鑰佺増鏈壂鎻?鎺㈡祴鐨?閭ｆ椂鍊欒繕娌℃湁 audio_needs_soft 杩欎竴鍒?锛?
+
+      // 这首歌是老版本扫描/探测的(那时候还没有 audio_needs_soft 这一列)，
 
 
 
@@ -5248,7 +5329,8 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // 瀹㈡埛绔氨涓嶇敤鍐?鍏堢‖瑙ｆ棤澹版挱鏀句竴娆?鎵嶈兘鎷垮埌姝ｇ‘鍒ゅ畾锛屼笅娆＄偣杩欓姝?
+
+      // 客户端就不用再"先硬解无声播放一次"才能拿到正确判定，下次点这首歌
 
 
 
@@ -5257,7 +5339,9 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // 灏辫兘鐩存帴浠庢湇鍔＄鎷垮埌 audio_needs_soft=1锛屼竴寮€濮嬪氨璧拌蒋瑙ｃ€?
+
+      // 就能直接从服务端拿到 audio_needs_soft=1，一开始就走软解。
+
 
 
 
@@ -5276,7 +5360,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-        extra += ` | 鎻愮ず: 闊抽缂栫爜=${codec.audioCodec}锛岄儴鍒?Android 璁惧纭欢/杞欢瑙ｇ爜鍣ㄤ笉鏀寔姝ら煶棰戠紪鐮?鐢婚潰姝ｅ父浣嗘病鏈夊０闊?锛屽缓璁垏鎹㈠埌杞В妯″紡`;
+        extra += ` | 提示: 音频编码=${codec.audioCodec}，部分 Android 设备硬件/软件解码器不支持此音频编码(画面正常但没有声音)，建议切换到软解模式`;
 
 
 
@@ -5326,7 +5410,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // 闇€姹備慨澶?"RV40纭В榛戝睆锛屽０闊虫甯?)锛氳窡涓婇潰 mp2 闊抽鍚屼竴澶勮嚜鎰堝洖濉紝
+      // 需求修复("RV40硬解黑屏，声音正常")：跟上面 mp2 音频同一处自愈回填，
 
 
 
@@ -5336,7 +5420,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // 鍙槸杩欓噷鏄棰戠紪鐮佲€斺€旇€佹洸鐩?鎵弿鏃惰繕娌℃湁 video_needs_soft 杩欎竴鍒楋紝鎴?
+      // 只是这里是视频编码——老曲目(扫描时还没有 video_needs_soft 这一列，或
 
 
 
@@ -5345,7 +5429,8 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // 鑰呭綋鏃剁殑 PROBLEM_VIDEO_CODECS 鍚嶅崟閲岃繕娌℃湁杩欎釜缂栫爜)绗竴娆′笂鎶ョ‖瑙ｆā寮?
+
+      // 者当时的 PROBLEM_VIDEO_CODECS 名单里还没有这个编码)第一次上报硬解模式
 
 
 
@@ -5354,7 +5439,8 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // 鏃堕『鎵嬫帰娴嬩竴娆★紝鍛戒腑宸茬煡鏈夐棶棰樼殑瑙嗛缂栫爜灏卞洖濉紝涔嬪悗鐐硅繖棣栨瓕瀹㈡埛绔?
+
+      // 时顺手探测一次，命中已知有问题的视频编码就回填，之后点这首歌客户端
 
 
 
@@ -5363,7 +5449,9 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-      // 浼氱洿鎺ヤ粠鏈嶅姟绔嬁鍒?video_needs_soft=1锛屼竴寮€濮嬪氨璧拌蒋瑙ｏ紝涓嶄細鍐嶉粦灞忋€?
+
+      // 会直接从服务端拿到 video_needs_soft=1，一开始就走软解，不会再黑屏。
+
 
 
 
@@ -5382,7 +5470,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-        extra += ` | 鎻愮ず: 瑙嗛缂栫爜=${codec.videoCodec}锛孉ndroid 璁惧纭欢瑙ｇ爜鍣ㄥ熀鏈笉鏀寔(鍗充娇鑳藉垵濮嬪寲涔熷ぇ姒傜巼榛戝睆)锛屽缓璁垏鎹㈠埌杞В妯″紡`;
+        extra += ` | 提示: 视频编码=${codec.videoCodec}，Android 设备硬件解码器基本不支持(即使能初始化也大概率黑屏)，建议切换到软解模式`;
 
 
 
@@ -5452,7 +5540,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-  const reasonTag = reason ? `锛岃Е鍙戝師鍥? ${reason}` : '';
+  const reasonTag = reason ? `，触发原因: ${reason}` : '';
 
 
 
@@ -5462,7 +5550,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-  log.info('DECODE', `${deviceTag} 鍒囨崲瑙ｇ爜妯″紡 -> ${modeName}${reasonTag} | 褰撳墠鏇茬洰: ${songTag}${extra}`);
+  log.info('DECODE', `${deviceTag} 切换解码模式 -> ${modeName}${reasonTag} | 当前曲目: ${songTag}${extra}`);
 
 
 
@@ -5502,7 +5590,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-// ---------- MV 鐩翠紶娴?(Range 璇锋眰) ----------
+// ---------- MV 直传流 (Range 请求) ----------
 
 
 
@@ -5512,7 +5600,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-// 鍘嗗彶鎺ュ彛锛岀幇宸蹭笉鏄?TV 鎾斁鍣ㄧ殑涓昏矾寰?瑙佷笂闈㈢殑 /hls)銆備繚鐣欎綔涓哄吋瀹瑰厹搴曪細
+// 历史接口，现已不是 TV 播放器的主路径(见上面的 /hls)。保留作为兼容兜底：
 
 
 
@@ -5522,7 +5610,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-// 渚嬪 hls.js 鍔犺浇澶辫触銆佹垨鏈潵鏌愪釜鍦烘櫙闇€瑕佹嬁鍒板師濮嬫枃浠剁洿浼犳椂浣跨敤銆備粛鏀寔
+// 例如 hls.js 加载失败、或未来某个场景需要拿到原始文件直传时使用。仍支持
 
 
 
@@ -5532,7 +5620,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-// ?track=0/1锛堝澶氶煶杞ㄦ枃浠剁敤 ffmpeg -c copy 鐜板満閲嶆柊灏佽鍑哄崟闊宠建娴侊級锛屼絾娉ㄦ剰
+// ?track=0/1（对多音轨文件用 ffmpeg -c copy 现场重新封装出单音轨流），但注意
 
 
 
@@ -5542,7 +5630,7 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-// 杩欎釜鍒嗘敮鍚愬嚭鐨勬祦涓嶆敮鎸?Range/瀵诲潃锛屽彧閫傚悎"鏁存浠庡ご鎾畬"鐨勭敤閫旓紝涓嶈鍐嶇敤瀹?
+// 这个分支吐出的流不支持 Range/寻址，只适合"整段从头播完"的用途，不要再用它
 
 
 
@@ -5551,7 +5639,9 @@ app.post('/api/decode-mode/report', async (req, res) => {
 
 
 
-// 鍋氶煶杞ㄥ垏鎹㈠悗杩樿鎷栬繘搴︽潯鐨勫満鏅€斺€旈偅姝ｆ槸鏃?bug 鐨勬牴鍥狅紝鍏蜂綋瑙ｉ噴瑙?/hls 璺敱銆?
+
+// 做音轨切换后还要拖进度条的场景——那正是旧 bug 的根因，具体解释见 /hls 路由。
+
 
 
 
@@ -5590,7 +5680,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  const ua = req.headers['user-agent'] || '鏈煡瀹㈡埛绔?;
+  const ua = req.headers['user-agent'] || '未知客户端';
 
 
 
@@ -5600,25 +5690,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  // 闇€姹?缃戠洏鍏堢紦瀛樺埌鏈湴鍐嶆帰娴?鎾斁)锛氱‖瑙ｇ洿杩炴ā寮忔湇鍔＄鍙仛瀛楄妭鐩翠紶锛屽畬鍏?
-
-
-
-
-
-
-
-
-  // 涓嶅弬涓庤В鐮侊紝缃戠粶鎸傝浇鏇插簱濡傛灉娌℃湁鏈湴缂撳瓨鍏滃簳锛屾瘡涓€娆?Range 鎷栬繘搴﹂兘瑕?
-
-
-
-
-
-
-
-
-  // 璧颁竴娆＄綉缁滆鍙栵紝鍗￠】鍜屼笉绋冲畾浼氭瘮杞В(HLS)鏇存槑鏄锯€斺€旇繖閲屽悓鏍蜂紭鍏堢敤鏈湴
+  // 需求(网盘先缓存到本地再探测/播放)：硬解直连模式服务端只做字节直传，完全
 
 
 
@@ -5628,7 +5700,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  // 缂撳瓨鍓湰锛屾病缂撳瓨濂藉氨閫€鍥炵綉缁滆矾寰勭洿浼?鍙敤浣嗗彲鑳戒笉澶熸祦鐣?锛屽悗鍙板悓鏃跺湪
+  // 不参与解码，网络挂载曲库如果没有本地缓存兜底，每一次 Range 拖进度都要
 
 
 
@@ -5638,7 +5710,28 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  // 鎮勬倓琛ョ紦瀛樸€傛湰鍦版洸搴撶殑姝?srcPath 灏辨槸鍘熸潵鐨?song.filepath锛岃涓轰笉鍙樸€?
+  // 走一次网络读取，卡顿和不稳定会比软解(HLS)更明显——这里同样优先用本地
+
+
+
+
+
+
+
+
+
+  // 缓存副本，没缓存好就退回网络路径直传(可用但可能不够流畅)，后台同时在
+
+
+
+
+
+
+
+
+
+  // 悄悄补缓存。本地曲库的歌 srcPath 就是原来的 song.filepath，行为不变。
+
 
 
 
@@ -5667,7 +5760,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  // Bug淇("STRM 姝屾洸纭В鍏ㄩ儴澶辫触锛屽彧鏈夎嚜鍔ㄥ垏鎹㈣蒋瑙ｆ墠鑳芥挱鏀?)锛?
+  // Bug修复("STRM 歌曲硬解全部失败，只有自动切换软解才能播放")：
 
 
 
@@ -5676,8 +5769,8 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  // resolvePlaybackPath() 瀵圭綉缁滄寕杞芥洸鐩湪娌＄紦瀛樺ソ鏃惰繕鑳介€€鍥?鐩存帴璇荤綉缁滆矾寰?
 
+  // resolvePlaybackPath() 对网络挂载曲目在没缓存好时还能退回"直接读网络路径"
 
 
 
@@ -5686,8 +5779,8 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  // 褰撳厹搴曪紝浣?STRM 鏇茬洰鐨?filepath 鍙槸鏈湴鍑犲崄瀛楄妭鐨勬枃鏈寚閽堬紝娌℃湁杩欎釜
 
+  // 当兜底，但 STRM 曲目的 filepath 只是本地几十字节的文本指针，没有这个
 
 
 
@@ -5696,8 +5789,8 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  // 鍏滃簳鍙敤锛屽彧鑳藉瀹炶繑鍥?path: null(瑙?sourceCache.js 閲岀殑娉ㄩ噴)銆傝繖閲屼互鍓?
 
+  // 兜底可用，只能如实返回 path: null(见 sourceCache.js 里的注释)。这里以前
 
 
 
@@ -5705,9 +5798,9 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  // 鐩存帴鎶?null 褰?鏂囦欢涓嶅瓨鍦?澶勭悊锛岀珛鍒?404鈥斺€旇€?STRM 鏇茬洰绗竴娆¤鐐规挱鏃讹紝
 
 
+  // 直接把 null 当"文件不存在"处理，立刻 404——而 STRM 曲目第一次被点播时，
 
 
 
@@ -5715,62 +5808,61 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  // 鏈湴缂撳瓨蹇呯劧杩樻病灏辩华锛岀瓑浜?纭В妯″紡涓嬭繖棣栨瓕鐨勭涓€娆℃挱鏀捐姹傚繀鐒?404"锛?
 
 
+  // 本地缓存必然还没就绪，等于"硬解模式下这首歌的第一次播放请求必然 404"，
 
 
 
 
 
 
-  // 瀹㈡埛绔簬鏄収瀹冭嚜宸辩殑"纭В澶辫触灏辫嚜鍔ㄩ€€鍒拌蒋瑙?閫昏緫鍒囪繃鍘伙紝琛ㄧ幇涓婄湅灏辨槸
 
 
 
+  // 客户端于是照它自己的"硬解失败就自动退到软解"逻辑切过去，表现上看就是
 
 
 
 
 
 
-  // "STRM 姝屾洸纭В鍏ㄩ儴澶辫触"銆傝蒋瑙?/hls/:id/master.m3u8 -> ensureHLS())涔嬫墍浠?
 
 
 
+  // "STRM 歌曲硬解全部失败"。软解(/hls/:id/master.m3u8 -> ensureHLS())之所以
 
 
 
 
 
-  // 鑳芥甯告挱鏀撅紝鏄洜涓哄畠宸茬粡鍦ㄤ负鍚屾牱鐨勫満鏅?await 涓€娆?ensureCached()(瑙?
 
 
 
 
+  // 能正常播放，是因为它已经在为同样的场景 await 一次 ensureCached()(见
 
 
 
 
-  // hlsgen.js ensureHLS() 閲岀殑瀵瑰簲娉ㄩ噴)鈥斺€旇繖閲岃ˉ涓婂悓涓€姝ワ細STRM 鏇茬洰缂撳瓨娌?
 
 
 
 
 
+  // hlsgen.js ensureHLS() 里的对应注释)——这里补上同一步：STRM 曲目缓存没
 
 
 
-  // 鍑嗗濂芥椂锛岀‖瑙ｇ洿杩炰篃鑰佽€佸疄瀹炵瓑涓€娆＄紦瀛樿惤鍦帮紝鑰屼笉鏄洿鎺ュ垽"鏂囦欢涓嶅瓨鍦?銆?
 
 
 
 
 
 
+  // 准备好时，硬解直连也老老实实等一次缓存落地，而不是直接判"文件不存在"。
 
 
-  // 鐢ㄦ埛鎰熺煡涓婂彧鏄繖棣栨瓕纭В妯″紡涓嬬涓€娆℃挱鏀句細澶氱瓑涓€涓嬩笅杞芥椂闂达紝涔嬪悗
 
 
 
@@ -5778,9 +5870,9 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+  // 用户感知上只是这首歌硬解模式下第一次播放会多等一下下载时间，之后
 
 
-  // (缂撳瓨宸插氨缁?璧?resolvePlaybackPath() 鐩存帴鍛戒腑鏈湴缂撳瓨锛岃窡鏈湴鏇插簱涓€鏍峰揩锛?
 
 
 
@@ -5788,8 +5880,18 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
+  // (缓存已就绪)走 resolvePlaybackPath() 直接命中本地缓存，跟本地曲库一样快，
 
-  // 涓嶄細鍐嶉€€鍥炶蒋瑙ｃ€?
+
+
+
+
+
+
+
+
+  // 不会再退回软解。
+
 
 
 
@@ -5838,7 +5940,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-      log.error('STREAM', `[纭В鐩磋繛] ${songTag} STRM 婧愮紦瀛樺け璐ワ紝鏃犳硶鎾斁: ${e.message}`);
+      log.error('STREAM', `[硬解直连] ${songTag} STRM 源缓存失败，无法播放: ${e.message}`);
 
 
 
@@ -5898,7 +6000,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-    log.warn('STREAM', `[纭В鐩磋繛] 璇锋眰澶辫触(鏂囦欢涓嶅瓨鍦?: ${songTag}锛屽鎴风: ${ua}`);
+    log.warn('STREAM', `[硬解直连] 请求失败(文件不存在): ${songTag}，客户端: ${ua}`);
 
 
 
@@ -5998,7 +6100,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-    log.info('STREAM', `[纭В鐩磋繛-鍏滃簳灏佽] ${songTag} 闊宠建=${track}(${track === 0 ? '鍘熷敱' : '浼村敱'}) 瀹㈡埛绔? ${ua} 鈥斺€?娉ㄦ剰: 姝ゅ垎鏀幇鍦虹敤 ffmpeg 閲嶆柊灏佽鍗曢煶杞紝涓嶆敮鎸?Range/鎷栬繘搴︼紝浠呬綔涓哄鎴风璁惧涓嶆敮鎸佸唴宓屽闊宠建鍒囨崲鏃剁殑鍏滃簳`);
+    log.info('STREAM', `[硬解直连-兜底封装] ${songTag} 音轨=${track}(${track === 0 ? '原唱' : '伴唱'}) 客户端: ${ua} —— 注意: 此分支现场用 ffmpeg 重新封装单音轨，不支持 Range/拖进度，仅作为客户端设备不支持内嵌多音轨切换时的兜底`);
 
 
 
@@ -6028,7 +6130,8 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-      'Accept-Ranges': 'none',   // 鐜板満閲嶆柊灏佽锛岄暱搴︽湭鐭ワ紝鏃犳硶鏀寔 Range 鎷栬繘搴?
+      'Accept-Ranges': 'none',   // 现场重新封装，长度未知，无法支持 Range 拖进度
+
 
 
 
@@ -6177,7 +6280,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-    ff.stderr.on('data', d => log.warn('TRANSCODE', `[stream鐩翠紶鍏滃簳][ffmpeg] ${d.toString().trim()}`));
+    ff.stderr.on('data', d => log.warn('TRANSCODE', `[stream直传兜底][ffmpeg] ${d.toString().trim()}`));
 
 
 
@@ -6197,7 +6300,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-    ff.on('error', err => { log.error('TRANSCODE', `[stream鐩翠紶鍏滃簳] ffmpeg 鍚姩澶辫触: ${err.message}`); if (!responded) { responded = true; res.status(500).end(); } cleanup(); });
+    ff.on('error', err => { log.error('TRANSCODE', `[stream直传兜底] ffmpeg 启动失败: ${err.message}`); if (!responded) { responded = true; res.status(500).end(); } cleanup(); });
 
 
 
@@ -6207,7 +6310,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-    ff.on('close', code => log.info('STREAM', `[纭В鐩磋繛-鍏滃簳灏佽] ${songTag} 闊宠建=${track} 缁撴潫锛岃€楁椂 ${Date.now() - t0}ms锛岄€€鍑虹爜 ${code}`));
+    ff.on('close', code => log.info('STREAM', `[硬解直连-兜底封装] ${songTag} 音轨=${track} 结束，耗时 ${Date.now() - t0}ms，退出码 ${code}`));
 
 
 
@@ -6257,16 +6360,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  // 棣栨鍛戒腑鏃堕『甯﹀仛涓€娆＄紪瑙ｇ爜淇℃伅鎺㈡祴骞舵墦杩涙棩蹇椻€斺€旂‖瑙ｆā寮忎笅鎾斁鏄惁娴佺晠銆?
-
-
-
-
-
-
-
-
-  // 鏄惁鑳芥甯歌В鐮佸畬鍏ㄥ彇鍐充簬璁惧纭欢瑙ｇ爜鍣ㄥ婧愮紪鐮佺殑鏀寔绋嬪害锛屾湇鍔＄鍙仛
+  // 首次命中时顺带做一次编解码信息探测并打进日志——硬解模式下播放是否流畅、
 
 
 
@@ -6276,7 +6370,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  // 绾瓧鑺傜洿浼?鍙鍧€ Range 璇锋眰)锛屾湰韬笉鍙備笌瑙ｇ爜锛屾墍浠ュ湪杩欓噷涓诲姩鐣欎竴浠?
+  // 是否能正常解码完全取决于设备硬件解码器对源编码的支持程度，服务端只做
 
 
 
@@ -6285,7 +6379,8 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  // "杩欓姝屽埌搴曟槸浠€涔堢紪鐮?鐨勮瘖鏂褰曪紝绠＄悊鍛樼湅鍒版煇璁惧鍙嶉纭В鎾斁寮傚父鏃?
+
+  // 纯字节直传(可寻址 Range 请求)，本身不参与解码，所以在这里主动留一份
 
 
 
@@ -6294,7 +6389,19 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  // 鑳界洿鎺ュ鐓ф棩蹇楀垽鏂槸鍚︽槸婧愭枃浠剁紪鐮佸吋瀹规€ч棶棰樸€?
+
+  // "这首歌到底是什么编码"的诊断记录，管理员看到某设备反馈硬解播放异常时
+
+
+
+
+
+
+
+
+
+  // 能直接对照日志判断是否是源文件编码兼容性问题。
+
 
 
 
@@ -6333,7 +6440,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-        log.info('STREAM', `[纭В鐩磋繛] ${songTag} 婧愮紪瑙ｇ爜淇℃伅: 瑙嗛=${info.videoCodec}/${info.videoProfile} ${info.width}x${info.height}, 闊抽=${info.audioCodec} ${info.audioChannels}澹伴亾, 闊宠建鏁?${song.audio_tracks || 1}(鍐呭祵澶氶煶杞ㄧ敱瀹㈡埛绔‖浠惰В鐮佸櫒/鎾斁鍣ㄨ嚜琛屽垏鎹紝鏈嶅姟绔笉鍙備笌)`);
+        log.info('STREAM', `[硬解直连] ${songTag} 源编解码信息: 视频=${info.videoCodec}/${info.videoProfile} ${info.width}x${info.height}, 音频=${info.audioCodec} ${info.audioChannels}声道, 音轨数=${song.audio_tracks || 1}(内嵌多音轨由客户端硬件解码器/播放器自行切换，服务端不参与)`);
 
 
 
@@ -6343,16 +6450,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-        // 鍚屼竴澶勮嚜鎰堝洖濉細鑰佹洸鐩?鎵弿鏃惰繕娌℃湁 audio_needs_soft 杩欎竴鍒?绗竴娆?
-
-
-
-
-
-
-
-
-        // 璧扮‖瑙ｇ洿杩炶鎺㈡祴鍒伴棶棰橀煶棰戠紪鐮佹椂锛岄『鎵嬫妸缁撴灉钀藉簱锛岃涓婇潰
+        // 同一处自愈回填：老曲目(扫描时还没有 audio_needs_soft 这一列)第一次
 
 
 
@@ -6362,7 +6460,18 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-        // /api/decode-mode/report 閲岀殑璇︾粏娉ㄩ噴銆?
+        // 走硬解直连被探测到问题音频编码时，顺手把结果落库，见上面
+
+
+
+
+
+
+
+
+
+        // /api/decode-mode/report 里的详细注释。
+
 
 
 
@@ -6391,7 +6500,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-          log.warn('STREAM', `[纭В鐩磋繛] ${songTag} 闊抽缂栫爜=${info.audioCodec} 宸茬煡鍦ㄩ儴鍒嗚澶囦笂纭В鏃犲０闊筹紝宸叉爣璁?audio_needs_soft锛屼箣鍚庣偣杩欓姝屽鎴风浼氱洿鎺ヨ蛋杞В`);
+          log.warn('STREAM', `[硬解直连] ${songTag} 音频编码=${info.audioCodec} 已知在部分设备上硬解无声音，已标记 audio_needs_soft，之后点这首歌客户端会直接走软解`);
 
 
 
@@ -6411,7 +6520,8 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-        // 闇€姹備慨澶?"RV40纭В榛戝睆锛屽０闊虫甯?)锛氬悓涓婏紝瑙嗛缂栫爜鐗堟湰鐨勮嚜鎰堝洖濉€?
+        // 需求修复("RV40硬解黑屏，声音正常")：同上，视频编码版本的自愈回填。
+
 
 
 
@@ -6440,7 +6550,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-          log.warn('STREAM', `[纭В鐩磋繛] ${songTag} 瑙嗛缂栫爜=${info.videoCodec} 宸茬煡鍦?Android 璁惧涓婄‖瑙ｅ熀鏈繀榛戝睆(鍗充娇鑳藉垵濮嬪寲瑙ｇ爜鍣ㄤ篃澶ф鐜囦笉鍑虹敾闈?锛屽凡鏍囪 video_needs_soft锛屼箣鍚庣偣杩欓姝屽鎴风浼氱洿鎺ヨ蛋杞В`);
+          log.warn('STREAM', `[硬解直连] ${songTag} 视频编码=${info.videoCodec} 已知在 Android 设备上硬解基本必黑屏(即使能初始化解码器也大概率不出画面)，已标记 video_needs_soft，之后点这首歌客户端会直接走软解`);
 
 
 
@@ -6530,7 +6640,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-    log.info('STREAM', `[纭В鐩磋繛] ${songTag} 瀹屾暣鏂囦欢璇锋眰(鏃?Range 澶达紝${(stat.size / 1024 / 1024).toFixed(1)}MB)锛屽鎴风: ${ua}`);
+    log.info('STREAM', `[硬解直连] ${songTag} 完整文件请求(无 Range 头，${(stat.size / 1024 / 1024).toFixed(1)}MB)，客户端: ${ua}`);
 
 
 
@@ -6600,7 +6710,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  log.info('STREAM', `[纭В鐩磋繛] ${songTag} Range 璇锋眰: bytes=${start}-${end}/${stat.size} (${((end - start + 1) / 1024).toFixed(0)}KB)锛屽鎴风: ${ua}`);
+  log.info('STREAM', `[硬解直连] ${songTag} Range 请求: bytes=${start}-${end}/${stat.size} (${((end - start + 1) / 1024).toFixed(0)}KB)，客户端: ${ua}`);
 
 
 
@@ -6680,7 +6790,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-  readStream.on('error', err => log.error('STREAM', `[纭В鐩磋繛] ${songTag} 璇诲彇婧愭枃浠跺け璐? ${err.message}`));
+  readStream.on('error', err => log.error('STREAM', `[硬解直连] ${songTag} 读取源文件失败: ${err.message}`));
 
 
 
@@ -6720,7 +6830,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-// ---------- 鍘熷敱/浼村敱鍒囨崲鐘舵€佷笂鎶?----------
+// ---------- 原唱/伴唱切换状态上报 ----------
 
 
 
@@ -6730,25 +6840,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-// 瀹為檯鐨勫垏鎹㈠姩浣?hls.audioTrack=0/1 鎴栬€呭０閬撳鍒?瀹屽叏鍙戠敓鍦ㄦ祻瑙堝櫒绔?
-
-
-
-
-
-
-
-
-// (瑙?web/tv/index.html 鐨?VoiceManager)锛屾湇鍔＄鏈韩骞朵笉鍙備笌銆佷篃灏辨棤浠?
-
-
-
-
-
-
-
-
-// 鐭ユ檽鐢ㄦ埛浠€涔堟椂鍊欏垏浜嗗師鍞?浼村敱銆傝繖閲屽姞涓€涓交閲忎笂鎶ユ帴鍙ｏ紝鐢卞墠绔湪姣忔
+// 实际的切换动作(hls.audioTrack=0/1 或者声道复制)完全发生在浏览器端
 
 
 
@@ -6758,7 +6850,7 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-// 鍒囨崲鍚庤皟鐢ㄤ竴娆★紝璁╄繖涓姸鎬佸彉鍖栦篃鑳借繘 docker 鍚庡彴鏃ュ織锛屾柟渚挎帓鏌?
+// (见 web/tv/index.html 的 VoiceManager)，服务端本身并不参与、也就无从
 
 
 
@@ -6767,7 +6859,29 @@ app.get('/stream/:id', async (req, res) => {
 
 
 
-// "鍒囦簡娌＄敓鏁?涔嬬被鐨勯棶棰樸€備笂鎶ュけ璐ヤ笌鍚︿笉褰卞搷鎾斁鏈韩锛屽墠绔槸 fire-and-forget銆?
+
+// 知晓用户什么时候切了原唱/伴唱。这里加一个轻量上报接口，由前端在每次
+
+
+
+
+
+
+
+
+
+// 切换后调用一次，让这个状态变化也能进 docker 后台日志，方便排查
+
+
+
+
+
+
+
+
+
+// "切了没生效"之类的问题。上报失败与否不影响播放本身，前端是 fire-and-forget。
+
 
 
 
@@ -6806,7 +6920,7 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
-  const songTag = song ? `id=${song.id} "${song.title || song.filename}"` : `id=${song_id || '鏈煡'}`;
+  const songTag = song ? `id=${song.id} "${song.title || song.filename}"` : `id=${song_id || '未知'}`;
 
 
 
@@ -6816,7 +6930,7 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
-  const toName = to === 'original' ? '鍘熷敱' : to === 'accompaniment' ? '浼村敱' : (to || '鏈煡');
+  const toName = to === 'original' ? '原唱' : to === 'accompaniment' ? '伴唱' : (to || '未知');
 
 
 
@@ -6826,7 +6940,7 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
-  const modeName = mode === 'tracks' ? '澶氶煶杞?HLS audioTrack)' : mode === 'stereo' ? '鍙屽０閬?Web Audio 澹伴亾澶嶅埗)' : (mode || '鏈煡');
+  const modeName = mode === 'tracks' ? '多音轨(HLS audioTrack)' : mode === 'stereo' ? '双声道(Web Audio 声道复制)' : (mode || '未知');
 
 
 
@@ -6836,7 +6950,7 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
-  log.info('VOICE', `鍒囨崲闊宠建: ${songTag} -> ${toName} (鏂瑰紡: ${modeName})`);
+  log.info('VOICE', `切换音轨: ${songTag} -> ${toName} (方式: ${modeName})`);
 
 
 
@@ -6876,7 +6990,7 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
-// ---------- 姝屾洸搴?----------
+// ---------- 歌曲库 ----------
 
 
 
@@ -6886,7 +7000,7 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
-// 鍒嗛〉鏀寔锛歍V 绔?/ 鎵嬫満鐐规瓕椤甸渶瑕佷竴娆℃€ф嬁鍒板畬鏁存洸搴撳仛鏈湴鎸夐瀛楁瘝娴忚銆?
+// 分页支持：TV 端 / 手机点歌页需要一次性拿到完整曲库做本地按首字母浏览、
 
 
 
@@ -6895,8 +7009,8 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
-// 鎺掑簭绛夋搷浣滐紝鍘嗗彶涓婁竴鐩存槸"涓嶅甫 page 鍙傛暟 = 杩斿洖鍏ㄩ儴"锛屾墍浠ヨ繖閲屼繚鎸佸畬鍏?
 
+// 排序等操作，历史上一直是"不带 page 参数 = 返回全部"，所以这里保持完全
 
 
 
@@ -6904,9 +7018,9 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
-// 鍚戝悗鍏煎鈥斺€斿彧鏈夊綋璇锋眰鏄惧紡甯︿笂 page & pageSize 鏃舵墠璧板垎椤靛垎鏀紝杩斿洖
 
 
+// 向后兼容——只有当请求显式带上 page & pageSize 时才走分页分支，返回
 
 
 
@@ -6914,9 +7028,9 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
-// { items, total, page, pageSize, totalPages } 杩欑甯﹀厓淇℃伅鐨勫璞★紱涓嶅甫
 
 
+// { items, total, page, pageSize, totalPages } 这种带元信息的对象；不带
 
 
 
@@ -6924,63 +7038,69 @@ app.post('/api/voice/switch', (req, res) => {
 
 
 
-// 鍒嗛〉鍙傛暟鏃朵粛鐒跺拰浠ュ墠涓€鏍风洿鎺ヨ繑鍥炴暟缁勶紝涓嶅奖鍝?TV 绔?鎵嬫満绔幇鏈夐€昏緫銆?
 
 
+// 分页参数时仍然和以前一样直接返回数组，不影响 TV 端/手机端现有逻辑。
 
 
 
 
 
 
-// 銆屾洸搴撶鐞嗐€嶅悗鍙伴〉闈㈢幇鍦ㄧ敤鍒嗛〉鍙傛暟锛堟瘡椤?50 棣栵級鏉ラ伩鍏嶆洸搴撳緢澶ф椂涓€娆℃€?
 
 
 
+// 「曲库管理」后台页面现在用分页参数（每页 50 首）来避免曲库很大时一次性
 
 
 
 
 
-// 鎶婂嚑鍗冮姝屾暣椤垫覆鏌撹繘 DOM 瀵艰嚧鐨勫姞杞藉崱椤裤€?
 
 
 
 
+// 把几千首歌整页渲染进 DOM 导致的加载卡顿。
 
 
 
 
-// ============ 姝岃瘝锛堥煶棰慘姝屾敼閫狅級============
 
 
 
 
 
+// ============ 歌词（音频K歌改造）============
 
 
 
 
-// 鍙栦竴棣栨瓕鐨勬瓕璇嶏細DB 宸叉湁鍒欑洿鎺ヨ繑鍥?涓嶈仈缃戙€佹渶蹇?锛涙病鏈夊垯鎸?鏈湴鍚屽悕lrc鈫掑湪绾夸笁婧?
 
 
 
 
 
+// 取一首歌的歌词：DB 已有则直接返回(不联网、最快)；没有则按"本地同名lrc→在线三源"
 
 
 
 
-// 鎵句竴娆★紝鎵惧埌灏辫惤搴撱€俧orceOnline=true 鏃跺拷鐣?DB 宸叉湁缁撴灉寮哄埗鍦ㄧ嚎閲嶆姄銆?
 
 
 
 
 
+// 找一次，找到就落库。forceOnline=true 时忽略 DB 已有结果强制在线重抓。
 
 
 
-// 妫€娴嬫瓕璇嶆槸鍚︿贡鐮侊紙鍚?Unicode 鏇挎崲瀛楃 U+FFFD锛屾垨楂樻瘮渚嬩笉鍙墦鍗板瓧绗︼級
+
+
+
+
+
+
+// 检测歌词是否乱码（含 Unicode 替换字符 U+FFFD，或高比例不可打印字符）
 
 
 
@@ -7020,7 +7140,8 @@ function isLyricsMojibake(text) {
 
 
 
-  // 缁熻闈?ASCII 鍙墦鍗板瓧绗︿腑锛屼贡鐮佸父瑙佺殑绉佹湁鍖?鎺у埗绗︽瘮渚?
+  // 统计非 ASCII 可打印字符中，乱码常见的私有区/控制符比例
+
 
 
 
@@ -7079,7 +7200,7 @@ function isLyricsMojibake(text) {
 
 
 
-      // 涔辩爜甯歌鑼冨洿锛歀atin-1 琛ュ厖(0x80-0xFF)銆侀€氱敤鏍囩偣鍖哄紓甯搞€佺鏈夊尯
+      // 乱码常见范围：Latin-1 补充(0x80-0xFF)、通用标点区异常、私有区
 
 
 
@@ -7099,7 +7220,8 @@ function isLyricsMojibake(text) {
 
 
 
-      else if (code >= 0xE000 && code <= 0xF8FF) bad++; // 绉佹湁鍖?
+      else if (code >= 0xE000 && code <= 0xF8FF) bad++; // 私有区
+
 
 
 
@@ -7168,7 +7290,7 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
 
-  // DB 宸叉湁姝岃瘝涓斾笉鏄贡鐮?鈫?鐩存帴杩斿洖(鏈€蹇?锛涙槸涔辩爜鍒欏拷鐣ワ紝閲嶆柊璧版湰鍦?鍦ㄧ嚎鑾峰彇
+  // DB 已有歌词且不是乱码 → 直接返回(最快)；是乱码则忽略，重新走本地/在线获取
 
 
 
@@ -7258,7 +7380,7 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
 
-  // 鍦ㄧ嚎/鏈湴閮芥病鎷垮埌锛屼絾 DB 鏈変贡鐮佹瓕璇?鈫?鑷冲皯杩斿洖涔辩爜鐨勶紙姣旀病鏈夊己锛夛紝浣嗘爣璁?source
+  // 在线/本地都没拿到，但 DB 有乱码歌词 → 至少返回乱码的（比没有强），但标记 source
 
 
 
@@ -7308,7 +7430,7 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
 
-// GET /api/songs/:id/lyrics?online=1 鈥斺€?鍙栨瓕璇嶏紙榛樿缂鸿瘝鏃跺湪绾胯ˉ涓€娆★級
+// GET /api/songs/:id/lyrics?online=1 —— 取歌词（默认缺词时在线补一次）
 
 
 
@@ -7398,7 +7520,7 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
 
 
 
-    if (!r) return res.status(404).json({ id, lyrics: null, message: '鏆傛棤姝岃瘝锛堟湰鍦版棤鍚屽悕lrc锛屽湪绾夸笁婧愪篃鏈懡涓級' });
+    if (!r) return res.status(404).json({ id, lyrics: null, message: '暂无歌词（本地无同名lrc，在线三源也未命中）' });
 
 
 
@@ -7498,7 +7620,7 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
 
 
 
-// POST /api/songs/:id/lyrics/fetch 鈥斺€?寮哄埗鍦ㄧ嚎閲嶆柊鎶撳彇
+// POST /api/songs/:id/lyrics/fetch —— 强制在线重新抓取
 
 
 
@@ -7568,7 +7690,7 @@ app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
 
 
 
-    if (!r) return res.status(404).json({ id, lyrics: null, message: '鍦ㄧ嚎涓夋簮鍧囨湭鍛戒腑' });
+    if (!r) return res.status(404).json({ id, lyrics: null, message: '在线三源均未命中' });
 
 
 
@@ -7638,7 +7760,8 @@ app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
 
 
 
-// 鎶婄鏁版牸寮忓寲涓?[mm:ss.xx]锛堣礋鏃堕棿閽冲埌 0锛?
+// 把秒数格式化为 [mm:ss.xx]（负时间钳到 0）
+
 
 
 
@@ -7737,7 +7860,7 @@ function shiftLrcTimestamp(lrc, deltaSec) {
 
 
 
-  // 鍚屾椂骞崇Щ琛屾椂闂存爣绛?[mm:ss.xx] 鍜岄€愬瓧鏍囩 <mm:ss.xx>
+  // 同时平移行时间标签 [mm:ss.xx] 和逐字标签 <mm:ss.xx>
 
 
 
@@ -7847,7 +7970,8 @@ function shiftLrcTimestamp(lrc, deltaSec) {
 
 
 
-// POST /api/songs/:id/lyrics/offset  body:{offset:绉?澧為噺)} 鈥斺€?鎶婃瓕璇嶅叏閮ㄦ椂闂存爣绛惧钩绉诲閲忓苟鍐欏洖鏁版嵁搴擄紙鍥哄寲鍞卞瓧鍚屾鏍″噯锛?
+// POST /api/songs/:id/lyrics/offset  body:{offset:秒(增量)} —— 把歌词全部时间标签平移增量并写回数据库（固化唱字同步校准）
+
 
 
 
@@ -8026,7 +8150,7 @@ app.post('/api/songs/:id/lyrics/offset', (req, res) => {
 
 
 
-// 鎵归噺琛ユ姄鐘舵€侊紙闃叉閲嶅璺戯級锛孏ET 鍙煡杩涘害
+// 批量补抓状态（防止重复跑），GET 可查进度
 
 
 
@@ -8056,7 +8180,7 @@ let lyricBatch = { running: false, total: 0, done: 0, ok: 0, fail: 0, startedAt:
 
 
 
-// POST /api/lyrics/batch-missing?limit=200 鈥斺€?鍚庡彴涓茶缁欑己璇嶆瓕鏇插湪绾胯ˉ鎶擄紙闄愰€燂級
+// POST /api/lyrics/batch-missing?limit=200 —— 后台串行给缺词歌曲在线补抓（限速）
 
 
 
@@ -8076,7 +8200,7 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
-  if (lyricBatch.running) return res.status(409).json({ message: '宸叉湁鎵归噺琛ユ姄浠诲姟鍦ㄨ窇', state: lyricBatch });
+  if (lyricBatch.running) return res.status(409).json({ message: '已有批量补抓任务在跑', state: lyricBatch });
 
 
 
@@ -8136,7 +8260,7 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
-  res.json({ message: `宸插紑濮嬪悗鍙拌ˉ鎶?${rows.length} 棣朻, state: lyricBatch });
+  res.json({ message: `已开始后台补抓 ${rows.length} 首`, state: lyricBatch });
 
 
 
@@ -8226,7 +8350,7 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
-      await sleep(800); // 涓茶 + 闄愰€燂紝閬垮厤瑙﹀彂姝岃瘝绔欏弽鐖?灏?IP
+      await sleep(800); // 串行 + 限速，避免触发歌词站反爬/封 IP
 
 
 
@@ -8266,7 +8390,7 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
-    log.info('LYRICS', `鎵归噺琛ユ姄瀹屾垚锛氬叡 ${lyricBatch.total}锛屾垚鍔?${lyricBatch.ok}锛屾湭鍛戒腑 ${lyricBatch.fail}`);
+    log.info('LYRICS', `批量补抓完成：共 ${lyricBatch.total}，成功 ${lyricBatch.ok}，未命中 ${lyricBatch.fail}`);
 
 
 
@@ -8306,7 +8430,7 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
-// GET /api/lyrics/stats 鈥斺€?姝岃瘝瑕嗙洊鐜囦笌鎵归噺浠诲姟杩涘害
+// GET /api/lyrics/stats —— 歌词覆盖率与批量任务进度
 
 
 
@@ -8386,7 +8510,7 @@ app.get('/api/lyrics/stats', (req, res) => {
 
 
 
-// ============ AI 浜哄０鍒嗙 / 閫愬瓧瀵归綈 浠诲姟闃熷垪锛堥煶棰慘姝屾敼閫?P2锛?===========
+// ============ AI 人声分离 / 逐字对齐 任务队列（音频K歌改造 P2）============
 
 
 
@@ -8396,16 +8520,7 @@ app.get('/api/lyrics/stats', (req, res) => {
 
 
 
-// 鐪熸鍚?GPU 鐨?Demucs/WhisperX 璺戝湪鐙珛 worker(Windows+N鍗?锛屾湇鍔＄鍙仛闃熷垪璋冨害銆?
-
-
-
-
-
-
-
-
-// 婧愰煶棰戜笅鍙戙€佷骇鐗╁洖鏀躲€倃orker 娴佺▼锛歝laim 棰嗕换鍔?-> GET source 涓嬭浇 -> 鏈湴鎺ㄧ悊 ->
+// 真正吃 GPU 的 Demucs/WhisperX 跑在独立 worker(Windows+N卡)，服务端只做队列调度、
 
 
 
@@ -8415,7 +8530,17 @@ app.get('/api/lyrics/stats', (req, res) => {
 
 
 
-// multipart complete 鍥炰紶 vocals/accompaniment wav锛堝強閫愬瓧姝岃瘝锛夈€?
+// 源音频下发、产物回收。worker 流程：claim 领任务 -> GET source 下载 -> 本地推理 ->
+
+
+
+
+
+
+
+
+
+// multipart complete 回传 vocals/accompaniment wav（及逐字歌词）。
 
 
 
@@ -8434,7 +8559,8 @@ app.get('/api/lyrics/stats', (req, res) => {
 
 
 
-// 姣?5 鍒嗛挓鍥炴敹 worker 宕╂簝鐣欎笅鐨?processing 鍍靛案浠诲姟锛堣秴 20 鍒嗛挓鏈畬鎴?-> 閲嶆柊鎺掗槦锛?
+
+// 每 5 分钟回收 worker 崩溃留下的 processing 僵尸任务（超 20 分钟未完成 -> 重新排队）
 
 
 
@@ -8443,7 +8569,8 @@ app.get('/api/lyrics/stats', (req, res) => {
 
 
 
-setInterval(() => { try { sepMod.reclaimStale(db, 20); } catch (e) { /* 蹇界暐 */ } }, 5 * 60 * 1000);
+
+setInterval(() => { try { sepMod.reclaimStale(db, 20); } catch (e) { /* 忽略 */ } }, 5 * 60 * 1000);
 
 
 
@@ -8553,7 +8680,7 @@ app.post('/api/separate/enqueue', (req, res) => {
 
 
 
-// POST /api/separate/enqueue-missing?type=separate&limit=100 鈥斺€?鎶婄己鍒嗙/瀵归綈鐨勯煶棰戞瓕鎵归噺鍏ラ槦
+// POST /api/separate/enqueue-missing?type=separate&limit=100 —— 把缺分离/对齐的音频歌批量入队
 
 
 
@@ -8693,7 +8820,8 @@ app.post('/api/separate/enqueue-missing', (req, res) => {
 
 
 
-// GET /api/separate/jobs/claim?worker=pc-51&type=separate&capability=gpu 鈥斺€?worker 棰嗗彇浠诲姟锛堟棤浠诲姟杩斿洖 204锛?
+// GET /api/separate/jobs/claim?worker=pc-51&type=separate&capability=gpu —— worker 领取任务（无任务返回 204）
+
 
 
 
@@ -8762,7 +8890,7 @@ app.get('/api/separate/jobs/claim', (req, res) => {
 
 
 
-  task.sourceUrl = `http://${req.get('host')}${task.sourceUrl}`; // 琛ュ叏涓?worker 鍙洿鎺ヤ笅杞界殑缁濆鍦板潃
+  task.sourceUrl = `http://${req.get('host')}${task.sourceUrl}`; // 补全为 worker 可直接下载的绝对地址
 
 
 
@@ -8822,7 +8950,8 @@ app.post('/api/separate/jobs/:id/progress', (req, res) => {
 
 
 
-  // 杩涘害涓婃姤鍚屾椂鍏呭綋"澶勭悊闀夸换鍔℃湡闂?鐨勫績璺筹紝閬垮厤 worker 姝ｅ湪璺戜竴棣栭暱姝屾椂琚鍒ょ绾?
+  // 进度上报同时充当"处理长任务期间"的心跳，避免 worker 正在跑一首长歌时被误判离线
+
 
 
 
@@ -8881,7 +9010,7 @@ app.post('/api/separate/jobs/:id/progress', (req, res) => {
 
 
 
-// POST /api/separate/jobs/:id/complete 鈥斺€?multipart 鍥炰紶浜х墿锛?
+// POST /api/separate/jobs/:id/complete —— multipart 回传产物：
 
 
 
@@ -8890,7 +9019,8 @@ app.post('/api/separate/jobs/:id/progress', (req, res) => {
 
 
 
-//   files: vocals(浜哄０wav) / accompaniment(浼村wav) / wordLrc(閫愬瓧姝岃瘝)锛涗篃鍙蛋瀛楁 wordLrc
+
+//   files: vocals(人声wav) / accompaniment(伴奏wav) / wordLrc(逐字歌词)；也可走字段 wordLrc
 
 
 
@@ -8980,7 +9110,7 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
-    // 鍒嗙浜х墿鐩綍鐢ㄦ簮鏂囦欢璺緞鐨?SHA256(sepKey)锛岃€岄潪 song.id鈥斺€旈噸鏂板叆搴撳悗 id 鍙樹簡涔熻兘澶嶇敤
+    // 分离产物目录用源文件路径的 SHA256(sepKey)，而非 song.id——重新入库后 id 变了也能复用
 
 
 
@@ -9013,7 +9143,7 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
-    // 涓€姝ュ埌 FLAC锛歸orker 鍥炰紶鐨勬槸 Demucs 鍘熷 wav锛屾湇鍔＄钀界洏鍓嶇粺涓€鐢?ffmpeg 鏃犳崯杞垚 FLAC
+    // 一步到 FLAC：worker 回传的是 Demucs 原始 wav，服务端落盘前统一用 ffmpeg 无损转成 FLAC
 
 
 
@@ -9023,7 +9153,7 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
-    //锛團LAC 鏃犳崯銆佷綋绉害涓?wav 涓€鍗婏紱璇诲彇绔?resolveSepTrackFile 鏃╁凡鎸?flac 浼樺厛銆亀av 鍏滃簳锛夈€?
+    //（FLAC 无损、体积约为 wav 一半；读取端 resolveSepTrackFile 早已按 flac 优先、wav 兜底）。
 
 
 
@@ -9032,7 +9162,9 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
-    // 鑻ュ鍣ㄥ唴 ffmpeg 杞崲澶辫触锛屽洖閫€鐩存帴淇濈暀 wav锛岀粷涓嶈鏁撮鍒嗙鍥犱负鍘嬬缉鑰屽け璐?涓骇鐗┿€?
+
+    // 若容器内 ffmpeg 转换失败，回退直接保留 wav，绝不让整首分离因为压缩而失败/丢产物。
+
 
 
 
@@ -9044,7 +9176,7 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
     const convertTrack = async (f, stem) => {
       if (!f || !f[0] || !f[0].buffer) return;
       const buf = f[0].buffer;
-      // 涓枃鍛藉悕锛氭瓕鎵?姝屾洸鍚?浜哄０.flac / 姝屾墜-姝屾洸鍚?浼村.flac锛涙棫鍛藉悕鍏滃簳
+      // 中文命名：歌手-歌曲名-人声.flac / 歌手-歌曲名-伴奏.flac；旧命名兜底
       const kind = stem === 'vocals' ? 'vocal' : 'accomp';
       const cnName = sepMod.trackFileName(sepSong, kind, 'flac');
       const cnNameWav = sepMod.trackFileName(sepSong, kind, 'wav');
@@ -9120,7 +9252,8 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
-        saved[stem + '.flac'] = fs.statSync(flacP).size;  // 閿悕淇濇寔鏃ф牸寮忕敤浜巈xt鍒ゆ柇锛屽疄闄呮枃浠跺悕鏄腑鏂?
+        saved[stem + '.flac'] = fs.statSync(flacP).size;  // 键名保持旧格式用于ext判断，实际文件名是中文
+
 
 
 
@@ -9159,7 +9292,7 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
-        saved[stem + '.wav'] = buf.length;  // 閿悕淇濇寔鏃ф牸寮忕敤浜巈xt鍒ゆ柇锛屽疄闄呮枃浠跺悕鏄腑鏂?
+        saved[stem + '.wav'] = buf.length;  // 键名保持旧格式用于ext判断，实际文件名是中文
 
 
 
@@ -9168,7 +9301,8 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
-        log.warn('SEP', `[job ${jobId}] ${stem} wav鈫抐lac 杞崲澶辫触锛屽洖閫€淇濈暀 wav: ${e.message}`);
+
+        log.warn('SEP', `[job ${jobId}] ${stem} wav→flac 转换失败，回退保留 wav: ${e.message}`);
 
 
 
@@ -9248,16 +9382,7 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
-    // 鍒嗙浜х墿鍒颁綅鍚庢竻鎺夎繖棣栨瓕鏃?HLS锛屼笅娆℃挱鏀炬寜"鍘熷敱/鍗婃秷/浼村"涓夎建閲嶆柊鐢熸垚锛圥4锛?
-
-
-
-
-
-
-
-
-    try { removeHLS(job.song_id); } catch (e) { /* 鏃т骇鐗╀笉瀛樺湪鏃犲Θ */ }
+    // 分离产物到位后清掉这首歌旧 HLS，下次播放按"原唱/半消/伴奏"三轨重新生成（P4）
 
 
 
@@ -9267,7 +9392,18 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
-    // 閫愬瓧姝岃瘝閲嶆柊鐢熸垚瀹屾垚锛歐ebSocket骞挎挱缁欐墍鏈夊鎴风锛宼vOS绔敹鍒板悗鏃犵紳鏇挎崲褰撳墠姝岃瘝锛堜笉娓呯┖銆佷笉涓柇鎾斁锛?
+    try { removeHLS(job.song_id); } catch (e) { /* 旧产物不存在无妨 */ }
+
+
+
+
+
+
+
+
+
+    // 逐字歌词重新生成完成：WebSocket广播给所有客户端，tvOS端收到后无缝替换当前歌词（不清空、不中断播放）
+
 
 
 
@@ -9316,7 +9452,7 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
-        log.info('LYRIC', `[姝屾洸 id=${job.song_id}] 閫愬瓧姝岃瘝閲嶆柊鐢熸垚瀹屾垚锛屽凡骞挎挱 lyrics_updated`);
+        log.info('LYRIC', `[歌曲 id=${job.song_id}] 逐字歌词重新生成完成，已广播 lyrics_updated`);
 
 
 
@@ -9326,7 +9462,7 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
 
-      } catch (e) { log.warn('LYRIC', `骞挎挱 lyrics_updated 澶辫触: ${e.message}`); }
+      } catch (e) { log.warn('LYRIC', `广播 lyrics_updated 失败: ${e.message}`); }
 
 
 
@@ -9436,7 +9572,8 @@ app.post('/api/separate/jobs/:id/fail', (req, res) => {
 
 
 
-// POST /api/separate/jobs/:id/reset 鈥斺€?鎵嬪姩閲嶇疆涓烘帓闃?
+// POST /api/separate/jobs/:id/reset —— 手动重置为排队
+
 
 
 
@@ -9485,7 +9622,7 @@ app.post('/api/separate/jobs/:id/reset', (req, res) => {
 
 
 
-// GET /api/separate/stats 鈥斺€?鍒嗙/瀵归綈杩涘害鐪嬫澘
+// GET /api/separate/stats —— 分离/对齐进度看板
 
 
 
@@ -9505,7 +9642,8 @@ app.get('/api/separate/stats', (req, res) => res.json(sepMod.stats(db)));
 
 
 
-// GET /api/separate/jobs?status= 鈥斺€?浠诲姟鍒楄〃锛堢湅鏉?璋冭瘯锛屾渶澶?00锛?
+// GET /api/separate/jobs?status= —— 任务列表（看板/调试，最多500）
+
 
 
 
@@ -9604,7 +9742,7 @@ app.get('/api/separate/jobs', (req, res) => {
 
 
 
-// ==================== 鍒嗙鍙岃建鐩村嚭锛堢綉椤电杩炵画浜哄０婊戝潡 DUAL 妯″紡锛?===================
+// ==================== 分离双轨直出（网页端连续人声滑块 DUAL 模式）====================
 
 
 
@@ -9614,16 +9752,7 @@ app.get('/api/separate/jobs', (req, res) => {
 
 
 
-// 鏃ф柟妗堬細hlsgen 鎶婁汉澹版寜 0/75/50/25/0 棰勬贩鎴?5 鏉?AAC 绂绘暎闊宠建锛屽墠绔彧鑳借烦妗ｅ垏鎹€?
-
-
-
-
-
-
-
-
-// 涓旀瘡娆″垏鎹㈣閲嶆柊鎷夊垎鐗囷紝鍋氫笉鍒颁笣婊戣繛缁秷闊炽€傛柊鏂规锛氬垎绂诲嚭鐨?vocals / accompaniment
+// 旧方案：hlsgen 把人声按 0/75/50/25/0 预混成 5 条 AAC 离散音轨，前端只能跳档切换、
 
 
 
@@ -9633,7 +9762,7 @@ app.get('/api/separate/jobs', (req, res) => {
 
 
 
-// 涓ゆ潯鍘熷鍒嗚建鐩存帴浠ユ敮鎸?Range(206) 鐨勯潤鎬佹枃浠朵笅鍙戯紝缃戦〉绔敤涓や釜 <audio> + WebAudio
+// 且每次切换要重新拉分片，做不到丝滑连续消音。新方案：分离出的 vocals / accompaniment
 
 
 
@@ -9643,7 +9772,7 @@ app.get('/api/separate/jobs', (req, res) => {
 
 
 
-// GainNode 杩炵画璋冭妭浜哄０闊抽噺锛屼即濂忔亽瀹氾紝浠庤€屽緱鍒版棤璺虫。銆佹棤閲嶈浇鐨勪笣婊戞粦鍧椼€傚瓨鍌ㄥ眰浠ュ悗
+// 两条原始分轨直接以支持 Range(206) 的静态文件下发，网页端用两个 <audio> + WebAudio
 
 
 
@@ -9653,7 +9782,17 @@ app.get('/api/separate/jobs', (req, res) => {
 
 
 
-// 涓€姝ュ埌 FLAC锛岃繖閲屾寜"浼樺厛 .flac銆佸洖閫€ .wav"鑷姩閫傞厤锛屽瓨閲?wav 涓庢湭鏉?flac 閮借兘鎾€?
+// GainNode 连续调节人声音量，伴奏恒定，从而得到无跳档、无重载的丝滑滑块。存储层以后
+
+
+
+
+
+
+
+
+
+// 一步到 FLAC，这里按"优先 .flac、回退 .wav"自动适配，存量 wav 与未来 flac 都能播。
 
 
 
@@ -9672,7 +9811,8 @@ app.get('/api/separate/jobs', (req, res) => {
 
 
 
-// 瑙ｆ瀽鏌愰姝屾煇鏉″垎杞ㄥ湪纾佺洏涓婄殑鐪熷疄鏂囦欢锛坒lac 浼樺厛銆亀av 鍏滃簳锛夛紝涓嶅瓨鍦ㄨ繑鍥?null
+
+// 解析某首歌某条分轨在磁盘上的真实文件（flac 优先、wav 兜底），不存在返回 null
 
 
 
@@ -9694,14 +9834,15 @@ function resolveSepTrackFile(song, kind) {
       if (abs && fs.existsSync(abs) && fs.statSync(abs).size > 1024) {
         return { abs, ext: path.extname(abs).slice(1).toLowerCase() };
       }
-    } catch (e) { /* 璇曚笅涓€涓€欓€?*/ }
+    } catch (e) { /* 试下一个候选 */ }
   }
-  // 鍏滃簳锛氭暟鎹簱璺緞鎵句笉鍒版椂锛屾壂鎻忓垎绂荤洰褰曟壘涓枃鍛藉悕鏂囦欢
-  // 锛堥€傜敤浜庢枃浠跺凡琚閮ㄨ剼鏈噸鍛藉悕浣嗘暟鎹簱鏈洿鏂扮殑鎯呭喌锛?  try {
+  // 兜底：数据库路径找不到时，扫描分离目录找中文命名文件
+  // （适用于文件已被外部脚本重命名但数据库未更新的情况）
+  try {
     const m = String(rel).match(/separated\/([a-f0-9]{16})\//);
     if (m) {
       const dir = path.join(sepMod.SEP_DIR, m[1]);
-      const keyword = kind === 'vocal' ? '浜哄０' : '浼村';
+      const keyword = kind === 'vocal' ? '人声' : '伴奏';
       const files = fs.readdirSync(dir);
       for (const ext of ['flac', 'wav']) {
         const found = files.find(f => f.endsWith(`-${keyword}.${ext}`) || f.includes(`-${keyword}.${ext}`));
@@ -9713,7 +9854,7 @@ function resolveSepTrackFile(song, kind) {
         }
       }
     }
-  } catch (e) { /* 鐩綍涓嶅瓨鍦ㄦ垨涓嶅彲璇?*/ }
+  } catch (e) { /* 目录不存在或不可读 */ }
   return null;
 }
 
@@ -9735,7 +9876,8 @@ function resolveSepTrackFile(song, kind) {
 
 
 
-// 甯?HTTP Range / 206 鐨勬枃浠跺彂閫侊紙璇箟涓?/stream/:id 涓€鑷达紝渚?<audio> 杈逛笅杈规挱銆佹嫋鍔ㄥ鍧€锛?
+// 带 HTTP Range / 206 的文件发送（语义与 /stream/:id 一致，供 <audio> 边下边播、拖动寻址）
+
 
 
 
@@ -10034,7 +10176,7 @@ function sendFileWithRange(req, res, abs, contentType) {
 
 
 
-// GET /api/songs/:id/sep-info 鈥斺€?鍓嶇鑳藉姏鎺㈡祴锛氳繖棣栨瓕涓ゆ潯鍒嗚建鏄惁榻愬銆佸悇鑷殑鐩村嚭鍦板潃
+// GET /api/songs/:id/sep-info —— 前端能力探测：这首歌两条分轨是否齐备、各自的直出地址
 
 
 
@@ -10094,18 +10236,45 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
-  // 缃戠粶KTV MKV瑙嗛锛?15缃戠洏鍗曟枃浠跺闊宠建锛夛細杩斿洖瑙嗛鐩撮摼锛岃蛋鍗曟枃浠舵挱鏀?闊宠建鍒囨崲
+  // 网络KTV MKV视频（115网盘单文件多音轨）：返回视频直链，走单文件播放+音轨切换
 
 
+
+  // 分享链接来源（115 分享，零风控，通过 Alist 115 Share 驱动）
+  if (song.source_root === 'share-115') {
+    // filepath 格式: alist:/share-{id}/path/to/video.mkv
+    const filepath = song.filepath || '';
+    if (filepath.startsWith('alist:')) {
+      const alistPath = filepath.substring(6);
+      const videoUrl = '/api/share/stream' + alistPath;
+      console.log('[SEP-INFO] 分享链接直链(Alist):', videoUrl);
+
+      return res.json({
+        dual: false,
+        hasVocal: true,
+        hasAccompaniment: true,
+        isNetworkMkv: true,
+        videoUrl: videoUrl,
+        vocalUrl: videoUrl,
+        accompUrl: videoUrl,
+        songId: song.id,
+        title: song.title,
+        artist: song.artist,
+        audioTracks: song.audio_tracks || 2,
+        source: 'share-115',
+      });
+    }
+  }
 
   if (song.source_root === 'netktv-mkv') {
 
 
 
-    // 浣跨敤 direct-stream 绔偣锛?02閲嶅畾鍚戝埌115 CDN鐩撮摼锛屼笉鍗燦AS甯﹀锛?
+    // 使用 direct-stream 端点（302重定向到115 CDN直链，不占NAS带宽）
 
 
-    // song.filepath 鏄?115 缃戠洏涓婄殑鐩稿璺緞锛屽 ktv-output/xxx.mkv
+
+    // song.filepath 是 115 网盘上的相对路径，如 ktv-output/xxx.mkv
 
 
 
@@ -10121,7 +10290,7 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
-      console.log('[SEP-INFO] 缃戠粶MKV鐩撮摼:', videoUrl);
+      console.log('[SEP-INFO] 网络MKV直链:', videoUrl);
 
 
 
@@ -10129,11 +10298,11 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
-    // 绾?02鐩磋繛锛歵vOS绔疺LC鑷姩璺熼殢302閲嶅畾鍚戯紝鐩存帴鎾斁115 CDN鐩撮摼
+    // 纯302直连：tvOS端VLC自动跟随302重定向，直接播放115 CDN直链
 
 
 
-    // 涓嶇紦瀛樸€佷笉杞爜銆佷笉鍗燦AS甯﹀
+    // 不缓存、不转码、不占NAS带宽
 
 
 
@@ -10191,55 +10360,7 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
-  // 浜戠洏姝屾洸锛?15/澶稿厠/绉诲姩缃戠洏绛夊鐩橈級锛氶€氳繃 cloud_file_id 鍏宠仈璐﹀彿锛岃繑鍥炲搴旂綉鐩樼殑 302 鐩撮摼
-  // 濯掍綋鏁版嵁鐩存帴浠庣綉鐩?CDN 鍒板鎴风锛屼笉鍗?NAS 甯﹀鍜屽閲忥紱tvOS 绔?VLC 鏍规嵁 cloud_driver 閫?UA
-  if (song.source_type === 'cloud' || song.cloud_file_id) {
-    try {
-      const cf = song.cloud_file_id
-        ? db.prepare('SELECT * FROM cloud_files WHERE id=?').get(song.cloud_file_id)
-        : null;
-      let accountId = null;
-      let driver = 'pan115';
-      let cloudPath = song.filepath || '';
-      if (cf) {
-        const lib = db.prepare('SELECT account_id FROM cloud_libraries WHERE id=?').get(cf.library_id);
-        if (lib) {
-          accountId = lib.account_id;
-          const acct = db.prepare('SELECT driver FROM cloud_accounts WHERE id=?').get(accountId);
-          if (acct) driver = acct.driver;
-        }
-        cloudPath = cf.path || cloudPath;
-      }
-      const isVideo = /\.(mkv|mp4|m4v|mov|ts|m2ts|webm|avi|rmvb|rm|wmv|flv|mpg|mpeg|mts)$/i.test(cloudPath)
-        || song.media_type === 'video';
-      // /api/cloud/115-direct/:accountId/* 绔偣鎸夎处鍙烽┍鍔ㄨ嚜鍔ㄥ垎鍙戯紙pan115/quark/cmcc锛夛紝杩斿洖 302 鍒?CDN 鐩撮摼
-      const encodedPath = encodeURIComponent(cloudPath).replace(/%2F/g, '/');
-      const videoUrl = accountId
-        ? `/api/cloud/115-direct/${accountId}/${encodedPath}`
-        : `/api/direct-stream/${encodedPath}?driver=${driver}`;
-      console.log(`[SEP-INFO] 浜戠洏姝屾洸 driver=${driver} account=${accountId} path=${cloudPath} -> ${videoUrl}`);
-      return res.json({
-        dual: false,
-        hasVocal: true,
-        hasAccomp: true,
-        sepStatus: 'done',
-        videoUrl: videoUrl,
-        isNetKtvMkv: isVideo,
-        isNetworkMkv: isVideo,
-        isVideo: isVideo,
-        audioTracks: song.audio_tracks || (isVideo ? 2 : 1),
-        source: 'cloud',
-        source_type: 'cloud',
-        cloud_driver: driver,
-        cloud_url: null,
-      });
-    } catch (e) {
-      console.error('[SEP-INFO] 浜戠洏姝屾洸澶勭悊澶辫触:', e.message);
-      // fall through to default handling below
-    }
-  }
-
-  // 缃戠粶KTV姝屾洸锛?15缃戠洏鍙孎LAC锛夛細鐩存帴杩斿洖netktv涓叉祦浠ｇ悊鍦板潃
+  // 网络KTV歌曲（115网盘双FLAC）：直接返回netktv串流代理地址
 
 
 
@@ -10259,7 +10380,7 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
-    // 浠巚ocal_path鐨凷TRM鏂囦欢鍚嶄腑鎻愬彇netktv ID
+    // 从vocal_path的STRM文件名中提取netktv ID
 
 
 
@@ -10569,7 +10690,8 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
-// GET /api/songs/:id/sep-track?kind=vocal|accomp 鈥斺€?鍒嗚建鐩村嚭锛圧ange/206锛宖lac/wav 鑷€傚簲锛?
+// GET /api/songs/:id/sep-track?kind=vocal|accomp —— 分轨直出（Range/206，flac/wav 自适应）
+
 
 
 
@@ -10668,7 +10790,7 @@ app.get('/api/songs/:id/sep-track', (req, res) => {
 
 
 
-// ==================== 鏇插簱鍏冩暟鎹彲绉绘蹇収锛堝厤閲嶅鎵弿锛?====================
+// ==================== 曲库元数据可移植快照（免重复扫描） ====================
 
 
 
@@ -10678,7 +10800,7 @@ app.get('/api/songs/:id/sep-track', (req, res) => {
 
 
 
-// 瀵煎嚭褰撳墠鏁村紶鏇插簱涓哄揩鐓э紙涓嬭浇鍒版湰鍦板浠斤級
+// 导出当前整张曲库为快照（下载到本地备份）
 
 
 
@@ -10748,7 +10870,7 @@ app.get('/api/admin/catalog/export', requireAdminAuth, (req, res) => {
 
 
 
-// 鎶婂揩鐓у啓鍒版瘡涓洸搴撴潵婧愭牴鐩綍(璺熸瓕鏇叉斁涓€璧? + /data 鐣欏簳锛屾柟渚挎嫹璐?鏂版満鍙栫敤
+// 把快照写到每个曲库来源根目录(跟歌曲放一起) + /data 留底，方便拷贝/新机取用
 
 
 
@@ -10788,7 +10910,7 @@ app.post('/api/admin/catalog/write-files', requireAdminAuth, (req, res) => {
 
 
 
-    log.info('CATALOG', `鏇插簱蹇収宸插啓鍑?${r.count} 棣?-> ${r.written.join(' , ')}`);
+    log.info('CATALOG', `曲库快照已写出 ${r.count} 首 -> ${r.written.join(' , ')}`);
 
 
 
@@ -10868,7 +10990,8 @@ function parseCatalogBody(req) {
 
 
 
-  return req.body; // 鐩存帴鎶婃暣涓?JSON body 褰撳揩鐓?
+  return req.body; // 直接把整个 JSON body 当快照
+
 
 
 
@@ -10887,7 +11010,8 @@ function parseCatalogBody(req) {
 
 
 
-// 棰勮蹇収閲岀殑鏉ユ簮鏍硅兘鏄犲皠鍒版湰鏈哄摢涓牴锛堢湡姝ｅ鍏ュ墠纭锛岀己鏍逛細鏄庣‘鍒楀嚭锛?
+// 预览快照里的来源根能映射到本机哪个根（真正导入前确认，缺根会明确列出）
+
 
 
 
@@ -10936,7 +11060,7 @@ app.post('/api/admin/catalog/preview', requireAdminAuth, catalogUpload.single('c
 
 
 
-  } catch (e) { res.status(400).json({ error: '蹇収瑙ｆ瀽澶辫触: ' + e.message }); }
+  } catch (e) { res.status(400).json({ error: '快照解析失败: ' + e.message }); }
 
 
 
@@ -10956,7 +11080,7 @@ app.post('/api/admin/catalog/preview', requireAdminAuth, catalogUpload.single('c
 
 
 
-// 瀵煎叆蹇収锛氫笉鍋?ffprobe锛岀洿鎺ユ仮澶嶅厓鏁版嵁锛況ootMap 鍙寚瀹?{蹇収鏍? 鏈満鏍箎
+// 导入快照：不做 ffprobe，直接恢复元数据；rootMap 可指定 {快照根: 本机根}
 
 
 
@@ -11026,7 +11150,7 @@ app.post('/api/admin/catalog/import', requireAdminAuth, catalogUpload.single('ca
 
 
 
-    log.info('CATALOG', `鏇插簱蹇収瀵煎叆瀹屾垚锛氭柊澧?{r.added} 鏇存柊${r.updated} 璺宠繃${r.skipped}锛堝叡${r.total}锛塦);
+    log.info('CATALOG', `曲库快照导入完成：新增${r.added} 更新${r.updated} 跳过${r.skipped}（共${r.total}）`);
 
 
 
@@ -11046,7 +11170,7 @@ app.post('/api/admin/catalog/import', requireAdminAuth, catalogUpload.single('ca
 
 
 
-  } catch (e) { res.status(400).json({ error: '瀵煎叆澶辫触: ' + e.message }); }
+  } catch (e) { res.status(400).json({ error: '导入失败: ' + e.message }); }
 
 
 
@@ -11066,7 +11190,8 @@ app.post('/api/admin/catalog/import', requireAdminAuth, catalogUpload.single('ca
 
 
 
-// 鏂版満渚挎嵎鍏ュ彛锛氬揩鐓у凡璺熸瓕鏇叉斁鍦ㄦ煇鏉ユ簮鏍圭洰褰?momo-catalog.json)锛岀洿鎺ユ寚鏈嶅姟鍣ㄨ矾寰勫鍏?
+// 新机便捷入口：快照已跟歌曲放在某来源根目录(momo-catalog.json)，直接指服务器路径导入
+
 
 
 
@@ -11105,7 +11230,7 @@ app.post('/api/admin/catalog/import-from-path', requireAdminAuth, (req, res) => 
 
 
 
-    if (!p) return res.status(400).json({ error: '闇€瑕?path' });
+    if (!p) return res.status(400).json({ error: '需要 path' });
 
 
 
@@ -11155,7 +11280,7 @@ app.post('/api/admin/catalog/import-from-path', requireAdminAuth, (req, res) => 
 
 
 
-  } catch (e) { res.status(400).json({ error: '瀵煎叆澶辫触: ' + e.message }); }
+  } catch (e) { res.status(400).json({ error: '导入失败: ' + e.message }); }
 
 
 
@@ -11185,7 +11310,7 @@ app.post('/api/admin/catalog/import-from-path', requireAdminAuth, (req, res) => 
 
 
 
-// ==================== 鍔ㄦ€佽儗鏅浘鐗囷紙缃戦〉閬ユ帶绔笂浼狅紝绾煶棰戞瓕"鎴戠殑鍥剧墖"妯″紡闅忔満杞挱锛?====================
+// ==================== 动态背景图片（网页遥控端上传，纯音频歌"我的图片"模式随机轮播） ====================
 
 
 
@@ -11385,7 +11510,7 @@ app.post('/api/backgrounds/upload', bgUpload.array('images', 12), (req, res) => 
 
 
 
-  log.info('BG', `缃戦〉绔笂浼犲姩鎬佽儗鏅浘 ${files.length} 寮燻);
+  log.info('BG', `网页端上传动态背景图 ${files.length} 张`);
 
 
 
@@ -11425,7 +11550,7 @@ app.delete('/api/backgrounds/images/:name', (req, res) => {
 
 
 
-  const name = path.basename(req.params.name || ''); // basename 闃茬洰褰曠┛瓒?
+  const name = path.basename(req.params.name || ''); // basename 防目录穿越
 
 
 
@@ -11434,7 +11559,8 @@ app.delete('/api/backgrounds/images/:name', (req, res) => {
 
 
 
-  if (!BG_IMG_RE.test(name)) return res.status(400).json({ error: '闈炴硶鏂囦欢鍚? });
+
+  if (!BG_IMG_RE.test(name)) return res.status(400).json({ error: '非法文件名' });
 
 
 
@@ -11484,7 +11610,7 @@ app.delete('/api/backgrounds/images/:name', (req, res) => {
 
 
 
-// GET /api/songs/:id/source 鈥斺€?worker 涓嬭浇寰呭鐞嗘簮闊抽銆傛櫘閫氭枃浠跺師鏍蜂笅鍙戯紱CUE 鍒嗚建
+// GET /api/songs/:id/source —— worker 下载待处理源音频。普通文件原样下发；CUE 分轨
 
 
 
@@ -11494,7 +11620,8 @@ app.delete('/api/backgrounds/images/:name', (req, res) => {
 
 
 
-// 鐢?ffmpeg 鎸?start/end_offset 瀹炴椂鎴彇涓?44.1k 绔嬩綋澹?wav 娴侊紙Demucs 闇€鏃犳崯鏁存锛夈€?
+// 用 ffmpeg 按 start/end_offset 实时截取为 44.1k 立体声 wav 流（Demucs 需无损整段）。
+
 
 
 
@@ -11553,7 +11680,7 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
-  if (!src || !fs.existsSync(src)) return res.status(404).json({ error: '婧愭枃浠跺湪鏈嶅姟绔笉鍙揪', path: src });
+  if (!src || !fs.existsSync(src)) return res.status(404).json({ error: '源文件在服务端不可达', path: src });
 
 
 
@@ -11653,7 +11780,7 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
-    child.stderr.on('data', () => { /* 涓㈠純 ffmpeg 杩涘害鍣煶 */ });
+    child.stderr.on('data', () => { /* 丢弃 ffmpeg 进度噪音 */ });
 
 
 
@@ -11683,7 +11810,7 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
-    // 鏅€氶煶棰戞枃浠讹細璧?sendFileWithRange锛堟敮鎸?Range/206銆丄ccept-Ranges銆丆ache-Control锛夛紝
+    // 普通音频文件：走 sendFileWithRange（支持 Range/206、Accept-Ranges、Cache-Control），
 
 
 
@@ -11693,7 +11820,8 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
-    // 璁?TV 绔?<audio> 鑳借竟涓嬭竟鎾€佹嫋鍔ㄨ繘搴︽潯瀵诲潃锛岃€屼笉鏄瘡娆′粠澶翠笅杞芥暣棣栥€?
+    // 让 TV 端 <audio> 能边下边播、拖动进度条寻址，而不是每次从头下载整首。
+
 
 
 
@@ -11842,7 +11970,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-  // incomplete 鐢ㄤ簬銆屾洸搴撶鐞嗐€嶇瓫閫夋湭濉啓瀹屾暣淇℃伅鐨勬瓕鏇诧細
+  // incomplete 用于「曲库管理」筛选未填写完整信息的歌曲：
 
 
 
@@ -11852,7 +11980,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-  //   language - 缂鸿绉嶃€€genre - 缂洪鏍笺€€artist - 姝屾墜鏈煡/鏈～
+  //   language - 缺语种　genre - 缺风格　artist - 歌手未知/未填
 
 
 
@@ -11862,7 +11990,8 @@ app.get('/api/songs', (req, res) => {
 
 
 
-  //   any      - 浠ヤ笂涓夐」浠绘剰涓€椤圭己澶?
+  //   any      - 以上三项任意一项缺失
+
 
 
 
@@ -11881,7 +12010,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-  // scope 鐢ㄤ簬銆屾洸搴撶鐞嗐€嶇殑"鏈湴鏇插簱 / 缃戠粶鏇插簱"鍒囨崲鏄剧ず锛氫笉浼犳垨浼犲叾瀹?
+  // scope 用于「曲库管理」的"本地曲库 / 网络曲库"切换显示：不传或传其它
 
 
 
@@ -11890,7 +12019,8 @@ app.get('/api/songs', (req, res) => {
 
 
 
-  // 鍊奸兘瑙嗕负"鍏ㄩ儴"锛屽彧鏈?local/network 浼氱湡姝ｅ姞闄愬埗鏉′欢锛岃窡鍏跺畠绛涢€夋潯浠?
+
+  // 值都视为"全部"，只有 local/network 会真正加限制条件，跟其它筛选条件
 
 
 
@@ -11899,7 +12029,9 @@ app.get('/api/songs', (req, res) => {
 
 
 
-  // (鎼滅储鍏抽敭瀛椼€乮ncomplete)鏄?涓?鐨勫叧绯伙紝鍙互鍙犲姞浣跨敤銆?
+
+  // (搜索关键字、incomplete)是"且"的关系，可以叠加使用。
+
 
 
 
@@ -11918,7 +12050,8 @@ app.get('/api/songs', (req, res) => {
 
 
 
-  // 榛樿(涓嶄紶scope)杩斿洖鍏ㄩ儴鏈湴+缃戠粶锛泂cope=local/network 鎵嶅垎鍒檺鍒?
+  // 默认(不传scope)返回全部本地+网络；scope=local/network 才分别限制
+
 
 
 
@@ -12057,7 +12190,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    // 鎸夋瓕鎵嬬簿纭煡鎵撅細涓€棣栨瓕鍙兘鏈夊浣嶆瓕鎵嬶紙鍚堝敱锛夛紝涓嶈兘鐩存帴瀵?
+    // 按歌手精确查找：一首歌可能有多位歌手（合唱），不能直接对
 
 
 
@@ -12066,7 +12199,8 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    // songs.artist 鏁存瀛楃涓插仛绛夊€兼瘮杈冿紙閭ｆ牱浼氭紡鎺?鍒€閮?寮犱笁"杩欑被澶氭瓕鎵?
+
+    // songs.artist 整段字符串做等值比较（那样会漏掉"刀郎 张三"这类多歌手
 
 
 
@@ -12075,7 +12209,9 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    // 鏇茬洰鍦ㄥ彧鐐瑰紑"鍒€閮?鏃跺簲璇ュ嚭鐜扮殑鎯呭喌锛夛紝鏀规垚璧?song_artists 鍏宠仈琛ㄣ€?
+
+    // 曲目在只点开"刀郎"时应该出现的情况），改成走 song_artists 关联表。
+
 
 
 
@@ -12174,7 +12310,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-      artist: "(artist IS NULL OR artist = '' OR artist = '鏈煡姝屾墜')",
+      artist: "(artist IS NULL OR artist = '' OR artist = '未知歌手')",
 
 
 
@@ -12184,25 +12320,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-      // 闊宠建鎺㈡祴鏈垚鍔?NULL)鎴栬€呮槸鍗曢煶杞?=1锛屾挱鏀炬椂璧?澹伴亾鍨?鍘?浼村敱鍒嗙锛?
-
-
-
-
-
-
-
-
-      // 鍑嗙‘鐜囦笉濡傜湡姝ｇ殑鍙岄煶杞?鈥斺€斾袱鑰呴兘鏄鐞嗗憳鍙兘鎯虫寫鍑烘潵澶嶆煡銆佹墜鍔ㄩ噸鎺?
-
-
-
-
-
-
-
-
-      // 鎴栫‘璁よ繖棣栨瓕鏈潵灏辨槸鍗曢煶杞ㄧ殑鎯呭喌锛屽悎骞舵垚涓€涓瓫閫夐」锛屼笉璁″叆"any"
+      // 音轨探测未成功(NULL)或者是单音轨(=1，播放时走"声道型"原/伴唱分离，
 
 
 
@@ -12212,7 +12330,28 @@ app.get('/api/songs', (req, res) => {
 
 
 
-      // (any 鍙粺璁℃瓕鎵?璇/椋庢牸杩欑被鏂囧瓧淇℃伅鏄惁瀹屾暣锛岃窡闊宠建鎺㈡祴鏃犲叧)銆?
+      // 准确率不如真正的双音轨)——两者都是管理员可能想挑出来复查、手动重探
+
+
+
+
+
+
+
+
+
+      // 或确认这首歌本来就是单音轨的情况，合并成一个筛选项，不计入"any"
+
+
+
+
+
+
+
+
+
+      // (any 只统计歌手/语种/风格这类文字信息是否完整，跟音轨探测无关)。
+
 
 
 
@@ -12391,7 +12530,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    // 鎾斁娆℃暟鐩稿悓鏃?灏ゅ叾鏄ぇ閲忔柊姝岄兘杩樻槸 0 娆?锛屾寜 id DESC 鍋氭绾ф帓搴忚
+    // 播放次数相同时(尤其是大量新歌都还是 0 次)，按 id DESC 做次级排序让
 
 
 
@@ -12401,7 +12540,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    // 鏂板叆搴撶殑姝屾帓鍦ㄥ墠闈紝璺熶笅闈?涓嶅甫浠讳綍绛涢€夋潯浠?鐨勯粯璁ゆ帓搴忛€昏緫淇濇寔涓€鑷达紝
+    // 新入库的歌排在前面，跟下面"不带任何筛选条件"的默认排序逻辑保持一致，
 
 
 
@@ -12411,7 +12550,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    // 涓嶇劧娆＄骇椤哄簭浼氶€€鍖栨垚 SQLite 鏈畾涔夌殑鐗╃悊琛屽簭锛屾柊姝屾悳绱㈠嚭鏉ュ彲鑳藉弽鑰?
+    // 不然次级顺序会退化成 SQLite 未定义的物理行序，新歌搜索出来可能反而
 
 
 
@@ -12420,7 +12559,9 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    // 鎺掑湪寰堝悗闈€?
+
+    // 排在很后面。
+
 
 
 
@@ -12509,7 +12650,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    // 闈炲垎椤佃皟鐢紙TV 绔?鎵嬫満绔殑鍗虫椂鎼滅储锛変繚鐣欏師鏉?LIMIT 100 鐨勪笂闄愶紝閬垮厤
+    // 非分页调用（TV 端/手机端的即时搜索）保留原来 LIMIT 100 的上限，避免
 
 
 
@@ -12519,7 +12660,8 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    // 杈撳叆寰堢煭鐨勫叧閿瓧鏃朵竴娆℃€ф媺鍥炶繃澶氱粨鏋滐紱鍒嗛〉璋冪敤浜ょ粰涓嬮潰鐨?LIMIT/OFFSET銆?
+    // 输入很短的关键字时一次性拉回过多结果；分页调用交给下面的 LIMIT/OFFSET。
+
 
 
 
@@ -12698,7 +12840,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-// 鏈€鏂板叆搴擄細鐩存帴鎸?id 闄嶅簭鍙栧墠 N 棣栵紝閬垮厤鎷夊洖鍏ㄩ儴姝屾洸鍐嶆帓搴忓鑷寸殑澶ф暟鎹噺/瑙ｆ瀽澶辫触
+// 最新入库：直接按 id 降序取前 N 首，避免拉回全部歌曲再排序导致的大数据量/解析失败
 
 
 
@@ -12818,7 +12960,7 @@ app.get('/api/songs/newest', (req, res) => {
 
 
 
-// 鎸夐瀛楁瘝鎼滅储
+// 按首字母搜索
 
 
 
@@ -12888,7 +13030,7 @@ app.get('/api/songs/letter/:letter', (req, res) => {
 
 
 
-// 闇€姹?MV鍔犺浇鍔ㄧ敾涓嬫柟鏄剧ず涓嬭浇閫熷害/棰勮绛夊緟鏃堕暱)锛氱綉缁滄洸搴?缃戠洏/STRM)鐐规瓕
+// 需求(MV加载动画下方显示下载速度/预计等待时长)：网络曲库(网盘/STRM)点歌
 
 
 
@@ -12898,52 +13040,7 @@ app.get('/api/songs/letter/:letter', (req, res) => {
 
 
 
-// 鍚庯紝鎾斁鍓嶈鍏堟妸婧愭枃浠剁紦瀛樺埌鏈湴(瑙?sourceCache.js)锛岃繖涓€姝ョ綉閫熸參鐨勬椂鍊?
-
-
-
-
-
-
-
-
-// 鍙兘瑕佺瓑涓嶇煭鐨勬椂闂粹€斺€擳V/鎵嬫満绔挱鏀鹃〉鍦?鍔犺浇涓?杞湀鏈熼棿杞杩欎釜鎺ュ彛锛?
-
-
-
-
-
-
-
-
-// 鎷垮埌瀹炴椂鐨勪笅杞介€熷害/棰勮鍓╀綑鏃堕棿灞曠ず缁欑敤鎴风湅锛岃€屼笉鏄鐢ㄦ埛瀵圭潃杞湀骞茬瓑銆?
-
-
-
-
-
-
-
-
-// 鐚滀笉鍒拌繕瑕佸涔呫€佷互涓烘槸鍗℃浜嗐€傚叕寮€鎺ュ彛(涓嶉渶瑕佺鐞嗗憳鐧诲綍)锛氭挱鏀鹃〉闈㈡湰韬?
-
-
-
-
-
-
-
-
-// 灏辨槸鍏紑鍙闂殑锛岃窡 /api/songs銆?hls 绛夋帴鍙ｇ殑寮€鏀剧▼搴︿繚鎸佷竴鑷淬€?
-
-
-
-
-
-
-
-
-// 鏈湴鏇插簱(is_network=0 涓?is_strm=0)鐨勬瓕涓嶅瓨鍦?涓嬭浇鍒版湰鍦?杩欎竴姝ワ紝鐩存帴
+// 后，播放前要先把源文件缓存到本地(见 sourceCache.js)，这一步网速慢的时候
 
 
 
@@ -12953,7 +13050,58 @@ app.get('/api/songs/letter/:letter', (req, res) => {
 
 
 
-// 杩斿洖 status:'local'锛屽墠绔嵁姝や笉灞曠ず涓嬭浇閫熷害/棰勮绛夊緟杩欓儴鍒哢I銆?
+// 可能要等不短的时间——TV/手机端播放页在"加载中"转圈期间轮询这个接口，
+
+
+
+
+
+
+
+
+
+// 拿到实时的下载速度/预计剩余时间展示给用户看，而不是让用户对着转圈干等、
+
+
+
+
+
+
+
+
+
+// 猜不到还要多久、以为是卡死了。公开接口(不需要管理员登录)：播放页面本身
+
+
+
+
+
+
+
+
+
+// 就是公开可访问的，跟 /api/songs、/hls 等接口的开放程度保持一致。
+
+
+
+
+
+
+
+
+
+// 本地曲库(is_network=0 且 is_strm=0)的歌不存在"下载到本地"这一步，直接
+
+
+
+
+
+
+
+
+
+// 返回 status:'local'，前端据此不展示下载速度/预计等待这部分UI。
+
 
 
 
@@ -12982,7 +13130,7 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
-  if (!song) return res.status(404).json({ error: '姝屾洸涓嶅瓨鍦? });
+  if (!song) return res.status(404).json({ error: '歌曲不存在' });
 
 
 
@@ -13062,7 +13210,7 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
-// ---------- 姝屾墜澶村儚 ----------
+// ---------- 歌手头像 ----------
 
 
 
@@ -13072,7 +13220,7 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
-// 澶村儚鍥剧墖鐢辩敤鎴疯嚜琛屾斁杩?SINGER_DIR锛堥粯璁?/singer锛屽搴斿涓绘満
+// 头像图片由用户自行放进 SINGER_DIR（默认 /singer，对应宿主机
 
 
 
@@ -13082,7 +13230,7 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
-// /vol1/@appshare/momo-ktv/singer锛夛紝鏂囦欢鍚嶏紙涓嶅惈鍚庣紑锛夐渶涓庢瓕鎵嬪悕瀹屽叏涓€鑷达紝
+// /vol1/@appshare/momo-ktv/singer），文件名（不含后缀）需与歌手名完全一致，
 
 
 
@@ -13092,7 +13240,7 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
-// 濡?鍒€閮?jpg"銆?鍛ㄦ澃浼?png"锛屽ぇ灏忓啓鏁忔劅锛圠inux 鏂囦欢绯荤粺鏈韩濡傛锛夈€傚懡涓氨
+// 如"刀郎.jpg"、"周杰伦.png"，大小写敏感（Linux 文件系统本身如此）。命中就
 
 
 
@@ -13102,7 +13250,7 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
-// 鏄剧ず澶村儚鍥剧墖锛屾病鏈夊搴旀枃浠剁殑姝屾墜缁х画娌跨敤鍘熸湁鐨?濮撳悕棣栧瓧+绾壊鑳屾櫙"鍏滃簳
+// 显示头像图片，没有对应文件的歌手继续沿用原有的"姓名首字+纯色背景"兜底
 
 
 
@@ -13112,7 +13260,7 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
-// 灞曠ず锛屼笉寮哄埗瑕佹眰姣忎釜姝屾墜閮介厤鍥俱€?
+// 展示，不强制要求每个歌手都配图。
 
 
 
@@ -13121,8 +13269,8 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
-// 杩欎釜鐩綍鏄嫭绔嬩簬 MV_DIR 鐨勫彲閫夊姛鑳界洰褰曪細鍗充娇瀹屽叏涓嶆斁浠讳綍鏂囦欢锛屽簲鐢ㄤ篃瑕?
 
+// 这个目录是独立于 MV_DIR 的可选功能目录：即使完全不放任何文件，应用也要
 
 
 
@@ -13130,16 +13278,20 @@ app.get('/api/songs/:id/cache-progress', (req, res) => {
 
 
 
-// 鑳芥甯稿伐浣滐紙鐩綍涓嶅瓨鍦?涓虹┖鏃讹紝涓嬮潰鐨勬壂鎻忕洿鎺ュ厹搴曟垚涓€寮犵┖琛紝涓嶅奖鍝?
 
 
+// 能正常工作（目录不存在/为空时，下面的扫描直接兜底成一张空表，不影响
 
 
 
 
 
 
-// /api/artists 姝ｅ父杩斿洖锛屽彧鏄墍鏈夋瓕鎵嬮兘娌℃湁澶村儚鑰屽凡锛夈€?
+
+
+
+// /api/artists 正常返回，只是所有歌手都没有头像而已）。
+
 
 
 
@@ -13168,7 +13320,7 @@ const SINGER_AVATAR_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 
 
 
-// 鐩綍鎵弿缁撴灉鍋氫竴灞傜煭 TTL 缂撳瓨锛氭瓕鎵嬪垪琛ㄦ帴鍙ｈ闂鐜囦笉浣庯紙姣忔鎵撳紑"姝屾槦"
+// 目录扫描结果做一层短 TTL 缓存：歌手列表接口访问频率不低（每次打开"歌星"
 
 
 
@@ -13178,7 +13330,7 @@ const SINGER_AVATAR_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 
 
 
-// 椤电閮戒細瑙﹀彂锛夛紝浣嗗ご鍍忔枃浠舵湰韬嚑涔庝笉浼氶绻佸彉鍔紝娌″繀瑕佹瘡娆¤姹傞兘鍋氫竴娆?
+// 页签都会触发），但头像文件本身几乎不会频繁变动，没必要每次请求都做一次
 
 
 
@@ -13187,7 +13339,8 @@ const SINGER_AVATAR_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 
 
 
-// 鍚屾 readdir锛涚紦瀛?30 绉掓棦淇濊瘉鐢ㄦ埛鏂板/鏇挎崲澶村儚鍚庡緢蹇氨鑳藉湪鍓嶅彴鐪嬪埌锛?
+
+// 同步 readdir；缓存 30 秒既保证用户新增/替换头像后很快就能在前台看到，
 
 
 
@@ -13196,7 +13349,8 @@ const SINGER_AVATAR_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 
 
 
-// 鍙堥伩鍏嶄簡涓嶅繀瑕佺殑纾佺洏 IO銆?
+
+// 又避免了不必要的磁盘 IO。
 
 
 
@@ -13205,7 +13359,8 @@ const SINGER_AVATAR_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 
 
 
-let singerAvatarCache = null; // Map: 姝屾墜鍚?涓嶅惈鍚庣紑) -> 瀹為檯鏂囦欢鍚?鍚悗缂€)
+
+let singerAvatarCache = null; // Map: 歌手名(不含后缀) -> 实际文件名(含后缀)
 
 
 
@@ -13385,7 +13540,7 @@ function getSingerAvatarMap() {
 
 
 
-    // 鐩綍涓嶅瓨鍦紙姣斿鐢ㄦ埛杩樻病鍦ㄥ叡浜枃浠跺す閲屽缓 singer 瀛愮洰褰曪級鎴栦笉鍙鏃讹紝
+    // 目录不存在（比如用户还没在共享文件夹里建 singer 子目录）或不可读时，
 
 
 
@@ -13395,7 +13550,8 @@ function getSingerAvatarMap() {
 
 
 
-    // 瑙嗕负"娌℃湁浠讳綍姝屾墜澶村儚"锛屽叏閮ㄦ瓕鎵嬬户缁蛋棣栧瓧澶村儚鍏滃簳锛屼笉褰卞搷鍏跺畠鍔熻兘銆?
+    // 视为"没有任何歌手头像"，全部歌手继续走首字头像兜底，不影响其它功能。
+
 
 
 
@@ -13464,7 +13620,7 @@ function getSingerAvatarMap() {
 
 
 
-// 澶村儚鍥剧墖鐩村嚭鎺ュ彛锛氭寜姝屾墜鍚嶆煡缂撳瓨閲岃褰曠殑鐪熷疄鏂囦欢鍚嶅啀鎷艰矾寰勮鍙栵紝涓嶇洿鎺?
+// 头像图片直出接口：按歌手名查缓存里记录的真实文件名再拼路径读取，不直接
 
 
 
@@ -13473,7 +13629,8 @@ function getSingerAvatarMap() {
 
 
 
-// 鎷垮墠绔紶鏉ョ殑鍘熷瀛楃涓插幓鎷兼枃浠剁郴缁熻矾寰勶紝閬垮厤璺緞绌胯秺锛涘懡涓墠 200锛屾病鏈?
+
+// 拿前端传来的原始字符串去拼文件系统路径，避免路径穿越；命中才 200，没有
 
 
 
@@ -13482,7 +13639,9 @@ function getSingerAvatarMap() {
 
 
 
-// 瀵瑰簲澶村儚鏃惰繑鍥?404锛屽墠绔嵁姝ゅ喅瀹氭槸鍚﹀洖閫€鍒伴瀛楀ご鍍忋€?
+
+// 对应头像时返回 404，前端据此决定是否回退到首字头像。
+
 
 
 
@@ -13591,16 +13750,7 @@ app.get('/api/singer-avatar/:artist', (req, res) => {
 
 
 
-// 闇€姹傦細绠＄悊绔柊澧?鎵弿姝屾墜澶村儚"杩欎釜鎵嬪姩瑙﹀彂鍏ュ彛鈥斺€斿ご鍍忔湰鏉ュ氨鏄瘡娆¤姹?
-
-
-
-
-
-
-
-
-// 鑷姩甯?30 绉?TTL 缂撳瓨鍒锋柊鐨?瑙佷笂闈?getSingerAvatarMap 鐨勬敞閲?锛岀悊璁轰笂涓嶇敤
+// 需求：管理端新增"扫描歌手头像"这个手动触发入口——头像本来就是每次请求
 
 
 
@@ -13610,7 +13760,7 @@ app.get('/api/singer-avatar/:artist', (req, res) => {
 
 
 
-// 鎵嬪姩鎵弿涔熻兘鑷姩鐢熸晥锛屼絾绠＄悊鍛樺線鍏变韩鏂囦欢澶归噷鏂颁涪浜嗕竴鎵瑰ご鍍忓浘鐗囧悗锛屽線寰€
+// 自动带 30 秒 TTL 缓存刷新的(见上面 getSingerAvatarMap 的注释)，理论上不用
 
 
 
@@ -13620,7 +13770,7 @@ app.get('/api/singer-avatar/:artist', (req, res) => {
 
 
 
-// 鎯崇珛鍒荤湅鍒?璇嗗埆鍒颁簡鍑犱釜"杩欎釜纭鍙嶉锛岃€屼笉鏄ā绯婂湴绛夋渶澶?30 绉掋€佷篃涓嶇煡閬?
+// 手动扫描也能自动生效，但管理员往共享文件夹里新丢了一批头像图片后，往往
 
 
 
@@ -13629,7 +13779,8 @@ app.get('/api/singer-avatar/:artist', (req, res) => {
 
 
 
-// 鍒板簳鏈夋病鏈夌敓鏁堛€傝繖涓帴鍙ｆ妸缂撳瓨鐩存帴娓呯┖寮哄埗閲嶆柊璇讳竴娆＄洰褰曪紝杩斿洖鍛戒腑鏁伴噺锛?
+
+// 想立刻看到"识别到了几个"这个确认反馈，而不是模糊地等最多 30 秒、也不知道
 
 
 
@@ -13638,7 +13789,19 @@ app.get('/api/singer-avatar/:artist', (req, res) => {
 
 
 
-// 璺?鎵弿鏇插簱"涓€鏍风粰涓€娆℃槑纭殑缁撴灉鍙嶉銆?
+
+// 到底有没有生效。这个接口把缓存直接清空强制重新读一次目录，返回命中数量，
+
+
+
+
+
+
+
+
+
+// 跟"扫描曲库"一样给一次明确的结果反馈。
+
 
 
 
@@ -13727,43 +13890,7 @@ app.post('/api/admin/rescan-avatars', requireAdminAuth, (req, res) => {
 
 
 
-// 鎸?song_artists 鍏宠仈琛ㄥ垎缁勶紝鑰屼笉鏄洿鎺ュ songs.artist 鏁存瀛楃涓插垎缁勨€斺€?
-
-
-
-
-
-
-
-
-// 杩欐牱"鍒€閮?寮犱笁"杩欑被鍚堝敱鏇茬洰浼氳鍒€閮庛€佸紶涓夊垎鍒嚭鐜板湪姝屾墜鍒楄〃閲屻€佸垎鍒鍏?
-
-
-
-
-
-
-
-
-// 鍚勮嚜鐨勬洸鐩暟锛岃€屼笉鏄褰撴垚涓€涓鎬殑缁勫悎姝屾墜鍚嶆暣浣撳睍绀恒€?
-
-
-
-
-
-
-
-
-// 鍒嗛〉鏀寔(闇€姹?姝屾墜鍒楄〃涔熸敮鎸佺湡姝ｇ殑鏈嶅姟绔垎椤碉紝鍜岀偣姝屽垪琛ㄥ姞杞介€昏緫鐩稿悓")锛?
-
-
-
-
-
-
-
-
-// 璺?/api/songs 鍚屼竴濂楃害瀹氣€斺€斿彧鏈夎姹傛樉寮忓甫涓?page & pageSize 鏃舵墠璧板垎椤靛垎鏀紝
+// 按 song_artists 关联表分组，而不是直接对 songs.artist 整段字符串分组——
 
 
 
@@ -13773,7 +13900,7 @@ app.post('/api/admin/rescan-avatars', requireAdminAuth, (req, res) => {
 
 
 
-// 杩斿洖 { items, total, page, pageSize, totalPages } 甯﹀厓淇℃伅鐨勫璞★紱涓嶅甫鍒嗛〉
+// 这样"刀郎 张三"这类合唱曲目会让刀郎、张三分别出现在歌手列表里、分别计入
 
 
 
@@ -13783,7 +13910,48 @@ app.post('/api/admin/rescan-avatars', requireAdminAuth, (req, res) => {
 
 
 
-// 鍙傛暟鏃朵粛鐒跺拰浠ュ墠涓€鏍风洿鎺ヨ繑鍥炴暟缁?鎵嬫満绔?鑰佺増鏈鎴风杩樺湪鐢?锛屽畬鍏ㄥ悜鍚庡吋瀹广€?
+// 各自的曲目数，而不是被当成一个奇怪的组合歌手名整体展示。
+
+
+
+
+
+
+
+
+
+// 分页支持(需求"歌手列表也支持真正的服务端分页，和点歌列表加载逻辑相同")：
+
+
+
+
+
+
+
+
+
+// 跟 /api/songs 同一套约定——只有请求显式带上 page & pageSize 时才走分页分支，
+
+
+
+
+
+
+
+
+
+// 返回 { items, total, page, pageSize, totalPages } 带元信息的对象；不带分页
+
+
+
+
+
+
+
+
+
+// 参数时仍然和以前一样直接返回数组(手机端/老版本客户端还在用)，完全向后兼容。
+
 
 
 
@@ -13922,7 +14090,7 @@ app.get('/api/artists', (req, res) => {
 
 
 
-  // 闄勫甫 hasAvatar 鏍囪锛屽墠绔嵁姝ゅ喅瀹氭覆鏌撳ご鍍忓浘鐗囪繕鏄瀛楀厹搴曪紝涓嶇敤鍐嶄负
+  // 附带 hasAvatar 标记，前端据此决定渲染头像图片还是首字兜底，不用再为
 
 
 
@@ -13932,7 +14100,8 @@ app.get('/api/artists', (req, res) => {
 
 
 
-  // 姣忎釜姝屾墜鍗曠嫭鍙戜竴娆¤姹傚幓鎺㈡祴澶村儚鏄惁瀛樺湪銆?
+  // 每个歌手单独发一次请求去探测头像是否存在。
+
 
 
 
@@ -14071,7 +14240,7 @@ app.get('/api/artists', (req, res) => {
 
 
 
-// ---------- 鍘嗗彶 (甯稿敱) ----------
+// ---------- 历史 (常唱) ----------
 
 
 
@@ -14171,7 +14340,7 @@ app.get('/api/history', (req, res) => {
 
 
 
-// ---------- 鐖卞敱姒?(鎸夋挱鏀炬鏁? ----------
+// ---------- 爱唱榜 (按播放次数) ----------
 
 
 
@@ -14231,7 +14400,7 @@ app.get('/api/charts', (req, res) => {
 
 
 
-// ---------- 鏀惰棌 ----------
+// ---------- 收藏 ----------
 
 
 
@@ -14461,7 +14630,7 @@ app.delete('/api/favorites/:song_id', (req, res) => {
 
 
 
-// ---------- 璇 / 椋庢牸鑷畾涔夐璁?----------
+// ---------- 语种 / 风格自定义预设 ----------
 
 
 
@@ -14471,52 +14640,7 @@ app.delete('/api/favorites/:song_id', (req, res) => {
 
 
 
-// 銆屾洸搴撶鐞嗐€嶉噷璇銆侀鏍间袱涓瓧娈靛厑璁哥鐞嗗憳鑷繁缁存姢涓€浠藉父鐢ㄥ彇鍊煎垪琛?
-
-
-
-
-
-
-
-
-// 锛堟瘮濡?鍥借/绮よ/鑻辫"銆?娴佽/鎽囨粴/姘戣埃"锛夛紝淇濆瓨杩?settings 琛?
-
-
-
-
-
-
-
-
-// 锛坘ey = preset_languages / preset_genres锛屽€兼槸 JSON 鏁扮粍瀛楃涓诧級锛?
-
-
-
-
-
-
-
-
-// 璺熼殢 /data 鎸佷箙鍖栵紝鍗囩骇銆佸鍣ㄩ噸寤洪兘涓嶅彈褰卞搷銆傚墠鍙扮殑璇/椋庢牸鍒楁棦鐢?
-
-
-
-
-
-
-
-
-// 瀹冨仛涓嬫媺鍙€夐」锛屼篃鐢ㄦ潵鏀拺"澶氶€夋瓕鏇层€佷竴閿缃绉嶅拰椋庢牸"鐨勬壒閲忔搷浣溿€?
-
-
-
-
-
-
-
-
-// 棣栨浣跨敤鏃惰繕娌℃湁浠讳綍棰勮锛岀粰涓€缁勫父瑙侀粯璁ゅ€兼柟渚跨洿鎺ョ敤锛屼箣鍚庣鐞嗗憳澧炲垹
+// 「曲库管理」里语种、风格两个字段允许管理员自己维护一份常用取值列表
 
 
 
@@ -14526,7 +14650,58 @@ app.delete('/api/favorites/:song_id', (req, res) => {
 
 
 
-// 閮藉熀浜庤繖浠藉垪琛ㄧ户缁皟鏁达紝涓嶄細姣忔閮借榛樿鍊艰鐩栥€?
+// （比如"国语/粤语/英语"、"流行/摇滚/民谣"），保存进 settings 表
+
+
+
+
+
+
+
+
+
+// （key = preset_languages / preset_genres，值是 JSON 数组字符串），
+
+
+
+
+
+
+
+
+
+// 跟随 /data 持久化，升级、容器重建都不受影响。前台的语种/风格列既用
+
+
+
+
+
+
+
+
+
+// 它做下拉可选项，也用来支撑"多选歌曲、一键设置语种和风格"的批量操作。
+
+
+
+
+
+
+
+
+
+// 首次使用时还没有任何预设，给一组常见默认值方便直接用，之后管理员增删
+
+
+
+
+
+
+
+
+
+// 都基于这份列表继续调整，不会每次都被默认值覆盖。
+
 
 
 
@@ -14555,7 +14730,7 @@ const PRESET_GENRE_KEY = 'preset_genres';
 
 
 
-const DEFAULT_PRESET_LANGUAGES = ['鍥借', '绮よ', '鑻辫', '鏃ヨ', '闊╄', '鍏朵粬'];
+const DEFAULT_PRESET_LANGUAGES = ['国语', '粤语', '英语', '日语', '韩语', '其他'];
 
 
 
@@ -14565,7 +14740,7 @@ const DEFAULT_PRESET_LANGUAGES = ['鍥借', '绮よ', '鑻辫', '鏃ヨ
 
 
 
-const DEFAULT_PRESET_GENRES = ['娴佽', '鎽囨粴', '姘戣埃', '浼ゆ劅', '鎬€鏃?, '璇村敱', '鐢靛瓙', '鍏朵粬'];
+const DEFAULT_PRESET_GENRES = ['流行', '摇滚', '民谣', '伤感', '怀旧', '说唱', '电子', '其他'];
 
 
 
@@ -14585,7 +14760,7 @@ const DEFAULT_PRESET_GENRES = ['娴佽', '鎽囨粴', '姘戣埃', '浼ゆ劅
 
 
 
-// 銆屾洸搴撶鐞?- 涓€閿竻娲椼€嶉噷绠＄悊鍛樿嚜瀹氫箟鐨勫拷鐣ヨ瘝鍒楄〃锛氬父瑙佷簬鐢昏川/骞冲彴鐗堟湰
+// 「曲库管理 - 一键清洗」里管理员自定义的忽略词列表：常见于画质/平台版本
 
 
 
@@ -14595,16 +14770,7 @@ const DEFAULT_PRESET_GENRES = ['娴佽', '鎽囨粴', '姘戣埃', '浼ゆ劅
 
 
 
-// 涓€绫昏窡"杩欓姝岀湡姝ｅ彨浠€涔?鏃犲叧鐨勬爣璁帮紝鍛戒腑灏辨暣浣撲粠鏍囬閲屾憳鎺夈€傚瓨鍌ㄦ柟寮忋€?
-
-
-
-
-
-
-
-
-// 鎸佷箙鍖栨柟寮忚窡璇/椋庢牸棰勮瀹屽叏涓€鏍凤紙鍚屼竴寮?settings 琛紝鍚屼竴濂楀鍒犳帴鍙ｏ紝
+// 一类跟"这首歌真正叫什么"无关的标记，命中就整体从标题里摘掉。存储方式、
 
 
 
@@ -14614,7 +14780,7 @@ const DEFAULT_PRESET_GENRES = ['娴佽', '鎽囨粴', '姘戣埃', '浼ゆ劅
 
 
 
-// 瑙佷笅闈?presetKeyFallback 閲岀殑 'noise' 鍒嗘敮锛夛紝绠＄悊鍛樺彲浠ョ収鐫€鑷繁鏇插簱閲?
+// 持久化方式跟语种/风格预设完全一样（同一张 settings 表，同一套增删接口，
 
 
 
@@ -14623,7 +14789,19 @@ const DEFAULT_PRESET_GENRES = ['娴佽', '鎽囨粴', '姘戣埃', '浼ゆ劅
 
 
 
-// 瀹為檯鍑虹幇杩囩殑鏍囪鑷澧炲垹锛岃繖閲屽彧缁欎竴缁勫父瑙侀粯璁ゅ€兼柟渚跨洿鎺ョ敤銆?
+
+// 见下面 presetKeyFallback 里的 'noise' 分支），管理员可以照着自己曲库里
+
+
+
+
+
+
+
+
+
+// 实际出现过的标记自行增删，这里只给一组常见默认值方便直接用。
+
 
 
 
@@ -14642,7 +14820,7 @@ const CLEAN_NOISE_KEY = 'clean_noise_words';
 
 
 
-const DEFAULT_NOISE_WORDS = ['1080p', '720p', '4K', '楂樻竻', '鎶栭煶鐗?, 'live', '鐜板満鐗?, '浼村'];
+const DEFAULT_NOISE_WORDS = ['1080p', '720p', '4K', '高清', '抖音版', 'live', '现场版', '伴奏'];
 
 
 
@@ -14872,7 +15050,7 @@ function presetTypeName(type) {
 
 
 
-  if (type === 'genre') return '椋庢牸';
+  if (type === 'genre') return '风格';
 
 
 
@@ -14882,7 +15060,7 @@ function presetTypeName(type) {
 
 
 
-  if (type === 'noise') return '蹇界暐璇?;
+  if (type === 'noise') return '忽略词';
 
 
 
@@ -14892,7 +15070,7 @@ function presetTypeName(type) {
 
 
 
-  return '璇';
+  return '语种';
 
 
 
@@ -15032,7 +15210,7 @@ app.post('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
-  if (!v) return res.status(400).json({ error: '棰勮鍐呭涓嶈兘涓虹┖' });
+  if (!v) return res.status(400).json({ error: '预设内容不能为空' });
 
 
 
@@ -15042,7 +15220,7 @@ app.post('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
-  if (v.length > 20) return res.status(400).json({ error: '棰勮鍐呭鏈€澶?20 涓瓧绗? });
+  if (v.length > 20) return res.status(400).json({ error: '预设内容最多 20 个字符' });
 
 
 
@@ -15062,7 +15240,7 @@ app.post('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
-  if (!kf) return res.status(400).json({ error: '绫诲瀷涓嶆纭紝搴斾负 language / genre / noise' });
+  if (!kf) return res.status(400).json({ error: '类型不正确，应为 language / genre / noise' });
 
 
 
@@ -15102,7 +15280,7 @@ app.post('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `鏂板${presetTypeName(type)}棰勮: ${v}`);
+  log.info('ADMIN', `新增${presetTypeName(type)}预设: ${v}`);
 
 
 
@@ -15182,7 +15360,7 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
-  if (!kf || !value) return res.status(400).json({ error: '鍙傛暟涓嶆纭? });
+  if (!kf || !value) return res.status(400).json({ error: '参数不正确' });
 
 
 
@@ -15212,7 +15390,7 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `鍒犻櫎${presetTypeName(type)}棰勮: ${value}`);
+  log.info('ADMIN', `删除${presetTypeName(type)}预设: ${value}`);
 
 
 
@@ -15252,7 +15430,7 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
-// ---------- 鏂囦欢鍚嶈В鏋愶紙鑷畾涔夋ā鏉块噸鏂拌В鏋愭洸搴擄級 ----------
+// ---------- 文件名解析（自定义模板重新解析曲库） ----------
 
 
 
@@ -15262,34 +15440,7 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
-// 鏈夊埆浜?scanner.js 閲屽浐瀹氭鐨?姝屾墜-姝屾洸鍚?璇-椋庢牸"榛樿瑙ｆ瀽瑙勫垯锛氳繖閲?
-
-
-
-
-
-
-
-
-// 璁╃鐞嗗憳鎸夎嚜宸辨洸搴撴枃浠跺悕鐪熷疄鐨勬牱瀛愶紝鑷畾涔変竴濂楄В鏋愭牸寮忥紙妯℃澘璇硶瑙?
-
-
-
-
-
-
-
-
-// filenameTemplate.js 椤堕儴娉ㄩ噴锛夛紝鍏堥瑙堥噸鏂拌В鏋愬悗鐨勬晥鏋滐紝纭娌￠棶棰?
-
-
-
-
-
-
-
-
-// 鍐嶉€夋嫨"閮ㄥ垎纭"鎴?鍏ㄩ儴纭"鍐欏洖鏁版嵁搴撱€傚彧褰卞搷
+// 有别于 scanner.js 里固定死的"歌手-歌曲名-语种-风格"默认解析规则：这里
 
 
 
@@ -15299,7 +15450,7 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
-// title/artist/language/genre 杩欏嚑涓瓧娈碉紝涓嶆秹鍙婃壂鎻?鍏ュ簱/鍒犻櫎锛屼篃涓嶄細
+// 让管理员按自己曲库文件名真实的样子，自定义一套解析格式（模板语法见
 
 
 
@@ -15309,7 +15460,38 @@ app.delete('/api/admin/presets', requireAdminAuth, (req, res) => {
 
 
 
-// 纰版枃浠舵湰韬€?
+// filenameTemplate.js 顶部注释），先预览重新解析后的效果，确认没问题
+
+
+
+
+
+
+
+
+
+// 再选择"部分确认"或"全部确认"写回数据库。只影响
+
+
+
+
+
+
+
+
+
+// title/artist/language/genre 这几个字段，不涉及扫描/入库/删除，也不会
+
+
+
+
+
+
+
+
+
+// 碰文件本身。
+
 
 
 
@@ -15348,7 +15530,7 @@ const { cleanTitle } = require('./cleaner');
 
 
 
-// 鍦堝畾杩欐瑕侀瑙?瑙ｆ瀽鍝簺姝屾洸锛氫紭鍏堢敤銆屾洸搴撶鐞嗐€嶉〉闈㈤噷宸茬粡鍕鹃€夌殑姝屾洸
+// 圈定这次要预览/解析哪些歌曲：优先用「曲库管理」页面里已经勾选的歌曲
 
 
 
@@ -15358,7 +15540,7 @@ const { cleanTitle } = require('./cleaner');
 
 
 
-// 锛坕ds 闈炵┖锛夛紝璺?鎵归噺璁剧疆璇/椋庢牸"鍏辩敤鍚屼竴濂?宸查€変紭鍏?鐨勫績鏅烘ā鍨嬶紱
+// （ids 非空），跟"批量设置语种/风格"共用同一套"已选优先"的心智模型；
 
 
 
@@ -15368,7 +15550,7 @@ const { cleanTitle } = require('./cleaner');
 
 
 
-// 娌℃湁鍕鹃€変换浣曟瓕鏇叉椂锛岄€€鍥炲埌褰撳墠鐨勬悳绱㈠叧閿瓧 / "淇℃伅涓嶅畬鏁?绛涢€夋潯浠?
+// 没有勾选任何歌曲时，退回到当前的搜索关键字 / "信息不完整"筛选条件
 
 
 
@@ -15377,7 +15559,8 @@ const { cleanTitle } = require('./cleaner');
 
 
 
-// 锛堣窡 /api/songs 鐢ㄧ殑鏄悓涓€濂楃瓫閫夐€昏緫锛夛紝淇濊瘉棰勮鑼冨洿鍜岀鐞嗗憳琛ㄦ牸閲?
+
+// （跟 /api/songs 用的是同一套筛选逻辑），保证预览范围和管理员表格里
 
 
 
@@ -15386,7 +15569,9 @@ const { cleanTitle } = require('./cleaner');
 
 
 
-// 褰撳墠姝ｇ湅鍒扮殑鑼冨洿涓€鑷淬€?
+
+// 当前正看到的范围一致。
+
 
 
 
@@ -15475,7 +15660,7 @@ function matchedSongsForParse(body) {
 
 
 
-  // 璺?/api/songs 鐢ㄥ悓涓€濂?scope 璇箟锛氭洸搴撶鐞嗛〉闈㈠垏鍒?鏈湴鏇插簱"/"缃戠粶
+  // 跟 /api/songs 用同一套 scope 语义：曲库管理页面切到"本地曲库"/"网络
 
 
 
@@ -15485,7 +15670,7 @@ function matchedSongsForParse(body) {
 
 
 
-  // 鏇插簱"鏃讹紝鎵归噺宸ュ叿(鏂囦欢鍚嶈В鏋?涓€閿竻娲?鐨勫湀瀹氳寖鍥磋璺熻〃鏍奸噷褰撳墠鐪嬪埌
+  // 曲库"时，批量工具(文件名解析/一键清洗)的圈定范围要跟表格里当前看到
 
 
 
@@ -15495,7 +15680,8 @@ function matchedSongsForParse(body) {
 
 
 
-  // 鐨勪竴鑷达紝涓嶇劧绠＄悊鍛樹細浠ヤ负鍙鐞嗕簡鐪煎墠杩欎簺锛屽疄闄呭嵈澶勭悊浜嗗彟涓€杈圭殑姝屻€?
+  // 的一致，不然管理员会以为只处理了眼前这些，实际却处理了另一边的歌。
+
 
 
 
@@ -15574,7 +15760,7 @@ function matchedSongsForParse(body) {
 
 
 
-      artist: "(artist IS NULL OR artist = '' OR artist = '鏈煡姝屾墜')",
+      artist: "(artist IS NULL OR artist = '' OR artist = '未知歌手')",
 
 
 
@@ -15744,7 +15930,7 @@ function matchedSongsForParse(body) {
 
 
 
-// 涓€娆￠瑙堟渶澶氬睍绀鸿繖涔堝鏉?鍛戒腑涓旀湁鍙樺寲"鐨勭粨鏋滐紝閬垮厤绠＄悊鍛樹竴娆¤瀹℃牳鐨?
+// 一次预览最多展示这么多条"命中且有变化"的结果，避免管理员一次要审核的
 
 
 
@@ -15753,7 +15939,8 @@ function matchedSongsForParse(body) {
 
 
 
-// 琛屾暟澶辨帶锛涗笉闄愬埗鍙備笌瑙ｆ瀽璁＄畻鐨勬瓕鏇叉暟閲忔湰韬紙鍦堝畾鑼冨洿鍐呯殑姝屾洸閮戒細鍏堣В鏋?
+
+// 行数失控；不限制参与解析计算的歌曲数量本身（圈定范围内的歌曲都会先解析
 
 
 
@@ -15762,7 +15949,9 @@ function matchedSongsForParse(body) {
 
 
 
-// 涓€閬嶏紝鍙槸鏈€缁堝睍绀?鍙‘璁ょ殑缁撴灉鏉℃暟灏侀《鍦ㄨ繖閲岋級銆?
+
+// 一遍，只是最终展示/可确认的结果条数封顶在这里）。
+
 
 
 
@@ -15891,7 +16080,7 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 闇€姹?鎵嬪姩蹇界暐璇懡涓?锛氳窡涓€閿竻娲椾竴鏍凤紝绠＄悊鍛樻墜鍔ㄧ‘璁よ繃"杩欓姝屼笉鐢ㄨ蛋
+  // 需求(手动忽略误命中)：跟一键清洗一样，管理员手动确认过"这首歌不用走
 
 
 
@@ -15901,7 +16090,7 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 鏂囦欢鍚嶈В鏋?鐨?parse_ignored=1)锛岀洿鎺ヤ粠鍦堝畾鑼冨洿閲屽墧闄わ紝涓嶅弬涓庢湰娆¤В鏋?
+  // 文件名解析"的(parse_ignored=1)，直接从圈定范围里剔除，不参与本次解析
 
 
 
@@ -15910,7 +16099,9 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 璁＄畻锛屼篃涓嶄細鍐嶅嚭鐜板湪棰勮鍒楄〃閲屻€?
+
+  // 计算，也不会再出现在预览列表里。
+
 
 
 
@@ -15949,7 +16140,7 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 鍏堝鍦堝畾鑼冨洿鍐呯殑鍏ㄩ儴姝屾洸鎸ㄤ釜瑙ｆ瀽涓€閬嶏紝鍐嶅喅瀹氳涓嶈灞曠ず鈥斺€旇В鏋愭牸寮忚兘
+  // 先对圈定范围内的全部歌曲挨个解析一遍，再决定要不要展示——解析格式能
 
 
 
@@ -15959,7 +16150,7 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 涓嶈兘鍖归厤涓婅窡杩欓姝屽湪缁撴灉闆嗛噷鎺掔鍑犲悕姣棤鍏崇郴锛屽鏋滆В鏋愬墠灏卞厛鎸夋暟鎹簱
+  // 不能匹配上跟这首歌在结果集里排第几名毫无关系，如果解析前就先按数据库
 
 
 
@@ -15969,7 +16160,7 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 杩斿洖椤哄簭鎴柇鍒板墠 PARSE_PREVIEW_LIMIT 棣栵紝浼氬鑷存帓寰楅潬鍚庛€佹槑鏄庤兘姝ｅ父
+  // 返回顺序截断到前 PARSE_PREVIEW_LIMIT 首，会导致排得靠后、明明能正常
 
 
 
@@ -15979,16 +16170,7 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 鍖归厤瑙ｆ瀽鏍煎紡鐨勬瓕鏇诧紝浠庝竴寮€濮嬪氨娌¤鎷垮幓瑙ｆ瀽杩囷紝棰勮閲岃嚜鐒朵篃涓嶄細鍑虹幇锛?
-
-
-
-
-
-
-
-
-  // 鍙湁绠＄悊鍛樻伆濂界敤鎼滅储/绛涢€夋妸瀹冩尋杩涘墠闈㈡墠鑳借鐪嬪埌锛堣繖涔熸槸"纭鍏ㄩ儴鍙敤
+  // 匹配解析格式的歌曲，从一开始就没被拿去解析过，预览里自然也不会出现，
 
 
 
@@ -15998,7 +16180,7 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 鍙樻洿"瀹為檯鍙兘搴旂敤涓€灏忛儴鍒嗙殑鏍规簮锛夈€傜湡姝ｅ簲璇ラ檺閲忓睍绀虹殑锛屾槸"鍛戒腑涓旀湁
+  // 只有管理员恰好用搜索/筛选把它挤进前面才能被看到（这也是"确认全部可用
 
 
 
@@ -16008,7 +16190,18 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 鍙樺寲"杩欓儴鍒嗙粨鏋滄湰韬紝鑰屼笉鏄弬涓庤В鏋愯绠楃殑姝屾洸鏁伴噺銆?
+  // 变更"实际只能应用一小部分的根源）。真正应该限量展示的，是"命中且有
+
+
+
+
+
+
+
+
+
+  // 变化"这部分结果本身，而不是参与解析计算的歌曲数量。
+
 
 
 
@@ -16227,16 +16420,7 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 鍒拌繖涓€姝ユ墠鎴柇锛氬彧闄愬埗"鍛戒腑涓旀湁鍙樺寲銆侀渶瑕佺鐞嗗憳閫愭潯纭"杩欓儴鍒嗗睍绀?
-
-
-
-
-
-
-
-
-  // 鏁伴噺锛岃В鏋愬け璐?鏃犻渶鏇存敼鐨勮鏈潵灏变笉灞曠ず锛屽彧姹囨€绘暟閲忥紝涓嶅彈杩欎釜涓婇檺
+  // 到这一步才截断：只限制"命中且有变化、需要管理员逐条确认"这部分展示
 
 
 
@@ -16246,7 +16430,18 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 褰卞搷銆?
+  // 数量，解析失败/无需更改的行本来就不展示，只汇总数量，不受这个上限
+
+
+
+
+
+
+
+
+
+  // 影响。
+
 
 
 
@@ -16285,7 +16480,7 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `鏂囦欢鍚嶈В鏋愰瑙? 鏍煎紡="${pattern}" 鍦堝畾鑼冨洿 ${all.length} 棣栵紝鍛戒腑涓旀湁鍙樺寲 ${changedItems.length} 棣?{truncated ? `锛堜粎杩斿洖鍓?${PARSE_PREVIEW_LIMIT} 棣栵級` : ''}${ignoredCount ? `锛屽彟鏈?${ignoredCount} 棣栧凡琚墜鍔ㄥ拷鐣ユ湭鍙備笌鏈` : ''}`);
+  log.info('ADMIN', `文件名解析预览: 格式="${pattern}" 圈定范围 ${all.length} 首，命中且有变化 ${changedItems.length} 首${truncated ? `（仅返回前 ${PARSE_PREVIEW_LIMIT} 首）` : ''}${ignoredCount ? `，另有 ${ignoredCount} 首已被手动忽略未参与本次` : ''}`);
 
 
 
@@ -16425,7 +16620,7 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-// 鎶婇瑙堥噷绠＄悊鍛樼‘璁よ繃鐨勭粨鏋滐紙鍏ㄩ儴鎴栭儴鍒嗗嬀閫夛級鍐欏洖鏁版嵁搴撱€倁pdates 閲屾瘡涓€
+// 把预览里管理员确认过的结果（全部或部分勾选）写回数据库。updates 里每一
 
 
 
@@ -16435,7 +16630,7 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-// 椤瑰氨鏄瑙堢粨鏋滈噷 parsed 瀛楁鏈韩锛屽墠绔洿鎺ュ師鏍峰甫鍥炴潵锛屾湇鍔＄涓嶉噸鏂拌В鏋愶紝
+// 项就是预览结果里 parsed 字段本身，前端直接原样带回来，服务端不重新解析，
 
 
 
@@ -16445,7 +16640,8 @@ app.post('/api/admin/filename-parse/preview', requireAdminAuth, (req, res) => {
 
 
 
-// 閬垮厤"棰勮鏃剁敤鐨勯璁?姝ｅ垯"鍜?搴旂敤鏃?涓嶄竴鑷村鑷寸粨鏋滃涓嶄笂銆?
+// 避免"预览时用的预设/正则"和"应用时"不一致导致结果对不上。
+
 
 
 
@@ -16474,7 +16670,7 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
-  if (!Array.isArray(updates) || !updates.length) return res.status(400).json({ error: '娌℃湁瑕佸簲鐢ㄧ殑鍙樻洿' });
+  if (!Array.isArray(updates) || !updates.length) return res.status(400).json({ error: '没有要应用的变更' });
 
 
 
@@ -16534,7 +16730,7 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
-      if (!title || !u.id) continue; // 姝屽悕涓嶈兘涓虹┖锛屽紓甯歌鐩存帴璺宠繃锛屼笉鍐欏潖鏁版嵁
+      if (!title || !u.id) continue; // 歌名不能为空，异常行直接跳过，不写坏数据
 
 
 
@@ -16634,7 +16830,7 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `鏂囦欢鍚嶈В鏋愮粨鏋滃凡搴旂敤: ${count} 棣朻);
+  log.info('ADMIN', `文件名解析结果已应用: ${count} 首`);
 
 
 
@@ -16674,7 +16870,7 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
-// 闇€姹?鏂囦欢鍚嶈В鏋?鎵嬪姩蹇界暐璇懡涓?锛氳窡涓€閿竻娲楅偅涓€濂楀畬鍏ㄥ绉帮紝鍙槸鎹㈡垚
+// 需求(文件名解析-手动忽略误命中)：跟一键清洗那一套完全对称，只是换成
 
 
 
@@ -16684,7 +16880,8 @@ app.post('/api/admin/filename-parse/apply', requireAdminAuth, (req, res) => {
 
 
 
-// parse_ignored 瀛楁銆佸彧褰卞搷 /api/admin/filename-parse/preview 鐨勫湀瀹氳寖鍥淬€?
+// parse_ignored 字段、只影响 /api/admin/filename-parse/preview 的圈定范围。
+
 
 
 
@@ -16713,7 +16910,7 @@ app.post('/api/admin/filename-parse/ignore', requireAdminAuth, (req, res) => {
 
 
 
-  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '鏈寚瀹氳蹇界暐鐨勬瓕鏇? });
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '未指定要忽略的歌曲' });
 
 
 
@@ -16753,7 +16950,7 @@ app.post('/api/admin/filename-parse/ignore', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `鏂囦欢鍚嶈В鏋? 鎵嬪姩鏍囪蹇界暐 ${ids.length} 棣栵紙浠ュ悗瑙ｆ瀽棰勮涓嶅啀鍛戒腑锛塦);
+  log.info('ADMIN', `文件名解析: 手动标记忽略 ${ids.length} 首（以后解析预览不再命中）`);
 
 
 
@@ -16813,7 +17010,7 @@ app.post('/api/admin/filename-parse/unignore', requireAdminAuth, (req, res) => {
 
 
 
-  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '鏈寚瀹氳鍙栨秷蹇界暐鐨勬瓕鏇? });
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '未指定要取消忽略的歌曲' });
 
 
 
@@ -16853,7 +17050,7 @@ app.post('/api/admin/filename-parse/unignore', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `鏂囦欢鍚嶈В鏋? 鍙栨秷蹇界暐 ${ids.length} 棣朻);
+  log.info('ADMIN', `文件名解析: 取消忽略 ${ids.length} 首`);
 
 
 
@@ -16963,7 +17160,7 @@ app.get('/api/admin/filename-parse/ignored', requireAdminAuth, (req, res) => {
 
 
 
-// ---------- 涓€閿竻娲楋紙鑷畾涔夊拷鐣ヨ瘝 + 璇/椋庢牸鍏抽敭瀛楄瘑鍒級 ----------
+// ---------- 一键清洗（自定义忽略词 + 语种/风格关键字识别） ----------
 
 
 
@@ -16973,7 +17170,7 @@ app.get('/api/admin/filename-parse/ignored', requireAdminAuth, (req, res) => {
 
 
 
-// 璺熶笂闈㈢殑"鏂囦欢鍚嶈В鏋?鏄袱濂椾簰琛ョ殑鏇插簱鏁寸悊宸ュ叿锛氭枃浠跺悕瑙ｆ瀽鏄?鏁存鏂囦欢鍚?
+// 跟上面的"文件名解析"是两套互补的曲库整理工具：文件名解析是"整段文件名
 
 
 
@@ -16982,8 +17179,8 @@ app.get('/api/admin/filename-parse/ignored', requireAdminAuth, (req, res) => {
 
 
 
-// 鎸夊浐瀹氭ā鏉挎媶鎴愬瓧娈?锛岃繖閲岀殑涓€閿竻娲楄В鍐崇殑鏄彟涓€绫绘洿甯歌鐨勮剰鏁版嵁鈥斺€旀爣棰?
 
+// 按固定模板拆成字段"，这里的一键清洗解决的是另一类更常见的脏数据——标题
 
 
 
@@ -16991,9 +17188,9 @@ app.get('/api/admin/filename-parse/ignored', requireAdminAuth, (req, res) => {
 
 
 
-// 閲屾贩杩涗簡璺熸瓕鏇叉湰韬棤鍏崇殑鐢昏川/骞冲彴鐗堟湰鏍囪锛堝"[1080p]""锛堟姈闊崇増锛?
 
 
+// 里混进了跟歌曲本身无关的画质/平台版本标记（如"[1080p]""（抖音版）"
 
 
 
@@ -17001,45 +17198,50 @@ app.get('/api/admin/filename-parse/ignored', requireAdminAuth, (req, res) => {
 
 
 
-// "锛坙ive锛?锛夛紝绠＄悊鍛樺湪蹇界暐璇嶅垪琛ㄩ噷缁存姢杩欎簺鏍囪锛屼竴閿氨鑳芥妸瀹冧滑浠庢爣棰?
 
 
+// "（live）"），管理员在忽略词列表里维护这些标记，一键就能把它们从标题
 
 
 
 
 
 
-// 閲屾憳鎺夛紝鍙暀涓嬪共鍑€鐨勬瓕鏇插悕锛涘悓鏃跺彧瑕佹爣棰橀噷浠绘剰浣嶇疆锛堜笉瑕佹眰鍦ㄥ紑澶淬€佺粨
 
 
 
+// 里摘掉，只留下干净的歌曲名；同时只要标题里任意位置（不要求在开头、结
 
 
 
 
 
 
-// 灏炬垨鏌愪釜鍥哄畾鍒嗛殧绗︿綅缃級鍛戒腑褰撳墠璇/椋庢牸棰勮鍒楄〃閲岀殑鍙栧€硷紙濡?鍥借"
 
 
 
+// 尾或某个固定分隔符位置）命中当前语种/风格预设列表里的取值（如"国语"
 
 
 
 
 
 
-// "娴佽"锛夛紝涔熶細椤哄甫璇嗗埆鍑烘潵锛屽悓鏍锋槸棰勮瀵圭収纭鍚庢墠鎵归噺鍐欏洖锛屼笉鐩存帴鏀?
 
 
 
+// "流行"），也会顺带识别出来，同样是预览对照确认后才批量写回，不直接改
 
 
 
 
 
-// 鏁版嵁搴撱€?
+
+
+
+
+// 数据库。
+
 
 
 
@@ -17118,7 +17320,7 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-  const matched = matchedSongsForParse(req.body); // 鍦堝畾鑼冨洿瑙勫垯璺熸枃浠跺悕瑙ｆ瀽鍏辩敤涓€濂楋紙宸查€変紭鍏堬紝鍚﹀垯鎸夊綋鍓嶆悳绱?绛涢€夛級
+  const matched = matchedSongsForParse(req.body); // 圈定范围规则跟文件名解析共用一套（已选优先，否则按当前搜索/筛选）
 
 
 
@@ -17128,16 +17330,7 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 闇€姹?鎵嬪姩蹇界暐璇懡涓?锛氱鐞嗗憳宸茬粡鎵嬪姩纭杩?杩欓姝屼笉闇€瑕佷竴閿竻娲楀鐞?鐨?
-
-
-
-
-
-
-
-
-  // (clean_ignored=1)锛岀洿鎺ヤ粠杩欎竴杞湀瀹氳寖鍥撮噷鍓旈櫎锛屼笉鍐嶅弬涓庢竻娲楄瘑鍒?涓嶄細
+  // 需求(手动忽略误命中)：管理员已经手动确认过"这首歌不需要一键清洗处理"的
 
 
 
@@ -17147,7 +17340,7 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 鍑虹幇鍦ㄩ瑙堝垪琛ㄩ噷鈥斺€旈伩鍏嶅悓涓€涓鍛戒腑鍙嶅鍑虹幇锛岀鐞嗗憳姣忔棰勮閮借閲嶆柊
+  // (clean_ignored=1)，直接从这一轮圈定范围里剔除，不再参与清洗识别/不会
 
 
 
@@ -17157,7 +17350,7 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 璺宠繃涓€閬嶃€俰gnoredCount 鍗曠嫭缁熻锛岃绠＄悊鍛樼煡閬撹繖娆″湀瀹氳寖鍥撮噷鏈夊灏戦鏄?
+  // 出现在预览列表里——避免同一个误命中反复出现，管理员每次预览都要重新
 
 
 
@@ -17166,7 +17359,19 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-  // 琚拷鐣ユ帀銆佹病鏈夊疄闄呭弬涓庤绠楃殑锛屼笉鏄?婕忕畻"銆?
+
+  // 跳过一遍。ignoredCount 单独统计，让管理员知道这次圈定范围里有多少首是
+
+
+
+
+
+
+
+
+
+  // 被忽略掉、没有实际参与计算的，不是"漏算"。
+
 
 
 
@@ -17295,7 +17500,7 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-    // 娌″懡涓绉?椋庢牸鏃朵笉瑕嗙洊鏁版嵁搴撻噷鍘熸湁鐨勫彇鍊尖€斺€斾竴閿竻娲楀彧璐熻矗"浠庢爣棰?
+    // 没命中语种/风格时不覆盖数据库里原有的取值——一键清洗只负责"从标题
 
 
 
@@ -17304,7 +17509,9 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-    // 閲屾憳鍑轰俊鎭?锛屼笉璐熻矗鏇跨鐞嗗憳娓呯┖宸茬粡濉ソ鐨勫瓧娈点€?
+
+    // 里摘出信息"，不负责替管理员清空已经填好的字段。
+
 
 
 
@@ -17403,7 +17610,7 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-    // 闇€姹?璇竻娲楀厹搴?锛氬彧瑕佽繖娆℃竻娲楅噷鏈変换鎰忎竴娆℃憳闄ゆ槸"浣庣疆淇″害"(瑁歌瘝绱ц创
+    // 需求(误清洗兜底)：只要这次清洗里有任意一次摘除是"低置信度"(裸词紧贴
 
 
 
@@ -17413,7 +17620,7 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-    // 鐫€姹夊瓧锛岃 cleaner.js 椤堕儴娉ㄩ噴)锛屾暣鏉＄粨鏋滃氨鏍囪涓轰綆缃俊搴︼紝璺?
+    // 着汉字，见 cleaner.js 顶部注释)，整条结果就标记为低置信度，跟
 
 
 
@@ -17422,7 +17629,9 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-    // emptyTitle 涓€鏍蜂笉杩涢粯璁ゅ嬀閫夛紝浜ょ粰绠＄悊鍛樿嚜宸卞鐓у師鏂囩湅涓€鐪煎啀鍐冲畾銆?
+
+    // emptyTitle 一样不进默认勾选，交给管理员自己对照原文看一眼再决定。
+
 
 
 
@@ -17491,7 +17700,7 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `涓€閿竻娲楅瑙? 鍏卞尮閰?${all.length} 棣?{truncated ? `锛堜粎棰勮鍓?${PARSE_PREVIEW_LIMIT} 棣栵級` : ''}${ignoredCount ? `锛屽彟鏈?${ignoredCount} 棣栧凡琚墜鍔ㄥ拷鐣ユ湭鍙備笌鏈` : ''}`);
+  log.info('ADMIN', `一键清洗预览: 共匹配 ${all.length} 首${truncated ? `（仅预览前 ${PARSE_PREVIEW_LIMIT} 首）` : ''}${ignoredCount ? `，另有 ${ignoredCount} 首已被手动忽略未参与本次` : ''}`);
 
 
 
@@ -17531,7 +17740,7 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-// 鎶婇瑙堥噷绠＄悊鍛樼‘璁よ繃鐨勭粨鏋滐紙鍏ㄩ儴鎴栭儴鍒嗗嬀閫夛級鍐欏洖鏁版嵁搴擄紱updates 閲屾瘡涓€
+// 把预览里管理员确认过的结果（全部或部分勾选）写回数据库；updates 里每一
 
 
 
@@ -17541,7 +17750,7 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-// 椤瑰氨鏄瑙堢粨鏋滈噷 cleaned 瀛楁鏈韩锛屽墠绔師鏍峰甫鍥炴潵锛屾湇鍔＄涓嶉噸鏂拌绠椾竴
+// 项就是预览结果里 cleaned 字段本身，前端原样带回来，服务端不重新计算一
 
 
 
@@ -17551,7 +17760,7 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-// 閬嶏紝閬垮厤"棰勮鏃剁敤鐨勫拷鐣ヨ瘝/棰勮"鍜?搴旂敤鏃?涓嶄竴鑷村鑷寸粨鏋滃涓嶄笂銆傛竻娲?
+// 遍，避免"预览时用的忽略词/预设"和"应用时"不一致导致结果对不上。清洗
 
 
 
@@ -17560,7 +17769,9 @@ app.post('/api/admin/clean/preview', requireAdminAuth, (req, res) => {
 
 
 
-// 鍙奖鍝?title/language/genre锛屼笉娑夊強姝屾墜锛屼篃涓嶇鏂囦欢鏈韩銆?
+
+// 只影响 title/language/genre，不涉及歌手，也不碰文件本身。
+
 
 
 
@@ -17589,7 +17800,7 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
-  if (!Array.isArray(updates) || !updates.length) return res.status(400).json({ error: '娌℃湁瑕佸簲鐢ㄧ殑鍙樻洿' });
+  if (!Array.isArray(updates) || !updates.length) return res.status(400).json({ error: '没有要应用的变更' });
 
 
 
@@ -17649,7 +17860,8 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
-      if (!title || !u.id) continue; // 姝屽悕涓嶈兘涓虹┖锛屾竻娲楀悗鍙樻垚绌烘爣棰樼殑琛岀洿鎺ヨ烦杩囷紝涓嶅啓鍧忔暟鎹?
+      if (!title || !u.id) continue; // 歌名不能为空，清洗后变成空标题的行直接跳过，不写坏数据
+
 
 
 
@@ -17728,7 +17940,7 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `涓€閿竻娲楃粨鏋滃凡搴旂敤: ${count} 棣朻);
+  log.info('ADMIN', `一键清洗结果已应用: ${count} 首`);
 
 
 
@@ -17768,7 +17980,7 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
-// 闇€姹?鎵嬪姩蹇界暐璇懡涓?锛氱鐞嗗憳鍦ㄦ竻娲楅瑙堝垪琛ㄩ噷瀵圭潃鏌愪竴琛岀‘璁?杩欐槸鍛戒腑
+// 需求(手动忽略误命中)：管理员在清洗预览列表里对着某一行确认"这是命中
 
 
 
@@ -17778,7 +17990,7 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
-// 閿欒鐨?锛岀偣涓€涓嬪氨鎶婅繖棣栨瓕鏍囪涓轰互鍚庝笉鍐嶅弬涓庝竴閿竻娲楄瘑鍒紱璺?搴旂敤娓呮礂
+// 错误的"，点一下就把这首歌标记为以后不再参与一键清洗识别；跟"应用清洗
 
 
 
@@ -17788,7 +18000,7 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
-// 缁撴灉"鏄袱鍥炰簨鈥斺€旇繖閲屽畬鍏ㄤ笉纰?title/language/genre锛屽彧褰卞搷浠ュ悗
+// 结果"是两回事——这里完全不碰 title/language/genre，只影响以后
 
 
 
@@ -17798,7 +18010,8 @@ app.post('/api/admin/clean/apply', requireAdminAuth, (req, res) => {
 
 
 
-// /api/admin/clean/preview 鍦堝畾鑼冨洿鏃朵細涓嶄細鎶婅繖棣栨瓕绾冲叆璁＄畻銆?
+// /api/admin/clean/preview 圈定范围时会不会把这首歌纳入计算。
+
 
 
 
@@ -17827,7 +18040,7 @@ app.post('/api/admin/clean/ignore', requireAdminAuth, (req, res) => {
 
 
 
-  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '鏈寚瀹氳蹇界暐鐨勬瓕鏇? });
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '未指定要忽略的歌曲' });
 
 
 
@@ -17867,7 +18080,7 @@ app.post('/api/admin/clean/ignore', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `涓€閿竻娲? 鎵嬪姩鏍囪蹇界暐 ${ids.length} 棣栵紙浠ュ悗娓呮礂棰勮涓嶅啀鍛戒腑锛塦);
+  log.info('ADMIN', `一键清洗: 手动标记忽略 ${ids.length} 首（以后清洗预览不再命中）`);
 
 
 
@@ -17907,7 +18120,7 @@ app.post('/api/admin/clean/ignore', requireAdminAuth, (req, res) => {
 
 
 
-// 鍙栨秷蹇界暐锛氶厤鍚?宸插拷鐣?鍒楄〃閲岀殑"鍙栨秷蹇界暐"鎸夐挳锛岃绠＄悊鍛樺湪鏍囪閿欎簡/浠ュ悗
+// 取消忽略：配合"已忽略"列表里的"取消忽略"按钮，让管理员在标记错了/以后
 
 
 
@@ -17917,7 +18130,8 @@ app.post('/api/admin/clean/ignore', requireAdminAuth, (req, res) => {
 
 
 
-// 鎯抽噸鏂扮撼鍏ユ竻娲楄寖鍥存椂鑳芥挙鍥烇紝涓嶇敤鏁翠釜閲嶆柊鎵弿鏇插簱銆?
+// 想重新纳入清洗范围时能撤回，不用整个重新扫描曲库。
+
 
 
 
@@ -17946,7 +18160,7 @@ app.post('/api/admin/clean/unignore', requireAdminAuth, (req, res) => {
 
 
 
-  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '鏈寚瀹氳鍙栨秷蹇界暐鐨勬瓕鏇? });
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '未指定要取消忽略的歌曲' });
 
 
 
@@ -17986,7 +18200,7 @@ app.post('/api/admin/clean/unignore', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `涓€閿竻娲? 鍙栨秷蹇界暐 ${ids.length} 棣朻);
+  log.info('ADMIN', `一键清洗: 取消忽略 ${ids.length} 首`);
 
 
 
@@ -18026,7 +18240,7 @@ app.post('/api/admin/clean/unignore', requireAdminAuth, (req, res) => {
 
 
 
-// 宸插拷鐣ュ垪琛細渚?涓€閿竻娲?寮圭獥閲岀殑"绠＄悊宸插拷鐣?闈㈡澘灞曠ず锛岃绠＄悊鍛樿兘鐪嬪埌
+// 已忽略列表：供"一键清洗"弹窗里的"管理已忽略"面板展示，让管理员能看到
 
 
 
@@ -18036,7 +18250,7 @@ app.post('/api/admin/clean/unignore', requireAdminAuth, (req, res) => {
 
 
 
-// 褰撳墠涓€鍏辨爣璁板拷鐣ヤ簡鍝簺姝屻€侀渶瑕佺殑璇濋€愭潯/鎵归噺鍙栨秷銆傝窡娓呮礂棰勮涓€鏍烽檺閲?
+// 当前一共标记忽略了哪些歌、需要的话逐条/批量取消。跟清洗预览一样限量
 
 
 
@@ -18045,7 +18259,9 @@ app.post('/api/admin/clean/unignore', requireAdminAuth, (req, res) => {
 
 
 
-// 灞曠ず锛岄伩鍏嶅拷鐣ョ殑鏇茬洰鐗瑰埆澶氭椂涓€娆℃€ф妸鏁翠釜鍒楄〃鎾戠垎銆?
+
+// 展示，避免忽略的曲目特别多时一次性把整个列表撑爆。
+
 
 
 
@@ -18124,7 +18340,7 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
-// ---------- 姝屾洸绠＄悊 (Admin) ----------
+// ---------- 歌曲管理 (Admin) ----------
 
 
 
@@ -18134,7 +18350,7 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
-// 鍙湁杩欏嚑涓湡姝ｇ殑"澧炲垹鏀?鍔ㄤ綔瑕佹眰鐧诲綍锛?api/scan銆?api/songs 绛夌數瑙嗙銆?
+// 只有这几个真正的"增删改"动作要求登录；/api/scan、/api/songs 等电视端、
 
 
 
@@ -18143,7 +18359,9 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
-// 鎵嬫満鐐规瓕椤甸潰鍏辩敤鐨勬帴鍙ｄ繚鎸佸紑鏀撅紝瑙佹枃浠堕《閮ㄣ€屾洸搴撶鐞嗙鐞嗗憳鐧诲綍銆嶇殑璇存槑銆?
+
+// 手机点歌页面共用的接口保持开放，见文件顶部「曲库管理管理员登录」的说明。
+
 
 
 
@@ -18162,7 +18380,7 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
-// 鎵归噺璁剧疆璇/椋庢牸锛氶厤鍚堟洸搴撶鐞嗛〉闈?澶氶€夋瓕鏇?+ 涓€閿缃?锛屼竴娆¤姹傚
+// 批量设置语种/风格：配合曲库管理页面"多选歌曲 + 一键设置"，一次请求对
 
 
 
@@ -18172,7 +18390,7 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
-// 澶氶姝屾洸鐢熸晥锛岄伩鍏嶉€愰鎵撳紑缂栬緫寮圭獥鎵嬪姩濉€俿etLanguage/setGenre 涓や釜
+// 多首歌曲生效，避免逐首打开编辑弹窗手动填。setLanguage/setGenre 两个
 
 
 
@@ -18182,7 +18400,7 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
-// 鏍囧織浣嶅垎鍒帶鍒?杩欐璇锋眰瑕佷笉瑕佸姩璇/椋庢牸杩欎釜瀛楁"鈥斺€斿彧鍕鹃€変簡璇鏃讹紝
+// 标志位分别控制"这次请求要不要动语种/风格这个字段"——只勾选了语种时，
 
 
 
@@ -18192,7 +18410,7 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
-// 璇锋眰閲屽嵆浣挎病甯?genre 涔熶笉浼氳娓呯┖鎵€鏈夐€変腑姝屾洸鐨勯鏍硷紝鍙嶄箣浜︾劧銆傝矾鐢?
+// 请求里即使没带 genre 也不会误清空所有选中歌曲的风格，反之亦然。路由
 
 
 
@@ -18201,7 +18419,9 @@ app.get('/api/admin/clean/ignored', requireAdminAuth, (req, res) => {
 
 
 
-// 蹇呴』鍐欏湪 "/api/songs/:id" 涔嬪墠锛屽惁鍒?"batch" 浼氳褰撴垚 :id 鐨勫彇鍊笺€?
+
+// 必须写在 "/api/songs/:id" 之前，否则 "batch" 会被当成 :id 的取值。
+
 
 
 
@@ -18230,7 +18450,7 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
-  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '鏈€夋嫨姝屾洸' });
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '未选择歌曲' });
 
 
 
@@ -18240,7 +18460,7 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
-  if (!setLanguage && !setGenre) return res.status(400).json({ error: '鏈寚瀹氳璁剧疆鐨勫瓧娈? });
+  if (!setLanguage && !setGenre) return res.status(400).json({ error: '未指定要设置的字段' });
 
 
 
@@ -18390,7 +18610,7 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `鎵归噺璁剧疆 ${ids.length} 棣栨瓕鏇? ${setLanguage ? `璇="${lang}" ` : ''}${setGenre ? `椋庢牸="${gen}"` : ''}`);
+  log.info('ADMIN', `批量设置 ${ids.length} 首歌曲: ${setLanguage ? `语种="${lang}" ` : ''}${setGenre ? `风格="${gen}"` : ''}`);
 
 
 
@@ -18430,7 +18650,7 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
-// Bug淇(闂3 "鏇插簱鍒犱笉鎺?鏁伴噺瀵逛笉涓?鐨勭涓€閮ㄥ垎)锛氬師鏉ヨ繖閲屽彧鍒犱簡
+// Bug修复(问题3 "曲库删不掉/数量对不上"的第一部分)：原来这里只删了
 
 
 
@@ -18440,34 +18660,7 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
-// song_artists 灏辩洿鎺ュ垹 songs锛屽畬鍏ㄦ病娓?queue/history/favorites鈥斺€攓ueue 琛?
-
-
-
-
-
-
-
-
-// 瀵?songs.id 鏈夌湡瀹炵殑 FOREIGN KEY 绾︽潫锛屽彧瑕佽繖棣栨瓕琚偣杩囦竴娆?鍝€曞凡缁?
-
-
-
-
-
-
-
-
-// 鎾畬锛宷ueue 璁板綍涔熷彧浼氳鏍?status='done'銆佷粠涓嶇湡鍒?锛岃繖閲屽氨浼氭挒涓?
-
-
-
-
-
-
-
-
-// "FOREIGN KEY constraint failed"锛屽垹闄ょ洿鎺ュけ璐ャ€傛敼鎴愮粺涓€璋冪敤
+// song_artists 就直接删 songs，完全没清 queue/history/favorites——queue 表
 
 
 
@@ -18477,7 +18670,7 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
-// scanner.js 鐨?deleteSongCascade()锛岃窡鎵弿鏃剁殑鑷姩娓呯悊璧板悓涓€濂楃骇鑱斿垹闄?
+// 对 songs.id 有真实的 FOREIGN KEY 约束，只要这首歌被点过一次(哪怕已经
 
 
 
@@ -18486,7 +18679,39 @@ app.put('/api/songs/batch', requireAdminAuth, (req, res) => {
 
 
 
-// 閫昏緫锛屼笉浼氬啀鍑虹幇"鎵弿鑳芥竻銆佺鐞嗗憳鎵嬪姩鍒犱笉鎺?杩欑涓嶄竴鑷淬€?
+
+// 播完，queue 记录也只会被标 status='done'、从不真删)，这里就会撞上
+
+
+
+
+
+
+
+
+
+// "FOREIGN KEY constraint failed"，删除直接失败。改成统一调用
+
+
+
+
+
+
+
+
+
+// scanner.js 的 deleteSongCascade()，跟扫描时的自动清理走同一套级联删除
+
+
+
+
+
+
+
+
+
+// 逻辑，不会再出现"扫描能清、管理员手动删不掉"这种不一致。
+
 
 
 
@@ -18545,7 +18770,7 @@ app.delete('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
-    log.error('ADMIN', `鍒犻櫎姝屾洸澶辫触(id=${req.params.id}): ${e.message}`);
+    log.error('ADMIN', `删除歌曲失败(id=${req.params.id}): ${e.message}`);
 
 
 
@@ -18555,7 +18780,7 @@ app.delete('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
-    res.status(500).json({ error: '鍒犻櫎澶辫触: ' + e.message });
+    res.status(500).json({ error: '删除失败: ' + e.message });
 
 
 
@@ -18595,16 +18820,7 @@ app.delete('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
-// 姝屽悕缁熶竴瑙勮寖涓?姝屾墜-姝屾洸鍚?璇-椋庢牸"锛岃繖閲屽悓鏃舵帴鏀?language/genre锛?
-
-
-
-
-
-
-
-
-// artist 鍏佽濉啓澶氫綅姝屾墜锛堢敤绌烘牸鍒嗛殧锛屽拰鏂囦欢鍚嶇殑绾﹀畾淇濇寔涓€鑷达級锛屼繚瀛樺悗
+// 歌名统一规范为"歌手-歌曲名-语种-风格"，这里同时接收 language/genre；
 
 
 
@@ -18614,7 +18830,7 @@ app.delete('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
-// 绔嬪嵆璋冪敤 syncSongArtists 閲嶆柊鍚屾 song_artists 鍏宠仈琛紝璁?姝屾墜鍒楄〃"閲?
+// artist 允许填写多位歌手（用空格分隔，和文件名的约定保持一致），保存后
 
 
 
@@ -18623,7 +18839,19 @@ app.delete('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
-// 姣忎竴浣嶆瓕鎵嬮兘鑳藉垎鍒睍绀恒€佸垎鍒寜姝屾墜鏌ュ埌杩欓姝岋紙鍖呮嫭鍚堝敱鏇茬洰锛夈€?
+
+// 立即调用 syncSongArtists 重新同步 song_artists 关联表，让"歌手列表"里
+
+
+
+
+
+
+
+
+
+// 每一位歌手都能分别展示、分别按歌手查到这首歌（包括合唱曲目）。
+
 
 
 
@@ -18752,25 +18980,7 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
-// 鍗曟洸閲嶆柊鎺㈡祴闊宠建锛氳窡 /api/scan 鐨?resetAudioTracks 鏄悓涓€涓?鎺㈡祴澶辫触琚?
-
-
-
-
-
-
-
-
-// 姘镐箙璇垽涓哄崟闊宠建"闂鐨勫彟涓€绉嶄慨澶嶅叆鍙ｂ€斺€旈偅涓槸"鏁村簱娓呯┖閲嶆柊鎺㈡祴"锛屼竴娆?
-
-
-
-
-
-
-
-
-// 瑕佹妸鎵€鏈夋瓕鏇?鍖呮嫭鎺㈡祴鏈潵灏辨纭殑)閲嶆柊鎺㈡祴涓€閬嶏紝鏇插簱澶х殑璇濆緢璐规椂闂达紱
+// 单曲重新探测音轨：跟 /api/scan 的 resetAudioTracks 是同一个"探测失败被
 
 
 
@@ -18780,34 +18990,7 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
-// 杩欓噷缁欎竴棣栨瓕鍗曠嫭閲嶆柊鎺㈡祴涓€娆★紝纭鏌愪竴棣栨湁闂鏃跺彧鍔ㄨ繖涓€棣栵紝涓嶅奖鍝?
-
-
-
-
-
-
-
-
-// 鍏朵綑宸茬粡鎺㈡祴姝ｇ‘鐨勬洸鐩紝涔熶笉闇€瑕佽窡鐫€璧颁竴娆″畬鏁存壂鎻忋€?
-
-
-
-
-
-
-
-
-// Bug淇(闂2 "鐐归噸鏂版帰娴嬮煶杞ㄧ洿鎺ユ姤閿?鍙婂叾鏆撮湶鐨勭浜屼釜bug)锛氬師鏉ヨ繖閲?
-
-
-
-
-
-
-
-
-// 鐩存帴瀵?song.filepath 璺?probeAudioTracks()鈥斺€旀棦娌?await(鎷垮埌鐨勬槸杩樻病
+// 永久误判为单音轨"问题的另一种修复入口——那个是"整库清空重新探测"，一次
 
 
 
@@ -18817,7 +19000,57 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
-// resolve 鐨?Promise锛岀洿鎺ュ缁?SQLite 缁戝畾鍙傛暟浼氭姤
+// 要把所有歌曲(包括探测本来就正确的)重新探测一遍，曲库大的话很费时间；
+
+
+
+
+
+
+
+
+
+// 这里给一首歌单独重新探测一次，确认某一首有问题时只动这一首，不影响
+
+
+
+
+
+
+
+
+
+// 其余已经探测正确的曲目，也不需要跟着走一次完整扫描。
+
+
+
+
+
+
+
+
+
+// Bug修复(问题2 "点重新探测音轨直接报错"及其暴露的第二个bug)：原来这里
+
+
+
+
+
+
+
+
+
+// 直接对 song.filepath 跑 probeAudioTracks()——既没 await(拿到的是还没
+
+
+
+
+
+
+
+
+
+// resolve 的 Promise，直接塞给 SQLite 绑定参数会报
 
 
 
@@ -18837,16 +19070,7 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
-// null")锛屼篃娌¤蛋 STRM/缃戠粶鎸傝浇璇ヨ蛋鐨?鍏堣В鏋愮湡瀹炴簮鍦板潃銆佽惤鍦扮紦瀛?杩欎竴姝?
-
-
-
-
-
-
-
-
-// (鐩存帴瀵?.strm 鎸囬拡鏂囦欢璺?ffprobe锛屽繀鐒?"Invalid data found when
+// null")，也没走 STRM/网络挂载该走的"先解析真实源地址、落地缓存"这一步
 
 
 
@@ -18856,7 +19080,7 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
-// processing input")銆傛敼鎴愮粺涓€璋冪敤 scanner.js 鐨?ensureProbedOnDemand()锛?
+// (直接对 .strm 指针文件跑 ffprobe，必然 "Invalid data found when
 
 
 
@@ -18865,7 +19089,19 @@ app.put('/api/songs/:id', requireAdminAuth, (req, res) => {
 
 
 
-// 浼?force=true 鏃犺宸叉湁鐨?audio_tracks 鍊笺€佸己鍒堕噸鏂拌蛋涓€閬嶅畬鏁存祦绋嬨€?
+
+// processing input")。改成统一调用 scanner.js 的 ensureProbedOnDemand()，
+
+
+
+
+
+
+
+
+
+// 传 force=true 无视已有的 audio_tracks 值、强制重新走一遍完整流程。
+
 
 
 
@@ -18894,7 +19130,7 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
-  if (!song) return res.status(404).json({ error: '姝屾洸涓嶅瓨鍦? });
+  if (!song) return res.status(404).json({ error: '歌曲不存在' });
 
 
 
@@ -18924,7 +19160,7 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
-    log.info('SCAN', `绠＄悊鍛樿Е鍙戯細鍗曟洸閲嶆柊鎺㈡祴闊宠建 [姝屾洸 id=${song.id} "${song.title}"] -> ${audio_tracks == null ? '鎺㈡祴澶辫触锛屽凡鏍囪寰呬笅娆℃壂鎻忛噸璇? : audio_tracks + ' 鏉?}`);
+    log.info('SCAN', `管理员触发：单曲重新探测音轨 [歌曲 id=${song.id} "${song.title}"] -> ${audio_tracks == null ? '探测失败，已标记待下次扫描重试' : audio_tracks + ' 条'}`);
 
 
 
@@ -18954,7 +19190,7 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
-    log.error('SCAN', `绠＄悊鍛樿Е鍙戯細鍗曟洸閲嶆柊鎺㈡祴闊宠建澶辫触 [姝屾洸 id=${song.id} "${song.title}"]: ${e.message}`);
+    log.error('SCAN', `管理员触发：单曲重新探测音轨失败 [歌曲 id=${song.id} "${song.title}"]: ${e.message}`);
 
 
 
@@ -18964,7 +19200,7 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
-    res.status(500).json({ error: '閲嶆柊鎺㈡祴澶辫触: ' + e.message });
+    res.status(500).json({ error: '重新探测失败: ' + e.message });
 
 
 
@@ -19004,7 +19240,7 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
-// 鎵归噺閲嶆柊鎺㈡祴闊宠建锛氶厤鍚堟洸搴撶鐞嗛〉闈?澶氶€夋瓕鏇?+ 鎵归噺閲嶆帰闊宠建"锛屼竴娆″澶氶
+// 批量重新探测音轨：配合曲库管理页面"多选歌曲 + 批量重探音轨"，一次对多首
 
 
 
@@ -19014,7 +19250,7 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
-// 姝屾洸鍒嗗埆閲嶆柊鎺㈡祴涓€閬嶏紝璺熷崟鏇茬殑 /api/songs/:id/reprobe-audio-tracks 鏄悓涓€
+// 歌曲分别重新探测一遍，跟单曲的 /api/songs/:id/reprobe-audio-tracks 是同一
 
 
 
@@ -19024,16 +19260,7 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
-// 涓帰娴嬪嚱鏁帮紝鍖哄埆鍙槸涓€娆″鐞嗕竴鎵?id銆傞€愰鎺㈡祴涔嬮棿璁╁嚭涓€娆′簨浠跺惊鐜紙璺?
-
-
-
-
-
-
-
-
-// scanner.js 鐨?yieldToEventLoop 鍚屾牱鐨勮€冭檻锛夛紝閬垮厤涓€娆℃€у嬀閫夊緢澶氶鏃堕暱鏃堕棿
+// 个探测函数，区别只是一次处理一批 id。逐首探测之间让出一次事件循环（跟
 
 
 
@@ -19043,7 +19270,7 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
-// 闃诲鍏跺畠璇锋眰锛涘崟棣栨帰娴嬪け璐ワ紙姣斿鏂囦欢鎭板ソ琚Щ璧帮級鍙鏃ュ織璺宠繃锛屼笉褰卞搷
+// scanner.js 的 yieldToEventLoop 同样的考虑），避免一次性勾选很多首时长时间
 
 
 
@@ -19053,7 +19280,18 @@ app.post('/api/songs/:id/reprobe-audio-tracks', requireAdminAuth, async (req, re
 
 
 
-// 鍏朵綑姝屾洸缁х画鎺㈡祴銆?
+// 阻塞其它请求；单首探测失败（比如文件恰好被移走）只记日志跳过，不影响
+
+
+
+
+
+
+
+
+
+// 其余歌曲继续探测。
+
 
 
 
@@ -19082,7 +19320,7 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
-  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '鏈€夋嫨姝屾洸' });
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: '未选择歌曲' });
 
 
 
@@ -19142,7 +19380,7 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
-      // 鍚屽崟鏇查噸鎺㈢殑淇锛氱粺涓€璧?ensureProbedOnDemand(force=true)锛屼笉鍐嶇洿鎺?
+      // 同单曲重探的修复：统一走 ensureProbedOnDemand(force=true)，不再直接
 
 
 
@@ -19151,7 +19389,9 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
-      // 瀵?filepath 璺戞湭 await 鐨?probeAudioTracks()銆?
+
+      // 对 filepath 跑未 await 的 probeAudioTracks()。
+
 
 
 
@@ -19190,7 +19430,7 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
-      log.error('SCAN', `鎵归噺閲嶆帰闊宠建-鍗曟洸澶辫触(id=${id}): ${e.message}`);
+      log.error('SCAN', `批量重探音轨-单曲失败(id=${id}): ${e.message}`);
 
 
 
@@ -19230,7 +19470,7 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
-  log.info('SCAN', `绠＄悊鍛樿Е鍙戯細鎵归噺閲嶆柊鎺㈡祴闊宠建锛屽叡 ${results.length} 棣朻);
+  log.info('SCAN', `管理员触发：批量重新探测音轨，共 ${results.length} 首`);
 
 
 
@@ -19270,7 +19510,7 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
-// ---------- 鏇插簱缂撳瓨娓呯悊 ----------
+// ---------- 曲库缓存清理 ----------
 
 
 
@@ -19280,25 +19520,7 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
-// 閰嶅悎銆屾洸搴撶鐞嗐€嶉〉闈㈢殑"娓呯悊缂撳瓨"鎸夐挳锛氱鐞嗗憳鍙互鍦ㄤ袱绉嶇瓥鐣ラ棿閫夋嫨鈥斺€?
-
-
-
-
-
-
-
-
-// 鎸夊瓨鍌ㄧ┖闂撮檺棰濇竻鐞嗭紙瓒呭嚭闄愰鏃舵寜鐐规瓕鏃堕棿浠庢棭鍒版櫄娓呯悊锛岀洿鍒伴檷鍥為檺棰濆唴锛?
-
-
-
-
-
-
-
-
-// 鎴栨寜鐐规瓕鏃堕棿娓呯悊锛堣秴杩囪瀹氬ぉ鏁版病琚偣鍞辫繃鐨勭紦瀛樿嚜鍔ㄦ竻鐞嗭級锛屽叿浣撴竻鐞嗛€昏緫
+// 配合「曲库管理」页面的"清理缓存"按钮：管理员可以在两种策略间选择——
 
 
 
@@ -19308,7 +19530,7 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
-// 瑙?cacheCleaner.js銆傝繖閲屽彧璐熻矗鏆撮湶璁剧疆鐨勮鍐欍€佸綋鍓嶇紦瀛樺崰鐢ㄧ殑缁熻锛屼互鍙?
+// 按存储空间限额清理（超出限额时按点歌时间从早到晚清理，直到降回限额内）
 
 
 
@@ -19317,7 +19539,29 @@ app.post('/api/songs/batch-reprobe-audio-tracks', requireAdminAuth, async (req, 
 
 
 
-// 鎵嬪姩瑙﹀彂涓€娆℃竻鐞嗚繖涓変釜鎺ュ彛锛屽叏閮ㄨ姹傜鐞嗗憳鐧诲綍銆?
+
+// 或按点歌时间清理（超过设定天数没被点唱过的缓存自动清理），具体清理逻辑
+
+
+
+
+
+
+
+
+
+// 见 cacheCleaner.js。这里只负责暴露设置的读写、当前缓存占用的统计，以及
+
+
+
+
+
+
+
+
+
+// 手动触发一次清理这三个接口，全部要求管理员登录。
+
 
 
 
@@ -19426,7 +19670,7 @@ app.post('/api/admin/cache/settings', requireAdminAuth, (req, res) => {
 
 
 
-  if (mode !== 'size' && mode !== 'time') return res.status(400).json({ error: '娓呯悊鏂瑰紡搴斾负"size"(鎸夊瓨鍌ㄧ┖闂?鎴?time"(鎸夌偣姝屾椂闂?' });
+  if (mode !== 'size' && mode !== 'time') return res.status(400).json({ error: '清理方式应为"size"(按存储空间)或"time"(按点歌时间)' });
 
 
 
@@ -19436,7 +19680,7 @@ app.post('/api/admin/cache/settings', requireAdminAuth, (req, res) => {
 
 
 
-  if (mode === 'size' && !(Number(sizeLimitMB) > 0)) return res.status(400).json({ error: '璇峰～鍐欐湁鏁堢殑瀛樺偍绌洪棿闄愰(MB)' });
+  if (mode === 'size' && !(Number(sizeLimitMB) > 0)) return res.status(400).json({ error: '请填写有效的存储空间限额(MB)' });
 
 
 
@@ -19446,7 +19690,7 @@ app.post('/api/admin/cache/settings', requireAdminAuth, (req, res) => {
 
 
 
-  if (mode === 'time' && !(Number(timeDays) > 0)) return res.status(400).json({ error: '璇峰～鍐欐湁鏁堢殑淇濈暀澶╂暟' });
+  if (mode === 'time' && !(Number(timeDays) > 0)) return res.status(400).json({ error: '请填写有效的保留天数' });
 
 
 
@@ -19466,7 +19710,7 @@ app.post('/api/admin/cache/settings', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `缂撳瓨娓呯悊绛栫暐宸叉洿鏂? ${mode === 'size' ? `鎸夊瓨鍌ㄧ┖闂撮檺棰?${saved.sizeLimitMB}MB` : `鎸夌偣姝屾椂闂?${saved.timeDays} 澶ー}`);
+  log.info('ADMIN', `缓存清理策略已更新: ${mode === 'size' ? `按存储空间限额 ${saved.sizeLimitMB}MB` : `按点歌时间 ${saved.timeDays} 天`}`);
 
 
 
@@ -19596,7 +19840,7 @@ app.post('/api/admin/cache/clean', requireAdminAuth, (req, res) => {
 
 
 
-    log.info('ADMIN', `绠＄悊鍛樻墜鍔ㄨЕ鍙戠紦瀛樻竻鐞? 鏂瑰紡=${result.mode === 'size' ? '瀛樺偍绌洪棿闄愰' : '鐐规瓕鏃堕棿'}锛屽叡娓呯悊 ${totalRemoved} 涓?鍚鍎跨紦瀛?${result.orphan.removed} 涓?锛岄噴鏀剧害 ${(totalFreed / 1048576).toFixed(1)}MB`);
+    log.info('ADMIN', `管理员手动触发缓存清理: 方式=${result.mode === 'size' ? '存储空间限额' : '点歌时间'}，共清理 ${totalRemoved} 个(含孤儿缓存 ${result.orphan.removed} 个)，释放约 ${(totalFreed / 1048576).toFixed(1)}MB`);
 
 
 
@@ -19666,7 +19910,7 @@ app.post('/api/admin/cache/clean', requireAdminAuth, (req, res) => {
 
 
 
-// 闇€姹?娓呯悊缂撳瓨鑿滃崟-鐩存帴娓呯悊鍏ㄩ儴缂撳瓨)锛氫笉鐪嬪綋鍓嶄繚瀛樼殑瀛樺偍绌洪棿闄愰/鐐规瓕
+// 需求(清理缓存菜单-直接清理全部缓存)：不看当前保存的存储空间限额/点歌
 
 
 
@@ -19676,7 +19920,8 @@ app.post('/api/admin/cache/clean', requireAdminAuth, (req, res) => {
 
 
 
-// 鏃堕棿绛栫暐锛岀洿鎺ユ妸 HLS 杞爜缂撳瓨娓呯┖(姝ｅ湪杞爜涓殑闄ゅ)銆?
+// 时间策略，直接把 HLS 转码缓存清空(正在转码中的除外)。
+
 
 
 
@@ -19715,7 +19960,7 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-    log.info('ADMIN', `绠＄悊鍛樻墜鍔ㄦ竻鐞嗗叏閮ㄧ紦瀛? 鍏辨竻鐞?${result.removed} 涓紝閲婃斁绾?${(result.freed / 1048576).toFixed(1)}MB${result.skippedBuilding ? `锛堝彟鏈?${result.skippedBuilding} 涓鍦ㄨ浆鐮佷腑宸茶烦杩囷級` : ''}`);
+    log.info('ADMIN', `管理员手动清理全部缓存: 共清理 ${result.removed} 个，释放约 ${(result.freed / 1048576).toFixed(1)}MB${result.skippedBuilding ? `（另有 ${result.skippedBuilding} 个正在转码中已跳过）` : ''}`);
 
 
 
@@ -19785,7 +20030,7 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// ---------- 鏇插簱鏉ユ簮(缃戠洏/鏈湴鐩綍閫夋嫨 + 缃戠洏鏈湴缂撳瓨璋冧紭) ----------
+// ---------- 曲库来源(网盘/本地目录选择 + 网盘本地缓存调优) ----------
 
 
 
@@ -19795,7 +20040,7 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// 闇€姹?缃戠洏绛夊叿浣撹缃粠 docker-compose.yml 绉诲埌鏇插簱鍚庡彴)锛歞ocker-compose.yml
+// 需求(网盘等具体设置从 docker-compose.yml 移到曲库后台)：docker-compose.yml
 
 
 
@@ -19805,7 +20050,7 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// 鐜板湪鍙浐瀹氭寕杞戒袱涓€氱敤鐩綍鈥斺€旀湰鍦?/mv銆佺綉缁?缃戠洏 /mv-net锛岀敤鎴峰彧闇€瑕佹妸
+// 现在只固定挂载两个通用目录——本地 /mv、网络/网盘 /mv-net，用户只需要把
 
 
 
@@ -19815,7 +20060,7 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// host 涓婂噯澶囧ソ鐨勭洰褰?涓嶇鏄櫘閫氭湰鍦版枃浠跺す锛岃繕鏄敤 fnOS 鑷甫鐨勭綉鐩樻寕杞?
+// host 上准备好的目录(不管是普通本地文件夹，还是用 fnOS 自带的网盘挂载/
 
 
 
@@ -19825,7 +20070,7 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// rclone/alist 绛夊伐鍏锋寕鍑烘潵鐨勭綉鐩樼洰褰?瀵瑰簲鏀惧埌杩欎袱涓叡浜洰褰曚笅銆傚叿浣?杩欎袱涓?
+// rclone/alist 等工具挂出来的网盘目录)对应放到这两个共享目录下。具体"这两个
 
 
 
@@ -19834,8 +20079,8 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// 鐩綍涓嬬殑鍝簺瀛愭枃浠跺す瑕佷綔涓烘洸搴撴牴鐩綍绾冲叆鎵弿銆佹槸鍚︽寜缃戠粶璺緞璧版湰鍦扮紦瀛?锛?
 
+// 目录下的哪些子文件夹要作为曲库根目录纳入扫描、是否按网络路径走本地缓存"，
 
 
 
@@ -19843,52 +20088,51 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// 浠ュ強缃戠洏鏈湴缂撳瓨鐨勫嚑涓皟浼樺弬鏁帮紝鍏ㄩ儴鍦ㄨ繖閲岀鐞嗭紝淇濆瓨鍚庣珛鍗崇敓鏁?涓嬩竴娆?
 
 
+// 以及网盘本地缓存的几个调优参数，全部在这里管理，保存后立即生效(下一次
 
 
 
 
 
 
-// 鎵弿鈥斺€斾笉绠℃槸瀹氭椂鐨勮繕鏄鐞嗗憳鎵嬪姩鐐圭殑鈥斺€斿氨浼氱敤涓?锛屼笉闇€瑕侀噸寤哄鍣ㄣ€佷笉闇€瑕?
 
 
 
+// 扫描——不管是定时的还是管理员手动点的——就会用上)，不需要重建容器、不需要
 
 
 
 
 
-// 閲嶅惎搴旂敤锛屽交搴曞憡鍒?鏀归厤缃悜瀵煎紑鍏?-> 鍐?docker-compose.yml -> 瀹瑰櫒閲嶅缓锛?
 
 
 
 
+// 重启应用，彻底告别"改配置向导开关 -> 写 docker-compose.yml -> 容器重建，
 
 
 
 
-// 鑰屼笖閲嶅缓鏃舵満鍙兘鏃╀簬鏂扮洰褰曠湡姝ｆ寕杞藉ソ"杩欎竴鏁村鑰佹祦绋嬨€?
 
 
 
 
 
+// 而且重建时机可能早于新目录真正挂载好"这一整套老流程。
 
 
 
-// Bug淇("鎵弿鏄剧ず5188棣栵紝鍚庡彴鏇插簱鏄剧ず5192棣栵紝鎬€鐤戜箣鍓嶇綉鐩樻寕杞借鍙栨秷鍚?
 
 
 
 
 
 
+// Bug修复("扫描显示5188首，后台曲库显示5192首，怀疑之前网盘挂载被取消后
 
 
-// 搴撻噷鏈夋暟鎹竻涓嶆帀")锛氳繖4棣栧樊鍊煎氨鏄?瀛ゅ効鏇茬洰"鈥斺€斿畠浠殑 source_root 鎸囧悜鐨?
 
 
 
@@ -19896,8 +20140,8 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
+// 库里有数据清不掉")：这4首差值就是"孤儿曲目"——它们的 source_root 指向的
 
-// 鐩綍宸茬粡瀹屽叏涓嶅湪褰撳墠銆屾洸搴撴潵婧愩€嶉厤缃噷浜?涓嶆槸"鏆傛椂璁块棶涓嶄簡"锛屾槸閰嶇疆閲?
 
 
 
@@ -19906,7 +20150,7 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// 鍘嬫牴娌℃湁杩欎竴鏉′簡锛屾瘮濡傜鐞嗗憳鍦?v1.2.1 杩欐淇涔嬪墠灏卞凡缁忓垹鎺夎繃鏌愪釜
+// 目录已经完全不在当前「曲库来源」配置里了(不是"暂时访问不了"，是配置里
 
 
 
@@ -19916,7 +20160,7 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// 缃戠洏鏉ユ簮锛岄偅鏃跺€?绉婚櫎鏉ユ簮"杩樹笉浼氳繛甯︽竻鐞嗘洸鐩紝瑙?DELETE /roots/:idx
+// 压根没有这一条了，比如管理员在 v1.2.1 这次修复之前就已经删掉过某个
 
 
 
@@ -19926,7 +20170,7 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// 鐨勫巻鍙叉敞閲?銆俿canLibrary() 鐨勬竻鐞嗛€昏緫鍙細澶勭悊"褰撳墠閰嶇疆閲岃繕鍦ㄣ€佷絾杩欎竴杞?
+// 网盘来源，那时候"移除来源"还不会连带清理曲目，见 DELETE /roots/:idx
 
 
 
@@ -19935,8 +20179,8 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// 鎵弿鏃惰闂笉浜?鐨勭洰褰曚笅鐨勬洸鐩?瑙?scanner.js "鏈疆涓嶅彲璁块棶灏变笉娓呯悊"閭ｆ
 
+// 的历史注释)。scanLibrary() 的清理逻辑只会处理"当前配置里还在、但这一轮
 
 
 
@@ -19945,8 +20189,8 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// 娉ㄩ噴)锛屽帇鏍逛笉鐭ラ亾"杩欎釜鐩綍浠ュ墠閰嶇疆杩囥€佺幇鍦ㄩ厤缃凡缁忔病浜?杩欎欢浜嬶紝鎵€浠ヨ繖
 
+// 扫描时访问不了"的目录下的曲目(见 scanner.js "本轮不可访问就不清理"那段
 
 
 
@@ -19955,8 +20199,8 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// 4棣栧氨涓€鐩村崱鍦ㄦ暟鎹簱閲岋紝鎵弿鎺ュ彛鐨?total(鎸夌鐩樹笂瀹為檯鎵埌鐨勬枃浠舵暟绠?
 
+// 注释)，压根不知道"这个目录以前配置过、现在配置已经没了"这件事，所以这
 
 
 
@@ -19965,8 +20209,8 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// 鍜岃繖閲?/api/stats 鐨?songCount(鏁版嵁搴撻噷鐨勬€昏鏁?灏变細瀵逛笉涓娿€?
 
+// 4首就一直卡在数据库里，扫描接口的 total(按磁盘上实际扫到的文件数算)
 
 
 
@@ -19974,25 +20218,40 @@ app.post('/api/admin/cache/clean-all', requireAdminAuth, (req, res) => {
 
 
 
-// findOrphanSongIds()锛氭壘鍑?source_root 涓嶄负绌恒€佷絾鍘嬫牴涓嶅湪褰撳墠浠讳綍涓€涓?
 
 
+// 和这里 /api/stats 的 songCount(数据库里的总行数)就会对不上。
 
 
 
 
 
 
-// 宸查厤缃牴鐩綍(涓嶇鍚敤杩樻槸绂佺敤)閲岀殑鏇茬洰鈥斺€攕ource_root 涓虹┖鐨勮€佽褰?
 
 
 
+// findOrphanSongIds()：找出 source_root 不为空、但压根不在当前任何一个
 
 
 
 
 
-// (鏃╀簬澶氳矾寰勬敼鍔?涓嶇畻瀛ゅ効锛岃烦杩囦笉澶勭悊锛岄伩鍏嶈鍒犮€?
+
+
+
+
+// 已配置根目录(不管启用还是禁用)里的曲目——source_root 为空的老记录
+
+
+
+
+
+
+
+
+
+// (早于多路径改动)不算孤儿，跳过不处理，避免误删。
+
 
 
 
@@ -20031,7 +20290,8 @@ function findOrphanSongIds() {
 
 
 
-  return rows.filter(r => !knownDirs.has(r.source_root)).map(r => r.id);
+  // 分享链接导入的歌曲（source_root 以 share- 开头）不属于曲库来源配置，不算孤儿
+  return rows.filter(r => !knownDirs.has(r.source_root) && !r.source_root.startsWith('share-')).map(r => r.id);
 
 
 
@@ -20061,7 +20321,7 @@ function findOrphanSongIds() {
 
 
 
-// 闇€姹備慨澶?"娓呯悊瀛ゅ効鏇茬洰"娌℃壘鍒帮紝浣嗘€绘暟渚濈劧瀵逛笉涓?锛氬鍎挎洸鐩殑瀹氫箟鏄?
+// 需求修复("清理孤儿曲目"没找到，但总数依然对不上)：孤儿曲目的定义是
 
 
 
@@ -20070,8 +20330,8 @@ function findOrphanSongIds() {
 
 
 
-// "鎵€灞炴牴鐩綍宸茬粡瀹屽叏涓嶅湪褰撳墠鏇插簱鏉ユ簮閰嶇疆閲?鈥斺€斿鏋滆繖娆￠亣鍒扮殑 4 棣栨瓕
 
+// "所属根目录已经完全不在当前曲库来源配置里"——如果这次遇到的 4 首歌
 
 
 
@@ -20080,8 +20340,8 @@ function findOrphanSongIds() {
 
 
 
-// 鎵€灞炵殑鏍圭洰褰曞叾瀹炶繕鍦ㄩ厤缃垪琛ㄩ噷(鍙槸杩欎竴杞墿鐞嗚闂笉浜嗭紝姣斿缃戠洏鍙栨秷
 
+// 所属的根目录其实还在配置列表里(只是这一轮物理访问不了，比如网盘取消
 
 
 
@@ -20090,8 +20350,8 @@ function findOrphanSongIds() {
 
 
 
-// 鎸傝浇浣嗛厤缃湰韬病鍒?锛屽氨涓嶄細琚笂闈?findOrphanSongIds() 璇嗗埆鍑烘潵锛岃繖鏄?
 
+// 挂载但配置本身没删)，就不会被上面 findOrphanSongIds() 识别出来，这是
 
 
 
@@ -20099,9 +20359,9 @@ function findOrphanSongIds() {
 
 
 
-// 鏁呮剰鐨勶細scanLibrary() 鏈韩灏变笉浼氬洜涓虹洰褰?杩欎竴杞闂笉浜?灏辫嚜鍔ㄦ竻鐞嗭紝
 
 
+// 故意的：scanLibrary() 本身就不会因为目录"这一轮访问不了"就自动清理，
 
 
 
@@ -20109,44 +20369,50 @@ function findOrphanSongIds() {
 
 
 
-// 閬垮厤缃戠粶鐩樺伓灏旀帀绾挎椂琚鍒?瑙?scanner.js 椤堕儴娉ㄩ噴)銆?
 
 
+// 避免网络盘偶尔掉线时被误删(见 scanner.js 顶部注释)。
 
 
 
 
 
 
-// 杩欓噷鎹釜瑙掑害锛岀洿鎺ユ妸"姣忎釜宸查厤缃牴鐩綍锛岃繖涓€杞槸鍚﹁兘璁块棶銆佸悕涓嬪悇鎸備簡
 
 
 
+// 这里换个角度，直接把"每个已配置根目录，这一轮是否能访问、名下各挂了
 
 
 
 
 
 
-// 澶氬皯棣栨洸鐩?濡傚疄鎶ョ粰鍓嶇锛岀鐞嗗憳涓€鐪煎氨鑳界湅鍑洪棶棰樺嚭鍦ㄥ摢涓€涓潵婧愪笂锛?
 
 
 
+// 多少首曲目"如实报给前端，管理员一眼就能看出问题出在哪一个来源上，
 
 
 
 
 
-// 闇€瑕佺殑璇濆彲浠ラ拡瀵归偅涓€涓潵婧愬崟鐙竻鐞?瑙佷笅闈?purge-songs 鎺ュ彛)锛屼笉鐢?
 
 
 
 
+// 需要的话可以针对那一个来源单独清理(见下面 purge-songs 接口)，不用
 
 
 
 
-// 闈犵寽銆?
+
+
+
+
+
+// 靠猜。
+
 
 
 
@@ -20185,7 +20451,14 @@ function getRootsWithStatus() {
 
 
 
-    accessible: fs.existsSync(r.dir),
+    // 内置115网络来源(dir='netktv-mkv'/'netktv'，或带 cloud 元数据)不在本地
+    // 文件系统上，fs.existsSync 必然为 false——这里对它们直接判为"可访问"
+    // (实际能否列出文件由"扫描"按钮触发时才知道)。本地来源仍走 fs.existsSync。
+    accessible: isCloudRoot(r) ? true : fs.existsSync(r.dir),
+
+    // 网络来源附带 cloud 元数据(账号/网盘路径/类型)，供前端展示与触发扫描
+    cloud: r.cloud || (isCloudRoot(r) ? { accountId: getActivePan115AccountId(), cloudPath: (BUILTIN_CLOUD_ROOTS[r.dir]||{}).defaultCloudPath, mediaType: (BUILTIN_CLOUD_ROOTS[r.dir]||{}).mediaType } : undefined),
+
 
 
 
@@ -20335,16 +20608,7 @@ app.get('/api/admin/library-sources', requireAdminAuth, (req, res) => {
 
 
 
-// 鍙竻绌烘煇涓粛鍦ㄩ厤缃噷鐨勬洸搴撴潵婧愬悕涓嬬殑鏇茬洰锛屼笉鍔ㄨ繖鏉℃潵婧愭湰韬殑閰嶇疆鈥斺€?
-
-
-
-
-
-
-
-
-// 璺?绉婚櫎鏉ユ簮"(浼氳繛甯﹀垹鎺夎繖鏉￠厤缃?鏄袱浠剁嫭绔嬬殑浜嬶細绠＄悊鍛樺彲鑳藉彧鏄兂娓呮帀
+// 只清空某个仍在配置里的曲库来源名下的曲目，不动这条来源本身的配置——
 
 
 
@@ -20354,7 +20618,7 @@ app.get('/api/admin/library-sources', requireAdminAuth, (req, res) => {
 
 
 
-// 杩欎竴鎵瑰凡缁忕‘璁ゆ挱涓嶄簡鐨勬棫璁板綍锛屼絾淇濈暀杩欐潯鏉ユ簮閰嶇疆锛屼互鍚庨噸鏂版寕杞?淇ソ浜?
+// 跟"移除来源"(会连带删掉这条配置)是两件独立的事：管理员可能只是想清掉
 
 
 
@@ -20363,7 +20627,19 @@ app.get('/api/admin/library-sources', requireAdminAuth, (req, res) => {
 
 
 
-// 杩樻兂缁х画鐢紝涓嶆兂鍐嶉噸鏂版坊鍔犱竴閬嶃€?
+
+// 这一批已经确认播不了的旧记录，但保留这条来源配置，以后重新挂载/修好了
+
+
+
+
+
+
+
+
+
+// 还想继续用，不想再重新添加一遍。
+
 
 
 
@@ -20402,7 +20678,7 @@ app.post('/api/admin/library-sources/roots/:idx/purge-songs', requireAdminAuth, 
 
 
 
-  if (!(idx >= 0 && idx < roots.length)) return res.status(404).json({ error: '鎵句笉鍒拌繖涓洸搴撴潵婧? });
+  if (!(idx >= 0 && idx < roots.length)) return res.status(404).json({ error: '找不到这个曲库来源' });
 
 
 
@@ -20462,7 +20738,7 @@ app.post('/api/admin/library-sources/roots/:idx/purge-songs', requireAdminAuth, 
 
 
 
-    catch (e) { log.error('ADMIN', `娓呯悊鏇插簱鏉ユ簮鏇茬洰澶辫触(id=${row.id}): ${e.message}`); }
+    catch (e) { log.error('ADMIN', `清理曲库来源曲目失败(id=${row.id}): ${e.message}`); }
 
 
 
@@ -20482,7 +20758,7 @@ app.post('/api/admin/library-sources/roots/:idx/purge-songs', requireAdminAuth, 
 
 
 
-  log.info('ADMIN', `鏇插簱鏉ユ簮: 鎵嬪姩娓呯悊銆?{root.label || root.dir}銆嶅悕涓嬫洸鐩?${purgedCount} 棣?鏉ユ簮閰嶇疆鏈韩淇濈暀)`);
+  log.info('ADMIN', `曲库来源: 手动清理「${root.label || root.dir}」名下曲目 ${purgedCount} 首(来源配置本身保留)`);
 
 
 
@@ -20572,7 +20848,7 @@ app.post('/api/admin/library-sources/cleanup-orphans', requireAdminAuth, (req, r
 
 
 
-    catch (e) { log.error('ADMIN', `娓呯悊瀛ゅ効鏇茬洰澶辫触(id=${id}): ${e.message}`); }
+    catch (e) { log.error('ADMIN', `清理孤儿曲目失败(id=${id}): ${e.message}`); }
 
 
 
@@ -20592,7 +20868,7 @@ app.post('/api/admin/library-sources/cleanup-orphans', requireAdminAuth, (req, r
 
 
 
-  log.info('ADMIN', `鏇插簱鏉ユ簮: 鎵嬪姩娓呯悊瀛ゅ効鏇茬洰 ${purgedCount} 棣?鎵€灞炴牴鐩綍宸蹭笉鍦ㄥ綋鍓嶆洸搴撴潵婧愰厤缃噷)`);
+  log.info('ADMIN', `曲库来源: 手动清理孤儿曲目 ${purgedCount} 首(所属根目录已不在当前曲库来源配置里)`);
 
 
 
@@ -20632,7 +20908,7 @@ app.post('/api/admin/library-sources/cleanup-orphans', requireAdminAuth, (req, r
 
 
 
-// 鏂囦欢澶规祻瑙堝櫒锛氬彧鍏佽娴忚 BASE_MOUNTS(/mv銆?mv-net)鏈韩鍙婂叾瀛愮洰褰曪紝鐢ㄤ簬
+// 文件夹浏览器：只允许浏览 BASE_MOUNTS(/mv、/mv-net)本身及其子目录，用于
 
 
 
@@ -20642,7 +20918,8 @@ app.post('/api/admin/library-sources/cleanup-orphans', requireAdminAuth, (req, r
 
 
 
-// 鍚庡彴"娣诲姞鏇插簱鏉ユ簮"鏃跺彲瑙嗗寲閫夋嫨瀛愭枃浠跺す锛屼笉闇€瑕佺敤鎴锋墜鍔ㄨ緭鍏ヨ矾寰勩€?
+// 后台"添加曲库来源"时可视化选择子文件夹，不需要用户手动输入路径。
+
 
 
 
@@ -20671,7 +20948,7 @@ app.get('/api/admin/browse-folder', requireAdminAuth, (req, res) => {
 
 
 
-  if (!dir) return res.status(400).json({ error: '璺緞涓嶅湪鍏佽娴忚鐨勮寖鍥村唴(鍙兘鏄?/mv 鎴?/mv-net 鍙婂叾瀛愮洰褰?' });
+  if (!dir) return res.status(400).json({ error: '路径不在允许浏览的范围内(只能是 /mv 或 /mv-net 及其子目录)' });
 
 
 
@@ -20681,7 +20958,7 @@ app.get('/api/admin/browse-folder', requireAdminAuth, (req, res) => {
 
 
 
-  if (!fs.existsSync(dir)) return res.status(404).json({ error: `鐩綍涓嶅瓨鍦紝璇风‘璁ゅ凡缁忔妸 host 涓婄殑鏂囦欢澶规纭寕杞藉埌 ${dir}` });
+  if (!fs.existsSync(dir)) return res.status(404).json({ error: `目录不存在，请确认已经把 host 上的文件夹正确挂载到 ${dir}` });
 
 
 
@@ -20761,7 +21038,7 @@ app.get('/api/admin/browse-folder', requireAdminAuth, (req, res) => {
 
 
 
-    res.status(500).json({ error: '璇诲彇鐩綍澶辫触: ' + e.message });
+    res.status(500).json({ error: '读取目录失败: ' + e.message });
 
 
 
@@ -20783,6 +21060,28 @@ app.get('/api/admin/browse-folder', requireAdminAuth, (req, res) => {
 
 });
 
+// 浏览网盘目录（用于管理后台添加网络曲库时选择路径）
+app.get('/api/admin/browse-cloud', requireAdminAuth, async (req, res) => {
+  try {
+    const accountId = parseInt(req.query.accountId, 10);
+    const remotePath = req.query.path || '/';
+    if (!accountId || isNaN(accountId)) return res.status(400).json({ error: 'accountId 必填' });
+    if (!cloudDrive.manager) return res.status(500).json({ error: 'cloud-drive 未初始化' });
+    const driver = cloudDrive.manager.getDriverById(accountId);
+    if (!driver) return res.status(404).json({ error: '网盘账号不存在' });
+    const files = await driver.listFiles(remotePath);
+    // 转换为前端期望的格式 { folders: [{name, isDir, size}] }
+    const folders = files.map(f => ({
+      name: f.name,
+      isDir: f.isDir === true || f.type === 'folder',
+      size: f.size || 0,
+    }));
+    res.json({ ok: true, path: remotePath, folders });
+  } catch (e) {
+    console.error('浏览网盘目录失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 
 
@@ -20800,6 +21099,66 @@ app.get('/api/admin/browse-folder', requireAdminAuth, (req, res) => {
 
 
 
+
+
+// ---- 115网盘网络曲库：列出可用账号(供前端下拉选择) ----
+app.get('/api/admin/cloud-accounts', requireAdminAuth, (req, res) => {
+  try {
+    const cd = require('./cloud-drive');
+    const accounts = (cd.manager ? cd.manager.listAccounts() : [])
+      .filter(a => a.driver === 'pan115')
+      .map(a => ({ id: a.id, name: a.name, status: a.status }));
+    res.json({ ok: true, accounts });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- 115网盘文件夹浏览：通过 pan115 driver 列出指定账号某路径下的子目录 ----
+app.get('/api/admin/browse-cloud', requireAdminAuth, async (req, res) => {
+  try {
+    const accountId = Number(req.query.accountId);
+    const remotePath = req.query.path || '/';
+    const cd = require('./cloud-drive');
+    if (!cd.manager) return res.status(500).json({ error: 'cloud-drive 未初始化' });
+    const driver = cd.manager.getDriverById(accountId);
+    const files = await driver.listFiles(remotePath);
+    // 只返回目录(网盘路径选择器用)，保留 name/pickCode/size 供前端展示
+    // pan115 driver isDir 对部分目录误报 false，这里不过滤——网盘选择器需要能进入每个条目
+    const folders = files.map(f => ({ name: f.name, isDir: true }));
+    res.json({ ok: true, path: remotePath, folders });
+  } catch (e) {
+    res.status(500).json({ error: '浏览115目录失败: ' + e.message });
+  }
+});
+
+// ---- 触发某个网络曲库来源的扫描(复用 netktv-mkv-scan / netktv-scan 逻辑) ----
+app.post('/api/admin/library-sources/roots/:idx/scan', requireAdminAuth, async (req, res) => {
+  const idx = Number(req.params.idx);
+  const roots = getLibraryRoots();
+  if (!(idx >= 0 && idx < roots.length)) return res.status(404).json({ error: '找不到这个曲库来源' });
+  const root = roots[idx];
+  if (!isCloudRoot(root)) return res.status(400).json({ error: '这是本地曲库来源，请用"立即扫描曲库"' });
+  const cloud = root.cloud || {};
+  const accountId = cloud.accountId || getActivePan115AccountId();
+  const cloudPath = cloud.cloudPath || (BUILTIN_CLOUD_ROOTS[root.dir] || {}).defaultCloudPath;
+  try {
+    const cd = require('./cloud-drive');
+    if (root.dir === 'netktv-mkv') {
+      const { scanMkvFiles } = require('./netktv-mkv-scan');
+      // 异步触发，立即返回状态(扫描可能很长，不阻塞 HTTP)
+      scanMkvFiles(cd, accountId, cloudPath, db, null, 0).catch(e => console.error('[ADMIN-SCAN-MKV]', e.message));
+      return res.json({ ok: true, message: 'MKV扫描已开始', sourceRoot: root.dir, accountId, cloudPath });
+    } else if (root.dir === 'netktv') {
+      const { scanSeparatedFiles } = require('./netktv-scan');
+      scanSeparatedFiles(cd, accountId, cloudPath, db, path.join(process.env.DATA_DIR || '/data', 'netseparated-strm')).catch(e => console.error('[ADMIN-SCAN-FLAC]', e.message));
+      return res.json({ ok: true, message: '分离FLAC扫描已开始', sourceRoot: root.dir, accountId, cloudPath });
+    }
+    return res.status(400).json({ error: '未知的网络来源类型: ' + root.dir });
+  } catch (e) {
+    res.status(500).json({ error: '触发扫描失败: ' + e.message });
+  }
+});
 
 app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
@@ -20812,6 +21171,49 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
 
   const { dir, label, isNetwork } = req.body || {};
+
+
+  // ---- 新增：通过 cloud-drive 直接添加115网盘网络曲库来源 ----
+  // body: { cloud: true, accountId, cloudPath, mediaType, label }
+  // 这类来源的 dir 不是本地文件系统路径，而是固定的 source_root 标识
+  // (mediaType==='mkv' -> 'netktv-mkv'；'flac' -> 'netktv')，
+  // 与现有 netktv-mkv-scan / netktv-scan 入库时写的 source_root 完全对齐，
+  // 播放链路(/api/songs/:id/sep-info 按 source_root 路由)零改动。
+  if (req.body && (req.body.cloud === true || req.body.cloudPath)) {
+    const { accountId, cloudPath, mediaType, label: cloudLabel } = req.body;
+    if (!cloudPath || !String(cloudPath).trim()) {
+      return res.status(400).json({ error: '请填写115网盘路径(cloudPath)，如 /momo-ktv/ktv-output' });
+    }
+    // 校验账号存在
+    let acct = null;
+    try {
+      const cd = require('./cloud-drive');
+      acct = cd.manager ? cd.manager.getAccount(Number(accountId)) : null;
+    } catch (e) { acct = null; }
+    if (!acct || acct.driver !== 'pan115') {
+      return res.status(400).json({ error: '115账号不存在或不可用，请先在网盘设置里登录' });
+    }
+    // mediaType -> 内置 source_root dir
+    const dirForType = (String(mediaType || 'mkv').toLowerCase() === 'flac' || String(mediaType || '').toLowerCase() === 'separated')
+      ? 'netktv' : 'netktv-mkv';
+    const roots = getLibraryRoots();
+    if (roots.some(r => r.dir === dirForType)) {
+      return res.status(409).json({ error: '这个115网盘来源已经添加过了(每类只能有一个)，可直接在列表里点"扫描"' });
+    }
+    const cloud = { accountId: acct.id, cloudPath: String(cloudPath).trim(), mediaType: dirForType === 'netktv' ? 'flac' : 'mkv' };
+    const builtin = BUILTIN_CLOUD_ROOTS[dirForType] || {};
+    roots.push({
+      dir: dirForType,
+      label: (cloudLabel && String(cloudLabel).trim()) ? String(cloudLabel).trim() : builtin.label || ('115网盘 ' + cloudPath),
+      isNetwork: true,
+      enabled: true,
+      cloud,
+    });
+    saveLibraryRoots(roots);
+    log.info('ADMIN', `曲库来源: 新增115网络来源 ${dirForType} -> ${cloud.cloudPath} (账号=${cloud.accountId})`);
+    return res.json({ ok: true, roots });
+  }
+
 
 
 
@@ -20831,7 +21233,7 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
 
 
-  if (!resolved) return res.status(400).json({ error: '璺緞蹇呴』浣嶄簬 /mv 鎴?/mv-net 涔嬩笅' });
+  if (!resolved) return res.status(400).json({ error: '路径必须位于 /mv 或 /mv-net 之下' });
 
 
 
@@ -20841,7 +21243,7 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
 
 
-  if (!fs.existsSync(resolved)) return res.status(400).json({ error: `鐩綍涓嶅瓨鍦? ${resolved}锛岃纭瀵瑰簲鐨?host 鐩綍宸茬粡鎸傝浇濂絗 });
+  if (!fs.existsSync(resolved)) return res.status(400).json({ error: `目录不存在: ${resolved}，请确认对应的 host 目录已经挂载好` });
 
 
 
@@ -20861,7 +21263,7 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
 
 
-  if (roots.some(r => r.dir === resolved)) return res.status(409).json({ error: '杩欎釜鐩綍宸茬粡娣诲姞杩囦簡' });
+  if (roots.some(r => r.dir === resolved)) return res.status(409).json({ error: '这个目录已经添加过了' });
 
 
 
@@ -20891,7 +21293,7 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
 
 
 
-  log.info('ADMIN', `鏇插簱鏉ユ簮: 鏂板鏍圭洰褰?${resolved}${isNetwork ? '(缃戠粶璺緞锛屽皢璧版湰鍦扮紦瀛?' : '(鏈湴璺緞)'}`);
+  log.info('ADMIN', `曲库来源: 新增根目录 ${resolved}${isNetwork ? '(网络路径，将走本地缓存)' : '(本地路径)'}`);
 
 
 
@@ -20961,7 +21363,7 @@ app.patch('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res) 
 
 
 
-  if (!(idx >= 0 && idx < roots.length)) return res.status(404).json({ error: '鎵句笉鍒拌繖涓洸搴撴潵婧? });
+  if (!(idx >= 0 && idx < roots.length)) return res.status(404).json({ error: '找不到这个曲库来源' });
 
 
 
@@ -21021,7 +21423,7 @@ app.patch('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res) 
 
 
 
-  log.info('ADMIN', `鏇插簱鏉ユ簮: 鏇存柊 ${roots[idx].dir} -> ${JSON.stringify(roots[idx])}`);
+  log.info('ADMIN', `曲库来源: 更新 ${roots[idx].dir} -> ${JSON.stringify(roots[idx])}`);
 
 
 
@@ -21091,7 +21493,7 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
-  if (!(idx >= 0 && idx < roots.length)) return res.status(404).json({ error: '鎵句笉鍒拌繖涓洸搴撴潵婧? });
+  if (!(idx >= 0 && idx < roots.length)) return res.status(404).json({ error: '找不到这个曲库来源' });
 
 
 
@@ -21121,7 +21523,7 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
-  // Bug淇("鍙栨秷鎸傝浇鐨勬洸搴撴枃浠跺す锛屽悗鍙版€绘洸鐩篃娌℃湁鍑忓皯")锛氫互鍓嶈繖閲屽彧鏄妸
+  // Bug修复("取消挂载的曲库文件夹，后台总曲目也没有减少")：以前这里只是把
 
 
 
@@ -21131,16 +21533,7 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
-  // 鐩綍浠庨厤缃噷鎽樻帀锛屾晠鎰忎笉鍔ㄥ搴旂殑姝屾洸璁板綍锛岀悊鐢辨槸"鐩綍鏆傛椂璁块棶涓嶄簡涓嶄唬琛?
-
-
-
-
-
-
-
-
-  // 鐢ㄦ埛鎯冲垹鏁版嵁"鈥斺€斾絾杩欐贩娣嗕簡涓ょ瀹屽叏涓嶅悓鐨勫満鏅細鈶犵綉缁滄寕杞藉伓灏旀帀绾?涓存椂
+  // 目录从配置里摘掉，故意不动对应的歌曲记录，理由是"目录暂时访问不了不代表
 
 
 
@@ -21150,16 +21543,7 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
-  // 涓嶅彲璁块棶(scanLibrary() 閭ｈ竟宸茬粡鏈変笓闂ㄧ殑淇濇姢锛屼笉浼氬洜涓鸿繖涓嚜鍔ㄦ竻鐞嗭紝瑙?
-
-
-
-
-
-
-
-
-  // 椤堕儴娉ㄩ噴)锛涒憽绠＄悊鍛樺湪杩欓噷涓诲姩鐐逛簡"绉婚櫎"锛岃繖灏辨槸鏄庣‘鐨?鎴戜笉瑕佽繖涓潵婧愪簡"
+  // 用户想删数据"——但这混淆了两种完全不同的场景：①网络挂载偶尔掉线/临时
 
 
 
@@ -21169,7 +21553,7 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
-  // 鐨勬剰鎬濓紝涓嶅簲璇ヨ瀹冨悕涓嬬殑鏇茬洰缁х画鍗犵潃銆屾洸搴撶鐞嗐€嶅垪琛ㄥ嵈鍙堟壂涓嶅埌銆佹挱涓嶄簡銆?
+  // 不可访问(scanLibrary() 那边已经有专门的保护，不会因为这个自动清理，见
 
 
 
@@ -21178,7 +21562,8 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
-  // 榛樿娓呯悊锛岄櫎闈炶姹備綋鏄惧紡浼?purge:false锛堢鐞嗗憳鍙槸鎯虫殏鏃剁Щ鍑洪厤缃€佷互鍚?
+
+  // 顶部注释)；②管理员在这里主动点了"移除"，这就是明确的"我不要这个来源了"
 
 
 
@@ -21187,7 +21572,29 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
-  // 鍙兘閲嶆柊娣诲姞鍥炴潵锛屼笉鎯冲姩宸插叆搴撶殑鏇茬洰/鎾斁鍘嗗彶/鏀惰棌锛夈€?
+
+  // 的意思，不应该让它名下的曲目继续占着「曲库管理」列表却又扫不到、播不了。
+
+
+
+
+
+
+
+
+
+  // 默认清理，除非请求体显式传 purge:false（管理员只是想暂时移出配置、以后
+
+
+
+
+
+
+
+
+
+  // 可能重新添加回来，不想动已入库的曲目/播放历史/收藏）。
+
 
 
 
@@ -21256,7 +21663,7 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
-      catch (e) { log.error('ADMIN', `鏇插簱鏉ユ簮绉婚櫎鍚庢竻鐞嗘洸鐩け璐?id=${row.id}): ${e.message}`); }
+      catch (e) { log.error('ADMIN', `曲库来源移除后清理曲目失败(id=${row.id}): ${e.message}`); }
 
 
 
@@ -21286,7 +21693,7 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
-  log.info('ADMIN', `鏇插簱鏉ユ簮: 绉婚櫎鏍圭洰褰?${removed.dir}${purge ? `锛屽凡杩炲甫娓呯悊鍏跺悕涓?${purgedCount} 棣栨洸鐩強鎾斁鍘嗗彶/鏀惰棌璁板綍` : '(淇濈暀宸插叆搴撶殑姝屾洸璁板綍锛屾湭娓呯悊)'}`);
+  log.info('ADMIN', `曲库来源: 移除根目录 ${removed.dir}${purge ? `，已连带清理其名下 ${purgedCount} 首曲目及播放历史/收藏记录` : '(保留已入库的歌曲记录，未清理)'}`);
 
 
 
@@ -21386,7 +21793,7 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
-  if (!(Number(maxMB) > 0)) return res.status(400).json({ error: '璇峰～鍐欐湁鏁堢殑缂撳瓨绌洪棿涓婇檺(MB)' });
+  if (!(Number(maxMB) > 0)) return res.status(400).json({ error: '请填写有效的缓存空间上限(MB)' });
 
 
 
@@ -21396,7 +21803,7 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
-  if (!(Number(maxAgeDays) > 0)) return res.status(400).json({ error: '璇峰～鍐欐湁鏁堢殑缂撳瓨淇濈暀澶╂暟' });
+  if (!(Number(maxAgeDays) > 0)) return res.status(400).json({ error: '请填写有效的缓存保留天数' });
 
 
 
@@ -21406,7 +21813,7 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
-  if (!(Number(concurrency) > 0)) return res.status(400).json({ error: '璇峰～鍐欐湁鏁堢殑骞跺彂鎷疯礉鏁? });
+  if (!(Number(concurrency) > 0)) return res.status(400).json({ error: '请填写有效的并发拷贝数' });
 
 
 
@@ -21426,7 +21833,7 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
-  log.info('ADMIN', `缃戠洏鏈湴缂撳瓨璋冧紭鍙傛暟宸叉洿鏂? 涓婇檺=${saved.maxMB}MB, 淇濈暀=${saved.maxAgeDays}澶? 骞跺彂=${saved.concurrency}`);
+  log.info('ADMIN', `网盘本地缓存调优参数已更新: 上限=${saved.maxMB}MB, 保留=${saved.maxAgeDays}天, 并发=${saved.concurrency}`);
 
 
 
@@ -21466,7 +21873,7 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
-// ---------- 鎵弿 / 缁熻 ----------
+// ---------- 扫描 / 统计 ----------
 
 
 
@@ -21476,7 +21883,7 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
-// resetAudioTracks锛氫慨澶?鎺㈡祴澶辫触琚案涔呭綋鎴愮湡瀹炲崟闊宠建缁撴灉缂撳瓨"鐨勫巻鍙查仐鐣?
+// resetAudioTracks：修复"探测失败被永久当成真实单音轨结果缓存"的历史遗留
 
 
 
@@ -21485,8 +21892,8 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
-// 闂鈥斺€旇€佺増鏈帰娴嬪け璐ユ椂浼氭妸 audio_tracks 鍐欐鎴?1锛岃窡"鐪熺殑鎺㈡祴鎴愬姛銆?
 
+// 问题——老版本探测失败时会把 audio_tracks 写死成 1，跟"真的探测成功、
 
 
 
@@ -21494,72 +21901,71 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
-// 纭灏辨槸鍗曢煶杞?瀹屽叏娌℃硶鍖哄垎锛屾甯告壂鎻忎笉浼氶噸鏂扮瀹冦€傝繖閲岀粰绠＄悊鍛樹竴涓?
 
 
+// 确认就是单音轨"完全没法区分，正常扫描不会重新碰它。这里给管理员一个
 
 
 
 
 
 
-// 鏄惧紡鍏ュ彛锛氬厛鎶婂叏閮ㄦ瓕鏇茬殑 audio_tracks 娓呯┖鎴?NULL锛屽啀璧颁竴娆℃甯告壂鎻忥紝
 
 
 
+// 显式入口：先把全部歌曲的 audio_tracks 清空成 NULL，再走一次正常扫描，
 
 
 
 
 
 
-// 鎵弿閲?琛ュ叏鑰佹洸鐩煶杞ㄦ暟"閭ｆ閫昏緫灏变細鎶婃瘡涓€棣栭兘閲嶆柊鎺㈡祴涓€閬嶃€傝繖鏄浉瀵?
 
 
 
+// 扫描里"补全老曲目音轨数"那段逻辑就会把每一首都重新探测一遍。这是相对
 
 
 
 
 
-// 閲嶇殑鎿嶄綔锛堟洸搴撹秺澶ц秺鎱紝涓旂敤鍒扮殑鏄渶鏂版斁瀹藉埌 30s 鐨勬帰娴嬭秴鏃讹級锛屾墍浠?
 
 
 
 
+// 重的操作（曲库越大越慢，且用到的是最新放宽到 30s 的探测超时），所以
 
 
 
 
-// 瑕佹眰绠＄悊鍛樼櫥褰曟墠鑳借Е鍙戯紝閬垮厤琚殢鎵嬭瑙︽垨琚伓鎰忚姹傚弽澶嶈Е鍙戙€?
 
 
 
 
 
+// 要求管理员登录才能触发，避免被随手误触或被恶意请求反复触发。
 
 
 
-// 闇€姹?鍏ㄧ洏閲嶆柊鎺㈡祴闊宠建鎺掗櫎缃戠粶鏇插簱)锛氳繖閲屼粛鐒舵棤宸埆鎶婃墍鏈夋洸鐩?鍚綉缁?STRM
 
 
 
 
 
 
+// 需求(全盘重新探测音轨排除网络曲库)：这里仍然无差别把所有曲目(含网络/STRM
 
 
 
-// 鏇茬洰)鐨?audio_tracks 娓呯┖鎴?NULL鈥斺€旇繖涓€姝ユ湰韬彧鏄竻绌烘暟鎹簱瀛楁锛屼笉纰颁换浣?
 
 
 
 
 
 
+// 曲目)的 audio_tracks 清空成 NULL——这一步本身只是清空数据库字段，不碰任何
 
 
-// 鏂囦欢锛屼笉浼氳Е鍙戜笅杞斤紝鍙互鏀惧績鏃犲樊鍒竻銆傜湡姝ｅ喅瀹?娓呯┖涔嬪悗璋佷細琚噸鏂版帰娴?鐨?
 
 
 
@@ -21567,8 +21973,8 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
+// 文件，不会触发下载，可以放心无差别清。真正决定"清空之后谁会被重新探测"的
 
-// 鏄?scanner.js scanLibrary() 閲岀揣璺熺潃鐨勪袱娈佃ˉ鍏ㄩ€昏緫锛氭湰鍦版洸鐩収甯稿叏閮ㄩ噸鏂?
 
 
 
@@ -21577,7 +21983,7 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
-// 鎺㈡祴锛涚綉缁?STRM 鏇茬洰鍙湁"宸茬粡鏈夋湰鍦扮紦瀛樻枃浠?鐨勯偅閮ㄥ垎浼氳椤烘墜鎺㈡祴(鐩存帴璇?
+// 是 scanner.js scanLibrary() 里紧跟着的两段补全逻辑：本地曲目照常全部重新
 
 
 
@@ -21586,8 +21992,8 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
-// 鐜版垚鐨勭紦瀛樻枃浠讹紝涓嶈Е鍙戜笅杞?锛屾病鏈夌紦瀛樼殑缃戠粶/STRM 鏇茬洰淇濇寔 NULL锛屼笉浼氫负浜?
 
+// 探测；网络/STRM 曲目只有"已经有本地缓存文件"的那部分会被顺手探测(直接读
 
 
 
@@ -21595,9 +22001,9 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
-// 杩欐鎵归噺閲嶆柊鎺㈡祴鑰岃寮哄埗涓嬭浇鈥斺€斿畠浠細鍦ㄤ笅娆＄湡姝ｈ鐐规瓕/鎾斁鏃舵寜姝ｅ父鎾斁
 
 
+// 现成的缓存文件，不触发下载)，没有缓存的网络/STRM 曲目保持 NULL，不会为了
 
 
 
@@ -21605,95 +22011,110 @@ app.post('/api/admin/library-sources/cache-settings', requireAdminAuth, (req, re
 
 
 
-// 璺緞鑷劧缂撳瓨+鎺㈡祴锛屼笉闇€瑕佽繖閲岄澶栧鐞嗐€備篃灏辨槸璇寸鐞嗗憳瑙﹀彂杩欎釜鍏ュ彛涓嶄細鍐?
 
 
+// 这次批量重新探测而被强制下载——它们会在下次真正被点歌/播放时按正常播放
 
 
 
 
 
 
-// 鎶婄綉鐩樻洸搴撲竴娆℃€у叏閮ㄤ笅杞界紦瀛樺埌鏈湴浜嗐€?
 
 
 
+// 路径自然缓存+探测，不需要这里额外处理。也就是说管理员触发这个入口不会再
 
 
 
 
 
-// 闇€姹?鎵弿鏂瑰紡鎷嗗垎)锛氭柊澧?mode 鍙傛暟锛屼笁绉嶅彇鍊艰 scanner.js scanLibrary()
 
 
 
 
+// 把网盘曲库一次性全部下载缓存到本地了。
 
 
 
 
 
-// 椤堕儴娉ㄩ噴鈥斺€?full'(榛樿锛屾柊澧?鏇存柊+鍒犻櫎锛岃涓鸿窡鏀瑰姩鍓嶅畬鍏ㄤ竴鑷?/
 
 
 
 
+// 需求(扫描方式拆分)：新增 mode 参数，三种取值见 scanner.js scanLibrary()
 
 
 
 
 
-// 'incremental'(鍙柊澧炴洿鏂帮紝涓嶅垹锛屼笉绠¤繖杞壂鎻忓皯鐪嬪埌澶氬皯鏂囦欢閮戒笉浼氬垹浠讳綍
 
 
 
 
+// 顶部注释——'full'(默认，新增+更新+删除，行为跟改动前完全一致)/
 
 
 
 
 
-// 璁板綍)/'diff'(鍙棰勮锛屽畬鍏ㄤ笉鍐欐暟鎹簱锛岀敤鏉ョ湅"濡傛灉鐜板湪鎵叏閲忎細鍒犳帀鍝簺
 
 
 
 
+// 'incremental'(只新增更新，不删，不管这轮扫描少看到多少文件都不会删任何
 
 
 
 
 
-// 姝?)銆傚欢缁笂闈㈡敞閲婇噷鐨勮璁★細/api/scan 鏈潵灏辨槸鐢佃绔?鎵弿鏇插簱"鎸夐挳涔熷湪
 
 
 
 
+// 记录)/'diff'(只读预览，完全不写数据库，用来看"如果现在扫全量会删掉哪些
 
 
 
 
 
-// 鐢ㄧ殑鍏叡鎺ュ彛锛屼笉瑕佹眰鐧诲綍锛岃繖閲屼笉鏀瑰彉杩欎釜鏃㈡湁璁捐鈥斺€旀柊澧炵殑涓夌妯″紡缁熶竴
 
 
 
 
+// 歌")。延续上面注释里的设计：/api/scan 本来就是电视端"扫描曲库"按钮也在
 
 
 
 
 
-// 涓嶉澶栨敹绱ф潈闄愶紝鍒犻櫎杩欎欢浜嬫湰韬幇鍦ㄥ凡缁忕敱 scanLibrary() 鍐呴儴鐨?楠ゅ噺鐔旀柇"
 
 
 
 
+// 用的公共接口，不要求登录，这里不改变这个既有设计——新增的三种模式统一
 
 
 
 
 
-// 鍏滃簳淇濇姢(瑙佽鍑芥暟椤堕儴娉ㄩ噴)锛屼笉渚濊禆"璋佽兘瑙﹀彂鎵弿"杩欓亾闂ㄦ銆?
+
+
+
+
+// 不额外收紧权限，删除这件事本身现在已经由 scanLibrary() 内部的"骤减熔断"
+
+
+
+
+
+
+
+
+
+// 兜底保护(见该函数顶部注释)，不依赖"谁能触发扫描"这道门槛。
+
 
 
 
@@ -21742,7 +22163,7 @@ app.post('/api/scan', async (req, res) => {
 
 
 
-      if (!isAdminAuthed(req)) return res.status(401).json({ error: '璇峰厛鐧诲綍绠＄悊鍛樿处鍙? });
+      if (!isAdminAuthed(req)) return res.status(401).json({ error: '请先登录管理员账号' });
 
 
 
@@ -21762,7 +22183,7 @@ app.post('/api/scan', async (req, res) => {
 
 
 
-      log.info('SCAN', '绠＄悊鍛樿Е鍙戯細宸叉竻绌哄叏閮ㄦ瓕鏇茬殑闊宠建鎺㈡祴缁撴灉锛屾湰娆℃壂鎻忓皢閲嶆柊鎺㈡祴鏈湴鏇茬洰鍙婂凡缂撳瓨鐨勭綉缁?STRM鏇茬洰锛屾湭缂撳瓨鐨勭綉缁滄洸鐩繚鎸佸緟鎺㈡祴鐘舵€侊紝涓嶄細琚己鍒朵笅杞?);
+      log.info('SCAN', '管理员触发：已清空全部歌曲的音轨探测结果，本次扫描将重新探测本地曲目及已缓存的网络/STRM曲目，未缓存的网络曲目保持待探测状态，不会被强制下载');
 
 
 
@@ -21852,7 +22273,7 @@ app.get('/api/stats', (req, res) => {
 
 
 
-  // 闇€姹?鏇插簱鍚庡彴鏈湴/缃戠粶鍒嗗紑鏄剧ず)锛氭€绘洸鐩寜 is_network 鎷嗘垚鏈湴/缃戠粶涓や釜
+  // 需求(曲库后台本地/网络分开显示)：总曲目按 is_network 拆成本地/网络两个
 
 
 
@@ -21862,7 +22283,7 @@ app.get('/api/stats', (req, res) => {
 
 
 
-  // 鏁板瓧锛屼緵銆屾洸搴撶鐞嗐€嶉〉闈㈤《閮ㄧ殑缁熻鍗＄墖鍜?鏈湴/缃戠粶"鍒囨崲鎸夐挳涓婄殑瑙掓爣
+  // 数字，供「曲库管理」页面顶部的统计卡片和"本地/网络"切换按钮上的角标
 
 
 
@@ -21872,7 +22293,7 @@ app.get('/api/stats', (req, res) => {
 
 
 
-  // 浣跨敤銆備袱鑰呯浉鍔犲簲璇ョ瓑浜?songCount锛岄櫎闈炲嚭鐜?is_network 鏃笉鏄?0 涔熶笉鏄?
+  // 使用。两者相加应该等于 songCount，除非出现 is_network 既不是 0 也不是
 
 
 
@@ -21881,7 +22302,9 @@ app.get('/api/stats', (req, res) => {
 
 
 
-  // 1 鐨勮剰鏁版嵁(鐞嗚涓婁笉浼氾紝瀛楁鏄?INTEGER DEFAULT 0锛岃繖閲屼笉棰濆鍋氬厹搴?銆?
+
+  // 1 的脏数据(理论上不会，字段是 INTEGER DEFAULT 0，这里不额外做兜底)。
+
 
 
 
@@ -21920,7 +22343,7 @@ app.get('/api/stats', (req, res) => {
 
 
 
-  // 銆屾洸搴撶鐞嗐€嶅垎濂介〉鍚庯紝椤甸潰涓婁竴娆″彧鑳界湅鍒?50 棣栨瓕锛屼笉鑳藉啀闈?鎶婂綋鍓嶈繖
+  // 「曲库管理」分好页后，页面上一次只能看到 50 首歌，不能再靠"把当前这
 
 
 
@@ -21930,7 +22353,7 @@ app.get('/api/stats', (req, res) => {
 
 
 
-  // 涓€椤电殑 play_count 鍔犺捣鏉?寰楀埌鎬绘挱鏀炬鏁帮紙閭ｆ牱姣忕炕涓€椤垫暟瀛楅兘浼氳烦鍙橈級锛?
+  // 一页的 play_count 加起来"得到总播放次数（那样每翻一页数字都会跳变），
 
 
 
@@ -21939,7 +22362,9 @@ app.get('/api/stats', (req, res) => {
 
 
 
-  // 鏀规垚杩欓噷鐩存帴鍦ㄥ叏琛ㄤ笂鑱氬悎锛岃窡鍒嗛〉鏃犲叧锛屾暟瀛楀缁堝噯纭€?
+
+  // 改成这里直接在全表上聚合，跟分页无关，数字始终准确。
+
 
 
 
@@ -21988,7 +22413,7 @@ app.get('/api/stats', (req, res) => {
 
 
 
-    // 闇€姹?鏈湴mv澶氳矾寰勬敮鎸?锛歮vDir 瀛楁涓轰簡鍏煎鑰佺増鏈鐞嗛〉闈㈢户缁繚鐣?浠嶆槸
+    // 需求(本地mv多路径支持)：mvDir 字段为了兼容老版本管理页面继续保留(仍是
 
 
 
@@ -21998,7 +22423,7 @@ app.get('/api/stats', (req, res) => {
 
 
 
-    // 绗竴涓湰鍦扮洰褰?锛屽璺緞鐨勫畬鏁撮厤缃€氳繃 mvRoots 涓€璧风粰鍑猴紝鏂扮増绠＄悊椤甸潰
+    // 第一个本地目录)，多路径的完整配置通过 mvRoots 一起给出，新版管理页面
 
 
 
@@ -22008,7 +22433,8 @@ app.get('/api/stats', (req, res) => {
 
 
 
-    // 鍙互鎹灞曠ず"褰撳墠閰嶇疆浜嗗摢鍑犱釜鐩綍銆佸摢浜涙槸缃戠粶璺緞"銆?
+    // 可以据此展示"当前配置了哪几个目录、哪些是网络路径"。
+
 
 
 
@@ -22067,7 +22493,7 @@ app.get('/api/stats', (req, res) => {
 
 
 
-// ---------- 鐐规瓕闃熷垪 ----------
+// ---------- 点歌队列 ----------
 
 
 
@@ -22077,7 +22503,7 @@ app.get('/api/stats', (req, res) => {
 
 
 
-// 闃熷垪鍐呭瓨缂撳瓨锛歡etQueueWithSongs() 姣忔閮芥墽琛?JOIN 鏌ヨ锛岄槦鍒椾笉鍙樻椂鐩存帴杩斿洖缂撳瓨锛?
+// 队列内存缓存：getQueueWithSongs() 每次都执行 JOIN 查询，队列不变时直接返回缓存，
 
 
 
@@ -22086,7 +22512,9 @@ app.get('/api/stats', (req, res) => {
 
 
 
-// 閬垮厤棰戠箒鏌ユ暟鎹簱銆傞槦鍒楀彉鍖栨椂(鐐规瓕/鍒囨瓕/缃《/鍒犻櫎)璋冪敤 invalidateQueueCache() 澶辨晥銆?
+
+// 避免频繁查数据库。队列变化时(点歌/切歌/置顶/删除)调用 invalidateQueueCache() 失效。
+
 
 
 
@@ -22105,7 +22533,7 @@ let _queueCache = { data: null, time: 0 };
 
 
 
-const QUEUE_CACHE_TTL = 2000;  // 2绉扵TL锛屽厹搴曢槻姝㈡紡澶辨晥
+const QUEUE_CACHE_TTL = 2000;  // 2秒TTL，兜底防止漏失效
 
 
 
@@ -22245,7 +22673,7 @@ function getQueueWithSongs() {
 
 
 
-    -- 鎺掑簭淇锛氱疆椤跺彧鑳芥妸涓€棣栨瓕鎸埌"姝ｅ湪鎾斁"涔嬪悗鐨勭涓€浣嶏紙鍗虫暣涓槦鍒楃殑绗簩浣嶏級锛?
+    -- 排序修复：置顶只能把一首歌挪到"正在播放"之后的第一位（即整个队列的第二位），
 
 
 
@@ -22254,8 +22682,8 @@ function getQueueWithSongs() {
 
 
 
-    -- 涓嶈兘鐩栬繃姝ｅ湪鎾斁鐨勯偅棣栥€傛棫鎺掑簭 'is_top DESC, id ASC' 鍙寜缃《鏍囪鎺掞紝
 
+    -- 不能盖过正在播放的那首。旧排序 'is_top DESC, id ASC' 只按置顶标记排，
 
 
 
@@ -22264,8 +22692,8 @@ function getQueueWithSongs() {
 
 
 
-    -- 瀹屽叏娌¤€冭檻鎾斁鐘舵€佲€斺€斿鏋滄鍦ㄦ挱鏀剧殑杩欎竴琛屾湰韬?is_top=0锛屼换浣曚竴棣栧垰琚疆椤?
 
+    -- 完全没考虑播放状态——如果正在播放的这一行本身 is_top=0，任何一首刚被置顶
 
 
 
@@ -22273,92 +22701,91 @@ function getQueueWithSongs() {
 
 
 
-    -- 鐨勫€欓€夋瓕閮戒細鍥犱负 is_top=1 鎺掑埌瀹冨墠闈紝绛変簬鎶?姝ｅ湪鎾斁"浠庨槦棣栨尋涓嬪幓锛?
 
 
+    -- 的候选歌都会因为 is_top=1 排到它前面，等于把"正在播放"从队首挤下去，
 
 
 
 
 
 
-    -- 鐣岄潰涓婁細鏄剧ず鎴?缃《姝屾洸鎺掑湪姝ｅ湪鎾斁鐨勬瓕鍓嶉潰"锛岃鎰熷拰璇箟閮戒笉瀵广€?
 
 
 
+    -- 界面上会显示成"置顶歌曲排在正在播放的歌前面"，观感和语义都不对。
 
 
 
 
 
-    -- 鐜板湪鏈€浼樺厛鎸?status='playing' 鎺掞紙true=1 鎺掓渶鍓嶏級锛屼繚璇佹鍦ㄦ挱鏀剧殑
 
 
 
 
+    -- 现在最优先按 status='playing' 排（true=1 排最前），保证正在播放的
 
 
 
 
 
-    -- 閭ｄ竴琛屾案杩滃崰鎹涓€浣嶃€?
 
 
 
 
+    -- 那一行永远占据第一位。
 
 
 
 
-    -- Bug淇(杩炵画缃《鏃讹紝鍏堝墠缃《鐨勬瓕琚墦鍥炲師濮嬫帓搴忎綅缃?锛氬叾娆℃寜
 
 
 
 
 
+    -- Bug修复(连续置顶时，先前置顶的歌被打回原始排序位置)：其次按
 
 
 
 
-    -- top_order 鎺掆€斺€旇繖涓€鍒椾笉鍐嶆槸 is_top 閭ｇ 0/1 甯冨皵鏍囪锛岃€屾槸"绗嚑娆¤
 
 
 
 
 
+    -- top_order 排——这一列不再是 is_top 那种 0/1 布尔标记，而是"第几次被
 
 
 
 
-    -- 缃《鎿嶄綔閫変腑"鐨勯€掑搴忓彿锛孨ULL 琛ㄧず浠庢病琚疆椤惰繃銆?top_order IS NULL)
 
 
 
 
 
+    -- 置顶操作选中"的递增序号，NULL 表示从没被置顶过。(top_order IS NULL)
 
 
 
 
-    -- ASC 璁?鏇剧粡琚疆椤惰繃"鐨勮鏁翠綋鎺掑湪"浠庢病缃《杩?鐨勮鍓嶉潰锛涚疆椤惰繃鐨勮鍐?
 
 
 
 
 
+    -- ASC 让"曾经被置顶过"的行整体排在"从没置顶过"的行前面；置顶过的行再
 
 
 
-    -- 鎸?top_order DESC 鎺掞紝鍊艰秺澶ц鏄庣疆椤跺緱瓒婃櫄锛屾帓鏈€鍓嶁€斺€斾篃灏辨槸鏈€杩戜竴娆?
 
 
 
 
 
 
+    -- 按 top_order DESC 排，值越大说明置顶得越晚，排最前——也就是最近一次
 
 
-    -- 缃《鎿嶄綔鍛戒腑鐨勯偅棣栨帓鍦ㄧ揣璺?姝ｅ湪鎾斁"涔嬪悗鐨勭 2 浣嶏紝鏇存棭琚疆椤躲€佷絾
 
 
 
@@ -22366,9 +22793,9 @@ function getQueueWithSongs() {
 
 
 
+    -- 置顶操作命中的那首排在紧跟"正在播放"之后的第 2 位，更早被置顶、但
 
 
-    -- 杩樻病杞埌鎾斁鐨勯偅浜涗緷娆￠『寤跺埌绗?3銆?...浣嶏紝鑰屼笉鏄儚鏃ч€昏緫閭ｆ牱琚竻绌?
 
 
 
@@ -22376,8 +22803,8 @@ function getQueueWithSongs() {
 
 
 
+    -- 还没轮到播放的那些依次顺延到第 3、4...位，而不是像旧逻辑那样被清空
 
-    -- 鏍囪鍚庢墦鍥炴寜 id 鎺掑簭鐨勫師濮嬩綅缃€備粠娌¤缃《杩囩殑琛屼箣闂翠粛鎸?id ASC
 
 
 
@@ -22386,8 +22813,18 @@ function getQueueWithSongs() {
 
 
 
+    -- 标记后打回按 id 排序的原始位置。从没被置顶过的行之间仍按 id ASC
 
-    -- (鐐规瓕椤哄簭)鎺掑垪銆?
+
+
+
+
+
+
+
+
+    -- (点歌顺序)排列。
+
 
 
 
@@ -22466,7 +22903,7 @@ function getQueueWithSongs() {
 
 
 
-// ---------- 宸茬偣闃熷垪鎾畬鍚庤嚜鍔ㄩ殢鏈烘挱鏀?----------
+// ---------- 已点队列播完后自动随机播放 ----------
 
 
 
@@ -22476,7 +22913,7 @@ function getQueueWithSongs() {
 
 
 
-// 闇€姹傦細"宸茬偣闃熷垪鎾畬鍚庢槸鍚﹁嚜鍔ㄤ粠鏇插簱闅忔満鎾斁锛屼互鍙婃槸鍚︿粎浠庢湰鍦版洸搴撻殢鏈?
+// 需求："已点队列播完后是否自动从曲库随机播放，以及是否仅从本地曲库随机
 
 
 
@@ -22485,8 +22922,8 @@ function getQueueWithSongs() {
 
 
 
-// (涓嶉殢鏈哄埌缃戠粶/缃戠洏鏇插簱鐨勬瓕)"銆傝繖鏉¤缃窡"闃熷垪绌轰簡涔嬪悗鎺ヤ笅鏉ユ挱浠€涔?鏄悓涓€
 
+// (不随机到网络/网盘曲库的歌)"。这条设置跟"队列空了之后接下来播什么"是同一
 
 
 
@@ -22495,8 +22932,8 @@ function getQueueWithSongs() {
 
 
 
-// 浠朵簨鈥斺€旇€?鎺ヤ笅鏉ユ挱浠€涔?瀹屽叏鐢辨湇鍔＄ /api/queue/next 鍐冲畾锛屾槸鎵€鏈夊凡杩炴帴
 
+// 件事——而"接下来播什么"完全由服务端 /api/queue/next 决定，是所有已连接
 
 
 
@@ -22505,8 +22942,8 @@ function getQueueWithSongs() {
 
 
 
-// 璁惧(TV銆佸钩鏉跨偣姝岀銆佹墜鏈洪仴鎺х)鍏变韩鐨勫悓涓€浠芥挱鏀捐涓猴紝涓嶆槸"杩欏彴璁惧鐣岄潰涓?
 
+// 设备(TV、平板点歌端、手机遥控端)共享的同一份播放行为，不是"这台设备界面上
 
 
 
@@ -22514,9 +22951,9 @@ function getQueueWithSongs() {
 
 
 
-// 闀夸粈涔堟牱"閭ｇ姣忓彴璁惧鍚勮嚜璁颁竴浠界殑鏈湴鍋忓ソ(瀵规瘮锛氳В鐮佹ā寮?涓婚/榛樿鍏ㄥ睆
 
 
+// 长什么样"那种每台设备各自记一份的本地偏好(对比：解码模式/主题/默认全屏
 
 
 
@@ -22524,9 +22961,9 @@ function getQueueWithSongs() {
 
 
 
-// 鏄?Android Prefs/娴忚鍣?localStorage 鍚勫瓨鍚勭殑锛屽洜涓洪偅浜涘彧褰卞搷杩欏彴璁惧鑷繁
 
 
+// 是 Android Prefs/浏览器 localStorage 各存各的，因为那些只影响这台设备自己
 
 
 
@@ -22534,64 +22971,70 @@ function getQueueWithSongs() {
 
 
 
-// 鎬庝箞娓叉煋)銆傛墍浠ヨ繖閲屾寔涔呭寲鍦ㄦ湇鍔＄ settings 琛?璺熻绉?椋庢牸棰勮鍚屼竴寮犺〃锛?
 
 
+// 怎么渲染)。所以这里持久化在服务端 settings 表(跟语种/风格预设同一张表，
 
 
 
 
 
 
-// 鍚屼竴绉?JSON 瀛楃涓插瓨娉?锛岃€屼笉鏄笅鍙戠粰瀹㈡埛绔湰鍦颁繚瀛橈紱浠讳綍涓€鍙拌澶囧湪"璁剧疆"
 
 
 
+// 同一种 JSON 字符串存法)，而不是下发给客户端本地保存；任何一台设备在"设置"
 
 
 
 
 
 
-// 闈㈡澘閲屾敼浜嗭紝鍏跺畠璁惧涓嬫鎵撳紑璁剧疆闈㈡澘閲嶆柊鎷夊彇鍒扮殑閮芥槸鍚屼竴浠界粨鏋滐紝涓嶄細鍑虹幇
 
 
 
+// 面板里改了，其它设备下次打开设置面板重新拉取到的都是同一份结果，不会出现
 
 
 
 
 
 
-// "鏈夌殑璁惧寮€浜嗐€佹湁鐨勮澶囨病寮€"杩欑娌℃湁鎰忎箟鐨勫垎姝с€?
 
 
 
+// "有的设备开了、有的设备没开"这种没有意义的分歧。
 
 
 
 
 
-// 涓嶈姹傜鐞嗗憳鐧诲綍锛氳窡鍚屼竴涓?璁剧疆"闈㈡澘閲岃В鐮佹ā寮?涓婚/榛樿鍏ㄥ睆涓€鏍凤紝鏄?
 
 
 
 
+// 不要求管理员登录：跟同一个"设置"面板里解码模式/主题/默认全屏一样，是
 
 
 
 
-// 鏅€氱敤鎴锋棩甯稿氨璇ヨ兘鑷繁鍒囨崲鐨勬挱鏀惧亸濂斤紝璺?鏇插簱绠＄悊鍚庡彴"閭ｄ簺闇€瑕佺鐞嗗憳
 
 
 
 
 
+// 普通用户日常就该能自己切换的播放偏好，跟"曲库管理后台"那些需要管理员
 
 
 
 
-// 瀵嗙爜鎵嶈兘鏀圭殑閰嶇疆(鏇插簱鏉ユ簮鐩綍銆佺紦瀛樻竻鐞嗙瓥鐣ョ瓑)涓嶆槸涓€鍥炰簨銆?
+
+
+
+
+
+// 密码才能改的配置(曲库来源目录、缓存清理策略等)不是一回事。
+
 
 
 
@@ -22860,7 +23303,7 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
-  log.info('SETTINGS', `宸茬偣闃熷垪鎾畬鑷姩闅忔満鎾斁: ${saved.enabled ? '寮€鍚? : '鍏抽棴'}${saved.enabled ? (saved.localOnly ? '(浠呮湰鍦版洸搴?' : '(鍚綉缁滄洸搴?') : ''}`);
+  log.info('SETTINGS', `已点队列播完自动随机播放: ${saved.enabled ? '开启' : '关闭'}${saved.enabled ? (saved.localOnly ? '(仅本地曲库)' : '(含网络曲库)') : ''}`);
 
 
 
@@ -22900,7 +23343,7 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
-// 浠庢洸搴撻殢鏈烘寫涓€棣栥€俵ocalOnly=true 鏃跺彧浠?is_network=0(鏈湴 /mv 鐩綍锛岃
+// 从曲库随机挑一首。localOnly=true 时只从 is_network=0(本地 /mv 目录，见
 
 
 
@@ -22910,7 +23353,7 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
-// scanner.js 閲?BASE_MOUNTS 鐨勬敞閲?鐨勬洸鐩噷閫夛紝缃戠粶/缃戠洏(is_network=1锛屽惈
+// scanner.js 里 BASE_MOUNTS 的注释)的曲目里选，网络/网盘(is_network=1，含
 
 
 
@@ -22920,16 +23363,7 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
-// STRM)鏇茬洰涓€寰嬩笉浼氳闅忔満鍒扳€斺€旇繖姝ｆ槸杩欎釜閫夐」瀛樺湪鐨勬剰涔夛細瀹堕噷/鍖呴棿缃戠粶涓嶇ǔ銆?
-
-
-
-
-
-
-
-
-// 鎴栬€呬笉鎯宠嚜鍔ㄦ挱鏀炬倓鎮勬秷鑰楃綉鐩樻祦閲?瑙﹀彂缃戠洏缂撳瓨涓嬭浇鏃跺彲浠ュ嬀閫夈€俛voidSongId
+// STRM)曲目一律不会被随机到——这正是这个选项存在的意义：家里/包间网络不稳、
 
 
 
@@ -22939,7 +23373,7 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
-// 鏄垰鎾畬鐨勯偅棣?濡傛灉鏈?锛屾洸搴撴瓕鏇叉暟澶т簬 1 鏃跺敖閲忎笉璁╅殢鏈虹粨鏋滅揣鎺ョ潃閲嶅
+// 或者不想自动播放悄悄消耗网盘流量/触发网盘缓存下载时可以勾选。avoidSongId
 
 
 
@@ -22949,7 +23383,7 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
-// 鎾斁鍚屼竴棣栵紱鍙槸"灏介噺"锛岃繍姘斾笉濂借繛缁嚑娆￠兘鎶戒腑鍚屼竴棣栥€佹垨鑰呯鍚堟潯浠剁殑鏇插簱
+// 是刚播完的那首(如果有)，曲库歌曲数大于 1 时尽量不让随机结果紧接着重复
 
 
 
@@ -22959,7 +23393,18 @@ app.post('/api/settings/autoplay', (req, res) => {
 
 
 
-// 鏈潵灏卞彧鏈夎繖涓€棣栨椂涓嶅啀寮烘眰锛岀洿鎺ラ噰鐢ㄦ渶鍚庝竴娆℃娊鍒扮殑缁撴灉锛屼笉鍋氭垚姝诲惊鐜€?
+// 播放同一首；只是"尽量"，运气不好连续几次都抽中同一首、或者符合条件的曲库
+
+
+
+
+
+
+
+
+
+// 本来就只有这一首时不再强求，直接采用最后一次抽到的结果，不做成死循环。
+
 
 
 
@@ -23078,7 +23523,7 @@ function pickAutoplaySong(localOnly, avoidSongId) {
 
 
 
-// 闇€姹?缃戠洏STRM鏀寔)锛歋TRM 鏇茬洰鍦ㄦ壂鎻忛樁娈垫病鏈夎鎺㈡祴杩?audio_tracks 杩樻槸
+// 需求(网盘STRM支持)：STRM 曲目在扫描阶段没有被探测过(audio_tracks 还是
 
 
 
@@ -23088,16 +23533,7 @@ function pickAutoplaySong(localOnly, avoidSongId) {
 
 
 
-// NULL)锛岀涓€娆＄湡鐨勮鎾斁瀹冩墠绗竴娆″幓璇?.strm 鍐呭/涓嬭浇缂撳瓨/鎺㈡祴闊宠建銆?
-
-
-
-
-
-
-
-
-// 鎵嬪姩鐐规瓕(/api/queue POST)鍜岃繖閲岀殑鑷姩闅忔満鎾斁閮藉彲鑳界涓€娆￠€変腑涓€棣?STRM
+// NULL)，第一次真的要播放它才第一次去读 .strm 内容/下载缓存/探测音轨。
 
 
 
@@ -23107,16 +23543,7 @@ function pickAutoplaySong(localOnly, avoidSongId) {
 
 
 
-// 鏇茬洰锛屾娊鎴愬叕鍏卞嚱鏁伴伩鍏嶄袱澶勫悇鍐欎竴浠姐€佷互鍚庢敼鎺㈡祴閫昏緫婕忔敼涓€澶勩€傚紓姝ヨЕ鍙戙€?
-
-
-
-
-
-
-
-
-// 涓嶉樆濉炶皟鐢ㄦ柟宸茬粡鍙戝嚭鐨勫搷搴旓紱sourceCache.ensureCached() 鍐呴儴鐨?inflight
+// 手动点歌(/api/queue POST)和这里的自动随机播放都可能第一次选中一首 STRM
 
 
 
@@ -23126,7 +23553,28 @@ function pickAutoplaySong(localOnly, avoidSongId) {
 
 
 
-// 鍘婚噸淇濊瘉鍚屼竴棣栨瓕骞跺彂瑙﹀彂澶氭涔熷彧浼氱湡姝ｄ笅杞戒竴娆°€?
+// 曲目，抽成公共函数避免两处各写一份、以后改探测逻辑漏改一处。异步触发、
+
+
+
+
+
+
+
+
+
+// 不阻塞调用方已经发出的响应；sourceCache.ensureCached() 内部的 inflight
+
+
+
+
+
+
+
+
+
+// 去重保证同一首歌并发触发多次也只会真正下载一次。
+
 
 
 
@@ -23175,7 +23623,7 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
-        log.info('STRM', `[姝屾洸 id=${song.id}] 瑙﹀彂鎸夐渶鎺㈡祴瀹屾垚锛岄煶杞ㄦ暟=${audio_tracks}`);
+        log.info('STRM', `[歌曲 id=${song.id}] 触发按需探测完成，音轨数=${audio_tracks}`);
 
 
 
@@ -23205,7 +23653,7 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
-      .catch(e => log.warn('STRM', `[姝屾洸 id=${song.id}] 瑙﹀彂鎸夐渶鎺㈡祴澶辫触: ${e.message}`));
+      .catch(e => log.warn('STRM', `[歌曲 id=${song.id}] 触发按需探测失败: ${e.message}`));
 
 
 
@@ -23245,7 +23693,7 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
-// 浠?绛夊緟涓?闃熷垪閲屾寫涓嬩竴棣栭《涓婃潵鎾斁锛涘鏋滃凡缁忔病鏈夌瓑寰呬腑鐨勬瓕浜嗭紝涓?鎾畬
+// 从"等待中"队列里挑下一首顶上来播放；如果已经没有等待中的歌了，且"播完
 
 
 
@@ -23255,7 +23703,7 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
-// 鑷姩闅忔満鎾斁"寮€鐫€锛屽氨浠庢洸搴撻殢鏈烘寫涓€棣栫洿鎺ユ彃鍏ラ槦鍒楁爣璁颁负鎾斁涓紝涓嶅啀鍥炲埌
+// 自动随机播放"开着，就从曲库随机挑一首直接插入队列标记为播放中，不再回到
 
 
 
@@ -23265,7 +23713,7 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
-// "娌℃湁姝ｅ湪鎾斁鐨勬瓕"鐨勭┖闂茬敾闈€傝繑鍥炲€煎彧鍦?纭疄鑷姩鎻掑叆浜嗕竴棣栨柊鏇茬洰"鏃?
+// "没有正在播放的歌"的空闲画面。返回值只在"确实自动插入了一首新曲目"时
 
 
 
@@ -23274,7 +23722,8 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
-// 鏄偅棣栨瓕(渚涜皟鐢ㄦ柟鍐冲畾瑕佷笉瑕佽Е鍙?STRM 鎸夐渶鎺㈡祴)锛屾甯搁《涓婄瓑寰呬腑鐨勬瓕銆佹垨鑰?
+
+// 是那首歌(供调用方决定要不要触发 STRM 按需探测)，正常顶上等待中的歌、或者
 
 
 
@@ -23283,7 +23732,9 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
-// 娌″紑鑷姩鎾斁/鏇插簱涓虹┖瀵艰嚧纭疄娌℃湁涓嬩竴棣栧彲鎾椂锛岃繑鍥?null銆?
+
+// 没开自动播放/曲库为空导致确实没有下一首可播时，返回 null。
+
 
 
 
@@ -23302,7 +23753,7 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
-  // 鎺掑簭璺?getQueueWithSongs() 淇濇寔涓€鑷达細浼樺厛鎸戞渶杩戜竴娆¤缃《鐨勶紙top_order
+  // 排序跟 getQueueWithSongs() 保持一致：优先挑最近一次被置顶的（top_order
 
 
 
@@ -23312,7 +23763,7 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
-  // 瓒婂ぇ瓒婁紭鍏堬級锛屽叾娆℃病琚疆椤惰繃鐨勬寜鐐规瓕椤哄簭(id ASC)锛岃涓婇潰 top_order 鐨?
+  // 越大越优先），其次没被置顶过的按点歌顺序(id ASC)，见上面 top_order 的
 
 
 
@@ -23321,7 +23772,9 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
-  // 璇︾粏娉ㄩ噴銆?
+
+  // 详细注释。
+
 
 
 
@@ -23410,7 +23863,7 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
-  if (!song) return null; // 鏇插簱涓虹┖锛屾垨"浠呮湰鍦?寮€鐫€浣嗘湰鍦版洸搴撴病鏈夋瓕锛屾病鏈夊彲鎾殑
+  if (!song) return null; // 曲库为空，或"仅本地"开着但本地曲库没有歌，没有可播的
 
 
 
@@ -23420,7 +23873,7 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
-  db.prepare("INSERT INTO queue (song_id, nickname, status, is_autoplay) VALUES (?, '闅忔満鎾斁', 'playing', 1)").run(song.id);
+  db.prepare("INSERT INTO queue (song_id, nickname, status, is_autoplay) VALUES (?, '随机播放', 'playing', 1)").run(song.id);
 
 
 
@@ -23440,7 +23893,7 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
-  log.info('AUTOPLAY', `闃熷垪鎾┖锛岃嚜鍔ㄩ殢鏈洪€変腑銆?{song.title}銆嶇户缁挱鏀?${settings.localOnly ? '浠呮湰鍦版洸搴? : '鍚綉缁滄洸搴?})`);
+  log.info('AUTOPLAY', `队列播空，自动随机选中「${song.title}」继续播放(${settings.localOnly ? '仅本地曲库' : '含网络曲库'})`);
 
 
 
@@ -23530,7 +23983,7 @@ app.post('/api/queue', (req, res) => {
 
 
 
-  if (!song) return res.status(404).json({ error: '姝屾洸涓嶅瓨鍦? });
+  if (!song) return res.status(404).json({ error: '歌曲不存在' });
 
 
 
@@ -23540,7 +23993,7 @@ app.post('/api/queue', (req, res) => {
 
 
 
-  const info = db.prepare('INSERT INTO queue (song_id,nickname) VALUES (?,?)').run(song_id, nickname || '鍖垮悕姝屾墜');
+  const info = db.prepare('INSERT INTO queue (song_id,nickname) VALUES (?,?)').run(song_id, nickname || '匿名歌手');
 
 
 
@@ -23600,7 +24053,7 @@ app.post('/api/queue', (req, res) => {
 
 
 
-    // 闇€姹?闅忔満鎾斁鏃剁偣姝岀洿鎺ュ垏姝?锛氭鍦ㄦ挱鐨勮繖涓€棣栨槸"宸茬偣闃熷垪鎾畬鍚庤嚜鍔?
+    // 需求(随机播放时点歌直接切歌)：正在播的这一首是"已点队列播完后自动
 
 
 
@@ -23609,8 +24062,8 @@ app.post('/api/queue', (req, res) => {
 
 
 
-    // 闅忔満鎾斁"鎻掕繘鏉ョ殑鏇插簱濉厖鏇茬洰锛屼笉鏄湡浜虹偣鐨勬瓕鈥斺€旂敤鎴疯繖鏃跺€欑偣姝岋紝
 
+    // 随机播放"插进来的曲库填充曲目，不是真人点的歌——用户这时候点歌，
 
 
 
@@ -23619,8 +24072,8 @@ app.post('/api/queue', (req, res) => {
 
 
 
-    // 鎰忓浘寰堟槑纭槸"涓嶆兂鍐嶅惉闅忔満鎾斁杩欓浜嗭紝椹笂鏀炬垜鐐圭殑"锛屼笉搴旇鎸夌収
 
+    // 意图很明确是"不想再听随机播放这首了，马上放我点的"，不应该按照
 
 
 
@@ -23629,8 +24082,8 @@ app.post('/api/queue', (req, res) => {
 
 
 
-    // 鏅€氭帓闃熻鍒欎箹涔栫瓑杩欓闅忔満鎾斁鐨勫敱瀹屻€傝繖閲岀洿鎺ユ妸闅忔満鎾斁杩欎竴琛屾爣
 
+    // 普通排队规则乖乖等这首随机播放的唱完。这里直接把随机播放这一行标
 
 
 
@@ -23639,8 +24092,8 @@ app.post('/api/queue', (req, res) => {
 
 
 
-    // 鎴?done(涓嶅啓鍏?history锛岀悊鐢辫 promoteNextWaitingOrAutoplay() 鍜?
 
+    // 成 done(不写入 history，理由见 promoteNextWaitingOrAutoplay() 和
 
 
 
@@ -23648,34 +24101,40 @@ app.post('/api/queue', (req, res) => {
 
 
 
-    // /api/queue/next 閲屽 is_autoplay 鐨勫悓娆惧鐞嗭細闅忔満鎾斁涓嶇畻"鍞辫繃"锛?
 
 
+    // /api/queue/next 里对 is_autoplay 的同款处理：随机播放不算"唱过"，
 
 
 
 
 
 
-    // 涓嶈鍑虹幇鍦?鏈€杩戝敱杩?閲?锛岃鍒氱偣鐨勮繖棣栫珛鍒婚《涓婂彉鎴?playing锛屽箍鎾嚭鍘?
 
 
 
+    // 不该出现在"最近唱过"里)，让刚点的这首立刻顶上变成 playing，广播出去
 
 
 
 
 
-    // 鍚庡墠绔細璺熷钩鏃跺垏姝屼竴鏍疯嚜鍔ㄦ娴嬪埌 queue_id 鍙樺寲骞跺垏鎹㈡挱鏀撅紝涓嶉渶瑕?
 
 
 
 
+    // 后前端会跟平时切歌一样自动检测到 queue_id 变化并切换播放，不需要
 
 
 
 
-    // 棰濆鐨勫墠绔敼鍔ㄣ€?
+
+
+
+
+
+    // 额外的前端改动。
+
 
 
 
@@ -23724,7 +24183,7 @@ app.post('/api/queue', (req, res) => {
 
 
 
-  // 闇€姹?宸茬偣鍒楄〃鍚庡彴棰勫姞杞?锛氭柊鐐逛簡涓€棣栨瓕锛?鎺ヤ笅鏉ヤ細鎾斁鍝嚑棣?鐨勯鐑?
+  // 需求(已点列表后台预加载)：新点了一首歌，"接下来会播放哪几首"的预热
 
 
 
@@ -23733,7 +24192,8 @@ app.post('/api/queue', (req, res) => {
 
 
 
-  // 绐楀彛鍙兘鍙戠敓鍙樺寲(姣斿闃熷垪鏈潵鏄┖鐨勶紝杩欓姝岀洿鎺ュ彉鎴?姝ｅ湪鎾斁")锛?
+
+  // 窗口可能发生变化(比如队列本来是空的，这首歌直接变成"正在播放")，
 
 
 
@@ -23742,7 +24202,9 @@ app.post('/api/queue', (req, res) => {
 
 
 
-  // 瑙﹀彂涓€娆￠鐑皟搴︼紝鎻愬墠杞爜+璇绘椂闀匡紝涓嶇瓑寰呭叾瀹屾垚鍗冲彲杩斿洖鍝嶅簲銆?
+
+  // 触发一次预热调度，提前转码+读时长，不等待其完成即可返回响应。
+
 
 
 
@@ -23781,7 +24243,7 @@ app.post('/api/queue', (req, res) => {
 
 
 
-  // 闇€姹?缃戠洏STRM鏀寔)锛歋TRM 鏇茬洰鍦ㄦ壂鎻忛樁娈靛畬鍏ㄦ病鏈夎鎺㈡祴杩?audio_tracks
+  // 需求(网盘STRM支持)：STRM 曲目在扫描阶段完全没有被探测过(audio_tracks
 
 
 
@@ -23791,7 +24253,7 @@ app.post('/api/queue', (req, res) => {
 
 
 
-  // 杩樻槸 NULL)锛岀涓€娆¤鐐规瓕鍔犲叆闃熷垪锛屾墠鏄?杩欓姝岀湡鐨勮琚挱鏀?鐨勪俊鍙封€斺€?
+  // 还是 NULL)，第一次被点歌加入队列，才是"这首歌真的要被播放"的信号——
 
 
 
@@ -23800,8 +24262,8 @@ app.post('/api/queue', (req, res) => {
 
 
 
-  // 杩欓噷鎵嶇涓€娆″幓璇?.strm 鍐呭銆佷笅杞界紦瀛樸€佹帰娴嬮煶杞ㄣ€傚紓姝ヨЕ鍙戙€佷笉绛夊緟锛?
 
+  // 这里才第一次去读 .strm 内容、下载缓存、探测音轨。异步触发、不等待，
 
 
 
@@ -23809,9 +24271,9 @@ app.post('/api/queue', (req, res) => {
 
 
 
-  // 涓嶉樆濉炰笂闈㈠凡缁忓彂鍑虹殑鐐规瓕鍝嶅簲锛泂chedulePreload() 閲岀殑 ensureHLS 杞爜鏈韩
 
 
+  // 不阻塞上面已经发出的点歌响应；schedulePreload() 里的 ensureHLS 转码本身
 
 
 
@@ -23819,44 +24281,50 @@ app.post('/api/queue', (req, res) => {
 
 
 
-  // 涔熶細閫氳繃 resolvePlaybackPath() 璧板悓涓€浠?sourceCache 缂撳瓨锛屼袱鑰呭鍚屼竴涓?
 
 
+  // 也会通过 resolvePlaybackPath() 走同一份 sourceCache 缓存，两者对同一个
 
 
 
 
 
 
-  // songId 骞跺彂瑙﹀彂鏃?sourceCache.ensureCached() 鍐呴儴鐨?inflight 鍘婚噸浼氫繚璇?
 
 
 
+  // songId 并发触发时 sourceCache.ensureCached() 内部的 inflight 去重会保证
 
 
 
 
 
-  // 鍙笅杞戒竴娆°€傛帰娴嬫垚鍔熷悗骞挎挱涓€娆￠槦鍒楁洿鏂帮紝鍓嶇鍘?浼村敱鍒囨崲鎸夐挳鎵嶈兘鎷垮埌
 
 
 
 
+  // 只下载一次。探测成功后广播一次队列更新，前端原/伴唱切换按钮才能拿到
 
 
 
 
 
-  // 鍑嗙‘鐨?audio_tracks(鍦ㄦ涔嬪墠璺?杩樻病鎺㈡祴鍑烘潵"鐨勮€佹洸鐩竴鏍凤紝鎸夊墠绔棦鏈?
 
 
 
 
+  // 准确的 audio_tracks(在此之前跟"还没探测出来"的老曲目一样，按前端既有
 
 
 
 
-  // 鐨勫厹搴曢€昏緫澶勭悊锛屼笉褰卞搷姝ｅ父鐐规瓕/鎺掗槦)銆?
+
+
+
+
+
+  // 的兜底逻辑处理，不影响正常点歌/排队)。
+
 
 
 
@@ -23905,7 +24373,7 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
-  // Bug淇(杩炵画缃《鏃讹紝鍏堝墠缃《鐨勬瓕琚墦鍥炲師濮嬫帓搴忎綅缃?锛氳繖閲屽師鏉ョ殑鍋氭硶
+  // Bug修复(连续置顶时，先前置顶的歌被打回原始排序位置)：这里原来的做法
 
 
 
@@ -23915,7 +24383,7 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
-  // 鏄妸鎵€鏈夐潪鎾斁涓殑琛?is_top 鍏堟竻闆躲€佸啀鎶婂綋鍓嶈繖鏉¤鎴?is_top=1锛屼繚璇?
+  // 是把所有非播放中的行 is_top 先清零、再把当前这条设成 is_top=1，保证
 
 
 
@@ -23924,8 +24392,8 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
-  // "鍚屼竴鏃跺埢鍙湁涓€棣栨瓕澶勪簬缃《鐘舵€?銆傝繖涓啓娉曟湰韬В鍐充簡鏇存棭涔嬪墠"澶氭潯
 
+  // "同一时刻只有一首歌处于置顶状态"。这个写法本身解决了更早之前"多条
 
 
 
@@ -23934,8 +24402,8 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
-  // is_top=1 璋佷篃椤朵笉鍔?鐨勯棶棰橈紝浣嗗紩鍏ヤ簡鏂扮殑闂鈥斺€旀瘮濡傞槦鍒楃 5 棣栬缃《鍒?
 
+  // is_top=1 谁也顶不动"的问题，但引入了新的问题——比如队列第 5 首被置顶到
 
 
 
@@ -23943,9 +24411,9 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
-  // 绗?2 浣嶅悗锛屾帴鐫€缃《鍙︿竴棣栨瓕鏃讹紝绗?5 棣栫殑 is_top 鏍囪琚竻闆讹紝瀹冨氨瀹屽叏
 
 
+  // 第 2 位后，接着置顶另一首歌时，第 5 首的 is_top 标记被清零，它就完全
 
 
 
@@ -23953,9 +24421,9 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
-  // 澶卞幓浜?鏇剧粡琚疆椤惰繃"杩欎釜淇℃伅锛屾帓搴忎笂鍙兘閫€鍥炴寜 id ASC(鐐规瓕椤哄簭)锛屼粠
 
 
+  // 失去了"曾经被置顶过"这个信息，排序上只能退回按 id ASC(点歌顺序)，从
 
 
 
@@ -23963,63 +24431,70 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
-  // 绗?2 浣嶇洿鎺ュ脊鍥炴渶鍒濇帓闃熺殑绗?5 浣嶏紝鑰屼笉鏄鏈熺殑"椤轰綅椤哄欢鍒扮 3 浣?銆?
 
 
+  // 第 2 位直接弹回最初排队的第 5 位，而不是预期的"顺位顺延到第 3 位"。
 
 
 
 
 
 
-  // 淇涓猴細涓嶅啀鐢?0/1 甯冨皵鏍囪锛岃€屾槸缁欒繖涓€鏉℃墦涓婁竴涓€掑鐨?top_order 搴忓彿
 
 
 
+  // 修复为：不再用 0/1 布尔标记，而是给这一条打上一个递增的 top_order 序号
 
 
 
 
 
 
-  // (鍙栧綋鍓嶉槦鍒楅噷鍑虹幇杩囩殑鏈€澶?top_order 鍔犱竴)锛屼笉鍔ㄥ叾瀹冭鐨?top_order銆?
 
 
 
+  // (取当前队列里出现过的最大 top_order 加一)，不动其它行的 top_order。
 
 
 
 
 
-  // 鎺掑簭鏃?top_order 瓒婂ぇ鎺掕秺鍓?瑙?getQueueWithSongs() 閲岀殑鎺掑簭娉ㄩ噴)锛屾墍浠?
 
 
 
 
+  // 排序时 top_order 越大排越前(见 getQueueWithSongs() 里的排序注释)，所以
 
 
 
 
-  // 鏁堟灉鏄細杩欓姝岄《鍒扮揣璺?姝ｅ湪鎾斁"涔嬪悗鐨勭 2 浣嶏紝鑰屼箣鍓嶈缃《杩囥€佽繕娌?
 
 
 
 
 
+  // 效果是：这首歌顶到紧跟"正在播放"之后的第 2 位，而之前被置顶过、还没
 
 
 
-  // 鎾斁鍒扮殑閭ｄ簺姝屽悇鑷殑 top_order 閮芥病鍙橈紝鍙槸鐩稿椤哄簭鏁翠綋寰€鍚庨『寤朵竴浣嶏紝
 
 
 
 
 
 
+  // 播放到的那些歌各自的 top_order 都没变，只是相对顺序整体往后顺延一位，
 
 
 
-  // 涓嶄細琚墦鍥炲畠浠悇鑷渶鍒濈殑鐐规瓕椤哄簭浣嶇疆銆?
+
+
+
+
+
+
+  // 不会被打回它们各自最初的点歌顺序位置。
+
 
 
 
@@ -24098,7 +24573,7 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
-  // 缃《浼氭敼鍙?鎺ヤ笅鏉ョ揣璺熷湪姝ｅ湪鎾斁涔嬪悗鐨勭涓€棣?锛岄鐑獥鍙ｈ窡鐫€鍙橈紝
+  // 置顶会改变"接下来紧跟在正在播放之后的第一首"，预热窗口跟着变，
 
 
 
@@ -24108,7 +24583,8 @@ app.post('/api/queue/:id/top', (req, res) => {
 
 
 
-  // 閲嶆柊璋冨害涓€娆￠鍔犺浇銆?
+  // 重新调度一次预加载。
+
 
 
 
@@ -24167,7 +24643,7 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
-  // Bug淇锛氬垹闄ょ殑濡傛灉姝ｅソ鏄?姝ｅ湪鎾斁"杩欎竴棣栵紝闃熷垪閲屽氨娌℃湁浠讳綍涓€鏉?
+  // Bug修复：删除的如果正好是"正在播放"这一首，队列里就没有任何一条
 
 
 
@@ -24176,8 +24652,8 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
-  // status='playing' 鐨勮褰曚簡锛屽墠绔?renderAll() 浼氱洿鎺ュ垽瀹?娌℃湁姝ｅ湪鎾斁鐨勬瓕"锛?
 
+  // status='playing' 的记录了，前端 renderAll() 会直接判定"没有正在播放的歌"，
 
 
 
@@ -24185,72 +24661,71 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
-  // 杩涘叆绌洪棽鍒嗘敮锛圡V妗嗗洖鍒板搧鐗屾杩庣敾闈€?video> 娓呯┖ src锛夛紝涓嶄細鑷姩寮€濮嬫挱鏀?
 
 
+  // 进入空闲分支（MV框回到品牌欢迎画面、<video> 清空 src），不会自动开始播放
 
 
 
 
 
 
-  // 涓嬩竴棣栤€斺€旂敤鎴风偣"鍒犻櫎"浠ヤ负鏄『鎵嬭烦杩囪繖棣栨瓕锛屽疄闄呮挱鏀剧洿鎺ュ崱姝伙紝鐐?鎾斁"
 
 
 
+  // 下一首——用户点"删除"以为是顺手跳过这首歌，实际播放直接卡死，点"播放"
 
 
 
 
 
 
-  // 鎸夐挳涔熸病鐢紙<video> 鏍规湰娌℃湁 src 鍙挱锛夛紝蹇呴』鍐嶆墜鍔ㄧ偣涓€娆?鍒囨瓕"锛堝搴斾笅闈?
 
 
 
+  // 按钮也没用（<video> 根本没有 src 可播），必须再手动点一次"切歌"（对应下面
 
 
 
 
 
-  // /api/queue/next 閭ｆ潯鍗曠嫭鐨勮矾鐢憋級鎵嶈兘鏁戝洖鏉ャ€傝繖閲屽湪鍒犻櫎鍓嶅厛璁颁竴涓嬭繖鏉?
 
 
 
 
+  // /api/queue/next 那条单独的路由）才能救回来。这里在删除前先记一下这条
 
 
 
 
-  // 璁板綍褰撴椂鐨勭姸鎬侊紝鍒犻櫎鍚庡鏋滃畠姝ｅソ鏄?playing锛屽氨鐓ф妱"鍒囨瓕"閲屾寫涓嬩竴棣栫殑
 
 
 
 
 
+  // 记录当时的状态，删除后如果它正好是 playing，就照抄"切歌"里挑下一首的
 
 
 
 
-  // 閫昏緫锛堢疆椤朵紭鍏堬紝鍏舵鎸夌偣姝岄『搴忥級鑷姩椤朵笂鏉ユ挱鏀撅紝涓嶇敤鐢ㄦ埛鍐嶆墜鍔ㄥ垏涓€娆°€?
 
 
 
 
 
+  // 逻辑（置顶优先，其次按点歌顺序）自动顶上来播放，不用用户再手动切一次。
 
 
 
-  // 娉ㄦ剰杩欓噷涓嶅啓 history鈥斺€攈istory 琛ㄨ涔夋槸"瀹屾暣鎾斁杩囩殑姝?锛岃繖棣栨瓕鏄涓€?
 
 
 
 
 
 
+  // 注意这里不写 history——history 表语义是"完整播放过的歌"，这首歌是被中途
 
 
-  // 鍒犳帀鐨勶紝骞朵笉鏄敱瀹?鍒囪繃鍘荤殑锛屼笉搴旇鍑虹幇鍦?鏈€杩戝敱杩?閲岋紝杩欎竴鐐瑰拰
 
 
 
@@ -24258,9 +24733,18 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
+  // 删掉的，并不是唱完/切过去的，不应该出现在"最近唱过"里，这一点和
 
 
-  // /api/queue/next 涓嶅悓锛屼笉鑳界洿鎺ュ鐢ㄩ偅娈甸€昏緫銆?
+
+
+
+
+
+
+
+  // /api/queue/next 不同，不能直接复用那段逻辑。
+
 
 
 
@@ -24339,7 +24823,7 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
-  // 鍒犳瓕(灏ゅ叾鏄垹鎺夋鍦ㄦ挱鏀剧殑閭ｉ銆侀《涓婃潵涓€棣栨柊鐨?涔熶細鏀瑰彉棰勭儹绐楀彛锛?
+  // 删歌(尤其是删掉正在播放的那首、顶上来一首新的)也会改变预热窗口，
 
 
 
@@ -24348,7 +24832,9 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
-  // 鍚屾牱闇€瑕侀噸鏂拌皟搴︿竴娆￠鍔犺浇銆?
+
+  // 同样需要重新调度一次预加载。
+
 
 
 
@@ -24377,7 +24863,7 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
-  // 闇€姹?鎾畬鑷姩闅忔満鎾斁)锛氬垹鎺夌殑姝ｅソ鏄鍦ㄦ挱鏀剧殑姝屻€佷笖闃熷垪鍥犳绌轰簡銆佸張
+  // 需求(播完自动随机播放)：删掉的正好是正在播放的歌、且队列因此空了、又
 
 
 
@@ -24387,7 +24873,7 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
-  // 鎭板ソ鑷姩闅忔満閫変腑浜嗕竴棣栦箣鍓嶄粠娌℃帰娴嬭繃鐨?STRM 鏇茬洰鏃讹紝璺熸墜鍔ㄧ偣姝屼竴鏍烽渶瑕?
+  // 恰好自动随机选中了一首之前从没探测过的 STRM 曲目时，跟手动点歌一样需要
 
 
 
@@ -24396,7 +24882,9 @@ app.delete('/api/queue/:id', (req, res) => {
 
 
 
-  // 瑙﹀彂涓€娆℃寜闇€鎺㈡祴锛岀悊鐢卞悓 triggerStrmProbeIfNeeded() 鐨勬敞閲娿€?
+
+  // 触发一次按需探测，理由同 triggerStrmProbeIfNeeded() 的注释。
+
 
 
 
@@ -24475,7 +24963,7 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-    // 闇€姹?闅忔満鎾斁涓嶈鍏ユ渶杩戝敱杩?锛歩s_autoplay 鐨勮繖涓€琛屾槸鏇插簱鑷姩濉厖鐨勶紝
+    // 需求(随机播放不计入最近唱过)：is_autoplay 的这一行是曲库自动填充的，
 
 
 
@@ -24485,7 +24973,7 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-    // 涓嶆槸鐪熶汉鐐圭殑姝岋紝涓嶅啓鍏?history鈥斺€旇窡涓婇潰 POST /api/queue 閲?鐐规瓕鐩存帴
+    // 不是真人点的歌，不写入 history——跟上面 POST /api/queue 里"点歌直接
 
 
 
@@ -24495,7 +24983,8 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-    // 鍒囨瓕"鍒嗘敮瀵归殢鏈烘挱鏀炬洸鐩殑澶勭悊淇濇寔涓€鑷淬€?
+    // 切歌"分支对随机播放曲目的处理保持一致。
+
 
 
 
@@ -24544,16 +25033,7 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-  // 闇€姹?鎾畬鑷姩闅忔満鎾斁)锛氫互鍓嶈繖閲屽彧椤?绛夊緟涓?鐨勪笅涓€棣栵紝闃熷垪鐪熺殑绌轰簡灏?
-
-
-
-
-
-
-
-
-  // 浠€涔堥兘涓嶅仛锛屽墠绔嵁姝ゅ垽瀹?娌℃湁姝ｅ湪鎾斁鐨勬瓕"鍥炲埌绌洪棽鐢婚潰銆傜幇鍦ㄦ敼鐢ㄥ叡浜殑
+  // 需求(播完自动随机播放)：以前这里只顶"等待中"的下一首，队列真的空了就
 
 
 
@@ -24563,7 +25043,7 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-  // promoteNextWaitingOrAutoplay()鈥斺€斿畠鍐呴儴浼氬湪纭疄娌℃湁绛夊緟涓殑姝屾椂锛屾寜
+  // 什么都不做，前端据此判定"没有正在播放的歌"回到空闲画面。现在改用共享的
 
 
 
@@ -24573,7 +25053,7 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-  // /api/settings/autoplay 閲屼繚瀛樼殑寮€鍏冲喅瀹氳涓嶈浠庢洸搴撻殢鏈烘彃涓€棣栭《涓婃潵锛?
+  // promoteNextWaitingOrAutoplay()——它内部会在确实没有等待中的歌时，按
 
 
 
@@ -24582,7 +25062,8 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-  // 杩欐潯鍒ゆ柇鍚屾椂涔熷湪涓嬮潰 DELETE /api/queue/:id 閲屽垹鎺夋鍦ㄦ挱鏀剧殑姝屾椂澶嶇敤锛?
+
+  // /api/settings/autoplay 里保存的开关决定要不要从曲库随机插一首顶上来，
 
 
 
@@ -24591,7 +25072,19 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-  // 涓や釜"闃熷垪鍙兘鍙樼┖"鐨勫叆鍙ｈ涓轰繚鎸佷竴鑷淬€?
+
+  // 这条判断同时也在下面 DELETE /api/queue/:id 里删掉正在播放的歌时复用，
+
+
+
+
+
+
+
+
+
+  // 两个"队列可能变空"的入口行为保持一致。
+
 
 
 
@@ -24620,7 +25113,7 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-  // 鍒囨瓕涔嬪悗"姝ｅ湪鎾斁"鏁翠綋寰€鍚庢尓浜嗕竴浣嶏紝棰勭儹绐楀彛涔熻璺熺潃寰€鍚庢粴鍔ㄤ竴鏍硷紝
+  // 切歌之后"正在播放"整体往后挪了一位，预热窗口也要跟着往后滚动一格，
 
 
 
@@ -24630,7 +25123,8 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-  // 璁╁垰杩涘叆棰勭儹鑼冨洿鐨勬柊涓€棣栨瓕灏芥棭寮€濮嬭浆鐮?璇绘椂闀裤€?
+  // 让刚进入预热范围的新一首歌尽早开始转码/读时长。
+
 
 
 
@@ -24689,7 +25183,7 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-// ---------- 鎾斁绔鑹茬鐞?澶氱粓绔挱鏀捐繘搴﹀悓姝? ----------
+// ---------- 播放端角色管理(多终端播放进度同步) ----------
 
 
 
@@ -24699,7 +25193,7 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-// 闇€姹傦細鐢佃浣滀负涓诲睆瑙ｇ爜鎾斁闊宠棰戯紝鎵嬫満閬ユ帶绔€?闂鸿湝鏈?鐐规瓕灞忚繖绫诲壇灞?
+// 需求：电视作为主屏解码播放音视频，手机遥控端、"闺蜜机"点歌屏这类副屏
 
 
 
@@ -24708,8 +25202,8 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-// 鍙簲璇ュ睍绀虹偣姝岀晫闈㈠拰鍙杩涘害锛屼笉搴旇鍚勮嚜鍐嶅缓涓€璺嫭绔嬬殑 HLS/瑙嗛娴佸幓
 
+// 只应该展示点歌界面和只读进度，不应该各自再建一路独立的 HLS/视频流去
 
 
 
@@ -24718,8 +25212,8 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-// 瑙ｇ爜鎾斁鈥斺€斾笉浠呯櫧鐧藉鍗犲眬鍩熺綉甯﹀锛屽嚑璺挱鏀惧悇鑷嫭绔嬭蛋鏃堕棿涔呬簡杩涘害杩?
 
+// 解码播放——不仅白白多占局域网带宽，几路播放各自独立走时间久了进度还
 
 
 
@@ -24727,9 +25221,9 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-// 浼氭寔缁紓绉汇€佷簰鐩稿涓嶄笂銆傝繖閲岀淮鎶や竴浠藉叏灞€鍞竴鐨?鎾斁绔?褰掑睘锛氬悓涓€鏃跺埢
 
 
+// 会持续漂移、互相对不上。这里维护一份全局唯一的"播放端"归属：同一时刻
 
 
 
@@ -24737,36 +25231,40 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-// 鍙厑璁镐竴涓?deviceId 鏄挱鏀剧锛岀湡姝ｈ礋璐ｈВ鐮佹挱鏀惧苟鍛ㄦ湡涓婃姤杩涘害(瑙佷笅闈?
 
 
+// 只允许一个 deviceId 是播放端，真正负责解码播放并周期上报进度(见下面
 
 
 
 
 
 
-// 'progress' 娑堟伅)锛涘叾浣欒澶囦竴寰嬫槸"鎺у埗绔?锛屽垏姝?鏆傚仠/鎷栬繘搴︾瓑鎿嶄綔鐓ф棫
 
 
 
+// 'progress' 消息)；其余设备一律是"控制端"，切歌/暂停/拖进度等操作照旧
 
 
 
 
 
 
-// 璧板凡鏈夌殑 'control' 骞挎挱锛岀敱鎾斁绔澶囨敹鍒板悗浠ｄ负鎵ц锛屾帶鍒剁鑷繁涓嶇
 
 
 
+// 走已有的 'control' 广播，由播放端设备收到后代为执行，控制端自己不碰
 
 
 
 
 
 
-// 濯掍綋娴併€?
+
+
+
+// 媒体流。
+
 
 
 
@@ -24785,16 +25283,7 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-// 涓婇攣瀵嗙爜鐩存帴澶嶇敤绠＄悊鍚庡彴鐨?ADMIN_PASSWORD锛屼笉鍗曠嫭寮曞叆涓€濂楀瘑鐮佷綋绯烩€斺€?
-
-
-
-
-
-
-
-
-// "閿?鏈川涓婃槸"闃叉鍒汉鎵嬫粦/鐬庣偣鎶婃鍦ㄦ挱鐨勭數瑙嗛《鏇挎帀"鐨勪竴閬撻棬妲涳紝瑕侀槻
+// 上锁密码直接复用管理后台的 ADMIN_PASSWORD，不单独引入一套密码体系——
 
 
 
@@ -24804,7 +25293,18 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-// 鐨勬槸鍚屼竴绫讳汉(涓嶇煡鎯呯殑鏅€氬浜?锛屾病蹇呰璁╃鐞嗗憳鍐嶅崟鐙涓€涓瘑鐮併€?
+// "锁"本质上是"防止别人手滑/瞎点把正在播的电视顶替掉"的一道门槛，要防
+
+
+
+
+
+
+
+
+
+// 的是同一类人(不知情的普通客人)，没必要让管理员再单独记一个密码。
+
 
 
 
@@ -24823,7 +25323,7 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-// activeDeviceId/locked 鍙繚瀛樺湪鍐呭瓨锛屼笉钀界洏锛氭湇鍔￠噸鍚悗瑙嗕负"褰撳墠娌℃湁
+// activeDeviceId/locked 只保存在内存，不落盘：服务重启后视为"当前没有
 
 
 
@@ -24833,7 +25333,7 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-// 鎾斁绔?锛岀涓€涓笂绾垮０鏄庤鑹茬殑璁惧鐩存帴鎷垮埌鎾斁绔韩浠斤紝涓嶉渶瑕佽蛋瑙ｉ攣
+// 播放端"，第一个上线声明角色的设备直接拿到播放端身份，不需要走解锁
 
 
 
@@ -24843,7 +25343,7 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-// 娴佺▼鈥斺€旀湇鍔″垰閲嶅惎鏃跺帇鏍规病鏈夋鍦ㄦ挱鏀剧殑鎾斁绔彲瑷€锛?閿?閿佺殑鏄?椤舵浛涓€涓?
+// 流程——服务刚重启时压根没有正在播放的播放端可言，"锁"锁的是"顶替一个
 
 
 
@@ -24852,7 +25352,9 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-// 宸茬粡鍦ㄦ挱鐨勬挱鏀剧"杩欎釜鍔ㄤ綔锛岃繖鏃跺€欐棤瀵硅薄鍙攣銆?
+
+// 已经在播的播放端"这个动作，这时候无对象可锁。
+
 
 
 
@@ -24881,7 +25383,7 @@ let playerState = { activeDeviceId: null, activeDeviceName: '', locked: false };
 
 
 
-// 鎾斁绔澶囧懆鏈熶笂鎶ョ殑鏈€鏂版挱鏀捐繘搴︼紝渚涙帶鍒剁鍋氭湰鍦版彃鍊煎睍绀猴細"鐜板湪搴旇
+// 播放端设备周期上报的最新播放进度，供控制端做本地插值展示："现在应该
 
 
 
@@ -24891,7 +25393,7 @@ let playerState = { activeDeviceId: null, activeDeviceName: '', locked: false };
 
 
 
-// 鎾埌鍝簡"鐢?currentTime + (Date.now()-updatedAt)/1000 浼扮畻锛屼笉闇€瑕?
+// 播到哪了"用 currentTime + (Date.now()-updatedAt)/1000 估算，不需要
 
 
 
@@ -24900,7 +25402,8 @@ let playerState = { activeDeviceId: null, activeDeviceName: '', locked: false };
 
 
 
-// 鎾斁绔瘡甯т笂鎶ャ€佷篃涓嶉渶瑕佹帶鍒剁寤虹珛濯掍綋娴併€俻aused 涓?true 鏃舵帶鍒剁涓?
+
+// 播放端每帧上报、也不需要控制端建立媒体流。paused 为 true 时控制端不
 
 
 
@@ -24909,7 +25412,9 @@ let playerState = { activeDeviceId: null, activeDeviceName: '', locked: false };
 
 
 
-// 搴旇缁х画鎸夋椂闂存祦閫濇帹杩涜繖涓及绠楀€笺€?
+
+// 应该继续按时间流逝推进这个估算值。
+
 
 
 
@@ -24988,7 +25493,7 @@ function broadcastPlayerState() {
 
 
 
-// 璁惧"澹版槑瑙掕壊涓烘挱鏀剧"(role_announce 閲?role==='player')鎴栨樉寮?鎶㈠崰鎾斁绔?
+// 设备"声明角色为播放端"(role_announce 里 role==='player')或显式"抢占播放端"
 
 
 
@@ -24998,7 +25503,7 @@ function broadcastPlayerState() {
 
 
 
-// (player_claim)鏈€缁堥兘璧拌繖鍚屼竴浠戒簰鏂ュ垽瀹氾紝閬垮厤涓ゅ鍚勫啓涓€浠姐€佷互鍚庢敼鍒ゅ畾
+// (player_claim)最终都走这同一份互斥判定，避免两处各写一份、以后改判定
 
 
 
@@ -25008,7 +25513,7 @@ function broadcastPlayerState() {
 
 
 
-// 鏉′欢瀹规槗婕忔敼涓€澶勩€傝繑鍥?{granted, reason}锛宺eason 鍙湪 granted=false 鏃?
+// 条件容易漏改一处。返回 {granted, reason}，reason 只在 granted=false 时
 
 
 
@@ -25017,7 +25522,9 @@ function broadcastPlayerState() {
 
 
 
-// 鏈夋剰涔夛紝渚涘墠绔尯鍒?瀵嗙爜閿欒/鏈笂閿佷絾浠嶅け璐?绛夋彁绀烘枃妗堛€?
+
+// 有意义，供前端区分"密码错误/未上锁但仍失败"等提示文案。
+
 
 
 
@@ -25056,7 +25563,8 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
-    // 鏃犳挱鏀剧 鎴?灏辨槸鑷繁閲嶅澹版槑锛氱洿鎺?缁х画)鎸佹湁锛岄『甯﹀埛鏂颁竴涓嬫樉绀哄悕銆?
+    // 无播放端 或 就是自己重复声明：直接(继续)持有，顺带刷新一下显示名。
+
 
 
 
@@ -25165,7 +25673,7 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
-  // 鏈笂閿侊紝鎴栧瘑鐮佹牎楠岄€氳繃锛氶《鏇垮師鎾斁绔€傛湇鍔＄涓嶄細涓诲姩鏂紑鍘熻澶囩殑 ws
+  // 未上锁，或密码校验通过：顶替原播放端。服务端不会主动断开原设备的 ws
 
 
 
@@ -25175,7 +25683,7 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
-  // 杩炴帴锛屽彧鏄殢鍚庣殑 broadcastPlayerState() 浼氳瀹冨彂鐜拌嚜宸变笉鍐嶆槸
+  // 连接，只是随后的 broadcastPlayerState() 会让它发现自己不再是
 
 
 
@@ -25185,7 +25693,7 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
-  // activeDeviceId锛屽墠绔?瑙?tv/index.html 鐨?player_changed 澶勭悊)鎹
+  // activeDeviceId，前端(见 tv/index.html 的 player_changed 处理)据此
 
 
 
@@ -25195,7 +25703,7 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
-  // 鑷姩鍒囧洖鎺у埗绔疷I銆佸仠姝㈣В鐮佹挱鏀俱€?
+  // 自动切回控制端UI、停止解码播放。
 
 
 
@@ -25204,7 +25712,8 @@ function tryClaimPlayer(deviceId, deviceName, password) {
 
 
 
-  log.info('PLAYER', `鎾斁绔敱銆?{playerState.activeDeviceName || playerState.activeDeviceId}銆嶅彉鏇翠负銆?{deviceName || deviceId}銆峘);
+
+  log.info('PLAYER', `播放端由「${playerState.activeDeviceName || playerState.activeDeviceId}」变更为「${deviceName || deviceId}」`);
 
 
 
@@ -25304,7 +25813,7 @@ const wss = new WebSocketServer({ server });
 
 
 
-// ===== 鎵嬫満楹﹀厠椋庡疄鏃堕煶棰戦€氶亾锛?mic锛夛細role=mic 鎵嬫満涓婅 PCM锛宺ole=tv 鐢佃鎺ユ敹鎾斁 =====
+// ===== 手机麦克风实时音频通道（/mic）：role=mic 手机上行 PCM，role=tv 电视接收播放 =====
 
 
 
@@ -25314,7 +25823,7 @@ const wss = new WebSocketServer({ server });
 
 
 
-// 涓?/ws 鍏辩敤鍚屼竴涓棤 path WebSocketServer锛屽湪 connection 閲屾寜 pathname 鍒嗗彂锛岄伩鍏嶄袱涓?
+// 与 /ws 共用同一个无 path WebSocketServer，在 connection 里按 pathname 分发，避免两个
 
 
 
@@ -25323,7 +25832,8 @@ const wss = new WebSocketServer({ server });
 
 
 
-// 甯?path 鐨勫疄渚嬩簰鐩?abortHandshake銆傛墜鏈虹粡 https 鍩熷悕(wss)鎺ュ叆婊¤冻娴忚鍣ㄥ畨鍏ㄤ笂涓嬫枃锛?
+
+// 带 path 的实例互相 abortHandshake。手机经 https 域名(wss)接入满足浏览器安全上下文，
 
 
 
@@ -25332,7 +25842,9 @@ const wss = new WebSocketServer({ server });
 
 
 
-// 鐢佃鍦ㄥ眬鍩熺綉鐢?ws 鐩磋繛锛屾渶缁堝湪鏈繘绋嬩細鍚堣浆鍙戙€傚綋鍓嶄粎鏀寔涓€閮ㄦ墜鏈哄綋楹︼紙绗簩閮ㄦ敹鍒?busy锛夈€?
+
+// 电视在局域网用 ws 直连，最终在本进程会合转发。当前仅支持一部手机当麦（第二部收到 busy）。
+
 
 
 
@@ -25571,7 +26083,7 @@ function handleMicConnection(ws, req) {
 
 
 
-      micSendJSON(ws, { type: 'busy', message: '宸叉湁涓€閮ㄦ墜鏈烘鍦ㄤ娇鐢ㄩ害鍏嬮' });
+      micSendJSON(ws, { type: 'busy', message: '已有一部手机正在使用麦克风' });
 
 
 
@@ -25661,7 +26173,8 @@ function handleMicConnection(ws, req) {
 
 
 
-    if (ws._role !== 'mic' || activeMic !== ws) return; // 鍙浆鍙戝綋鍓嶆椿鍔ㄦ墜鏈?
+    if (ws._role !== 'mic' || activeMic !== ws) return; // 只转发当前活动手机
+
 
 
 
@@ -25870,7 +26383,7 @@ function handleMicConnection(ws, req) {
 
 
 
-// 楹﹀厠椋庨€氶亾蹇冭烦锛?0s 涓€杞竻鐞嗗崐寮€杩炴帴锛岄伩鍏嶆墜鏈烘潃鍚庡彴鍚庣數瑙嗙涓€鐩磋鏄剧ず鎵嬫満鍦ㄧ嚎
+// 麦克风通道心跳：30s 一轮清理半开连接，避免手机杀后台后电视端一直误显示手机在线
 
 
 
@@ -25980,7 +26493,8 @@ function broadcastQueue() {
 
 
 
-  invalidateQueueCache();  // 闃熷垪鍙樺寲鏃跺厛澶辨晥缂撳瓨锛実etQueueWithSongs 浼氶噸鏂版煡搴?
+  invalidateQueueCache();  // 队列变化时先失效缓存，getQueueWithSongs 会重新查库
+
 
 
 
@@ -26029,7 +26543,7 @@ function broadcastQueue() {
 
 
 
-// 宸茬偣闃熷垪鍚庡彴棰勫姞杞?queuePreload.js)鎺㈡祴鍒版椂闀垮悗锛岄渶瑕佺敤鍚屼竴浠藉箍鎾妸鏈€鏂扮殑
+// 已点队列后台预加载(queuePreload.js)探测到时长后，需要用同一份广播把最新的
 
 
 
@@ -26039,7 +26553,8 @@ function broadcastQueue() {
 
 
 
-// duration 鎺ㄧ粰鎵€鏈夊凡杩炴帴鐨勫鎴风(TV/鎵嬫満)锛屼笉鐢ㄧ瓑涓嬩竴娆￠槦鍒楀鍒犳敼鎵嶅埛鏂般€?
+// duration 推给所有已连接的客户端(TV/手机)，不用等下一次队列增删改才刷新。
+
 
 
 
@@ -26068,7 +26583,7 @@ setPreloadUpdateNotifier(broadcastQueue);
 
 
 
-// 鎾斁/鍘熶即鍞辩姸鎬侊細浠ュ墠鎵嬫満閬ユ帶绔殑"鏆傚仠/鎾斁"鍥炬爣銆?鍘?浼村敱"鎸夐挳楂樹寒閮芥槸
+// 播放/原伴唱状态：以前手机遥控端的"暂停/播放"图标、"原/伴唱"按钮高亮都是
 
 
 
@@ -26078,16 +26593,7 @@ setPreloadUpdateNotifier(broadcastQueue);
 
 
 
-// 鍐欐鐨勶紝涓嶄細璺熺潃 TV 绔湡瀹炵姸鎬佸彉鍖栤€斺€旀墜鏈轰笂鐐逛簡鏆傚仠锛孴V 鐪熺殑鏆傚仠浜嗭紝浣?
-
-
-
-
-
-
-
-
-// 鎵嬫満涓婃寜閽繕鏄€佹牱瀛愶紝鐪嬭捣鏉ュ儚娌＄敓鏁堛€傜湡瀹炵姸鎬?鏄惁鏆傚仠銆佸師鍞?浼村敱)鍙湁
+// 写死的，不会跟着 TV 端真实状态变化——手机上点了暂停，TV 真的暂停了，但
 
 
 
@@ -26097,7 +26603,7 @@ setPreloadUpdateNotifier(broadcastQueue);
 
 
 
-// TV 绔嚜宸辩煡閬?鍦?<video> 鍜?VoiceManager 閲?锛岃繖閲岀敤涓€涓唴瀛樺彉閲忓瓨涓€浠?
+// 手机上按钮还是老样子，看起来像没生效。真实状态(是否暂停、原唱/伴唱)只有
 
 
 
@@ -26106,7 +26612,8 @@ setPreloadUpdateNotifier(broadcastQueue);
 
 
 
-// "鏈€杩戜竴娆?TV 绔笂鎶ョ殑鐘舵€?锛歍V 绔姸鎬佸彉鍖栨椂閫氳繃涓€鏉℃柊鐨?'state' 娑堟伅涓婃姤锛?
+
+// TV 端自己知道(在 <video> 和 VoiceManager 里)，这里用一个内存变量存一份
 
 
 
@@ -26115,7 +26622,8 @@ setPreloadUpdateNotifier(broadcastQueue);
 
 
 
-// 鏈嶅姟绔涓嬫潵骞跺箍鎾粰鎵€鏈夊鎴风(鍚墜鏈洪仴鎺х鑷繁)锛涙墜鏈虹鏀跺埌鍚庢洿鏂版寜閽?
+
+// "最近一次 TV 端上报的状态"：TV 端状态变化时通过一条新的 'state' 消息上报，
 
 
 
@@ -26124,7 +26632,8 @@ setPreloadUpdateNotifier(broadcastQueue);
 
 
 
-// 鍥炬爣/楂樹寒銆傛柊杩炴帴杩涙潵鏃?姣斿鎵嬫満绔垰鎵撳紑閬ユ帶椤?涔熺珛鍒绘妸杩欎唤"鏈€杩戠姸鎬?鍙?
+
+// 服务端记下来并广播给所有客户端(含手机遥控端自己)；手机端收到后更新按钮
 
 
 
@@ -26133,7 +26642,19 @@ setPreloadUpdateNotifier(broadcastQueue);
 
 
 
-// 涓€閬嶏紝涓嶇敤绛?TV 绔笅涓€娆＄姸鎬佸彉鍖栨墠鑳藉悓姝ヤ笂銆?
+
+// 图标/高亮。新连接进来时(比如手机端刚打开遥控页)也立刻把这份"最近状态"发
+
+
+
+
+
+
+
+
+
+// 一遍，不用等 TV 端下一次状态变化才能同步上。
+
 
 
 
@@ -26242,7 +26763,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-  // 鏂拌繛鎺?缃戦〉鍒氭墦寮€/鍒氶噸杩?绔嬪埢鎷垮埌涓€浠藉綋鍓嶇殑鎾斁绔綊灞?鏈€杩戜竴娆¤繘搴︼紝
+  // 新连接(网页刚打开/刚重连)立刻拿到一份当前的播放端归属+最近一次进度，
 
 
 
@@ -26252,7 +26773,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-  // 涓嶇敤绛変笅涓€娆¤鑹插彉鍖?鎾斁绔笂鎶ユ墠绗竴娆″悓姝ヤ笂锛岃窡涓婇潰 'queue'/'state'
+  // 不用等下一次角色变化/播放端上报才第一次同步上，跟上面 'queue'/'state'
 
 
 
@@ -26262,7 +26783,8 @@ wss.on('connection', (ws, req) => {
 
 
 
-  // 棣栬繛鎺ュ嵆鎺ㄩ€佸悓涓€濂楁ā寮忋€?
+  // 首连接即推送同一套模式。
+
 
 
 
@@ -26331,7 +26853,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 闇€姹?"鎺у埗妯″紡涓嬬鐢ㄥ叏灞忥紝鍙彂閫佸叏灞忔寚浠ゅ埌鎾斁绔?)锛?control' 娑堟伅
+        // 需求("控制模式下禁用全屏，只发送全屏指令到播放端")：'control' 消息
 
 
 
@@ -26341,7 +26863,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 鍘熸潵涓€寰嬪箍鎾粰鎵€鏈夊湪绾垮鎴风(鍚彂閫佽€呰嚜宸?锛岀敱鎺ユ敹绔悇鑷垽鏂?鎴戞槸
+        // 原来一律广播给所有在线客户端(含发送者自己)，由接收端各自判断"我是
 
 
 
@@ -26351,7 +26873,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 涓嶆槸鎾斁绔紝鏄氨鐪熺殑鎵ц"鈥斺€斿ぇ澶氭暟鍔ㄤ綔(鎾斁/鏆傚仠/闊抽噺/鍧囪　鍣ㄧ瓑)杩欐牱
+        // 不是播放端，是就真的执行"——大多数动作(播放/暂停/音量/均衡器等)这样
 
 
 
@@ -26361,7 +26883,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 瀹屽叏娌￠棶棰橈紝瀹㈡埛绔湰鏉ュ氨鏈?isActivePlayer 鍒ゆ柇銆備絾 fullscreen 姣旇緝
+        // 完全没问题，客户端本来就有 isActivePlayer 判断。但 fullscreen 比较
 
 
 
@@ -26371,7 +26893,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 鐗规畩锛氬畠鍚屾椂褰卞搷"瑕佷笉瑕佸睍绀轰竴涓摵婊″叏灞忕殑鐣岄潰"杩欎釜璺熸挱鏀捐韩浠芥棤鍏崇殑
+        // 特殊：它同时影响"要不要展示一个铺满全屏的界面"这个跟播放身份无关的
 
 
 
@@ -26381,7 +26903,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 鏈湴 UI 鐘舵€侊紝濡傛灉鎺у埗绔嚜宸变篃鐓у崟鍏ㄦ敹锛岀偣涓€涓嬮瑙堟鍙戞寚浠ゃ€佺揣鎺ョ潃
+        // 本地 UI 状态，如果控制端自己也照单全收，点一下预览框发指令、紧接着
 
 
 
@@ -26391,7 +26913,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 鏀跺埌鏈嶅姟绔箍鎾洖鏉ョ殑杩欐潯鍥炲０锛屼細鎶婃帶鍒剁鏈満涔熸嫿杩涗竴涓┖鐧藉叏灞忊€斺€?
+        // 收到服务端广播回来的这条回声，会把控制端本机也拽进一个空白全屏——
 
 
 
@@ -26400,8 +26922,8 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 瀹㈡埛绔偅杈硅櫧鐒朵篃鍔犱簡 isActivePlayer 鍒ゆ柇鍏滃簳(鍙屼繚闄╋紝瑙?tv/index.html
 
+        // 客户端那边虽然也加了 isActivePlayer 判断兜底(双保险，见 tv/index.html
 
 
 
@@ -26410,8 +26932,8 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // handleRemote()銆丄ndroid 涓や釜 Activity 鐨?onControlAction()"fullscreen"
 
+        // handleRemote()、Android 两个 Activity 的 onControlAction()"fullscreen"
 
 
 
@@ -26420,8 +26942,8 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 鍒嗘敮)锛屼絾浠庢牴涓婂彧鎶婅繖鏉℃寚浠ゅ彂缁欑湡姝ｇ殑鎾斁绔紝鑳界渷鎺変竴娆℃病鏈夋剰涔夌殑
 
+        // 分支)，但从根上只把这条指令发给真正的播放端，能省掉一次没有意义的
 
 
 
@@ -26430,8 +26952,8 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 骞挎挱寰€杩旓紝鍏跺畠璁惧瀹屽叏涓嶄細鏀跺埌銆佷笉闇€瑕佸悇鑷垽鏂竴娆°€傛壘涓嶅埌鎾斁绔?
 
+        // 广播往返，其它设备完全不会收到、不需要各自判断一次。找不到播放端
 
 
 
@@ -26439,7 +26961,10 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // (杩樻病浜哄０鏄庢挱鏀剧瑙掕壊锛屾垨鑰呮挱鏀剧鍒氭柇绾?鏃堕潤榛樹涪寮冿紝涓嶅箍鎾粰浠讳綍浜恒€?
+
+
+        // (还没人声明播放端角色，或者播放端刚断线)时静默丢弃，不广播给任何人。
+
 
 
 
@@ -26598,7 +27123,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 璁惧澹版槑鑷繁鎯宠鐨勮鑹层€傝涓€涓嬭繖鏉?ws 杩炴帴瀵瑰簲鐨?deviceId锛屼緵
+        // 设备声明自己想要的角色。记一下这条 ws 连接对应的 deviceId，供
 
 
 
@@ -26608,7 +27133,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 涓嬮潰 'close' 鏃跺垽鏂?鏂嚎鐨勬槸涓嶆槸褰撳墠鎾斁绔?銆俽ole==='controller'
+        // 下面 'close' 时判断"断线的是不是当前播放端"。role==='controller'
 
 
 
@@ -26618,7 +27143,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 涓嶉渶瑕佽蛋浜掓枼鍒ゅ畾鈥斺€旀帶鍒剁鍙互鍚屾椂鏈変换鎰忓涓紱role==='player'
+        // 不需要走互斥判定——控制端可以同时有任意多个；role==='player'
 
 
 
@@ -26628,7 +27153,8 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 鎵嶉渶瑕?tryClaimPlayer() 鐨勫崟鎾斁绔簰鏂ラ€昏緫銆?
+        // 才需要 tryClaimPlayer() 的单播放端互斥逻辑。
+
 
 
 
@@ -26697,7 +27223,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-          // 鍘熸湰鏄挱鏀剧鐨勮繖鍙拌澶囦富鍔ㄥ垏鍥炴帶鍒剁(姣斿鐢ㄦ埛鍦ㄨ缃噷鎵嬪姩
+          // 原本是播放端的这台设备主动切回控制端(比如用户在设置里手动
 
 
 
@@ -26707,7 +27233,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-          // 鍒囨崲)锛岃鍑烘挱鏀剧韬唤骞舵竻鎺夐攣鈥斺€斿畠鑷繁閮戒笉鎯冲啀褰撴挱鏀剧浜嗭紝
+          // 切换)，让出播放端身份并清掉锁——它自己都不想再当播放端了，
 
 
 
@@ -26717,7 +27243,8 @@ wss.on('connection', (ws, req) => {
 
 
 
-          // 缁х画淇濈暀涓€鎶婇攣鍦ㄤ竴涓凡缁忎笉瑙ｇ爜鎾斁鐨勮澶囧悕涓嬫病鏈夋剰涔夈€?
+          // 继续保留一把锁在一个已经不解码播放的设备名下没有意义。
+
 
 
 
@@ -26816,7 +27343,8 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 鍙湁褰撳墠鎾斁绔嚜宸辫兘涓婇攣/瑙ｉ攣锛岄槻姝换鎰忔帶鍒剁鐬庢敼鍒汉鐨勯攣鐘舵€併€?
+        // 只有当前播放端自己能上锁/解锁，防止任意控制端瞎改别人的锁状态。
+
 
 
 
@@ -26845,16 +27373,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-          // 涓婇攣涓嶈闂ㄦ(鎾斁绔嚜宸辨兂閿侀殢鏃惰兘閿?锛涗絾瑙ｉ攣(鎶婂凡鏈夌殑閿佸叧鎺?瑕?
-
-
-
-
-
-
-
-
-          // 鏍￠獙瀵嗙爜(澶嶇敤 ADMIN_PASSWORD)鈥斺€斿惁鍒?閿?褰㈠悓铏氳锛氳皝鍦ㄦ挱鏀剧
+          // 上锁不设门槛(播放端自己想锁随时能锁)；但解锁(把已有的锁关掉)要
 
 
 
@@ -26864,7 +27383,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-          // 杩欏彴璁惧涓婇殢鎵嬬偣涓€涓嬭В閿佹寜閽紝灏辫兘璁╀换浣曡澶囨棤瀵嗙爜鎶㈣蛋鎾斁绔紝
+          // 校验密码(复用 ADMIN_PASSWORD)——否则"锁"形同虚设：谁在播放端
 
 
 
@@ -26874,7 +27393,18 @@ wss.on('connection', (ws, req) => {
 
 
 
-          // 绛変簬鐧介攣銆?
+          // 这台设备上随手点一下解锁按钮，就能让任何设备无密码抢走播放端，
+
+
+
+
+
+
+
+
+
+          // 等于白锁。
+
 
 
 
@@ -26963,7 +27493,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-          log.info('PLAYER', `鎾斁绔€?{playerState.activeDeviceName || playerState.activeDeviceId}銆?{playerState.locked ? '宸蹭笂閿? : '宸茶В閿?}`);
+          log.info('PLAYER', `播放端「${playerState.activeDeviceName || playerState.activeDeviceId}」${playerState.locked ? '已上锁' : '已解锁'}`);
 
 
 
@@ -27013,7 +27543,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 鍙噰绾冲綋鍓嶆挱鏀剧鑷繁涓婃姤鐨勮繘搴︼紝杩囨护鎺夋棫杩炴帴/闈炲綋鍓嶆挱鏀剧鍙兘
+        // 只采纳当前播放端自己上报的进度，过滤掉旧连接/非当前播放端可能
 
 
 
@@ -27023,7 +27553,8 @@ wss.on('connection', (ws, req) => {
 
 
 
-        // 娈嬬暀鍙戝嚭鐨勮繘搴︽秷鎭紝閬垮厤鍏ㄥ眬杩涘害琚敊璇殑涓€璺暟鎹薄鏌撱€?
+        // 残留发出的进度消息，避免全局进度被错误的一路数据污染。
+
 
 
 
@@ -27152,7 +27683,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-      // 姘涘洿鐗规晥(鎺屽０/骞叉澂/鍠濆僵/鍊掑僵)锛氭墜鏈洪仴鎺цЕ鍙戯紝骞挎挱缁欐墍鏈夊ぇ灞?TV缃戦〉/tvOS)鎾煶鏁?鍏ㄥ睆emoji鍒峰睆
+      // 氛围特效(掌声/干杯/喝彩/倒彩)：手机遥控触发，广播给所有大屏(TV网页/tvOS)播音效+全屏emoji刷屏
 
 
 
@@ -27232,7 +27763,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-      // 绁濈璇脊骞曪細鎵嬫満閬ユ帶杈撳叆/蹇嵎鐭锛屽箍鎾粰鎵€鏈夊ぇ灞忓叏灞忓睍绀猴紝鏂囨湰闄愰暱
+      // 祝福语弹幕：手机遥控输入/快捷短语，广播给所有大屏全屏展示，文本限长
 
 
 
@@ -27312,7 +27843,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-      // 姝岃瘝瀛椾綋鑹?鎻忚竟鑹诧細鎵嬫満閬ユ帶瀹炴椂鏀硅壊锛屽箍鎾粰鎵€鏈夊ぇ灞?tvOS/缃戦〉TV)鍚屾鍒锋柊
+      // 歌词字体色/描边色：手机遥控实时改色，广播给所有大屏(tvOS/网页TV)同步刷新
 
 
 
@@ -27472,7 +28003,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-    // 鎾斁绔澶囨柇绾?缃戦〉鍒锋柊/鍏抽棴/鏂綉)锛氭竻绌烘挱鏀剧褰掑睘鍜岄攣锛岃鍏跺畠璁惧
+    // 播放端设备断线(网页刷新/关闭/断网)：清空播放端归属和锁，让其它设备
 
 
 
@@ -27482,7 +28013,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-    // (鍖呮嫭瀹冭嚜宸遍噸杩炲悗閲嶆柊澹版槑)鍙互绔嬪埢鎷垮埌鎾斁绔韩浠斤紝涓嶇敤琚竴涓凡缁?
+    // (包括它自己重连后重新声明)可以立刻拿到播放端身份，不用被一个已经
 
 
 
@@ -27491,7 +28022,8 @@ wss.on('connection', (ws, req) => {
 
 
 
-    // 涓嶅湪绾跨殑"骞界伒鎾斁绔?鍗′綇鈥斺€斿惁鍒欒涔堟病浜鸿兘椤舵浛(濡傛灉涔嬪墠涓婁簡閿?锛?
+
+    // 不在线的"幽灵播放端"卡住——否则要么没人能顶替(如果之前上了锁)，
 
 
 
@@ -27500,7 +28032,9 @@ wss.on('connection', (ws, req) => {
 
 
 
-    // 瑕佷箞鎵€鏈夎澶囬兘鏄剧ず"褰撳墠鎾斁绔? xxx"浣嗛偅鍙拌澶囧叾瀹炴棭灏辨柇绾夸簡銆?
+
+    // 要么所有设备都显示"当前播放端: xxx"但那台设备其实早就断线了。
+
 
 
 
@@ -27519,7 +28053,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-      log.info('PLAYER', `鎾斁绔€?{playerState.activeDeviceName || playerState.activeDeviceId}銆嶅凡鏂紑杩炴帴锛屾挱鏀剧褰掑睘宸叉竻绌篳);
+      log.info('PLAYER', `播放端「${playerState.activeDeviceName || playerState.activeDeviceId}」已断开连接，播放端归属已清空`);
 
 
 
@@ -27589,6 +28123,9 @@ wss.on('connection', (ws, req) => {
 
 
 
+// 启动时把两个内置115网络曲库来源补进 library_roots(幂等)
+try { ensureDefaultCloudRoots(); } catch (e) { console.error('ensureDefaultCloudRoots: ' + e.message); }
+
 server.listen(PORT, () => {
 
 
@@ -27599,7 +28136,7 @@ server.listen(PORT, () => {
 
 
 
-  log.info('SERVER', `KTV 鏈嶅姟宸插惎鍔? http://0.0.0.0:${PORT}`);
+  log.info('SERVER', `KTV 服务已启动: http://0.0.0.0:${PORT}`);
 
 
 
@@ -27609,7 +28146,7 @@ server.listen(PORT, () => {
 
 
 
-  // 闇€姹?宸茬偣鍒楄〃鍚庡彴棰勫姞杞?锛氭湇鍔￠噸鍚椂闃熷垪琛ㄩ噷鍙兘宸茬粡鐣欐湁涓婁竴娆¤繍琛屾椂
+  // 需求(已点列表后台预加载)：服务重启时队列表里可能已经留有上一次运行时
 
 
 
@@ -27619,16 +28156,7 @@ server.listen(PORT, () => {
 
 
 
-  // 杩樻病鎾畬鐨勮褰?瀹瑰櫒閲嶅缓/鍗囩骇閲嶅惎涓嶄細娓呯┖ /data 涓嬬殑鏁版嵁搴?锛岃繖閲岃ˉ涓€娆?
-
-
-
-
-
-
-
-
-  // 鍚姩鏃剁殑棰勭儹璋冨害锛岃鐩?閲嶅惎鍓嶅凡缁忕偣濂戒絾杩樻病杞埌鎾斁"鐨勮繖浜涙瓕锛屼笉鐢ㄧ瓑
+  // 还没播完的记录(容器重建/升级重启不会清空 /data 下的数据库)，这里补一次
 
 
 
@@ -27638,7 +28166,18 @@ server.listen(PORT, () => {
 
 
 
-  // 鐢ㄦ埛鍐嶆鎿嶄綔闃熷垪(鐐规瓕/鍒犳瓕/鍒囨瓕/缃《)鎵嶈鍔ㄨЕ鍙戙€?
+  // 启动时的预热调度，覆盖"重启前已经点好但还没轮到播放"的这些歌，不用等
+
+
+
+
+
+
+
+
+
+  // 用户再次操作队列(点歌/删歌/切歌/置顶)才被动触发。
+
 
 
 
@@ -27677,7 +28216,7 @@ server.listen(PORT, () => {
 
 
 
-// Bug淇锛氬師鏉ヨ繖琛屼唬鐮佸啓鍦?server.listen 涔嬪墠銆佷笖鍚屾璋冪敤 scanLibrary()锛?
+// Bug修复：原来这行代码写在 server.listen 之前、且同步调用 scanLibrary()，
 
 
 
@@ -27686,8 +28225,8 @@ server.listen(PORT, () => {
 
 
 
-// 绛変簬璁╂暣涓?HTTP 鏈嶅姟鑳戒笉鑳藉澶栨彁渚涘搷搴旓紝閮藉崱鍦?杩欎竴杞洸搴撴壂鎻忔湁娌℃湁璺戝畬"
 
+// 等于让整个 HTTP 服务能不能对外提供响应，都卡在"这一轮曲库扫描有没有跑完"
 
 
 
@@ -27696,8 +28235,8 @@ server.listen(PORT, () => {
 
 
 
-// 杩欎竴鐐逛笂鈥斺€擬V 鐩綍涓嬪爢鐨勬洸鐩秺澶氾紙灏ゅ叾棣栨瀹夎銆佹壒閲忓鍏ユ洸搴撶殑鍦烘櫙锛夛紝
 
+// 这一点上——MV 目录下堆的曲目越多（尤其首次安装、批量导入曲库的场景），
 
 
 
@@ -27706,8 +28245,8 @@ server.listen(PORT, () => {
 
 
 
-// 涓荤晫闈?鐐规瓕椤甸潰鑳芥墦寮€銆佽兘鐪嬪埌浠讳綍姝屾洸鍒楄〃鐨勬椂闂村氨瓒婃櫄锛岀敤鎴风湅鍒扮殑灏辨槸
 
+// 主界面/点歌页面能打开、能看到任何歌曲列表的时间就越晚，用户看到的就是
 
 
 
@@ -27716,8 +28255,8 @@ server.listen(PORT, () => {
 
 
 
-// 闀挎椂闂寸櫧灞?杩炰笉涓娿€?
 
+// 长时间白屏/连不上。
 
 
 
@@ -27725,9 +28264,9 @@ server.listen(PORT, () => {
 
 
 
-// 鐜板湪鎶婂惎鍔ㄦ壂鎻忔尓鍒?server.listen 涔嬪悗鍐嶅紓姝ヨЕ鍙戯細绔彛绔嬪埢寮€濮嬬洃鍚紝鎵弿
 
 
+// 现在把启动扫描挪到 server.listen 之后再异步触发：端口立刻开始监听，扫描
 
 
 
@@ -27735,26 +28274,30 @@ server.listen(PORT, () => {
 
 
 
-// 杞负鍚庡彴浠诲姟鎵ц锛涢厤鍚?scanner.js 閲屾敼鎴愮殑"閫愪釜鏂囦欢鎺㈡祴銆侀€愪釜绔嬪嵆鍏ュ簱"锛?
 
 
+// 转为后台任务执行；配合 scanner.js 里改成的"逐个文件探测、逐个立即入库"，
 
 
 
 
 
 
-// 杩欐椂鍊欐煡璇?/api/songs 鐪嬪埌鐨勫垪琛ㄤ細闅忔壂鎻忔帹杩涢€愭鍙橀暱锛屼笉闇€瑕佺瓑杩欎竴鏁磋疆
 
 
 
+// 这时候查询 /api/songs 看到的列表会随扫描推进逐步变长，不需要等这一整轮
 
 
 
 
 
 
-// 鎵弿鍏ㄩ儴璺戝畬鎵嶇涓€娆＄湅鍒版瓕鏇层€?
+
+
+
+// 扫描全部跑完才第一次看到歌曲。
+
 
 
 
@@ -27773,7 +28316,7 @@ server.listen(PORT, () => {
 
 
 
-// Bug淇("瀹瑰櫒涓€鍚姩鎸傝浇杩樻病鐢熸晥锛屾壂鎻忔妸鏁版嵁搴撳綊闆?)锛歠nOS/缇ゆ櫀杩欑被骞冲彴涓婏紝
+// Bug修复("容器一启动挂载还没生效，扫描把数据库归零")：fnOS/群晖这类平台上，
 
 
 
@@ -27783,7 +28326,7 @@ server.listen(PORT, () => {
 
 
 
-// docker-compose 鐨?volume 鎸傝浇鐐?姣斿 /mv-net)鏈韩鏄?瀹瑰櫒涓€鍚姩灏卞瓨鍦ㄧ殑
+// docker-compose 的 volume 挂载点(比如 /mv-net)本身是"容器一启动就存在的
 
 
 
@@ -27793,7 +28336,7 @@ server.listen(PORT, () => {
 
 
 
-// 鐩綍"锛屼絾濡傛灉杩欎釜鎸傝浇鐐瑰湪 host 渚у搴旂殑鏄綉鐩?浜戠洏瀹㈡埛绔殑鎸傝浇(rclone銆?
+// 目录"，但如果这个挂载点在 host 侧对应的是网盘/云盘客户端的挂载(rclone、
 
 
 
@@ -27802,8 +28345,8 @@ server.listen(PORT, () => {
 
 
 
-// 缇ゆ櫀 Cloud Sync 涔嬬被)锛宧ost 渚ф寕杞藉畬鎴愮殑鏃舵満璺熷鍣ㄥ惎鍔ㄥ畬鍏ㄦ槸涓ゆ潯鐙珛鐨?
 
+// 群晖 Cloud Sync 之类)，host 侧挂载完成的时机跟容器启动完全是两条独立的
 
 
 
@@ -27811,9 +28354,9 @@ server.listen(PORT, () => {
 
 
 
-// 鏃堕棿绾库€斺€斿鍣ㄥ彲鑳藉厛璧锋潵锛岃繖鏃跺€?/mv-net 鍦ㄥ鍣ㄩ噷"鐪嬭捣鏉?鏄竴涓瓨鍦ㄤ絾绌虹殑
 
 
+// 时间线——容器可能先起来，这时候 /mv-net 在容器里"看起来"是一个存在但空的
 
 
 
@@ -27821,52 +28364,51 @@ server.listen(PORT, () => {
 
 
 
-// 鐩綍(涓嶆槸"涓嶅彲璁块棶"锛宖s.existsSync 鍒ゅ畾涓嶅嚭闂)锛屽鏋滆繖鏃跺€欑珛鍒昏窇涓€娆?
 
 
+// 目录(不是"不可访问"，fs.existsSync 判定不出问题)，如果这时候立刻跑一次
 
 
 
 
 
 
-// 浼氭墽琛屽垹闄ょ殑鎵弿锛屼細鎶婄綉缁滄洸搴撹繖浜涙瓕褰撴垚"鍏ㄩ儴琚垹闄や簡"鐩存帴娓呯┖鏁版嵁搴?
 
 
 
+// 会执行删除的扫描，会把网络曲库这些歌当成"全部被删除了"直接清空数据库
 
 
 
 
 
-// 璁板綍鈥斺€攕canner.js 閲屾柊澧炵殑"楠ゅ噺鐔旀柇"(瑙?scanLibrary 椤堕儴娉ㄩ噴)宸茬粡鏄渶鍚?
 
 
 
 
+// 记录——scanner.js 里新增的"骤减熔断"(见 scanLibrary 顶部注释)已经是最后
 
 
 
 
-// 涓€閬撻槻绾匡紝浣嗘洿濂界殑鍋氭硶鏄粠婧愬ご涓婇伩鍏嶈Е鍙戝畠锛?
 
 
 
 
 
+// 一道防线，但更好的做法是从源头上避免触发它：
 
 
 
-//   1) 鍚姩鍚庡厛绛変竴涓彲閰嶇疆鐨勫熀纭€寤惰繜(STARTUP_SCAN_DELAY_MS锛岄粯璁?20s)锛?
 
 
 
 
 
 
+//   1) 启动后先等一个可配置的基础延迟(STARTUP_SCAN_DELAY_MS，默认 20s)，
 
 
-//      缁?host 渚х綉鐩樻寕杞戒竴鐐瑰厛璧锋潵鐨勬椂闂达紱
 
 
 
@@ -27874,9 +28416,9 @@ server.listen(PORT, () => {
 
 
 
+//      给 host 侧网盘挂载一点先起来的时间；
 
 
-//   2) 涔嬪悗鍐嶈疆璇㈡鏌ヤ竴閬嶆瘡涓?缃戠粶鏇插簱"鏍圭洰褰曪細杩炵画涓ゆ(闂撮殧鍑犵)璇诲埌鐨?
 
 
 
@@ -27884,8 +28426,8 @@ server.listen(PORT, () => {
 
 
 
+//   2) 之后再轮询检查一遍每个"网络曲库"根目录：连续两次(间隔几秒)读到的
 
-//      椤跺眰鏉＄洰鏁伴噺涓€鑷达紝鎵嶈涓?杩欎釜鐩綍杩欎細鍎跨姸鎬佺ǔ瀹氫簡"锛屾渶闀挎€诲叡绛?
 
 
 
@@ -27894,7 +28436,7 @@ server.listen(PORT, () => {
 
 
 
-//      STARTUP_SCAN_MAX_WAIT_MS(榛樿 60s)锛岃秴鏃朵篃涓嶅啀鏃犻檺绛変笅鍘伙紝鐩存帴
+//      顶层条目数量一致，才认为"这个目录这会儿状态稳定了"，最长总共等
 
 
 
@@ -27904,7 +28446,7 @@ server.listen(PORT, () => {
 
 
 
-//      杩涘叆绗?3 姝?鍙嶆涓嬩竴姝ユ湰韬氨鏄畨鍏ㄧ殑锛岀瓑澶箙娌℃剰涔?锛?
+//      STARTUP_SCAN_MAX_WAIT_MS(默认 60s)，超时也不再无限等下去，直接
 
 
 
@@ -27913,8 +28455,8 @@ server.listen(PORT, () => {
 
 
 
-//   3) 涓嶇涓婇潰绛夋病绛夊埌"绋冲畾"锛屽鍣ㄥ惎鍔ㄥ悗鐨勭涓€娆℃壂鎻忓浐瀹氬己鍒剁敤
 
+//      进入第 3 步(反正下一步本身就是安全的，等太久没意义)；
 
 
 
@@ -27923,8 +28465,8 @@ server.listen(PORT, () => {
 
 
 
-//      mode='incremental'(鍙涓嶅垹锛岃 scanner.js)锛岃繖涓€杞棤璁哄浣曢兘涓嶄細
 
+//   3) 不管上面等没等到"稳定"，容器启动后的第一次扫描固定强制用
 
 
 
@@ -27933,8 +28475,8 @@ server.listen(PORT, () => {
 
 
 
-//      鍒犻櫎浠讳綍鏇茬洰璁板綍鈥斺€斿摢鎬曠綉鐩樿繖娆″惎鍔ㄧ壒鍒參銆佽秴杩囦簡涓ゆ绛夊緟鐨勬椂闂达紝
 
+//      mode='incremental'(只增不删，见 scanner.js)，这一轮无论如何都不会
 
 
 
@@ -27943,8 +28485,8 @@ server.listen(PORT, () => {
 
 
 
-//      鏈€澶氭槸"杩欎竴杞壂鎻忓皯鎵埌鍑犻鏂版瓕"锛屼笉浼氭湁浠讳綍涓嶅彲閫嗙殑鏁版嵁涓㈠け銆?
 
+//      删除任何曲目记录——哪怕网盘这次启动特别慢、超过了两步等待的时间，
 
 
 
@@ -27952,16 +28494,30 @@ server.listen(PORT, () => {
 
 
 
-//      涔嬪悗涓嶇鏄畾鏃朵换鍔¤繕鏄鐞嗗憳鎵嬪姩鐐瑰嚮鐨?鍏ㄩ噺鎵弿"锛屾墠浼氱湡姝ｆ墽琛?
 
 
+//      最多是"这一轮扫描少扫到几首新歌"，不会有任何不可逆的数据丢失。
 
 
 
 
 
 
-//      鍒犻櫎(涓斾粛鐒跺彈"楠ゅ噺鐔旀柇"淇濇姢)銆?
+
+
+
+//      之后不管是定时任务还是管理员手动点击的"全量扫描"，才会真正执行
+
+
+
+
+
+
+
+
+
+//      删除(且仍然受"骤减熔断"保护)。
+
 
 
 
@@ -28030,16 +28586,7 @@ function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms).unref
 
 
 
-// 鍙涓€灞傜洰褰曟潯鐩暟閲?涓嶉€掑綊)褰?杩欎釜鐩綍鏄惁杩樺湪鍙樺寲"鐨勮交閲忎俊鍙凤紝閬垮厤鍦?
-
-
-
-
-
-
-
-
-// 绛夊緟闃舵灏卞鍙兘鍑犱竾涓枃浠剁殑鏇插簱鏍圭洰褰曞仛涓€娆″畬鏁撮€掑綊鎵弿鈥斺€旂湡姝ｇ殑閫掑綊
+// 只读一层目录条目数量(不递归)当"这个目录是否还在变化"的轻量信号，避免在
 
 
 
@@ -28049,7 +28596,18 @@ function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms).unref
 
 
 
-// 鎵弿鐣欑粰鍚庨潰 scanLibrary() 鑷繁鍋氾紝杩欓噷鍙槸"鍒ゆ柇鍊间笉鍊煎緱鐜板湪寮€濮嬫壂"銆?
+// 等待阶段就对可能几万个文件的曲库根目录做一次完整递归扫描——真正的递归
+
+
+
+
+
+
+
+
+
+// 扫描留给后面 scanLibrary() 自己做，这里只是"判断值不值得现在开始扫"。
+
 
 
 
@@ -28098,7 +28656,7 @@ function shallowEntryCount(dir) {
 
 
 
-    return -1; // 鐩綍鏆傛椂涓嶅彲璇?杩樻病鎸傝浇濂?鏉冮檺闂)锛岃窡"璇诲埌 0 涓潯鐩?鍖哄垎寮€
+    return -1; // 目录暂时不可读(还没挂载好/权限问题)，跟"读到 0 个条目"区分开
 
 
 
@@ -28158,7 +28716,7 @@ async function waitForNetworkMountsStable() {
 
 
 
-  if (netRoots.length === 0) return; // 娌℃湁缃戠粶鏇插簱鏉ユ簮锛屼笉瀛樺湪"鎸傝浇杩樻病鐢熸晥"杩欎釜闂锛屼笉鐢ㄧ瓑
+  if (netRoots.length === 0) return; // 没有网络曲库来源，不存在"挂载还没生效"这个问题，不用等
 
 
 
@@ -28178,7 +28736,7 @@ async function waitForNetworkMountsStable() {
 
 
 
-  log.info('SCAN', `妫€娴嬪埌 ${netRoots.length} 涓綉缁滄洸搴撴潵婧愶紝鍚姩鎵弿鍓嶅厛绛夊緟 ${STARTUP_SCAN_DELAY_MS / 1000}s 璁╃綉鐩樻寕杞芥湁鏈轰細鍏堝氨缁猔);
+  log.info('SCAN', `检测到 ${netRoots.length} 个网络曲库来源，启动扫描前先等待 ${STARTUP_SCAN_DELAY_MS / 1000}s 让网盘挂载有机会先就绪`);
 
 
 
@@ -28278,7 +28836,7 @@ async function waitForNetworkMountsStable() {
 
 
 
-      log.info('SCAN', '缃戠粶鏇插簱鐩綍鏉＄洰鏁伴噺宸茶繛缁袱娆¤鍙栦竴鑷达紝瑙嗕负鎸傝浇宸插氨缁?);
+      log.info('SCAN', '网络曲库目录条目数量已连续两次读取一致，视为挂载已就绪');
 
 
 
@@ -28328,7 +28886,7 @@ async function waitForNetworkMountsStable() {
 
 
 
-  log.warn('SCAN', `绛夊緟缃戠粶鏇插簱鎸傝浇灏辩华瓒呮椂(${STARTUP_SCAN_MAX_WAIT_MS / 1000}s)锛屼粛浼氱户缁惎鍔紝浣嗛娆℃壂鎻忓浐瀹氱敤"澧為噺妯″紡"(鍙涓嶅垹)锛屼笉浼氭湁鏁版嵁涓㈠け椋庨櫓`);
+  log.warn('SCAN', `等待网络曲库挂载就绪超时(${STARTUP_SCAN_MAX_WAIT_MS / 1000}s)，仍会继续启动，但首次扫描固定用"增量模式"(只增不删)，不会有数据丢失风险`);
 
 
 
@@ -28368,7 +28926,7 @@ async function waitForNetworkMountsStable() {
 
 
 
-  // 搴旀€ュ紑鍏筹細STARTUP_SCAN_DISABLED=1 鏃跺畬鍏ㄨ烦杩?瀹瑰櫒鍚姩鍚庣殑棣栨鑷姩鎵弿"銆?
+  // 应急开关：STARTUP_SCAN_DISABLED=1 时完全跳过"容器启动后的首次自动扫描"。
 
 
 
@@ -28377,7 +28935,8 @@ async function waitForNetworkMountsStable() {
 
 
 
-  // 姝ｅ父鎯呭喌涓嶉渶瑕佽缃紙鎵弿宸叉敼鎴愬紓姝ュ垎鎵硅鍑猴紝涓嶄細鍐嶅崱浣?HTTP锛夛紱浠呭綋鏇插簱鐩?
+
+  // 正常情况不需要设置（扫描已改成异步分批让出，不会再卡住 HTTP）；仅当曲库盘
 
 
 
@@ -28386,7 +28945,9 @@ async function waitForNetworkMountsStable() {
 
 
 
-  // 寮傚父銆侀渶瑕佸鍣ㄥ厛浠ユ渶蹇€熷害瀵瑰鍙敤銆佷箣鍚庡啀鍘诲悗鍙版墜鍔ㄧ偣"鎵弿鏇插簱"鏃朵娇鐢ㄣ€?
+
+  // 异常、需要容器先以最快速度对外可用、之后再去后台手动点"扫描曲库"时使用。
+
 
 
 
@@ -28405,7 +28966,7 @@ async function waitForNetworkMountsStable() {
 
 
 
-    log.warn('SCAN', '宸查€氳繃鐜鍙橀噺 STARTUP_SCAN_DISABLED=1 璺宠繃鍚姩鑷姩鎵弿锛岄渶瑕佹椂璇峰埌鍚庡彴鎵嬪姩鎵弿鏇插簱');
+    log.warn('SCAN', '已通过环境变量 STARTUP_SCAN_DISABLED=1 跳过启动自动扫描，需要时请到后台手动扫描曲库');
 
 
 
@@ -28465,7 +29026,7 @@ async function waitForNetworkMountsStable() {
 
 
 
-    log.warn('SCAN', `绛夊緟缃戠粶鏇插簱鎸傝浇灏辩华闃舵鍑洪敊(涓嶅奖鍝嶅悗缁惎鍔?: ${e.message}`);
+    log.warn('SCAN', `等待网络曲库挂载就绪阶段出错(不影响后续启动): ${e.message}`);
 
 
 
@@ -28485,7 +29046,7 @@ async function waitForNetworkMountsStable() {
 
 
 
-  // 棣栨鎵弿鍥哄畾鐢?incremental锛氫笉绠′笂闈㈢瓑鍒版病绛夊埌"绋冲畾"锛岃繖涓€杞兘缁濅笉浼?
+  // 首次扫描固定用 incremental：不管上面等到没等到"稳定"，这一轮都绝不会
 
 
 
@@ -28494,7 +29055,8 @@ async function waitForNetworkMountsStable() {
 
 
 
-  // 鍒犻櫎浠讳綍鏇茬洰璁板綍锛屾妸"鐪熸鍏佽鍒犻櫎鐨勫叏閲忔壂鎻?鐣欑粰涔嬪悗鐨勫畾鏃朵换鍔?绠＄悊鍛?
+
+  // 删除任何曲目记录，把"真正允许删除的全量扫描"留给之后的定时任务/管理员
 
 
 
@@ -28503,7 +29065,8 @@ async function waitForNetworkMountsStable() {
 
 
 
-  // 鎵嬪姩瑙﹀彂锛岄偅鏃跺€欑綉鐩樺ぇ姒傜巼宸茬粡瀹屽叏灏辩华浜嗐€?
+
+  // 手动触发，那时候网盘大概率已经完全就绪了。
 
 
 
@@ -28512,7 +29075,8 @@ async function waitForNetworkMountsStable() {
 
 
 
-  scanLibrary('incremental').catch(e => log.error('SCAN', `鍒濆鎵弿澶辫触: ${e.message}`));
+
+  scanLibrary('incremental').catch(e => log.error('SCAN', `初始扫描失败: ${e.message}`));
 
 
 
@@ -28542,7 +29106,7 @@ async function waitForNetworkMountsStable() {
 
 
 
-// 闇€姹?鏂版瓕鏀捐繘鐩綍鑷姩鍏ュ簱)锛氶櫎鍚姩閭ｆ澶栵紝姣忛殧涓€娈垫椂闂磋嚜鍔ㄨ窇涓€杞閲忔壂鎻忥紝
+// 需求(新歌放进目录自动入库)：除启动那次外，每隔一段时间自动跑一轮增量扫描，
 
 
 
@@ -28552,7 +29116,7 @@ async function waitForNetworkMountsStable() {
 
 
 
-// 鍙涓嶅垹(incremental 妯″紡涓嶄細绉婚櫎浠讳綍鏇茬洰)锛岃繖鏍峰線鏇插簱鐩綍涓㈡柊姝屽悗鏃犻渶鎵嬪姩鐐规壂鎻忋€?
+// 只增不删(incremental 模式不会移除任何曲目)，这样往曲库目录丢新歌后无需手动点扫描。
 
 
 
@@ -28561,7 +29125,9 @@ async function waitForNetworkMountsStable() {
 
 
 
-// 闂撮殧鍙敤鐜鍙橀噺 AUTO_SCAN_MIN 璋冩暣锛岄粯璁?5 鍒嗛挓锛涘姞閿侀伩鍏嶄笂涓€杞病璺戝畬鍙堣捣涓€杞€?
+
+// 间隔可用环境变量 AUTO_SCAN_MIN 调整，默认 5 分钟；加锁避免上一轮没跑完又起一轮。
+
 
 
 
@@ -28590,7 +29156,7 @@ const AUTO_SCAN_MS = Math.max(1, parseInt(process.env.AUTO_SCAN_MIN || '5', 10) 
 
 
 
-// 搴旀€ュ紑鍏筹細AUTO_SCAN_DISABLED=1 鏃朵笉娉ㄥ唽瀹氭椂澧為噺鎵弿锛堝惎鍔ㄩ偅娆′粛鐢?
+// 应急开关：AUTO_SCAN_DISABLED=1 时不注册定时增量扫描（启动那次仍由
 
 
 
@@ -28599,7 +29165,9 @@ const AUTO_SCAN_MS = Math.max(1, parseInt(process.env.AUTO_SCAN_MIN || '5', 10) 
 
 
 
-// STARTUP_SCAN_DISABLED 鍗曠嫭鎺у埗锛夈€傛甯镐娇鐢ㄤ笉瑕佽缃紝鍚﹀垯涓㈣繘鐩綍鐨勬柊姝屼笉浼氳嚜鍔ㄥ叆搴撱€?
+
+// STARTUP_SCAN_DISABLED 单独控制）。正常使用不要设置，否则丢进目录的新歌不会自动入库。
+
 
 
 
@@ -28618,7 +29186,7 @@ if (process.env.AUTO_SCAN_DISABLED === '1') {
 
 
 
-  log.warn('SCAN', '宸查€氳繃鐜鍙橀噺 AUTO_SCAN_DISABLED=1 鍏抽棴瀹氭椂澧為噺鎵弿锛屾柊姝岄渶鎵嬪姩鎵弿鍏ュ簱');
+  log.warn('SCAN', '已通过环境变量 AUTO_SCAN_DISABLED=1 关闭定时增量扫描，新歌需手动扫描入库');
 
 
 
@@ -28678,7 +29246,7 @@ setInterval(() => {
 
 
 
-    .then(r => { if (r && r.added > 0) log.info('SCAN', `鑷姩澧為噺鎵弿锛氭柊澧?${r.added} 棣朻); })
+    .then(r => { if (r && r.added > 0) log.info('SCAN', `自动增量扫描：新增 ${r.added} 首`); })
 
 
 
@@ -28688,7 +29256,7 @@ setInterval(() => {
 
 
 
-    .catch(e => log.warn('SCAN', `鑷姩澧為噺鎵弿澶辫触(涓嶅奖鍝嶈繍琛?: ${e.message}`))
+    .catch(e => log.warn('SCAN', `自动增量扫描失败(不影响运行): ${e.message}`))
 
 
 
@@ -28738,7 +29306,7 @@ setInterval(() => {
 
 
 
-// 鏇插簱缂撳瓨娓呯悊锛氬彇浠ｅ師鏉ュ啓姝诲湪鐜鍙橀噺閲岀殑"姣忔棩鎸夊浐瀹氬ぉ鏁版竻鐞?锛屾敼鐢?
+// 曲库缓存清理：取代原来写死在环境变量里的"每日按固定天数清理"，改由
 
 
 
@@ -28747,8 +29315,8 @@ setInterval(() => {
 
 
 
-// cacheCleaner.js 鎸夌鐞嗗憳褰撳墠淇濆瓨鐨勭瓥鐣ワ紙鎸夊瓨鍌ㄧ┖闂撮檺棰?/ 鎸夌偣姝屾椂闂达級鎵ц锛?
 
+// cacheCleaner.js 按管理员当前保存的策略（按存储空间限额 / 按点歌时间）执行，
 
 
 
@@ -28756,9 +29324,9 @@ setInterval(() => {
 
 
 
-// 鍏蜂綋瑙佽鏂囦欢椤堕儴娉ㄩ噴銆傝繖閲屽彧璐熻矗涓や釜瀹氭椂瑙﹀彂鐐癸細
 
 
+// 具体见该文件顶部注释。这里只负责两个定时触发点：
 
 
 
@@ -28766,9 +29334,9 @@ setInterval(() => {
 
 
 
-//   1) 姣忔棩鍏滃簳娓呯悊涓€娆♀€斺€斾笉绠＄鐞嗗憳閫夌殑鏄摢绉嶇瓥鐣ワ紝闀挎椂闂存病浜虹"娓呯悊缂撳瓨"
 
 
+//   1) 每日兜底清理一次——不管管理员选的是哪种策略，长时间没人碰"清理缓存"
 
 
 
@@ -28776,9 +29344,9 @@ setInterval(() => {
 
 
 
-//      鎸夐挳鏃朵篃涓嶄細璁╃紦瀛樻棤闄愬闀匡紱
 
 
+//      按钮时也不会让缓存无限增长；
 
 
 
@@ -28786,45 +29354,50 @@ setInterval(() => {
 
 
 
-//   2) 姣忔鏈変竴棣栨瓕瀹屾暣杞爜瀹屾垚鍚庯紝濡傛灉褰撳墠绛栫暐鏄?鎸夊瓨鍌ㄧ┖闂撮檺棰?锛岀珛鍒?
 
 
+//   2) 每次有一首歌完整转码完成后，如果当前策略是"按存储空间限额"，立刻
 
 
 
 
 
 
-//      妫€鏌ヤ竴娆℃€婚噺鏄惁瓒呴檺鈥斺€斾笉闇€瑕佺瓑鍒扮浜屽ぉ鐨勫畾鏃舵竻鐞嗘墠鐢熸晥锛岀鐞嗗憳璁剧疆
 
 
 
+//      检查一次总量是否超限——不需要等到第二天的定时清理才生效，管理员设置
 
 
 
 
 
 
-//      鐨勯檺棰濊兘鏇村強鏃跺湴浣撶幇鍑烘潵銆?
 
 
 
+//      的限额能更及时地体现出来。
 
 
 
 
 
-// 閮界敤 getValidSongIds 鐨勬儼鎬у彇鍊硷紙鑰屼笉鏄惎鍔ㄦ椂鏌ヤ竴娆″瓨璧锋潵锛夛紝淇濊瘉姣忔
 
 
 
 
+// 都用 getValidSongIds 的惰性取值（而不是启动时查一次存起来），保证每次
 
 
 
 
 
-// 瑙﹀彂鏃剁敤鐨勯兘鏄綋娆℃渶鏂扮殑鏇插簱鐘舵€侊紝涓嶄細琚敞鍐屾椂鍒荤殑鏃у揩鐓у奖鍝嶃€?
+
+
+
+
+// 触发时用的都是当次最新的曲库状态，不会被注册时刻的旧快照影响。
+
 
 
 
@@ -28863,7 +29436,7 @@ setInterval(() => cacheCleaner.runCleanup(validSongIds), DAY_MS).unref();
 
 
 
-log.info('CACHE_CLEAN', '鏇插簱缂撳瓨娓呯悊浠诲姟宸叉敞鍐岋紙姣忔棩鍏滃簳涓€娆?+ 鎸夊瓨鍌ㄧ┖闂撮檺棰濇椂闅忚浆鐮佸畬鎴愬嵆鏃舵鏌ワ級');
+log.info('CACHE_CLEAN', '曲库缓存清理任务已注册（每日兜底一次 + 按存储空间限额时随转码完成即时检查）');
 
 
 
@@ -28883,7 +29456,7 @@ log.info('CACHE_CLEAN', '鏇插簱缂撳瓨娓呯悊浠诲姟宸叉敞鍐岋紙�
 
 
 
-// 闇€姹?缃戠洏鍏堢紦瀛樺埌鏈湴鍐嶆帰娴?锛氱綉缁滄寕杞芥洸搴撶殑鏈湴缂撳瓨鍓湰(sourceCache.js)
+// 需求(网盘先缓存到本地再探测)：网络挂载曲库的本地缓存副本(sourceCache.js)
 
 
 
@@ -28893,7 +29466,7 @@ log.info('CACHE_CLEAN', '鏇插簱缂撳瓨娓呯悊浠诲姟宸叉敞鍐岋紙�
 
 
 
-// 鏄窡 cacheCleaner.js(HLS 杞爜浜х墿) 瀹屽叏鐙珛鐨勪竴鍧楃鐩樺崰鐢紝鐢ㄥ悓鏍风殑"姣忔棩
+// 是跟 cacheCleaner.js(HLS 转码产物) 完全独立的一块磁盘占用，用同样的"每日
 
 
 
@@ -28903,7 +29476,7 @@ log.info('CACHE_CLEAN', '鏇插簱缂撳瓨娓呯悊浠诲姟宸叉敞鍐岋紙�
 
 
 
-// 鍏滃簳娓呯悊涓€娆?鑺傚璺熺潃璺戯紝绛栫暐瑙?sourceCache.js 椤堕儴娉ㄩ噴(瀛ゅ効缂撳瓨闅忔椂娓?+
+// 兜底清理一次"节奏跟着跑，策略见 sourceCache.js 顶部注释(孤儿缓存随时清 +
 
 
 
@@ -28913,7 +29486,7 @@ log.info('CACHE_CLEAN', '鏇插簱缂撳瓨娓呯悊浠诲姟宸叉敞鍐岋紙�
 
 
 
-// 鎸夊ぇ灏?鎸夊ぉ鏁伴檺棰?銆係OURCE_CACHE_MAX_MB/SOURCE_CACHE_MAX_AGE_DAYS 鐜
+// 按大小/按天数限额)。SOURCE_CACHE_MAX_MB/SOURCE_CACHE_MAX_AGE_DAYS 环境
 
 
 
@@ -28923,7 +29496,8 @@ log.info('CACHE_CLEAN', '鏇插簱缂撳瓨娓呯悊浠诲姟宸叉敞鍐岋紙�
 
 
 
-// 鍙橀噺鍙互瑕嗙洊榛樿闄愰(50GB / 14澶?锛屼笉闇€瑕侀澶栭厤缃篃鑳芥甯稿伐浣溿€?
+// 变量可以覆盖默认限额(50GB / 14天)，不需要额外配置也能正常工作。
+
 
 
 
@@ -28952,7 +29526,7 @@ setInterval(() => sourceCache.runCleanup(validSongIds), DAY_MS).unref();
 
 
 
-log.info('CACHE_CLEAN', `缃戠洏鏈湴缂撳瓨娓呯悊浠诲姟宸叉敞鍐岋紙鐩綍: ${sourceCache.CACHE_DIR}锛塦);
+log.info('CACHE_CLEAN', `网盘本地缓存清理任务已注册（目录: ${sourceCache.CACHE_DIR}）`);
 
 
 
@@ -29042,7 +29616,7 @@ onBuildComplete(() => {
 
 
 
-    log.warn('CACHE_CLEAN', `杞爜瀹屾垚鍚庣殑鍗虫椂缂撳瓨妫€鏌ュけ璐? ${e.message}`);
+    log.warn('CACHE_CLEAN', `转码完成后的即时缓存检查失败: ${e.message}`);
 
 
 
