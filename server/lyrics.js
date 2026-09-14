@@ -1,6 +1,6 @@
 // 歌词获取与解析：
 //  1) 本地同名 .lrc（最可靠，用户曲库约 15000 首已有同名歌词）——同目录同主名
-//  2) 在线三源兜底：网易云 → QQ 音乐 → 酷我，任一成功即返回（个人本地 K 歌使用）
+//  2) 在线四源兜底：网易云 → QQ 音乐 → 酷我 → 酷狗，任一成功即返回（个人本地 K 歌使用）
 //  3) 统一规范化为标准 LRC 文本([mm:ss.xx]歌词)，并提供解析成逐行时间轴的工具
 // 设计原则：在线抓取是网络 IO 且各站反爬策略多变，绝不在 3 万首的扫描循环里
 // 同步逐首请求；扫描阶段只读本地 .lrc，在线抓取走"按需/后台批量"接口，限速、
@@ -167,6 +167,25 @@ async function fetchKuwo(title, artist) {
   return { lrc, source: 'kuwo' };
 }
 
+// ---------- 在线源 4：酷狗（搜索+简化歌词接口 krc.php）----------
+async function fetchKugou(title, artist) {
+  const kw = artist ? `${title} ${artist}` : title;
+  const searchUrl = `http://mobilecdn.kugou.com/api/v3/search/song?keyword=${encodeURIComponent(kw)}&page=1&pagesize=5`;
+  const sj = await fetchJson(searchUrl);
+  const list = ((sj.data || {}).info) || [];
+  const hit = pickBest(list, s => s.songname, s => s.singername, title, artist);
+  if (!hit || !hit.hash) return null;
+  // krc.php 简化接口：keyword 用"歌名 - 歌手"，timelength 毫秒；返回纯 LRC 文本
+  const tl = hit.timelength || 0;
+  const kwText = hit.filename || (artist ? `${hit.songname} ${artist}` : hit.songname);
+  const krcUrl = `http://m.kugou.com/app/i/krc.php?keyword=${encodeURIComponent(kwText)}&timelength=${tl}&d=0.1`;
+  let lrc = await fetchText(krcUrl);
+  if (!lrc || lrc.length < 10) return null;
+  // krc 格式行内可能带 <mm:ss.xx> 逐字标签，剥掉只留文本
+  lrc = lrc.replace(/<\d{1,2}:\d{1,2}[.:]\d{1,3}>/g, '');
+  return { lrc, source: 'kugou' };
+}
+
 // 在候选列表里挑标题/歌手最匹配的一首
 function pickBest(list, getTitle, getArtist, wantTitle, wantArtist) {
   let best = null, bestScore = -1;
@@ -185,9 +204,10 @@ const SOURCES = [
   ['netease', fetchNetease],
   ['qq', fetchQQ],
   ['kuwo', fetchKuwo],
+  ['kugou', fetchKugou],
 ];
 
-// 在线抓取：按顺序尝试三源，成功且能规范化出非空歌词即返回；全部失败返回 null
+// 在线抓取：按顺序尝试四源，成功且能规范化出非空歌词即返回；全部失败返回 null
 async function fetchLyricsOnline(title, artist) {
   for (const [name, fn] of SOURCES) {
     try {

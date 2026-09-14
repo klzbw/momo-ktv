@@ -235,7 +235,7 @@ struct FullPlayerView: View {
 
             if !currentItem.isVideoFile {
 
-                LyricsView(lyrics: lyricsLoader.lyrics, currentTime: lyricTime, timeOffset: lyricsOffset)
+                LyricsView(lyrics: lyricsLoader.lyrics, currentTime: lyricTime, timeOffset: lyricsOffset, aiGenerating: lyricsLoader.aiGenerating)
 
                     .allowsHitTesting(false)
 
@@ -487,12 +487,16 @@ struct FullPlayerView: View {
 
                                     if lyricsLoader.lyrics.lines.isEmpty {
 
-                                        // 没有歌词：自动触发服务端在线抓取生成歌词
+                                        // 没有歌词：请求服务端生成歌词（新流程：ai-worker 逐字对齐优先，在线源降级）
                                         if let playing = api.queue.first(where: { $0.isPlaying }) {
 
-                                            lyricsLoader.forceFetch(server: api.serverAddress, songId: playing.song_id)
-
-                                            FeedbackCenter.shared.show("正在生成歌词...", icon: "text.alignleft")
+                                            if lyricsLoader.aiGenerating {
+                                                // AI 逐字对齐任务已在服务端排队/生成中，避免重复触发
+                                                FeedbackCenter.shared.show("AI逐字歌词生成中，请稍候...", icon: "waveform")
+                                            } else {
+                                                lyricsLoader.forceFetch(server: api.serverAddress, songId: playing.song_id)
+                                                FeedbackCenter.shared.show("正在请求AI生成逐字歌词...", icon: "waveform")
+                                            }
 
                                         }
 
@@ -975,6 +979,10 @@ struct FullPlayerView: View {
         api.onLyricsUpdated = { updatedSongId in
 
             // 只替换当前正在播放的歌曲；其他歌曲下次播放时自动拉取新歌词
+
+            // ai-worker 完成逐字对齐：退出"生成中"状态（reload 成功后 load() 也会再置一次 false，双保险）
+
+            lyricsLoader.aiGenerating = false
 
             if let playing = api.queue.first(where: { $0.isPlaying }), playing.song_id == updatedSongId {
 

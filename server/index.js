@@ -7649,115 +7649,46 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
 
 
 app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
-
-
-
-
-
-
-
-
-
   try {
-
-
-
-
-
-
-
-
-
     const id = parseInt(req.params.id, 10);
-
-
-
-
-
-
-
-
-
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
     const song = db.prepare('SELECT * FROM songs WHERE id=?').get(id);
-
-
-
-
-
-
-
-
-
     if (!song) return res.status(404).json({ error: 'song not found' });
 
+    // 1) DB 已有可用歌词 → 直接返回，不触发 AI 对齐
+    if (song.lyrics && !isLyricsMojibake(song.lyrics)) {
+      return res.json({ id, lyrics: song.lyrics, word: song.lyrics_word || null,
+                        source: song.lyrics_source || 'stored',
+                        align_status: song.align_status || 'none' });
+    }
 
+    // 2) 检测在线 ai-worker（WhisperX 逐字对齐）
+    const workers = sepMod.onlineWorkers();
+    if (workers && workers.length > 0) {
+      // 2a) 防重复：已有 pending/processing 的 align 任务则直接返回 generating
+      const existJob = db.prepare(
+        "SELECT id FROM separation_jobs WHERE song_id=? AND job_type='align' AND status IN ('pending','processing')"
+      ).get(id);
+      if (!existJob) {
+        sepMod.enqueue(db, { songIds: [id], type: 'align' });
+      }
+      return res.status(202).json({
+        status: 'generating',
+        source: 'ai-worker',
+        message: 'AI逐字歌词生成中，请稍候...',
+        workers: workers.map(w => w.name),
+      });
+    }
 
-
-
-
-
-
-
+    // 3) 无在线 worker → 走在线源兜底（网易→QQ→酷我→酷狗）
     const r = await obtainLyrics(song, { forceOnline: true });
+    if (!r) return res.status(404).json({ id, lyrics: null, message: '在线四源均未命中，且无在线 AI worker' });
 
-
-
-
-
-
-
-
-
-    if (!r) return res.status(404).json({ id, lyrics: null, message: '在线三源均未命中' });
-
-
-
-
-
-
-
-
-
-    res.json({ id, lyrics: r.lrc, word: song.lyrics_word || null, source: r.source });
-
-
-
-
-
-
-
-
-
+    res.json({ id, lyrics: r.lrc, word: song.lyrics_word || null, source: r.source,
+               align_status: song.align_status || 'none' });
   } catch (e) {
-
-
-
-
-
-
-
-
-
     res.status(500).json({ error: e.message });
-
-
-
-
-
-
-
-
-
   }
-
-
-
-
-
-
-
-
-
 });
 
 

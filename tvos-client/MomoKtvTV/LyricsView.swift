@@ -124,6 +124,7 @@ final class LyricsLoader: ObservableObject {
     @Published var loaded = false
     @Published var loading = false          // 正在加载/更新歌词（用于显示"歌词更新中"）
     @Published var lyricsUpdated = false    // 歌词已更新提示（显示"歌词已刷新"2.5秒后自动消失）
+    @Published var aiGenerating = false      // AI 逐字对齐任务正在生成中（服务端返回202时置true，load成功或WebSocket推送后置false）
     private var task: URLSessionDataTask?
     private var currentSongId: Int?
     private var lastReloadTime: TimeInterval = 0  // reload防抖：避免服务端生成过程中频繁触发
@@ -213,24 +214,76 @@ final class LyricsLoader: ObservableObject {
         }.resume()
     }
 
-    /// 强制服务端在线重新抓取生成歌词（无歌词时用），完成后自动reload本地歌词。
-    /// 调用 POST /api/songs/:id/lyrics/fetch，服务端从网易/QQ/酷我在线抓取，
-    /// 完成后延迟0.8秒重新拉取本地歌词(online=0)。
+    /// 强制服务端在线重新抓取/生成歌词（无歌词时用）。
+    /// 新 API 契约（POST /api/songs/:id/lyrics/fetch）：
+    ///   - HTTP 202 {"status":"generating","source":"ai-worker"}
+    ///       ai-worker 在线，已入队逐字对齐任务，异步生成中。此时不阻塞、不立即 reload，
+    ///       由服务端完成后通过 WebSocket 广播 lyrics_updated 触发 reload。
+    ///   - HTTP 200 {"id":...,"lyrics":...,"word":...,"source":...}
+    ///       ai-worker 离线，已降级到网易/QQ/酷我在线源抓取并写库；延迟0.8s reload 本地歌词（原有行为）。
+    ///   - HTTP 404 / 其他错误
+    ///       全部源失败，仅打印日志，保持空歌词界面。
+    /// 所有 @Published 变更均在主线程派发，保证 UI 线程安全。
     func forceFetch(server: String, songId: Int) {
         let host = server.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
         guard let url = URL(string: "http://\(host)/api/songs/\(songId)/lyrics/fetch") else { return }
         var req = URLRequest(url: url, timeoutInterval: 30)
         req.httpMethod = "POST"
         loading = true
-        fetchSession.dataTask(with: req) { [weak self] _, _, error in
+        fetchSession.dataTask(with: req) { [weak self] data, response, error in
+            // 无论成功失败，统一在主线程关闭 loading
             DispatchQueue.main.async { self?.loading = false }
-            if let error = error as? URLError, error.code == .timedOut {
-                print("[LyricsLoader] 在线抓取超时(60s) song=\(songId)，稍后可手动重试")
+
+            // 1) 网络层错误 / 超时：退出 AI 生成状态
+            if let error = error {
+                print("[LyricsLoader] 在线抓取请求失败 song=\(songId) error=\(error.localizedDescription)")
+                DispatchQueue.main.async { self?.aiGenerating = false }
                 return
             }
-            // 服务端抓取完成后，延迟0.8秒重新拉取本地歌词
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                self?.reload(server: server, songId: songId)
+            guard let http = response as? HTTPURLResponse else {
+                print("[LyricsLoader] 在线抓取响应非HTTP song=\(songId)")
+                DispatchQueue.main.async { self?.aiGenerating = false }
+                return
+            }
+
+            let status = http.statusCode
+            print("[LyricsLoader] forceFetch HTTP \(status) song=\(songId)")
+
+            switch status {
+            case 202:
+                // 202：ai-worker 已入队逐字对齐任务，异步生成中。
+                // 标记 aiGenerating=true，UI 显示"AI逐字歌词生成中..."，不立即 reload，
+                // 等服务端完成后 WebSocket 推送 lyrics_updated 再 reload。
+                var msg = ""
+                if let data,
+                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let m = obj["message"] as? String {
+                    msg = m
+                }
+                print("[LyricsLoader] AI逐字歌词生成中(202) song=\(songId) msg=\(msg)")
+                DispatchQueue.main.async {
+                    self?.aiGenerating = true
+                }
+
+            case 200:
+                // 200：在线源抓取已完成并写库，延迟0.8s重新拉本地歌词（与原逻辑一致）
+                DispatchQueue.main.async {
+                    self?.aiGenerating = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        self?.reload(server: server, songId: songId)
+                    }
+                }
+
+            default:
+                // 404 / 5xx 等：全部源失败
+                var msg = ""
+                if let data,
+                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let m = obj["message"] as? String {
+                    msg = m
+                }
+                print("[LyricsLoader] 歌词抓取失败 HTTP \(status) song=\(songId) msg=\(msg)")
+                DispatchQueue.main.async { self?.aiGenerating = false }
             }
         }.resume()
     }
@@ -297,6 +350,8 @@ final class LyricsLoader: ObservableObject {
                 // 竞态修复2：双重校验——版本号 + 当前歌曲ID，防止切歌时旧请求覆盖新歌词(新旧交替)
                 guard myGeneration == self.requestGeneration, songId == self.currentSongId else { return }
                 self.lyrics = parsed
+                // 歌词已成功拉到（无论是ai-worker产物还是在线源产物），退出 AI 生成中状态
+                self.aiGenerating = false
                 // 写入LRU缓存：非空歌词才缓存，空歌词不缓存（下次可能在线补抓成功）
                 if !parsed.lines.isEmpty {
                     self.setCache(songId, parsed)
@@ -442,6 +497,7 @@ struct LyricsView: View {
     let currentTime: Double
     var compact: Bool = false        // 首页小窗预览用小字号
     var timeOffset: Double = 0       // 歌词时间轴整体偏移（秒）：正值=歌词延后出现，负值=提前出现，用于唱字同步校准
+    var aiGenerating: Bool = false   // AI逐字对齐生成中：无歌词时显示"AI逐字歌词生成中..."提示（替代"纯音乐"占位）
     @ObservedObject private var styleStore = LyricsStyleStore.shared
     @AppStorage("momoLyricsMode") private var modeRaw: String = LyricsDisplayMode.dual.rawValue
     @State private var hintPulse = false  // 间奏提示呼吸脉冲动画状态
@@ -514,9 +570,18 @@ struct LyricsView: View {
         GeometryReader { geo in
             Group {
                 if lyrics.isEmpty {
-                    Text("♪ 纯音乐 · 请欣赏 ♪")
-                        .font(.system(size: compact ? 16 : 34, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.55))
+                    // AI逐字歌词生成中：显示生成提示（替代"纯音乐"占位），带呼吸脉冲动画
+                    if aiGenerating {
+                        Text("🎵 AI逐字歌词生成中...")
+                            .font(.system(size: compact ? 16 : 34, weight: .semibold))
+                            .foregroundColor(Color(red: 1.0, green: 0.82, blue: 0.29).opacity(0.95))
+                            .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)
+                            .transition(.opacity)
+                    } else {
+                        Text("♪ 纯音乐 · 请欣赏 ♪")
+                            .font(.system(size: compact ? 16 : 34, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.55))
+                    }
                 } else if mode == .dual {
                     dualBody
                 } else {
