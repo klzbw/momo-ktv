@@ -1154,7 +1154,7 @@ router.post('/qrcode/login', requireManager, async (req, res) => {
 
 
 
-    const account = manager.createAccountWithCookie('pan115', name, cookieStr);
+    const account = await manager.createAccountWithCookie('pan115', name, cookieStr);
 
 
 
@@ -1502,7 +1502,7 @@ router.post('/accounts/cookie', requireManager, async (req, res) => {
 
 
 
-    const account = manager.createAccountWithCookie(driver, name || '我的网盘', cookie, refreshToken);
+    const account = await manager.createAccountWithCookie(driver, name || '我的网盘', cookie, refreshToken);
 
 
 
@@ -1922,7 +1922,7 @@ router.post('/accounts/sync-from-alist', requireManager, async (req, res) => {
 
       try {
 
-        const account = manager.createAccountWithCookie(momoDriver, accountName, accessToken, refreshToken);
+        const account = await manager.createAccountWithCookie(momoDriver, accountName, accessToken, refreshToken);
 
         synced.push({ id: account.id, driver: account.driver, name: account.name, alistStorageId: storage.id });
 

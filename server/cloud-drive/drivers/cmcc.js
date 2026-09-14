@@ -64,6 +64,9 @@ function formatTimestamp(date = new Date()) {
 class CmccDriver extends CloudDriveBase {
   constructor(account) {
     super(account);
+    // base.js 构造函数设置了 this.refreshToken = account.refresh_token（实例属性），
+    // 会覆盖本类原型上的 refreshToken() 方法，必须删除实例属性以暴露原型方法。
+    delete this.refreshToken;
     // Authorization token（Basic 后面的部分）
     this.authorization = account.access_token || '';
     // 从 token 解析账号

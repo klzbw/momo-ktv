@@ -288,7 +288,7 @@ class CloudDriveManager {
    * @returns {object} 账号信息
    */
 
-  createAccountWithCookie(driver, name, cookie, refreshToken = null) {
+  async createAccountWithCookie(driver, name, cookie, refreshToken = null) {
 
     if (!DRIVERS[driver]) {
 
@@ -352,7 +352,7 @@ class CloudDriveManager {
 
       const driverInstance = this.getDriver(account);
 
-      const userInfo = driverInstance.getUserInfo().catch(() => null);
+      const userInfo = await driverInstance.getUserInfo().catch(() => null);
 
       if (userInfo) {
 
