@@ -201,6 +201,9 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
           now
         );
 
+        // 同步歌手到 song_artists 表（歌手点歌列表依赖此表，网盘扫描必须同步）
+        db.prepare('INSERT OR IGNORE INTO song_artists (song_id, artist) VALUES (?, ?)').run(result.lastInsertRowid, meta.artist);
+
         scanStatus.added++;
 
         if (scanStatus.added % 500 === 0) {

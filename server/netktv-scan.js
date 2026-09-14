@@ -211,6 +211,9 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir, 
           now
         );
 
+        // 同步歌手到 song_artists 表（歌手点歌列表依赖此表）
+        db.prepare('INSERT OR IGNORE INTO song_artists (song_id, artist) VALUES (?, ?)').run(result.lastInsertRowid, meta.artist);
+
         console.log(`[NETKTV-SCAN] 新增: ${meta.artist} - ${meta.title} (id=${result.lastInsertRowid}, 账号=${accountId})`);
         scanStatus.added++;
 
