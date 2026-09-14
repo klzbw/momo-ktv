@@ -26,7 +26,7 @@ const gbox = require('../gbox');
 const API_URLS = {
   listFiles: 'https://drive-pc.quark.cn/1/clouddrive/file/sort',
   getDownloadURL: 'https://drive-pc.quark.cn/1/clouddrive/file/download',
-  accountInfo: 'https://drive-pc.quark.cn/1/clouddrive/account/info',
+  accountInfo: 'https://pan.quark.cn/account/info',
 };
 
 // User-Agent（夸克桌面客户端 UA，必须与获取直链时一致）
@@ -177,11 +177,13 @@ class QuarkDriver extends CloudDriveBase {
    * 检查登录状态
    */
   async checkLogin() {
-    const res = await this._request('GET', API_URLS.accountInfo + '?pr=ucpro&fr=pc');
-    if (!res.body || res.body.code !== 0) {
-      throw new Error('夸克登录检查失败: ' + JSON.stringify(res.body).slice(0, 200));
+    // drive-pc.quark.cn/1/clouddrive/account/info 已下线(404)，改用 pan.quark.cn/account/info
+    const res = await this._request('GET', API_URLS.accountInfo);
+    const body = res.body || {};
+    if (!body.success) {
+      throw new Error('夸克登录检查失败: ' + JSON.stringify(body).slice(0, 200));
     }
-    const info = res.body.data || {};
+    const info = body.data || {};
     return { userId: String(info.uid || info.user_id || ''), nickname: info.nickname || info.name || '' };
   }
 

@@ -18,7 +18,14 @@ class VLCPlayerManager: NSObject, ObservableObject {
     static let shared = VLCPlayerManager()
 
     // MARK: - 状态
-    @Published private(set) var isPlaying = false
+    // 播放时禁止 Apple TV 自动休眠/屏保；暂停/停止时恢复。仅在播放期间禁用。
+    @Published private(set) var isPlaying = false {
+        didSet {
+            DispatchQueue.main.async {
+                UIApplication.shared.isIdleTimerDisabled = self.isPlaying
+            }
+        }
+    }
     @Published private(set) var currentTime: Double = 0
     @Published private(set) var duration: Double = 0
     @Published var debugLog: String = ""

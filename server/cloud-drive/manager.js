@@ -368,23 +368,31 @@ class CloudDriveManager {
 
 
 
-    // 测试连接
+    // 测试连接：成功 active，失败 error
 
     try {
 
       const driverInstance = this.getDriver(account);
 
-      const userInfo = await driverInstance.getUserInfo().catch(() => null);
+      const tc = driverInstance.testConnection ? await driverInstance.testConnection() : { success: true };
 
-      if (userInfo) {
+      if (tc && tc.success) {
 
-        this.updateAccount(account.id, { user_info: JSON.stringify(userInfo) });
+        const userInfo = await driverInstance.getUserInfo().catch(() => null);
+
+        this.updateAccount(account.id, { status: 'active', user_info: JSON.stringify(userInfo) });
+
+      } else {
+
+        this.updateAccount(account.id, { status: 'error' });
+
+        console.warn('Cookie 登录连接测试失败:', (tc && tc.error) || 'unknown');
 
       }
 
     } catch (e) {
 
-      // 连接测试失败不影响创建，用户可以后续修复
+      this.updateAccount(account.id, { status: 'error' });
 
       console.warn('Cookie 登录连接测试失败:', e.message);
 
@@ -535,21 +543,53 @@ class CloudDriveManager {
 
       // 登录成功，保存 token
 
-      const userInfo = await session.driver.getUserInfo().catch(() => null);
+      // 先落盘 token，再实测连接；按测试结果决定 active / error
 
       this.updateAccount(session.accountId, {
 
-        access_token: result.tokens.access_token,
+        access_token: result.tokens.access_token || '',
 
-        refresh_token: result.tokens.refresh_token,
+        refresh_token: result.tokens.refresh_token || '',
 
         token_expires_at: new Date(Date.now() + (result.tokens.expires_in || 86400 * 30) * 1000).toISOString(),
-
-        user_info: JSON.stringify(userInfo),
 
         status: 'active',
 
       });
+
+      const acc = this.getAccount(session.accountId);
+
+      let liveUserInfo = null;
+
+      let connOk = true;
+
+      try {
+
+        const di = this.getDriver(acc);
+
+        const tc = di.testConnection ? await di.testConnection() : { success: true };
+
+        connOk = !!(tc && tc.success);
+
+        if (connOk) liveUserInfo = await di.getUserInfo().catch(() => null);
+
+      } catch (e) {
+
+        connOk = false;
+
+        console.warn('[QRLogin] 连接测试失败:', e.message);
+
+      }
+
+      this.updateAccount(session.accountId, {
+
+        status: connOk ? 'active' : 'error',
+
+        user_info: JSON.stringify(liveUserInfo),
+
+      });
+
+      const userInfo = liveUserInfo;
 
       qrSessions.delete(qrId);
 

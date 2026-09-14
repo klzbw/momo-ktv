@@ -1,19 +1,15 @@
 /**
- * 阿里云盘驱动
+ * 阿里云盘驱动（Open 平台）
  *
- * 认证方式：Token 登录（access_token + refresh_token）
- * 获取方式：通过阿里云盘开放平台 OAuth，或从浏览器/Alist 配置中提取
- *   - access_token: 访问令牌（Bearer）
- *   - refresh_token: 刷新令牌
+ * 认证：通过 g-box TV OAuth 流程拿到长期 refresh_token（openToken）。
+ *   - refresh_token：g-box /api/get_tokens 返回的长期令牌（存 cloud_accounts.refresh_token）
+ *   - access_token：调用 g-box /api/oauth/alipan/token 用 refresh_token 换得，约 2 小时有效
  *
- * 核心 API：
- * - 用户信息：GET https://api.aliyundrive.com/v2/user/get
- * - 文件列表：POST https://api.aliyundrive.com/v2/file/list
- * - 下载直链：POST https://api.aliyundrive.com/v2/file/get_download_url
- * - 刷新令牌：POST https://api.aliyundrive.com/v2/account/token
- *
- * 注意：阿里云盘需要 drive_id（资源盘ID），默认用默认资源盘。
- * 可在 account.user_info 中存储 drive_id，或自动获取。
+ * 核心 API（openapi.alipan.com，开放平台 openFile 系列）：
+ * - 用户信息：POST /adrive/v1.0/user/getDriveInfo
+ * - 文件列表：POST /adrive/v1.0/openFile/list
+ * - 文件信息：POST /adrive/v1.0/openFile/get
+ * - 下载直链：POST /adrive/v1.0/openFile/getDownloadUrl
  */
 
 const https = require('https');
@@ -21,15 +17,16 @@ const { URL } = require('url');
 const CloudDriveBase = require('./base');
 const gbox = require('../gbox');
 
-const API_BASE = 'https://api.aliyundrive.com';
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+const API_BASE = 'https://openapi.alipan.com';
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 
 class AliyunDriver extends CloudDriveBase {
   constructor(account) {
     super(account);
+    // base.js 把 this.refreshToken 设成了字符串，会遮蔽同名方法，删除后走原型方法
+    delete this.refreshToken;
     this.accessToken = account.access_token || '';
-    this.refreshToken = account.refresh_token || '';
-    // drive_id 可从 user_info 中解析，或自动获取默认盘
+    this._refreshToken = account.refresh_token || '';
     this._driveId = null;
     this._cache = {
       files: new Map(),
@@ -40,68 +37,58 @@ class AliyunDriver extends CloudDriveBase {
 
   // ==================== HTTP 工具 ====================
 
-  async _request(method, path, body = null, headers = {}) {
+  async _request(method, path, body = null) {
     const url = new URL(API_BASE + path);
-    const defaultHeaders = {
-      'Authorization': `Bearer ${this.accessToken}`,
-      'Content-Type': 'application/json',
-      'User-Agent': USER_AGENT,
-      ...headers,
-    };
-
-    return new Promise((resolve, reject) => {
-      const options = {
+    const doCall = (token) => new Promise((resolve, reject) => {
+      const req = https.request({
         hostname: url.hostname,
         port: 443,
         path: url.pathname + url.search,
         method,
-        headers: defaultHeaders,
-      };
-
-      const req = https.request(options, (res) => {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': USER_AGENT,
+        },
+      }, (res) => {
         let data = '';
         res.on('data', chunk => data += chunk);
         res.on('end', () => {
-          try {
-            const json = JSON.parse(data);
-            if (json.code && json.code !== 'OK' && json.code !== 200) {
-              reject(new Error(`Aliyun API error: ${json.code} - ${json.message || json.detail || 'unknown'}`));
-            } else {
-              resolve(json);
-            }
-          } catch (e) {
-            resolve(data);
-          }
+          try { resolve({ status: res.statusCode, json: JSON.parse(data) }); }
+          catch (e) { resolve({ status: res.statusCode, json: null, raw: data }); }
         });
       });
-
       req.on('error', reject);
       req.setTimeout(15000, () => { req.destroy(); reject(new Error('Aliyun API timeout')); });
-
       if (body) req.write(JSON.stringify(body));
       req.end();
     });
+
+    let token = this.accessToken;
+    if (!token) {
+      await this.refreshToken();
+      token = this.accessToken;
+    }
+    let r = await doCall(token);
+    // access_token 失效/无法校验则刷新后重试一次（含历史遗留的旧 token）
+    const code = r.json && (r.json.code || r.json.error);
+    const msg = (r.json && (r.json.message || r.json.error_description)) || '';
+    if (r.status === 401 || /AccessTokenInvalid|TokenVerifyFailed|invalid access_token|invalid_token/i.test(String(code) + ' ' + msg)) {
+      await this.refreshToken();
+      r = await doCall(this.accessToken);
+    }
+    if (r.json && r.json.code && r.json.code !== 'OK' && r.json.code !== 200) {
+      throw new Error(`Aliyun API error: ${r.json.code} - ${r.json.message || r.json.error || 'unknown'}`);
+    }
+    return r.json || {};
   }
 
   // ==================== drive_id 管理 ====================
 
   async _getDriveId() {
     if (this._driveId) return this._driveId;
-
-    // 尝试从 user_info 解析
-    if (this.account.user_info) {
-      try {
-        const info = JSON.parse(this.account.user_info);
-        if (info.default_drive_id) {
-          this._driveId = info.default_drive_id;
-          return this._driveId;
-        }
-      } catch (e) { /* ignore */ }
-    }
-
-    // 自动获取默认资源盘
-    const userInfo = await this._request('POST', '/v2/user/get', {});
-    this._driveId = userInfo.default_drive_id || userInfo.resource_drive_id;
+    const info = await this.getUserInfo();
+    this._driveId = info.resource_drive_id || info.default_drive_id;
     return this._driveId;
   }
 
@@ -117,40 +104,28 @@ class AliyunDriver extends CloudDriveBase {
     for (const part of parts) {
       const cacheKey = `${parentId}/${part}`;
       const cached = this._cache.files.get(cacheKey);
-      if (cached && Date.now() < cached.expireAt) {
-        parentId = cached.data;
-        continue;
-      }
+      if (cached && Date.now() < cached.expireAt) { parentId = cached.data; continue; }
 
-      const result = await this._request('POST', '/v2/file/list', {
-        drive_id: await this._getDriveId(),
+      const driveId = await this._getDriveId();
+      const result = await this._request('POST', '/adrive/v1.0/openFile/list', {
+        drive_id: driveId,
         parent_file_id: parentId,
         limit: 200,
       });
 
       let found = null;
-      if (result.items) {
-        found = result.items.find(item => item.name === part);
-      }
+      if (result.items) found = result.items.find(item => item.name === part);
 
-      if (!found) {
-        throw new Error(`Aliyun: path not found: ${normalized} (component: ${part})`);
-      }
+      if (!found) throw new Error(`Aliyun: path not found: ${normalized} (component: ${part})`);
 
       parentId = found.file_id;
       this._cache.files.set(cacheKey, { data: parentId, expireAt: Date.now() + this._cacheTTL });
     }
-
     return parentId;
   }
 
   // ==================== 认证相关 ====================
 
-  /**
-   * 获取阿里云盘扫码登录二维码
-   * API: POST https://api.aliyundrive.com/oauth/authorize/qrcode
-   * 使用公开 OAuth 应用凭证（来自开源社区）
-   */
   /**
    * 扫码登录：代理到 G-Box 阿里云盘 TV OAuth 流程
    *   GET  /api/get_tv_token              -> { qr_code(base64 png), sid }
@@ -177,9 +152,10 @@ class AliyunDriver extends CloudDriveBase {
     const tk = await gbox.call('/api/get_tokens', 'POST', { auth_code: authCode, sid: qrId });
     const refreshToken = tk.json && (tk.json.refresh_token || tk.json.access_token);
     if (!refreshToken) return { status: 'waiting' };
+    // 只存长期 refresh_token；access_token 由 refreshToken() 用 g-box 换取
     return {
       status: 'confirmed',
-      tokens: { access_token: refreshToken, refresh_token: refreshToken, expires_in: 0 },
+      tokens: { access_token: '', refresh_token: refreshToken },
     };
   }
 
@@ -192,49 +168,27 @@ class AliyunDriver extends CloudDriveBase {
     }
   }
 
+  /**
+   * 用 g-box 把长期 refresh_token 换成真正的 access_token。
+   * g-box: POST /api/oauth/alipan/token  body { "refresh_token": "..." }
+   *        -> { access_token, refresh_token, ... }
+   */
   async refreshToken() {
-    if (!this.refreshToken) {
+    if (!this._refreshToken) {
       throw new Error('阿里云盘 refresh_token 为空，无法刷新');
     }
-
-    const result = await new Promise((resolve, reject) => {
-      const body = JSON.stringify({
-        grant_type: 'refresh_token',
-        refresh_token: this.refreshToken,
-      });
-
-      const req = https.request({
-        hostname: 'api.aliyundrive.com',
-        port: 443,
-        path: '/v2/account/token',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': USER_AGENT,
-        },
-      }, (res) => {
-        let data = '';
-        res.on('data', c => data += c);
-        res.on('end', () => {
-          try { resolve(JSON.parse(data)); } catch (e) { resolve(data); }
-        });
-      });
-      req.on('error', reject);
-      req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
-      req.write(body);
-      req.end();
-    });
-
-    if (result.access_token) {
-      this.accessToken = result.access_token;
-      this.refreshToken = result.refresh_token || this.refreshToken;
-      return {
-        accessToken: result.access_token,
-        refreshToken: result.refresh_token || this.refreshToken,
-        expiresAt: new Date(Date.now() + (result.expires_in || 7200) * 1000),
-      };
+    const r = await gbox.call('/api/oauth/alipan/token', 'POST', { refresh_token: this._refreshToken });
+    const j = r.json || {};
+    if (!j.access_token) {
+      throw new Error('阿里云盘 token 刷新失败: ' + (j.message || r.body || 'unknown'));
     }
-    throw new Error('阿里云盘 token 刷新失败: ' + (result.message || 'unknown'));
+    this.accessToken = j.access_token;
+    if (j.refresh_token) this._refreshToken = j.refresh_token;
+    return {
+      accessToken: j.access_token,
+      refreshToken: this._refreshToken,
+      expiresAt: new Date(Date.now() + (j.expires_in || 7200) * 1000),
+    };
   }
 
   // ==================== 文件操作 ====================
@@ -256,10 +210,8 @@ class AliyunDriver extends CloudDriveBase {
       };
       if (marker) body.marker = marker;
 
-      const result = await this._request('POST', '/v2/file/list', body);
-      if (result.items) {
-        allItems.push(...result.items);
-      }
+      const result = await this._request('POST', '/adrive/v1.0/openFile/list', body);
+      if (result.items) allItems.push(...result.items);
       marker = result.next_marker;
     } while (marker && marker !== '');
 
@@ -270,28 +222,24 @@ class AliyunDriver extends CloudDriveBase {
       isDir: item.type === 'folder',
       size: item.size || 0,
       modifiedAt: item.updated_at ? new Date(item.updated_at) : null,
-      // 阿里云盘用 file_id 获取下载链接
       pickCode: item.file_id,
     }));
   }
 
   async getFileInfo(fileId) {
     const driveId = await this._getDriveId();
-    return this._request('POST', '/v2/file/get', {
+    return this._request('POST', '/adrive/v1.0/openFile/get', {
       drive_id: driveId,
       file_id: fileId,
     });
   }
 
   async getDownloadUrl(fileId) {
-    // 检查缓存
     const cached = this._cache.urls.get(fileId);
-    if (cached && Date.now() < cached.expireAt) {
-      return cached.data;
-    }
+    if (cached && Date.now() < cached.expireAt) return cached.data;
 
     const driveId = await this._getDriveId();
-    const result = await this._request('POST', '/v2/file/get_download_url', {
+    const result = await this._request('POST', '/adrive/v1.0/openFile/getDownloadUrl', {
       drive_id: driveId,
       file_id: fileId,
     });
@@ -304,8 +252,6 @@ class AliyunDriver extends CloudDriveBase {
     return data;
   }
 
-  // ==================== 上传相关 ====================
-
   async mkdir(remotePath) {
     const normalized = this._normalizePath(remotePath);
     const parts = normalized.split('/').filter(Boolean);
@@ -314,31 +260,29 @@ class AliyunDriver extends CloudDriveBase {
     const parentId = await this._pathToFileId(parentPath);
     const driveId = await this._getDriveId();
 
-    const result = await this._request('POST', '/v2/file/create', {
+    const result = await this._request('POST', '/adrive/v1.0/openFile/create', {
       drive_id: driveId,
       parent_file_id: parentId,
       name: dirName,
       type: 'folder',
       check_name_mode: 'refuse',
     });
-
     return result.file_id;
   }
 
-  async uploadFile(localPath, remotePath, onProgress) {
-    throw new Error('阿里云盘上传暂未实现（需要分片上传逻辑）');
+  async uploadFile() {
+    throw new Error('阿里云盘上传暂未实现');
   }
 
-  // ==================== 工具 ====================
-
   async getUserInfo() {
-    const result = await this._request('POST', '/v2/user/get', {});
+    const result = await this._request('POST', '/adrive/v1.0/user/getDriveInfo', {});
     return {
       nickname: result.nick_name || result.user_name || '阿里云盘用户',
       totalSize: result.total_size || 0,
       usedSize: result.used_size || 0,
       avatar: result.avatar || '',
       default_drive_id: result.default_drive_id,
+      resource_drive_id: result.resource_drive_id,
     };
   }
 }

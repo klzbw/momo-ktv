@@ -246,7 +246,14 @@ class PlayerManager: ObservableObject {
 
     @Published var currentTime: Double = 0
     @Published var duration: Double = 0
-    @Published var isPlaying: Bool = false
+    // 播放时禁止 Apple TV 自动休眠/屏保；暂停/结束时恢复。纯音频(FLAC)也走此路径。
+    @Published var isPlaying: Bool = false {
+        didSet {
+            DispatchQueue.main.async {
+                UIApplication.shared.isIdleTimerDisabled = self.isPlaying
+            }
+        }
+    }
     @Published var currentSongId: Int?
     /// 当前演唱音轨索引。AI 分离完成的纯音频有五档：
     /// 0=原唱 1=人声75% 2=半消(50%) 3=人声25% 4=纯伴奏；老式三档/双音轨按实际音轨数自适应；单音轨恒为 0。

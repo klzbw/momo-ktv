@@ -1100,8 +1100,9 @@ function populateHomeRootAcctSelect(){
   if(!sel) return;
   const curVal = sel.value;
   sel.innerHTML = '<option value="">选择网盘账号</option>' +
-    cloudAccountsCache.map(a => '<option value="' + a.id + '">' + escHtml(a.name) + ' (' + (HOME_DRIVER_NAMES[a.driver]||a.driver) + ')</option>').join('');
-  if(curVal && cloudAccountsCache.some(a => String(a.id) === curVal)) sel.value = curVal;
+    cloudAccountsCache.filter(a => a.status === 'active')
+      .map(a => '<option value="' + a.id + '">' + escHtml(a.name) + ' (' + (HOME_DRIVER_NAMES[a.driver]||a.driver) + ')</option>').join('');
+  if(curVal && cloudAccountsCache.some(a => String(a.id) === curVal && a.status === 'active')) sel.value = curVal;
 }
 
 async function loadHomeLibrarySources(){
