@@ -3667,27 +3667,27 @@ select option{color:#000}
 
 
 
-            <!-- 移动云盘：跳转登录后粘贴 Cookie -->
+            <!-- 移动云盘：粘贴 Authorization Token -->
 
             <div id="cmcc-login-panel" style="display:none">
 
-              <div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:10px">📋 获取移动云盘登录 Cookie</div>
+              <div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:10px">📋 获取移动云盘 Authorization Token</div>
 
               <div style="font-size:12px;color:var(--sub);line-height:1.8;margin-bottom:12px">
 
-                点击下方按钮打开移动云盘官网并登录，登录后按 F12 打开开发者工具 → Network → 点任意请求 → 复制请求头中的 <b>Cookie</b> 值，粘贴到下方：
+                移动云盘使用 <b>Authorization Token</b>（不是 Cookie）。登录后按 F12 → Network → 刷新 → 点任意 API 请求 → 在 Request Headers 找到 <b>Authorization</b>，复制 <b>Basic </b> 后面的整串粘贴到下方：
 
               </div>
 
               <div style="display:flex;gap:8px;margin-bottom:12px">
 
-                <button onclick="window.open('https://yun.139.com','_blank')" style="flex:1;padding:8px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🔗 登录移动云盘</button>
+                <button onclick="window.open('https://yun.139.com/w/','_blank')" style="flex:1;padding:8px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">🔗 登录移动云盘</button>
 
-                <button onclick="window.open('https://mail.139.com','_blank')" style="flex:1;padding:8px;background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">📧 139邮箱</button>
+                <button onclick="window.open('http://192.168.3.16:5236/@manage/storages','_blank')" style="flex:1;padding:8px;background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">⚙️ AList后台</button>
 
               </div>
 
-              <textarea id="cmcc-token-input" rows="3" placeholder="粘贴 Cookie 值（包含 cml_passport 等登录字段）" style="width:100%;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px;color:#fff;font-size:11px;resize:vertical;box-sizing:border-box"></textarea>
+              <textarea id="cmcc-token-input" rows="3" placeholder="粘贴 Authorization Token（Basic 后面的 base64 串）" style="width:100%;background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px;color:#fff;font-size:11px;resize:vertical;box-sizing:border-box"></textarea>
 
               <button onclick="addCmccToken()" style="width:100%;margin-top:8px;padding:8px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">✓ 添加移动云盘账号</button>
 
@@ -12661,7 +12661,7 @@ async function deleteCloudAccount(id, name){
 
 
 
-  // ========== 移动云盘 Cookie 添加 ==========
+  // ========== 移动云盘 Authorization Token 添加 ==========
 
   async function addCmccToken(){
 
@@ -12669,7 +12669,7 @@ async function deleteCloudAccount(id, name){
 
     const name = document.getElementById('cloud-qr-name-input').value.trim() || '我的移动云盘';
 
-    if(!cookie){ alert('请先粘贴移动云盘 Cookie'); return; }
+    if(!cookie){ alert('请先粘贴移动云盘 Authorization Token'); return; }
 
     try{
 
