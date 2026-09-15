@@ -261,6 +261,8 @@ struct FullPlayerView: View {
 
                 GeometryReader { screenGeo in
 
+                    ZStack {
+
                     VStack(spacing: 0) {
 
                         Spacer(minLength: 0)
@@ -603,6 +605,11 @@ struct FullPlayerView: View {
 
                     .onMoveCommand { _ in resetHideTimer() }
 
+                    // 触控板按压/长按在 focus 环境下不一定经 SwiftUI 手势回调，双保险
+                    .onTapGesture { resetHideTimer() }
+
+                    .onLongPressGesture(minimumDuration: 0.5) { resetHideTimer() }
+
                     .padding(.horizontal, 24)
 
                     .padding(.bottom, 24)
@@ -616,6 +623,14 @@ struct FullPlayerView: View {
                     }
 
                     .frame(width: screenGeo.size.width, height: screenGeo.size.height, alignment: .bottom)
+
+                    // 遥控器活动捕获层：透明全屏覆盖在控件之上；触控板滑动/按压/长按都重置5秒隐藏计时。
+                    // 与方向键(onMoveCommand)、焦点按钮自带动作互不冲突：cancelsTouchesInView=false + 同时识别。
+                    RemoteActivityCaptureView { resetHideTimer() }
+                        .frame(width: screenGeo.size.width, height: screenGeo.size.height)
+                        .allowsHitTesting(true)
+
+                    }
 
                 }
 

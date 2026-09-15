@@ -1,5 +1,29 @@
 import SwiftUI
 import UIKit
+import AVFoundation
+
+struct BgItem {
+    let url: String
+    let isVideo: Bool
+}
+
+/// 拉取 /api/backgrounds/images，解析 type 字段并把相对 URL 拼成绝对地址
+private func loadBgItems(server: String, completion: @escaping ([BgItem]) -> Void) {
+    let host = server.hasPrefix("http") ? (server.hasSuffix("/") ? String(server.dropLast()) : server)
+           : "http://\(server)"
+    guard let u = URL(string: host + "/api/backgrounds/images") else { completion([]); return }
+    URLSession.shared.dataTask(with: u) { data, _, _ in
+        guard let data,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let arr = obj["images"] as? [Any] else { completion([]); return }
+        let list: [BgItem] = arr.compactMap { item in
+            guard let dict = item as? [String: Any], let urlPath = dict["url"] as? String else { return nil }
+            let abs = urlPath.hasPrefix("http") ? urlPath : host + urlPath
+            return BgItem(url: abs, isVideo: (dict["type"] as? String) == "video")
+        }
+        DispatchQueue.main.async { completion(list) }
+    }.resume()
+}
 
 // MARK: - 纯音频歌曲动态背景模式（与网页端 BgStage 对应；tvOS 难取实时频谱，
 // 用时间驱动的多层正弦做平滑律动，视觉上随音乐起伏）。@AppStorage 记忆，遥控/按钮可切换。
@@ -283,12 +307,12 @@ struct AudioBackgroundView: View {
     }
 }
 
-// MARK: - 我的图片：拉取服务端用户上传的背景图，多张随机轮播，带柔和交叉淡入
+// MARK: - 我的图片：拉取服务端用户上传的背景图/视频，多项随机轮播，带柔和交叉淡入
 struct PhotosBg: View {
     let server: String
     var w: CGFloat = 0   // 容器宽，由 AudioBackgroundView 的 GeometryReader 传入
     var h: CGFloat = 0   // 容器高
-    @State private var urls: [String] = []
+    @State private var items: [BgItem] = []
     @State private var idx = 0
     @State private var timer: Timer?   // 手动 Timer，播放时比 Timer.publish 更可靠
 
@@ -297,24 +321,34 @@ struct PhotosBg: View {
         ZStack {
             Color(red: 0.03, green: 0.03, blue: 0.08)
                 .frame(width: w, height: h)
-            if urls.isEmpty {
+            if items.isEmpty {
                 LinearGradient(colors: [Color(red: 0.12, green: 0.1, blue: 0.3), Color(red: 0.04, green: 0.02, blue: 0.12)],
                                startPoint: .top, endPoint: .bottom)
                     .frame(width: w, height: h)
-            } else if let u = URL(string: urls[idx % urls.count]) {
-                AsyncImage(url: u, transaction: Transaction(animation: .easeInOut(duration: 1.2))) { phase in
-                    switch phase {
-                    case .success(let img):
-                        img.resizable().scaledToFill().transition(.opacity)
-                    default:
-                        Color.clear
+            } else {
+                let it = items[idx % items.count]
+                if it.isVideo, let vu = URL(string: it.url) {
+                    // 视频项：静音循环自动播放，铺满；tvOS 不支持的编码(如VP9/WebM)时安静留空
+                    LoopingVideoLayerView(url: vu)
+                        .frame(width: w, height: h)
+                        .clipped()
+                        .id(it.url)
+                        .allowsHitTesting(false)
+                } else if let u = URL(string: it.url) {
+                    AsyncImage(url: u, transaction: Transaction(animation: .easeInOut(duration: 1.2))) { phase in
+                        switch phase {
+                        case .success(let img):
+                            img.resizable().scaledToFill().transition(.opacity)
+                        default:
+                            Color.clear
+                        }
                     }
+                    .frame(width: w, height: h)
+                    .clipped()
+                    .id(it.url)
+                    .focusable(false)
+                    .allowsHitTesting(false)
                 }
-                .frame(width: w, height: h)
-                .clipped()
-                .id(idx)
-                .focusable(false)
-                .allowsHitTesting(false)
             }
         }
         .frame(width: w, height: h)
@@ -329,13 +363,13 @@ struct PhotosBg: View {
         }
     }
 
-    /// 启动图片轮播：每6秒随机切换一张，播放/暂停时均正常运行
+    /// 启动轮播：每6秒随机切换一项（图/视频混合），播放/暂停时均正常运行
     private func startSlideshow() {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 6, repeats: true) { _ in
-            guard !urls.isEmpty else { return }
-            var n = Int.random(in: 0..<urls.count)
-            if urls.count > 1 && n == idx { n = (n + 1) % urls.count }
+            guard !items.isEmpty else { return }
+            var n = Int.random(in: 0..<items.count)
+            if items.count > 1 && n == idx { n = (n + 1) % items.count }
             DispatchQueue.main.async {
                 withAnimation(.easeInOut(duration: 1.0)) { idx = n }
             }
@@ -343,25 +377,10 @@ struct PhotosBg: View {
     }
 
     private func load() {
-        let host = server.hasPrefix("http") ? (server.hasSuffix("/") ? String(server.dropLast()) : server)
-               : "http://\(server)"
-        guard let u = URL(string: host + "/api/backgrounds/images") else { return }
-        URLSession.shared.dataTask(with: u) { data, _, _ in
-            guard let data,
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let arr = obj["images"] as? [Any] else { return }
-            let list: [String] = arr.compactMap { item in
-                if let dict = item as? [String: Any], let urlPath = dict["url"] as? String {
-                    return urlPath.hasPrefix("http") ? urlPath : host + urlPath
-                }
-                if let s = item as? String { return s.hasPrefix("http") ? s : host + s }
-                return nil
-            }
-            DispatchQueue.main.async {
-                self.urls = list
-                self.idx = list.isEmpty ? 0 : Int.random(in: 0..<list.count)
-            }
-        }.resume()
+        loadBgItems(server: server) { list in
+            self.items = list
+            self.idx = list.isEmpty ? 0 : Int.random(in: 0..<list.count)
+        }
     }
 }
 
@@ -447,31 +466,20 @@ struct PhotoWallBg: View {
     }
 
     private func load() {
-        let host = server.hasPrefix("http") ? (server.hasSuffix("/") ? String(server.dropLast()) : server)
-               : "http://\(server)"
-        guard let u = URL(string: host + "/api/backgrounds/images") else { return }
-        URLSession.shared.dataTask(with: u) { data, _, _ in
-            guard let data,
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let arr = obj["images"] as? [Any] else { return }
-            let list: [String] = arr.compactMap { item in
-                if let dict = item as? [String: Any], let urlPath = dict["url"] as? String {
-                    return urlPath.hasPrefix("http") ? urlPath : host + urlPath
-                }
-                if let s = item as? String { return s.hasPrefix("http") ? s : host + s }
-                return nil
-            }
-            DispatchQueue.main.async { self.urls = list; pickBatch() }
-        }.resume()
+        // 照片墙是 2x2 缩略图网格，只取图片项，跳过视频
+        loadBgItems(server: server) { list in
+            self.urls = list.filter { !$0.isVideo }.map { $0.url }
+            pickBatch()
+        }
     }
 }
 
-// MARK: - 回忆：单图全屏 + Ken Burns 缓慢推拉/随机漂移 + 随机切换（服务端无视频接口，用图片混合）
+// MARK: - 回忆：单图/视频全屏 + Ken Burns 缓慢推拉/随机漂移 + 随机切换（图/视频混合轮播）
 struct MemoryBg: View {
     let server: String
     var w: CGFloat = 0
     var h: CGFloat = 0
-    @State private var urls: [String] = []
+    @State private var items: [BgItem] = []
     @State private var idx = 0
     @State private var timer: Timer?
     @State private var scale: CGFloat = 1.0
@@ -481,21 +489,31 @@ struct MemoryBg: View {
         ZStack {
             Color(red: 0.03, green: 0.03, blue: 0.08)
                 .frame(width: w, height: h)
-            if !urls.isEmpty, let u = URL(string: urls[idx % urls.count]) {
-                AsyncImage(url: u, transaction: Transaction(animation: .easeInOut(duration: 1.2))) { phase in
-                    switch phase {
-                    case .success(let img):
-                        img.resizable().scaledToFill().transition(.opacity)
-                    default:
-                        Color.clear
+            if !items.isEmpty {
+                let it = items[idx % items.count]
+                if it.isVideo, let vu = URL(string: it.url) {
+                    // 视频项：静音循环自动播放，不做 Ken Burns
+                    LoopingVideoLayerView(url: vu)
+                        .frame(width: w, height: h)
+                        .clipped()
+                        .id(it.url)
+                        .allowsHitTesting(false)
+                } else if let u = URL(string: it.url) {
+                    AsyncImage(url: u, transaction: Transaction(animation: .easeInOut(duration: 1.2))) { phase in
+                        switch phase {
+                        case .success(let img):
+                            img.resizable().scaledToFill().transition(.opacity)
+                        default:
+                            Color.clear
+                        }
                     }
+                    .frame(width: w, height: h)
+                    .clipped()
+                    .scaleEffect(scale)
+                    .offset(drift)
+                    .id(it.url)
+                    .allowsHitTesting(false)
                 }
-                .frame(width: w, height: h)
-                .clipped()
-                .scaleEffect(scale)
-                .offset(drift)
-                .id(idx)
-                .allowsHitTesting(false)
             }
         }
         .frame(width: w, height: h)
@@ -506,47 +524,96 @@ struct MemoryBg: View {
 
     private func startCycle() {
         timer?.invalidate()
-        // 0.6s 后先推一次 Ken Burns（不等首个切换周期）
+        // 0.6s 后先推一次切换（不等首个切换周期）
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { applyTransition() }
         timer = Timer(timeInterval: 6, repeats: true) { _ in applyTransition() }
         if let t = timer { RunLoop.main.add(t, forMode: .common) }
     }
 
-    /// 切一张随机图，先复位再缓慢推拉漂移（Ken Burns）
+    /// 切一项随机内容；图片项复位后缓慢推拉漂移（Ken Burns），视频项直接换播
     private func applyTransition() {
-        guard !urls.isEmpty else { return }
-        var n = Int.random(in: 0..<urls.count)
-        if urls.count > 1 && n == idx { n = (n + 1) % urls.count }
+        guard !items.isEmpty else { return }
+        var n = Int.random(in: 0..<items.count)
+        if items.count > 1 && n == idx { n = (n + 1) % items.count }
         withAnimation(.easeInOut(duration: 1.2)) {
             idx = n
             scale = 1.0
             drift = .zero
         }
-        withAnimation(.easeInOut(duration: 5.5)) {
-            scale = CGFloat.random(in: 1.08...1.22)
-            drift = CGSize(width: CGFloat.random(in: -30...30), height: CGFloat.random(in: -30...30))
+        // 仅当前项是图片时才做 Ken Burns 推近；视频项由 LoopingVideoLayerView 自身播放
+        if !items[n].isVideo {
+            withAnimation(.easeInOut(duration: 5.5)) {
+                scale = CGFloat.random(in: 1.08...1.22)
+                drift = CGSize(width: CGFloat.random(in: -30...30), height: CGFloat.random(in: -30...30))
+            }
         }
     }
 
     private func load() {
-        let host = server.hasPrefix("http") ? (server.hasSuffix("/") ? String(server.dropLast()) : server)
-               : "http://\(server)"
-        guard let u = URL(string: host + "/api/backgrounds/images") else { return }
-        URLSession.shared.dataTask(with: u) { data, _, _ in
-            guard let data,
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let arr = obj["images"] as? [Any] else { return }
-            let list: [String] = arr.compactMap { item in
-                if let dict = item as? [String: Any], let urlPath = dict["url"] as? String {
-                    return urlPath.hasPrefix("http") ? urlPath : host + urlPath
-                }
-                if let s = item as? String { return s.hasPrefix("http") ? s : host + s }
-                return nil
-            }
-            DispatchQueue.main.async {
-                self.urls = list
-                self.idx = list.isEmpty ? 0 : Int.random(in: 0..<list.count)
-            }
-        }.resume()
+        loadBgItems(server: server) { list in
+            self.items = list
+            self.idx = list.isEmpty ? 0 : Int.random(in: 0..<list.count)
+        }
+    }
+}
+
+// MARK: - 后台背景视频循环播放器：静音、自动播放、铺满；tvOS 不支持的编码(VP9/WebM)时安静留空
+struct LoopingVideoLayerView: UIViewRepresentable {
+    let url: URL
+
+    func makeUIView(context: Context) -> BgVideoContainerView {
+        let v = BgVideoContainerView()
+        v.configure(url: url)
+        return v
+    }
+
+    func updateUIView(_ uiView: BgVideoContainerView, context: Context) {
+        if uiView.currentURL != url { uiView.configure(url: url) }
+    }
+
+    static func dismantleUIView(_ uiView: BgVideoContainerView, coordinator: ()) {
+        uiView.teardown()
+    }
+}
+
+final class BgVideoContainerView: UIView {
+    fileprivate var currentURL: URL?
+    private var player: AVQueuePlayer?
+    private var looper: AVPlayerLooper?
+    private var playerLayer: AVPlayerLayer?
+
+    func configure(url: URL) {
+        currentURL = url
+        if playerLayer == nil {
+            let l = AVPlayerLayer()
+            l.videoGravity = .resizeAspectFill
+            l.frame = bounds
+            layer.addSublayer(l)
+            playerLayer = l
+        }
+        // 停掉旧的
+        player?.pause()
+        // 用 AVQueuePlayer + AVPlayerLooper 实现无缝循环；静音后台播放
+        let item = AVPlayerItem(url: url)
+        let q = AVQueuePlayer(playerItem: item)
+        q.isMuted = true
+        q.actionAtItemEnd = .none
+        let l = AVPlayerLooper(player: q, templateItem: item)
+        player = q
+        looper = l
+        playerLayer?.player = q
+        q.play()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        playerLayer?.frame = bounds
+    }
+
+    func teardown() {
+        player?.pause()
+        playerLayer?.player = nil
+        player = nil
+        looper = nil
     }
 }
