@@ -195,8 +195,8 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir, 
         // 入库（写入 cloud_account_id 支持多账号）
         const now = new Date().toISOString();
         const result = db.prepare(`
-          INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, cloud_account_id, duration, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 'audio', 2, 'done', ?, ?, ?, ?)
+          INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, cloud_account_id, duration, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 'audio', 2, 'done', ?, ?, ?)
         `).run(
           meta.title,
           meta.artist,
@@ -207,7 +207,6 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir, 
           sourceRoot,
           accountId,
           null, // duration 暂时为空，播放时探测
-          now,
           now
         );
 
