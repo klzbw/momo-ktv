@@ -69,8 +69,6 @@
 3. 在里面创建 `docker-compose.yml`：
 
 ```yaml
-version: "3.8"
-
 services:
   momo-ktv:
     image: ghcr.io/klzbw/momo-ktv:latest
