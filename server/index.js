@@ -21082,12 +21082,16 @@ app.get('/api/admin/browse-cloud', requireAdminAuth, async (req, res) => {
     const driver = cloudDrive.manager.getDriverById(accountId);
     if (!driver) return res.status(404).json({ error: '网盘账号不存在' });
     const files = await driver.listFiles(remotePath);
-    // 转换为前端期望的格式 { folders: [{name, isDir, size}] }
-    const folders = files.map(f => ({
-      name: f.name,
-      isDir: f.isDir === true || f.type === 'folder',
-      size: f.size || 0,
-    }));
+    // 网盘路径选择器只需要子目录。原先把该目录下全部条目(上万个 .mkv 文件)都返回、
+    // 前端再渲染成上万个 DOM 节点，且响应 ~1.5MB，导致页面卡死无响应。
+    // 这里只保留目录(115 驱动 isDir 已正确识别目录)。
+    const folders = files
+      .filter(f => f.isDir === true || f.type === 'folder')
+      .map(f => ({
+        name: f.name,
+        isDir: true,
+        size: f.size || 0,
+      }));
     res.json({ ok: true, path: remotePath, folders });
   } catch (e) {
     console.error('浏览网盘目录失败:', e);
@@ -21135,9 +21139,10 @@ app.get('/api/admin/browse-cloud', requireAdminAuth, async (req, res) => {
     if (!cd.manager) return res.status(500).json({ error: 'cloud-drive 未初始化' });
     const driver = cd.manager.getDriverById(accountId);
     const files = await driver.listFiles(remotePath);
-    // 只返回目录(网盘路径选择器用)，保留 name/pickCode/size 供前端展示
-    // pan115 driver isDir 对部分目录误报 false，这里不过滤——网盘选择器需要能进入每个条目
-    const folders = files.map(f => ({ name: f.name, isDir: true }));
+    // 网盘路径选择器只需要子目录。原先把该目录下全部条目(含上万个 .mkv 文件)都返回、
+    // 前端再把它们全部渲染成 DOM 节点，会导致响应 ~1.5MB / 上万个节点，页面卡死无响应。
+    // 现在只返回目录(115 驱动 isDir 已正确识别目录)，文件不在目录选择器里展示。
+    const folders = files.filter(f => f.isDir).map(f => ({ name: f.name, isDir: true }));
     res.json({ ok: true, path: remotePath, folders });
   } catch (e) {
     res.status(500).json({ error: '浏览115目录失败: ' + e.message });
