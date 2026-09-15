@@ -1119,26 +1119,36 @@ function renderHomeSrcRoots(){
   const listEl = document.getElementById('home-roots-list');
   const badgeEl = document.getElementById('home-roots-count-badge');
   if(!listEl) return;
-  const cloudRoots = homeSrcRootsCache.filter(r => r.cloud);
-  if(badgeEl) badgeEl.textContent = cloudRoots.length + ' 个来源';
-  if(!cloudRoots.length){
+  const allRoots = homeSrcRootsCache;
+  if(badgeEl) badgeEl.textContent = allRoots.length + ' 个来源';
+  if(!allRoots.length){
     listEl.innerHTML = '<div class="cloud-roots-empty"><div class="cloud-roots-empty-icon">📭</div>还没有曲库来源<br><span style="font-size:11px;opacity:.7">选择网盘路径后点"添加为曲库来源"</span></div>';
     return;
   }
-  listEl.innerHTML = cloudRoots.map((r) => {
+  listEl.innerHTML = allRoots.map((r) => {
     const globalIdx = homeSrcRootsCache.indexOf(r);
-    const acct = cloudAccountsCache.find(a => String(a.id) === String(r.cloud.accountId));
-    const driverName = acct ? (HOME_DRIVER_NAMES[acct.driver]||acct.driver) : '网盘';
     const isScanning = homeScanningRootIdx === globalIdx;
     const songCount = r.songCount || 0;
+    let tagHtml, pathHtml, metaHtml;
+    if(r.cloud){
+      const acct = cloudAccountsCache.find(a => String(a.id) === String(r.cloud.accountId));
+      const driverName = acct ? (HOME_DRIVER_NAMES[acct.driver]||acct.driver) : '网盘';
+      tagHtml = '<span class="cloud-root-driver-tag">☁️ ' + driverName + '</span>';
+      pathHtml = '<div class="cloud-root-path">' + escHtml(r.cloud.cloudPath || r.dir) + '</div>';
+      metaHtml = '<span>类型: ' + (r.cloud.mediaType==='flac' ? 'FLAC分离' : 'MKV视频') + '</span>';
+    } else {
+      tagHtml = '<span class="cloud-root-driver-tag">📁 本地</span>';
+      pathHtml = '<div class="cloud-root-path">' + escHtml(r.dir) + '</div>';
+      metaHtml = '<span>本地目录</span>';
+    }
     return '<div class="cloud-root-item' + (isScanning ? ' scanning' : '') + '">' +
       '<div class="cloud-root-top">' +
         '<div class="cloud-root-label">' + escHtml(r.label || r.dir) + '</div>' +
-        '<span class="cloud-root-driver-tag">☁️ ' + driverName + '</span>' +
+        tagHtml +
       '</div>' +
-      '<div class="cloud-root-path">' + escHtml(r.cloud.cloudPath || r.dir) + '</div>' +
+      pathHtml +
       '<div class="cloud-root-meta">' +
-        '<span>类型: ' + (r.cloud.mediaType==='flac' ? 'FLAC分离' : 'MKV视频') + '</span>' +
+        metaHtml +
         '<span class="cloud-root-song-count">' + songCount + ' 首歌曲</span>' +
         (r.enabled === false ? '<span style="color:var(--pink)">已禁用</span>' : '') +
       '</div>' +
@@ -1364,6 +1374,9 @@ loadCloudAccounts = async function(){
   await _origLoadCloudAccounts();
   populateHomeRootAcctSelect();
 };
+
+// 页面初始加载即拉取曲库来源（本地+云端），避免 badge 一直显示"0 个来源"
+loadHomeLibrarySources();
 
 </script>
 </body>

@@ -20519,7 +20519,8 @@ function getRootsWithStatus() {
 
 
 
-app.get('/api/admin/library-sources', requireAdminAuth, (req, res) => {
+// 只读查询曲库来源：导航主页无需 admin 登录即可读取（写操作 POST/PUT/DELETE 仍需 requireAdminAuth）
+app.get('/api/admin/library-sources', (req, res) => {
 
 
 
