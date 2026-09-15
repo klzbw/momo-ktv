@@ -3346,6 +3346,14 @@ function resolveMediaUrl(urlOrPath){
   // 相对路径拼接BASE
   return BASE + urlOrPath;
 }
+// 115 CDN 不返回 Access-Control-Allow-Origin，浏览器 fetch()/MSE 拉裸 302 直链会被 CORS 拦截。
+// web 大屏 MSE 播放器对 /115-direct/ 链接追加 ?proxy=1，改走 NAS 同源字节管道（NAS 转发字节，不再 302）。
+// quark/uc 本就走字节代理，share/stream 等已是 NAS 同源，无需处理。
+function withCloudProxy(urlOrPath){
+  if(!urlOrPath) return urlOrPath;
+  if(urlOrPath.indexOf('/115-direct/') === -1) return urlOrPath;
+  return urlOrPath + (urlOrPath.indexOf('?') === -1 ? '?proxy=1' : '&proxy=1');
+}
 // 加载一首新歌：优先用 hls.js 播放 HLS(master.m3u8 里声明的每条音轨都是独立分片，
 // 切音轨/拖进度条都不会打断视频)；hls.js 不可用但浏览器原生支持 HLS(如 Safari)则
 // 直接把 src 指过去；两者都不支持时兜底退回旧的整段直传接口(仅默认音轨，无法切换)。
@@ -3503,7 +3511,10 @@ async function loadSong(v,songId,needsDownload){
           console.log('[loadSong] 网盘MKV，尝试 MSE 直连播放');
           const msePlayer=new MkvMsePlayer();
           try{
-            await msePlayer.load(resolveMediaUrl(sepJ.videoUrl),{audioTrackIndex:0});
+            // web MSE fetch() 必须同源：115 CDN 不带 CORS 头，浏览器 fetch 跟随裸 302 会被拦。
+            // 对 /115-direct/ 链接加 ?proxy=1，让 NAS 走同源字节管道（Range 透传）。
+            const _mseSrc = withCloudProxy(sepJ.videoUrl);
+            await msePlayer.load(resolveMediaUrl(_mseSrc),{audioTrackIndex:0});
             if(!curSong||curSong.song_id!==songId){ msePlayer.destroy(); return; } // await 期间切歌
             _mseMkvPlayer=msePlayer;
             msePlayer.attachMedia(v);

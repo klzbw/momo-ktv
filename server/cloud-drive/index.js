@@ -2789,6 +2789,14 @@ function driverNeedsByteProxy(driverType) {
   return BYTE_PROXY_DRIVERS.has(driverType);
 }
 
+// 取字节代理所需的 UA/Referer 规则。quark/uc 用专用规则；
+// pan115 等 CDN 不校验 Referer，不带 Referer、UA 透传客户端（或浏览器默认 UA）。
+function getProxyRule(driverType, clientUA) {
+  const r = CDN_PROXY_RULES[driverType];
+  if (r) return r;
+  return { referer: '', userAgent: clientUA || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36' };
+}
+
 function proxyCdnToClient(cdnUrl, clientReq, clientRes, rule) {
   return new Promise((resolve, reject) => {
     let parsed;
@@ -2797,8 +2805,11 @@ function proxyCdnToClient(cdnUrl, clientReq, clientRes, rule) {
     const lib = parsed.protocol === 'https:' ? https : http;
     const headers = {
       'User-Agent': rule.userAgent,
-      'Referer': rule.referer,
     };
+    // Referer 仅在需要时才带：115 等 CDN 不校验 Referer，不应主动发送空 Referer
+    if (rule.referer) {
+      headers['Referer'] = rule.referer;
+    }
     if (clientReq.headers.range) {
       headers['Range'] = clientReq.headers.range;
     }
@@ -2815,6 +2826,11 @@ function proxyCdnToClient(cdnUrl, clientReq, clientRes, rule) {
       for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control', 'etag', 'last-modified']) {
         if (upRes.headers[h] !== undefined) passHeaders[h] = upRes.headers[h];
       }
+      // 浏览器 fetch()/MSE 读取字节流时需要 CORS 响应头。
+      // 同源访问本不需要，但从其它端口/域名（反代、大屏投屏地址）访问时必须开放，
+      // 否则 fetch 跟随字节流会被浏览器拦截。Range/Content-Range 必须暴露。
+      passHeaders['Access-Control-Allow-Origin'] = '*';
+      passHeaders['Access-Control-Expose-Headers'] = 'Content-Range, Content-Length, Accept-Ranges';
       clientRes.writeHead(upRes.statusCode, passHeaders);
       upRes.pipe(clientRes);
       upRes.on('end', resolve);
@@ -2857,14 +2873,19 @@ router.get('/115-direct/:accountId/*', requireManager, async (req, res) => {
     if (!account) {
       return res.status(404).json({ error: 'cloud account not found: ' + accountId });
     }
-    const needsProxy = driverNeedsByteProxy(account.driver);
+    // quark/uc 永远走字节代理（CDN 校验 Referer）。
+    // pan115 等 CDN 虽不校验 Referer，但其响应不带 Access-Control-Allow-Origin，
+    // 浏览器 fetch()/MSE 跟随 302 到跨域 CDN 会被 CORS 拦截。
+    // web 大屏 MSE 播放器对这类链接加 ?proxy=1，让 NAS 同源管道转发字节流。
+    const forceProxy = req.query.proxy === '1' || req.query.proxy === 'true';
+    const needsProxy = driverNeedsByteProxy(account.driver) || forceProxy;
 
     // Check cache first (speeds up slow drivers like CMCC)
     const clientUA = req.get('User-Agent') || '';
     const cachedUrl = getCachedDirectUrl(accountId, filePath, clientUA);
     if (cachedUrl) {
       if (needsProxy) {
-        const rule = CDN_PROXY_RULES[account.driver];
+        const rule = getProxyRule(account.driver, clientUA);
         console.log('[115Direct] cache hit (byte-proxy ' + account.driver + ') account=' + accountId + ' path=' + filePath);
         await proxyCdnToClient(cachedUrl, req, res, rule);
         return;
@@ -2882,7 +2903,8 @@ router.get('/115-direct/:accountId/*', requireManager, async (req, res) => {
 
     if (needsProxy) {
       // quark/uc: server-side byte proxy with correct Referer + UA, supports Range
-      const rule = CDN_PROXY_RULES[account.driver];
+      // pan115 等(?proxy=1): 同样走 NAS 同源字节管道，解决浏览器 fetch CORS 问题
+      const rule = getProxyRule(account.driver, clientUA);
       console.log('[115Direct] byte-proxy (' + account.driver + ') account=' + accountId + ' path=' + filePath);
       await proxyCdnToClient(url, req, res, rule);
       return;
