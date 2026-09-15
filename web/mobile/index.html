@@ -921,14 +921,16 @@ function renderSongPager(){
 // 通用歌曲列表渲染：点歌入口 HUB 下的 7 个子页面（歌名/歌手作品/分类/热歌/
 // 最近/收藏/最新入库）都复用这一份，跟 TV 端 renderSongs(el,songs) 是同一套
 // 「❤收藏 + ＋点歌」按钮逻辑，只是外层容器换成移动端的 el 参数。
-// 媒体类型徽章：MKV(视频)/FLAC(音频)/其他格式。优先用 media_type，兜底按文件扩展名。
+// 媒体类型徽章：MKV(视频)/FLAC(音频)/其他格式。以 media_type 为准（audio 歌的文件名常是
+// xxx_vocals.strm 这种分离指针，不能按 .strm 误判成视频）；media_type 缺失时才按扩展名兜底。
 function mediaBadge(s){
+  const mt=String(s.media_type||'').toLowerCase();
   const fn=String(s.filename||s.filepath||'').toLowerCase();
-  const isVideo = s.media_type==='video' || /\.(mkv|mp4|ts|mov|strm|avi|wmv)$/.test(fn);
-  const isAudio = s.media_type==='audio' || /\.(flac|mp3|wav|m4a|aac|ogg)$/.test(fn);
   let label='',cls='';
-  if(isVideo){label='MKV';cls='badge-mkv';}
-  else if(isAudio){label='FLAC';cls='badge-flac';}
+  if(mt==='video'){label='MKV';cls='badge-mkv';}
+  else if(mt==='audio'||mt==='cue'){label='FLAC';cls='badge-flac';}
+  else if(/\.(mkv|mp4|ts|mov|avi|wmv)$/.test(fn)){label='MKV';cls='badge-mkv';}
+  else if(/\.(flac|mp3|wav|m4a|aac|ogg)$/.test(fn)){label='FLAC';cls='badge-flac';}
   else{const m=fn.match(/\.([a-z0-9]{2,4})$/); if(m){label=m[1].toUpperCase();cls='badge-other';}}
   return label?`<span class="media-badge ${cls}">${label}</span>`:'';
 }
