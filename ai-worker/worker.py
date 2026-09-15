@@ -98,7 +98,64 @@ class MomoWorker:
             with open(dst, 'wb') as f:
                 for chunk in r.iter_content(1 << 20):
                     f.write(chunk)
+        # .strm 文本指针解析：部分网络歌曲(is_network=1)在服务端的"源文件"其实是一个 .strm
+        # 文本文件，内容是指向 Alist/115 上真实音频的 URL（一行 http://...）。若直接交给
+        # ffmpeg/whisperx.load_audio，会报 "Invalid data found when processing input"（历史
+        # 698 个对齐任务全部因此失败）。检测到后跟随 URL 下载真实音频替换掉文本指针。
+        url = self._strm_url_of(dst)
+        if url:
+            log('.strm 指针：跟随 URL 下载真实音频...')
+            dst = self._fetch_strm_target(url, dst)
         return dst
+
+    # 判断本地文件是否是 .strm 文本指针（极小文本，内容是一个 http(s) URL）。是则返回 URL。
+    def _strm_url_of(self, path):
+        try:
+            sz = os.path.getsize(path)
+            if sz <= 0 or sz > 32 * 1024:
+                return None
+            txt = open(path, 'rb').read().decode('utf-8', 'replace').strip()
+            if txt.startswith('http://') or txt.startswith('https://'):
+                return txt
+        except Exception:
+            pass
+        return None
+
+    # 跟随 .strm 里的 URL 下载真实音频，替换文本指针文件，返回真实音频本地路径。
+    # 115 CDN 偶发 403/限流，最多重试 2 次（指数退避）。
+    def _fetch_strm_target(self, url, text_dst):
+        path_part = urllib.parse.urlparse(url).path
+        ext = os.path.splitext(path_part)[1].lower()
+        if ext not in ('.flac', '.wav', '.mp3', '.m4a', '.ogg', '.ape', '.dts', '.tta', '.wma'):
+            ext = '.flac'
+        real_dst = os.path.splitext(text_dst)[0] + ext
+        last_exc = None
+        for attempt in range(3):
+            try:
+                with self.s.get(url, stream=True, timeout=600) as r:
+                    if r.status_code in (403, 429, 500, 502, 503, 504):
+                        raise RuntimeError(f'源站 HTTP {r.status_code}（可能限流）')
+                    r.raise_for_status()
+                    with open(real_dst, 'wb') as f:
+                        for chunk in r.iter_content(1 << 20):
+                            f.write(chunk)
+                last_exc = None
+                break
+            except Exception as e:
+                last_exc = e
+                if attempt < 2:
+                    wait = 3 * (attempt + 1)
+                    log(f'.strm 下载第{attempt+1}次失败({e})，{wait}s后重试...')
+                    time.sleep(wait)
+        if last_exc:
+            raise last_exc
+        try:
+            if os.path.abspath(real_dst) != os.path.abspath(text_dst):
+                os.remove(text_dst)
+        except Exception:
+            pass
+        log('.strm 解析完成: %s (%.1f MB)' % (real_dst, os.path.getsize(real_dst) / 1e6))
+        return real_dst
 
     # 调子进程脚本，实时把进度回传
     def run_child(self, script, args, job_id, progress_map):
@@ -134,7 +191,7 @@ class MomoWorker:
             else:
                 word = os.path.join(tmp, 'word.lrc')
                 # 对齐优先用分离出的纯人声（更准）；没有就用源音频
-                vocal_src = self._separated_vocal(job['songId']) or src
+                vocal_src = self._separated_vocal(job['songId'], tmp) or src
                 args = [vocal_src, word]
                 # 官方参考歌词：优先用任务下发的；为空则当场向服务端要一次（本地同名lrc优先，
                 # 缺则在线网易云/QQ/酷我三源补抓并入库），尽量让每首都能"官方文字+精准时间"
@@ -172,9 +229,34 @@ class MomoWorker:
     def _ext(self, task):
         return '.wav'
 
-    # 若这首歌已分离，直接取服务端产物（对齐用纯人声更准）。没有返回 None。
-    def _separated_vocal(self, song_id):
-        return None  # 简化：对齐直接用源；后续可扩展下载 /data/separated 下的人声
+    # 若这首歌已分离(sep_status=done)，从服务端下载纯人声 FLAC 到临时目录用于对齐（比源音频准）。
+    # 服务端已有 GET /api/songs/:id/sep-track?kind=vocal 直接出分轨文件；网络歌曲的分离产物在 115
+    # （本地无文件）会返回 404，此时回退 None，由 download() 的 .strm 解析去拿真实人声。
+    def _separated_vocal(self, song_id, tmp):
+        try:
+            r = self.s.get(f'{self.server}/api/songs/{song_id}/sep-track',
+                           params={'kind': 'vocal'}, timeout=30, stream=True)
+            if r.status_code != 200:
+                r.close()
+                return None
+            ct = (r.headers.get('Content-Type') or '')
+            ext = '.flac' if 'wav' not in ct else '.wav'
+            path_ext = os.path.splitext(urllib.parse.urlparse(r.url).path)[1].lower()
+            if path_ext in ('.flac', '.wav', '.mp3', '.m4a'):
+                ext = path_ext
+            vocal_path = os.path.join(tmp, f'sep_vocal{ext}')
+            with open(vocal_path, 'wb') as f:
+                for chunk in r.iter_content(1 << 20):
+                    f.write(chunk)
+            r.close()
+            if os.path.getsize(vocal_path) > 1024:
+                log(f'已下载分离人声 {os.path.getsize(vocal_path)//1024}KB 用于对齐')
+                return vocal_path
+            try: os.remove(vocal_path)
+            except Exception: pass
+        except Exception as e:
+            log('下载分离人声失败(回退源音频):', e)
+        return None
 
     # 对齐前向服务端要"官方歌词"：本地同名 lrc 优先，缺则在线三源补抓并入库。失败返回''。
     def fetch_ref_lyrics(self, song_id):
