@@ -11,7 +11,7 @@
  * 为什么用驱动而不是 AList /d/ 端点？
  *   1. AList 的 115 Cloud 驱动返回的 raw_url 签名可能无效（403 invalid signature）
  *   2. 各网盘驱动直接用官方 API 获取直链，签名正确
- *   3. 内置限流和缓存，防止风控
+ *   3. 直链短期内存缓存（TTL 15 分钟），同一首歌重复播放不重复调 API，防止风控
  *
  * 数据流：客户端 → /api/direct-stream (302) → 网盘 CDN 直链
  *
@@ -33,6 +33,59 @@ const router = express.Router();
 // 延迟加载依赖（避免循环引用）
 let _db = null;
 let _driverCache = new Map(); // accountId -> driver 实例
+
+// ==================== 直链短期缓存（P1 风控优化） ====================
+// 背景：direct-stream 每次播放都调用 driver.getDownloadUrlByPath() -> 网盘 API 获取直链，
+// 同一首歌重复播放（如暂停/继续、切歌后切回、多端同时播放）会重复触发网盘 API 调用，
+// 增加风控风险和播放延迟。115 等网盘的 CDN 直链签名与 User-Agent 绑定，因此缓存 key
+// 必须包含 UA（做 hash 以控制长度）。
+//
+// 策略：
+//   - TTL 默认 15 分钟（115 直链通常有效期远长于此，15 分钟是安全保守值）
+//   - 最多 2000 条，超出时清理过期条目；仍超出则删除最旧的条目
+//   - 同一 key 的并发请求共享同一个 in-flight Promise，避免重复调 API
+const DIRECT_URL_CACHE_TTL_MS = (Number(process.env.DIRECT_STREAM_CACHE_TTL_SECONDS) || 900) * 1000;
+const DIRECT_URL_CACHE_MAX = Number(process.env.DIRECT_STREAM_CACHE_MAX) || 2000;
+const _directUrlCache = new Map(); // key -> { url, expireAt }
+const _directUrlInflight = new Map(); // key -> Promise<{url, source}>
+
+function _cacheKey(accountId, filePath, clientUA) {
+  // 对 UA 做简单 hash（djb2），避免长 UA 导致 key 过大
+  let h = 5381;
+  const ua = clientUA || '';
+  for (let i = 0; i < ua.length; i++) h = ((h << 5) + h + ua.charCodeAt(i)) | 0;
+  return accountId + ':' + filePath + ':' + h;
+}
+
+function _cacheGet(key) {
+  const entry = _directUrlCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expireAt) {
+    _directUrlCache.delete(key);
+    return null;
+  }
+  return entry.url;
+}
+
+function _cacheSet(key, url) {
+  // 超出上限时先清理过期条目
+  if (_directUrlCache.size >= DIRECT_URL_CACHE_MAX) {
+    const now = Date.now();
+    for (const [k, v] of _directUrlCache) {
+      if (now > v.expireAt) _directUrlCache.delete(k);
+    }
+    // 仍超出则删除最旧的 10%
+    if (_directUrlCache.size >= DIRECT_URL_CACHE_MAX) {
+      const toDelete = Math.ceil(DIRECT_URL_CACHE_MAX * 0.1);
+      let count = 0;
+      for (const k of _directUrlCache.keys()) {
+        _directUrlCache.delete(k);
+        if (++count >= toDelete) break;
+      }
+    }
+  }
+  _directUrlCache.set(key, { url, expireAt: Date.now() + DIRECT_URL_CACHE_TTL_MS });
+}
 
 // 驱动类映射（与 manager.js 的 DRIVERS 保持一致）
 const DRIVER_CLASSES = {
@@ -231,4 +284,4 @@ router.get('/*', async (req, res) => {
   }
 });
 
-module.exports = { router, init, resetDriverCache };
+module.exports = { router, init, resetDriverCache, clearDirectUrlCache };
