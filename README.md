@@ -69,19 +69,48 @@
 3. 在里面创建 `docker-compose.yml`：
 
 ```yaml
+version: "3.8"
+
 services:
   momo-ktv:
     image: ghcr.io/klzbw/momo-ktv:latest
     container_name: momo-ktv
     restart: unless-stopped
+    network_mode: momo-ktv_default
     ports:
-      - "8083:8080"
+      - "8083:8080"    # Web 主界面
+      - "5236:5234"    # 内置 AList
     environment:
+      - MV_DIR=/mv
+      - DATA_DIR=/data
+      - PORT=8080
+      - ADMIN_PASSWORD=admin
       - TZ=Asia/Shanghai
-      - ADMIN_PASSWORD=admin888
+      - HLS_CACHE_MAX_AGE_DAYS=3
+      - NETKTV_CLOUD_ACCOUNT_ID=1
+      - AUTO_SCAN_MIN=5
+      - VAAPI_DEVICE=/dev/dri/renderD128
+      - ALIST_PORT=5234
+      - ALIST_DATA_DIR=/opt/alist/data
+      - LD_LIBRARY_PATH=/opt/alist/lib
     volumes:
-      - D:\momo-ktv\data:/data
-      - D:\momo-ktv\music:/mv/library1
+      # 数据库、配置、上传文件
+      - /vol1/1000/docker/momo-ktv:/data
+      # AList 数据
+      - /vol1/1000/docker/momo-ktv/alist-data:/opt/alist/data
+      # 分离FLAC（人声+伴奏）
+      - /vol02/1000-0-b845c2ef/separated:/data/separated
+      # 曲库挂载
+      - /vol02/1000-0-c8f19a7f/KTV/music:/mv/library1
+      - /vol02/1000-0-b845c2ef:/mv/library2
+      # 匿名volume（HLS缓存等）
+      - momo-ktv-mv:/mv
+    devices:
+      - /dev/dri:/dev/dri   # 核显硬解（VAAPI）
+
+volumes:
+  momo-ktv-mv:
+
 ```
 
 4. 打开命令行，执行：
