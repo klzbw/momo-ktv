@@ -131,7 +131,7 @@ class XunleiDriver extends CloudDriveBase {
   async getQRCode() {
     // 迅雷云盘扫码登录需要 captchaToken（接码登录），API 较复杂
     // 引导用户通过内置 Alist 添加（Alist 已支持迅雷网盘扫码/接码登录）
-    throw new Error('迅雷云盘暂不支持直接扫码登录。请使用以下方式添加：\n1. 打开内置 Alist 后台 http://192.168.3.16:5236\n2. 存储 → 添加 → 驱动选择「迅雷网盘」\n3. 按 Alist 文档完成接码登录获取 captchaToken\n4. 回到本页点击「从 Alist 同步账号」\n\n或使用「Cookie粘贴」模式，从迅雷云盘网页端获取 Authorization token 后粘贴。');
+    throw new Error('迅雷云盘暂不支持直接扫码登录。请使用以下方式添加：\n1. 打开内置 Alist 后台 http://192.168.3.16:5345\n2. 存储 → 添加 → 驱动选择「迅雷网盘」\n3. 按 Alist 文档完成接码登录获取 captchaToken\n4. 回到本页点击「从 Alist 同步账号」\n\n或使用「Cookie粘贴」模式，从迅雷云盘网页端获取 Authorization token 后粘贴。');
   }
 
   /**

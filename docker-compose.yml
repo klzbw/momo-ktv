@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   momo-ktv:
     image: ghcr.io/klzbw/momo-ktv:latest
@@ -6,7 +8,7 @@ services:
     network_mode: momo-ktv_default
     ports:
       - "8083:8080"    # Web 主界面
-      - "5236:5234"    # 内置 AList
+      - "5345:5234"    # 内置 AList
     environment:
       - MV_DIR=/mv
       - DATA_DIR=/data
