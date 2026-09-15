@@ -587,20 +587,32 @@ class PlayerManager: ObservableObject {
         progressTimer = nil
     }
 
-    /// Attach player layer to the current host view
-    func attachLayerToCurrentHost() {
-        guard let layer = playerLayer, let host = currentHostView else { return }
-        if layer.superlayer != host.layer {
+    /// 把 AVPlayerLayer 挂到共享渲染表面 AudioSharedVideoView 单例上。
+    /// 与 MKV 走 VLCSharedVideoView 完全同一套丝滑切换思路：layer 永远只属于这一个
+    /// 持久表面，大小屏切换只是把表面在容器间移动，不新建 host、不摘挂 layer，
+    /// 从而双 FLAC 轨道（人声+伴奏）/播放进度都不中断，大小屏切换与 MKV 一样丝滑。
+    func attachLayerToSharedSurface() {
+        guard let layer = playerLayer else { return }
+        let surface = AudioSharedVideoView.shared
+        if layer.superlayer !== surface.layer {
             layer.removeFromSuperlayer()
-            host.layer.addSublayer(layer)
+            surface.layer.addSublayer(layer)
         }
-        layer.frame = host.bounds
+        layer.frame = surface.bounds
+        // 表面被放进新容器或尺寸变化时，让 AVPlayerLayer 跟随撑满
+        surface.onLayout = { [weak self] bounds in
+            self?.playerLayer?.frame = bounds
+        }
     }
 
-    /// Update layer frame when host view layout changes
+    /// 兼容旧调用（ContentView/FullPlayerView 切歌后调用）：等价于挂到共享渲染表面。
+    func attachLayerToCurrentHost() {
+        attachLayerToSharedSurface()
+    }
+
+    /// 容器布局变化时，让共享表面内的 layer 跟随（onLayout 已统一处理，这里兜底重挂）
     func updateLayerFrame() {
-        guard let layer = playerLayer, let host = currentHostView else { return }
-        layer.frame = host.bounds
+        attachLayerToSharedSurface()
     }
 
     func play() {

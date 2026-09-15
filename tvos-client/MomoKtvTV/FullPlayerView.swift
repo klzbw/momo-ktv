@@ -1027,7 +1027,12 @@ struct FullPlayerView: View {
 
         lyricTimer = Timer.scheduledTimer(withTimeInterval: 1.0/60.0, repeats: true) { _ in
 
-            lyricTime = PlayerManager.shared.currentTime
+            // MKV/MP4 视频歌不显示逐字歌词，跳过本帧赋值：
+            // 否则 @State lyricTime 每 1/60s 变化一次会让整个 FullPlayerView body
+            // 每秒重算 60 次，大小屏切换瞬间与转场动画竞争主线程，造成卡顿。
+            guard !self.currentItem.isVideoFile else { return }
+
+            self.lyricTime = PlayerManager.shared.currentTime
 
         }
 

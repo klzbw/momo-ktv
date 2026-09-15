@@ -530,13 +530,13 @@ class VLCPlayerManager: NSObject, ObservableObject {
             p.play()
             isPlaying = true
             log("togglePlayPause: 恢复播放")
-            // 恢复播放时多次刷新 drawable：VLC 暂停过久后视频输出层可能失效，
-            // 不刷新会导致只有声音无画面（黑屏）。密集刷新覆盖 VLC 异步恢复的各个阶段。
-            let delays: [Double] = [0.1, 0.3, 0.6, 1.0, 1.5, 2.0, 3.0]
-            for (i, delay) in delays.enumerated() {
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    self?.refreshDrawables()
-                }
+            // 恢复播放后重建视频输出：VLC 暂停过久后视频输出层可能失效，不刷新会黑屏。
+            // 关键：只做一次 staged 重挂（refreshDrawables 内部已含多个时间点的 nil->set），
+            // 不再外层叠加多次 refreshDrawables——否则大屏下 drawable 被反复 nil/set
+            // 互相打架，恢复播放后停在黑屏（小屏因表面刚重新 attach 所以正常）。
+            refreshDrawables()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                self?.refreshDrawables()
             }
         }
         #endif

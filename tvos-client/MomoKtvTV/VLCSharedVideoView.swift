@@ -28,19 +28,25 @@ class VLCSharedVideoView {
     /// 将共享视频视图附加到指定父容器（自动从旧父视图移除）
     func attach(to parent: UIView) {
         if view.superview !== parent {
+            // removeFromSuperview + addSubview 在同一调用内完成，
+            // 共享视图始终处于“某个父视图”下，尽量缩短无父视图的空窗期，
+            // 避免 TVVLCKit 因 drawable 暂时脱离视图树而停帧（MKV 尤其明显）。
             view.removeFromSuperview()
             parent.addSubview(view)
+            // 只有真正更换父容器时才重建填满约束，避免每次 updateUIView 都重复 deactivate/reactivate。
+            view.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.deactivate(view.constraints)
+            NSLayoutConstraint.activate([
+                view.topAnchor.constraint(equalTo: parent.topAnchor),
+                view.bottomAnchor.constraint(equalTo: parent.bottomAnchor),
+                view.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
+                view.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
+            ])
+            // 不在此处调用 layoutIfNeeded()：
+            // 这行同步布局会卡在大小屏切换的转场动画主线程上，造成掉帧卡顿。
+            // 约束已建立，UIKit/SwiftUI 会在下一帧正常布局；同一个 UIView 实例的
+            // VLC 视频输出不会中断。
         }
-        // 确保约束填满父视图
-        view.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.deactivate(view.constraints)
-        NSLayoutConstraint.activate([
-            view.topAnchor.constraint(equalTo: parent.topAnchor),
-            view.bottomAnchor.constraint(equalTo: parent.bottomAnchor),
-            view.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
-        ])
-        parent.layoutIfNeeded()
     }
 
     /// 从当前父视图移除（不销毁，下一个容器会重新attach）
