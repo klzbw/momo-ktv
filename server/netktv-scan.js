@@ -203,22 +203,31 @@ function _alistMountPath(account) {
 }
 
 /**
- * 构造 AList DAV 播放 URL（strm 文件正文）。
- * 播放时 AList 302 到网盘 CDN，NAS 零转发。
+/**
+ * 构造 AList 直链播放 URL（strm 文件正文）。
+ * 使用 /d/ 直链端点（302 到网盘 CDN），不嵌入任何凭据。
+ *
+ * 【安全修复 P0】旧版使用 /dav/ WebDAV 端点并在 URL 中嵌入明文管理员密码
+ * (http://admin:admin123@host:5345/dav/...)，任何能读取 .strm 文件的人都能
+ * 拿到 Alist 管理员凭据。改为 /d/ 端点后，只需在 Alist 后台开启匿名访问，
+ * strm 中完全不需要任何凭据，从根源消除密码泄露风险。
+ *
+ * 部署要求：Alist 后台 -> 设置 -> 开启「允许匿名访问」，访客勾选「可以访问」
+ * 和「可以下载」。Alist /d/ 端点支持 Range 请求，ffmpeg/播放器可正常流式播放。
  */
 function alistDavUrlForAccount(account, basePath, songKey, fileName) {
-  const ext = (process.env.ALIST_EXTERNAL_URL || 'http://admin:admin123@192.168.3.16:5345').replace(/\/+$/, '');
+  const ext = (process.env.ALIST_EXTERNAL_URL || 'http://192.168.3.16:5345').replace(/\/+$/, '');
   const mount = _alistMountPath(account);
   const dir = (mount.replace(/\/+$/, '') + (basePath || ''));
-  return ext + '/dav' + encodeURI(dir + '/' + songKey + '/' + fileName) + '\n';
+  return ext + '/d' + encodeURI(dir + '/' + songKey + '/' + fileName) + '\n';
 }
 
 /** 兼容旧调用（无账号上下文时使用 env 默认挂载） */
 function alistDavUrl(basePath, songKey, fileName) {
-  const ext = (process.env.ALIST_EXTERNAL_URL || 'http://admin:admin123@192.168.3.16:5345').replace(/\/+$/, '');
+  const ext = (process.env.ALIST_EXTERNAL_URL || 'http://192.168.3.16:5345').replace(/\/+$/, '');
   const mount = process.env.ALIST_MOUNT_BASE || '/云盘/pan115/我的115';
   const dir = (mount.replace(/\/+$/, '') + (basePath || ''));
-  return ext + '/dav' + encodeURI(dir + '/' + songKey + '/' + fileName) + '\n';
+  return ext + '/d' + encodeURI(dir + '/' + songKey + '/' + fileName) + '\n';
 }
 
 // ==================== 阶段一：走 AList 同步网盘 → 本地 strm ====================
