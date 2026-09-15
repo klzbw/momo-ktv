@@ -692,6 +692,10 @@ class PlayerManager: ObservableObject {
     /// 故用 AVMutableComposition + AVMutableAudioMix 分别控制两轨音量实现消音。
     /// 视频歌(MKV/MP4)由调用方按扩展名排除，不会走到这里，保持原 HLS 多档方案。
     func activateDual(songId: Int, vocalFile: URL, accompFile: URL) {
+        // 防重：同一首歌已经激活双FLAC，大小屏切换/视图重建重复触发时直接跳过，
+        // 绝不重建 AVMutableComposition、不 replaceCurrentItem、不 seek——否则会有音频停顿。
+        // 双轨已在播，播放器实例/进度/混音全部保持，大小屏只换渲染表面。
+        if dualEnabled && dualSongId == songId { return }
         let gen = loadGeneration + 1
         loadGeneration = gen
         DispatchQueue.global(qos: .userInitiated).async {

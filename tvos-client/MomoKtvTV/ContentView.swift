@@ -656,6 +656,8 @@ struct ContentView: View {
     private func prepareDualIfNeeded(_ playing: QueueItem) {
         guard !playing.isVideoFile else { return }
         let sid = playing.song_id
+        // 双FLAC已为这首歌激活：大小屏切换时跳过，不重复拉 sep-info / 重建双轨
+        if playerManager.dualEnabled && playerManager.dualSongId == sid { return }
         api.fetchSepInfo(songId: sid) { info in
             guard let info = info, info.isDual,
                   let vocalPath = info.vocalUrl, let accompPath = info.accompUrl else { return }
