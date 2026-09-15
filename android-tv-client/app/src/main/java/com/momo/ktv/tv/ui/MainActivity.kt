@@ -7,6 +7,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -17,7 +18,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.momo.ktv.tv.R
 import com.momo.ktv.tv.data.ApiClient
 import com.momo.ktv.tv.data.QueueItem
-import com.momo.ktv.tv.data.Song
 import com.momo.ktv.tv.data.WebSocketClient
 import com.momo.ktv.tv.lyrics.LyricsView
 import com.momo.ktv.tv.player.PlayerManager
@@ -41,6 +41,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var lyricsView: LyricsView
     private lateinit var tvSongInfo: TextView
     private lateinit var tvVoice: TextView
+    private lateinit var tvVoicePct: TextView
     private lateinit var tvQueueTitle: TextView
     private lateinit var rvQueue: RecyclerView
     private lateinit var btnPlayPause: Button
@@ -48,9 +49,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnPrev: Button
     private lateinit var btnNext: Button
     private lateinit var btnConfig: Button
+    private lateinit var btnRequestSong: Button
+    private lateinit var seekVoice: SeekBar
 
     private lateinit var queueAdapter: QueueAdapter
     private var queueItems: MutableList<QueueItem> = mutableListOf()
+
+    /** 当前人声比例 0-100（UI 显示用，MKV 实际为两段式） */
+    private var vocalPercent: Int = 100
+    /** 防止拖动 slider 时回调自身造成循环 */
+    private var suppressSliderCallback: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,7 +66,6 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val serverURL = prefs.getString(KEY_SERVER_URL, "") ?: ""
 
-        // 先检查服务器地址，避免加载不必要的布局
         if (serverURL.isEmpty()) {
             startActivity(Intent(this, ServerConfigActivity::class.java))
             finish()
@@ -104,6 +111,7 @@ class MainActivity : AppCompatActivity() {
         lyricsView = findViewById(R.id.lyricsView)
         tvSongInfo = findViewById(R.id.tvSongInfo)
         tvVoice = findViewById(R.id.tvVoice)
+        tvVoicePct = findViewById(R.id.tvVoicePct)
         tvQueueTitle = findViewById(R.id.tvQueueTitle)
         rvQueue = findViewById(R.id.rvQueue)
         btnPlayPause = findViewById(R.id.btnPlayPause)
@@ -111,23 +119,57 @@ class MainActivity : AppCompatActivity() {
         btnPrev = findViewById(R.id.btnPrev)
         btnNext = findViewById(R.id.btnNext)
         btnConfig = findViewById(R.id.btnConfig)
+        btnRequestSong = findViewById(R.id.btnRequestSong)
+        seekVoice = findViewById(R.id.seekVoice)
 
-        queueAdapter = QueueAdapter(queueItems) { item ->
-            playQueueItem(item)
-        }
+        queueAdapter = QueueAdapter(
+            items = queueItems,
+            onItemClick = { item -> playQueueItem(item) },
+            onTopClick = { item -> topQueueItem(item) },
+            onRemoveClick = { item -> removeQueueItem(item) }
+        )
         rvQueue.layoutManager = LinearLayoutManager(this)
         rvQueue.adapter = queueAdapter
 
         btnPlayPause.setOnClickListener { playerManager.togglePlayPause() }
         btnVoice.setOnClickListener {
             playerManager.toggleVoice()
-            tvVoice.text = "声道: ${playerManager.getCurrentVoice()}"
+            updateVoiceUI()
         }
         btnPrev.setOnClickListener { playPrevious() }
         btnNext.setOnClickListener { playNext() }
         btnConfig.setOnClickListener {
             startActivity(Intent(this, ServerConfigActivity::class.java))
         }
+        btnRequestSong.setOnClickListener {
+            startActivity(Intent(this, SongSearchActivity::class.java))
+        }
+
+        // 人声音量滑块：MKV 两段式，>50 切原唱轨(0)，<=50 切伴唱轨(1)
+        seekVoice.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (suppressSliderCallback) return
+                vocalPercent = progress
+                tvVoicePct.text = "$progress%"
+                tvVoice.text = "人声 ${if (progress > 50) "原唱" else "伴唱"} ($progress%)"
+            }
+
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+
+            override fun onStopTrackingTouch(sb: SeekBar?) {
+                // 吸附到端点：>50 吸附 100（原唱），否则吸附 0（伴唱）
+                val snapped = if (vocalPercent > 50) 100 else 0
+                suppressSliderCallback = true
+                seekVoice.progress = snapped
+                suppressSliderCallback = false
+                vocalPercent = snapped
+                tvVoicePct.text = "$snapped%"
+                tvVoice.text = "人声 ${if (snapped > 50) "原唱" else "伴唱"} ($snapped%)"
+                // 切换音轨
+                val trackIndex = if (snapped > 50) 0 else 1
+                playerManager.setAudioTrack(trackIndex)
+            }
+        })
     }
 
     private fun initPlayer() {
@@ -152,8 +194,10 @@ class MainActivity : AppCompatActivity() {
         }
         playerManager.onTracksChanged = { count ->
             runOnUiThread {
-                tvVoice.text = "声道: ${playerManager.getCurrentVoice()} (${count}轨)"
+                tvVoice.text = "人声 ${playerManager.getCurrentVoice()} (${count}轨)"
                 btnVoice.visibility = if (count >= 2) View.VISIBLE else View.GONE
+                seekVoice.visibility = if (count >= 2) View.VISIBLE else View.GONE
+                tvVoicePct.visibility = if (count >= 2) View.VISIBLE else View.GONE
             }
         }
         playerManager.onPlaybackEnded = {
@@ -174,7 +218,6 @@ class MainActivity : AppCompatActivity() {
         queueItems.addAll(items)
         queueAdapter.notifyDataSetChanged()
         tvQueueTitle.text = "点歌队列 (${items.size})"
-        // 自动播放正在播放的项
         val playing = items.firstOrNull { it.isPlaying }
         if (playing != null && !playerManager.isPlaying()) {
             playQueueItem(playing)
@@ -188,12 +231,61 @@ class MainActivity : AppCompatActivity() {
         }
         tvSongInfo.text = "${item.displayTitle} - ${item.displayArtist}"
         lyricsView.clear()
+        // 重置滑块到原唱
+        suppressSliderCallback = true
+        seekVoice.progress = 100
+        suppressSliderCallback = false
+        vocalPercent = 100
+        tvVoicePct.text = "100%"
         playerManager.playQueueItem(item)
-        // 尝试获取歌词
+        loadLyrics(item.songId)
+    }
+
+    /** 加载歌词并渲染 */
+    private fun loadLyrics(songId: Int) {
         lifecycleScope.launch {
-            val sepInfo = apiClient.fetchSepInfo(item.songId)
-            // 歌词可通过 /api/lyrics/{songId} 获取（如果服务端支持）
+            val resp = apiClient.fetchLyrics(songId)
+            withContext(Dispatchers.Main) {
+                if (resp == null || resp.lyrics.isNullOrBlank()) {
+                    lyricsView.setLyrics(null)
+                } else {
+                    lyricsView.setLyrics(resp.lyrics)
+                }
+            }
         }
+    }
+
+    private fun topQueueItem(item: QueueItem) {
+        lifecycleScope.launch {
+            val ok = apiClient.topQueue(item.queueId)
+            withContext(Dispatchers.Main) {
+                Toast.makeText(this@MainActivity,
+                    if (ok) "已置顶" else "置顶失败", Toast.LENGTH_SHORT).show()
+                if (ok) refreshQueue()
+            }
+        }
+    }
+
+    private fun removeQueueItem(item: QueueItem) {
+        lifecycleScope.launch {
+            val ok = apiClient.removeFromQueue(item.queueId)
+            withContext(Dispatchers.Main) {
+                Toast.makeText(this@MainActivity,
+                    if (ok) "已删除" else "删除失败", Toast.LENGTH_SHORT).show()
+                if (ok) refreshQueue()
+            }
+        }
+    }
+
+    private fun refreshQueue() {
+        lifecycleScope.launch {
+            val q = apiClient.fetchQueue()
+            withContext(Dispatchers.Main) { updateQueue(q) }
+        }
+    }
+
+    private fun updateVoiceUI() {
+        tvVoice.text = "人声 ${playerManager.getCurrentVoice()} (${playerManager.getAudioTrackCount()}轨)"
     }
 
     private fun playPrevious() {
@@ -224,13 +316,14 @@ class MainActivity : AppCompatActivity() {
                 val time = (payload["time"] as? Double)?.times(1000)?.toLong()
                 if (time != null) playerManager.seekTo(time)
             }
-            "voice" -> playerManager.toggleVoice()
+            "voice" -> {
+                playerManager.toggleVoice()
+                updateVoiceUI()
+            }
             "play_song" -> {
                 val songId = (payload["song_id"] as? Double)?.toInt()
                 if (songId != null) {
-                    lifecycleScope.launch {
-                        apiClient.addToQueue(songId)
-                    }
+                    lifecycleScope.launch { apiClient.addToQueue(songId) }
                 }
             }
         }

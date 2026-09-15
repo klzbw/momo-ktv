@@ -90,7 +90,13 @@ data class Stats(
 
 // ==================== 分离信息 ====================
 data class SepInfo(
+    val dual: Boolean = false,
+    @SerializedName("hasVocal") val hasVocal: Boolean = false,
+    @SerializedName("hasAccomp") val hasAccomp: Boolean = false,
+    @SerializedName("vocalUrl") val vocalUrl: String? = null,
+    @SerializedName("accompUrl") val accompUrl: String? = null,
     @SerializedName("isNetKtvMkv") val isNetKtvMkv: Boolean = false,
+    @SerializedName("isVideo") val isVideo: Boolean = false,
     @SerializedName("videoUrl") val videoUrl: String? = null,
     @SerializedName("audioTracks") val audioTracks: List<AudioTrackInfo>? = null
 )
@@ -106,6 +112,58 @@ data class SearchResponse(
     val items: List<Song>? = null,
     val total: Int? = null
 )
+
+// ==================== 歌词 ====================
+/** /api/songs/:id/lyrics 响应 */
+data class LyricsResponse(
+    val id: Int,
+    val title: String? = null,
+    val artist: String? = null,
+    val lyrics: String? = null,
+    val word: String? = null,
+    val source: String? = null,
+    @SerializedName("align_status") val alignStatus: String? = null
+)
+
+/** 单行歌词（解析后） */
+data class LyricsLine(
+    val timeMs: Long,
+    val text: String
+) {
+    companion object {
+        /** 解析 LRC 字符串为带时间戳的行列表 */
+        fun parseLRC(lrcText: String): List<LyricsLine> {
+            if (lrcText.isBlank()) return emptyList()
+            val result = mutableListOf<LyricsLine>()
+            // 支持 [mm:ss.xx] / [mm:ss.xxx] / [mm:ss]
+            val regex = Regex("""\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\](.*)""")
+            for (rawLine in lrcText.lines()) {
+                val line = rawLine.trim()
+                if (line.isEmpty()) continue
+                val matches = regex.findAll(line)
+                var hasTag = false
+                for (m in matches) {
+                    hasTag = true
+                    val min = m.groupValues[1].toIntOrNull() ?: 0
+                    val sec = m.groupValues[2].toIntOrNull() ?: 0
+                    val msPart = m.groupValues[3]
+                    val ms = when {
+                        msPart.isEmpty() -> 0L
+                        msPart.length == 2 -> msPart.toLong() * 10
+                        msPart.length == 3 -> msPart.toLong()
+                        else -> msPart.toLongOrNull() ?: 0L
+                    }
+                    val content = m.groupValues[4].trim()
+                    if (content.isNotEmpty()) {
+                        result.add(LyricsLine((min * 60L + sec) * 1000L + ms, content))
+                    }
+                }
+                if (!hasTag) continue
+            }
+            return result.sortedBy { it.timeMs }
+        }
+    }
+}
 
 // ==================== WebSocket 消息 ====================
 data class WSMessage(

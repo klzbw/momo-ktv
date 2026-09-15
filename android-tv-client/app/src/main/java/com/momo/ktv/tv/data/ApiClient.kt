@@ -151,6 +151,32 @@ class ApiClient(baseURL: String) {
         }
     }
 
+    // ==================== 歌词 ====================
+    /**
+     * 获取歌词。404 或空歌词返回 null。
+     * 成功时返回 LyricsResponse，lyrics 字段为 LRC 字符串。
+     */
+    suspend fun fetchLyrics(songId: Int): LyricsResponse? = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder().url(apiURL("/api/songs/$songId/lyrics")).get().build()
+            val resp = httpClient.newCall(req).execute()
+            if (!resp.isSuccessful) {
+                Log.d(TAG, "fetchLyrics $songId -> HTTP ${resp.code}")
+                return@withContext null
+            }
+            val body = resp.body?.string() ?: return@withContext null
+            val parsed = gson.fromJson(body, LyricsResponse::class.java)
+            if (parsed == null || parsed.lyrics.isNullOrBlank()) {
+                Log.d(TAG, "fetchLyrics $songId -> empty lyrics")
+                return@withContext null
+            }
+            parsed
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchLyrics error: ${e.message}")
+            null
+        }
+    }
+
     fun directStreamURL(filepath: String): String {
         val encoded = java.net.URLEncoder.encode(filepath, "UTF-8").replace("+", "%20")
         return apiURL("/api/direct-stream/$encoded")
