@@ -64,6 +64,17 @@ function parseFilename(filename) {
 /**
  * 判断文件是否是人声音频
  */
+
+/**
+ * 构造 AList DAV 播放 URL：播放时 AList 302 到 115 CDN，NAS 零转发。
+ */
+function alistDavUrl(basePath, songKey, fileName) {
+  const ext = (process.env.ALIST_EXTERNAL_URL || 'http://admin:admin123@192.168.3.16:5345').replace(/\/+$/, '');
+  const mount = process.env.ALIST_MOUNT_BASE || '/云盘/pan115/我的115';
+  const dir = (mount.replace(/\/+$/, '') + (basePath || ''));
+  return ext + '/dav' + encodeURI(dir + '/' + songKey + '/' + fileName) + '\n';
+}
+
 function isVocalFile(filename) {
   return /(人声|vocal|vocals|原唱)/i.test(filename) && /\.(flac|wav|mp3|m4a)$/i.test(filename);
 }
@@ -176,6 +187,13 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir, 
         );
 
         if (existing) {
+          // 已入库：把本地 .strm 内容收敛为 AList DAV URL（覆盖旧的内部代理写法）
+          try {
+            const vPath = path.join(strmDir, `${songKey}_vocals.strm`);
+            const aPath = path.join(strmDir, `${songKey}_accomp.strm`);
+            fs.writeFileSync(vPath, alistDavUrl(basePath, songKey, vocalFile.name));
+            fs.writeFileSync(aPath, alistDavUrl(basePath, songKey, accompFile.name));
+          } catch (e) { console.warn('[NETKTV-SCAN] 收敛 .strm 失败', songKey, e.message); }
           console.log(`[NETKTV-SCAN] 已存在: ${meta.artist} - ${meta.title} (id=${existing.id}, 账号=${accountId})`);
           scanStatus.skipped++;
           continue;
@@ -186,8 +204,8 @@ async function scanSeparatedFiles(cloudDrive, accountId, basePath, db, strmDir, 
         const vocalStrmPath = path.join(strmDir, `${songKey}_vocals.strm`);
         const accompStrmPath = path.join(strmDir, `${songKey}_accomp.strm`);
 
-        const vocalStrmContent = `http://127.0.0.1:8080/api/netktv/stream/${songKey}/vocals\n`;
-        const accompStrmContent = `http://127.0.0.1:8080/api/netktv/stream/${songKey}/accompaniment\n`;
+        const vocalStrmContent = alistDavUrl(basePath, songKey, vocalFile.name);
+        const accompStrmContent = alistDavUrl(basePath, songKey, accompFile.name);
 
         fs.writeFileSync(vocalStrmPath, vocalStrmContent);
         fs.writeFileSync(accompStrmPath, accompStrmContent);
