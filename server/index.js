@@ -29317,6 +29317,44 @@ setInterval(() => {
 
 }, AUTO_SCAN_MS).unref();
 
+// ---- 网盘分离歌曲 strm 定时同步（走 AList，风控优化）----
+// 通过内置 AList /api/fs/list 列出网盘目录变化，在本地 /data/netseparated-strm
+// 增删 .strm 文件：网盘新增→生成 strm 并入库；网盘删除→删 strm 并清库。
+// 间隔用环境变量 NETKTV_SYNC_HOURS 配置，默认 2 小时，钳制在 1-5 小时；
+// 设 NETKTV_SYNC_DISABLED=1 可关闭（仍可用 POST /api/netktv/sync-strm 手动触发）。
+(function scheduleNetseparatedSync() {
+  try {
+    const hours = Math.min(5, Math.max(1, parseInt(process.env.NETKTV_SYNC_HOURS || '2', 10) || 2));
+    const SYNC_MS = hours * 3600 * 1000;
+    const strmDir = require('path').join(process.env.DATA_DIR || '/data', 'netseparated-strm');
+    const basePath = process.env.NETKTV_CLOUD_BASE_PATH || '/momo-ktv/separated';
+
+    const runSync = async () => {
+      try {
+        const { syncAllAccounts } = require('./netktv-scan');
+        await syncAllAccounts(cloudDrive, basePath, db, strmDir, 'netktv');
+      } catch (e) {
+        log.warn('NETKTV-SYNC', '定时同步失败(不影响运行): ' + e.message);
+      }
+    };
+
+    if (process.env.NETKTV_SYNC_DISABLED === '1') {
+      log.warn('NETKTV-SYNC', '已通过 NETKTV_SYNC_DISABLED=1 关闭 strm 定时同步');
+      return;
+    }
+
+    // 启动后延迟 40s 跑首次（等 AList 就绪），之后按间隔循环
+    setTimeout(() => {
+      runSync();
+      setInterval(runSync, SYNC_MS).unref();
+    }, 40000);
+
+    log.info('NETKTV-SYNC', `strm 定时同步已启用：每 ${hours} 小时通过 AList 同步一次（目录=${basePath}）`);
+  } catch (e) {
+    log.warn('NETKTV-SYNC', '注册定时同步失败(忽略): ' + e.message);
+  }
+})();
+
 
 
 
