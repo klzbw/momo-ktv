@@ -7,7 +7,7 @@
  *
  * 认证方式：
  *   - access_token: Alist API token（可选，公开存储无需 token）
- *   - refresh_token: Alist 实例基础 URL（如 http://192.168.3.16:5234）
+ *   - refresh_token: Alist 实例基础 URL（如 http://192.168.3.16:5345）
  *
  * 核心 API（Alist Open API v3）：
  *   - 文件列表：POST {baseUrl}/api/fs/list  body: {path, password, page, per_page, refresh}
@@ -27,9 +27,9 @@ class AlistDriver extends CloudDriveBase {
     super(account);
     this.apiToken = account.access_token || '';
     // refresh_token 格式: baseUrl|username|password
-    // 例如: http://127.0.0.1:5234|admin|Dd112233
-    const refreshParts = (account.refresh_token || 'http://127.0.0.1:5234|admin|admin').split('|');
-    this.baseUrl = (refreshParts[0] || 'http://127.0.0.1:5234').replace(/\/+$/, '');
+    // 例如: http://127.0.0.1:5345|admin|Dd112233
+    const refreshParts = (account.refresh_token || 'http://127.0.0.1:5345|admin|admin').split('|');
+    this.baseUrl = (refreshParts[0] || 'http://127.0.0.1:5345').replace(/\/+$/, '');
     this.username = refreshParts[1] || 'admin';
     this.password = refreshParts[2] || 'admin';
     this._tokenExpiresAt = 0;

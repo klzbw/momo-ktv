@@ -89,7 +89,7 @@ function resetDriverCache() {
 }
 
 // AList 配置（仅作 fallback，目前只对 115 路径有效）
-const ALIST_BASE_URL = process.env.ALIST_BASE_URL || 'http://localhost:5234';
+const ALIST_BASE_URL = process.env.ALIST_BASE_URL || 'http://localhost:5345';
 const ALIST_BASE_PATH = process.env.ALIST_BASE_PATH || '/🥝115网盘/115';
 const ALIST_TOKEN = process.env.ALIST_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwicHdkX3RzIjoxNzg4NjIzNDA4LCJleHAiOjE4MDU5MDM5ODQsIm5iZiI6MTc4ODYyMzk4NCwiaWF0IjoxNzg4NjIzOTg0fQ.5XzN8q2T1jEaO8yoV8eTj6gZzBmDUtr1ijUuM48QD9w';
 

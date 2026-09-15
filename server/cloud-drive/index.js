@@ -268,7 +268,7 @@ module.exports.manager = manager;
 
 
 
-const ALIST_URL = process.env.ALIST_INTERNAL_URL || process.env.ALIST_URL || 'http://localhost:5234';
+const ALIST_URL = process.env.ALIST_INTERNAL_URL || process.env.ALIST_URL || 'http://localhost:5345';
 
 
 
@@ -1836,7 +1836,7 @@ router.post('/accounts/sync-from-alist', requireManager, async (req, res) => {
 
   try {
 
-    const alistUrl = process.env.ALIST_INTERNAL_URL || process.env.ALIST_URL || 'http://localhost:5234';
+    const alistUrl = process.env.ALIST_INTERNAL_URL || process.env.ALIST_URL || 'http://localhost:5345';
 
     const alistUser = process.env.ALIST_USER || 'admin';
 

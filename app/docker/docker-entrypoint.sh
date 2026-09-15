@@ -5,7 +5,7 @@ set -e
 export ALIST_ADMIN_PASSWORD="${ALIST_ADMIN_PASSWORD:-admin123}"
 
 # 启动 Gbox 定制版 alist（网盘直连服务，支持 115 Cloud 驱动）
-echo "[entrypoint] Starting Gbox alist on port ${ALIST_PORT:-5234}..."
+echo "[entrypoint] Starting Gbox alist on port ${ALIST_PORT:-5345}..."
 cd /opt/alist
 LD_LIBRARY_PATH=/opt/alist/lib /opt/alist/alist server --no-prefix --data ${ALIST_DATA_DIR:-/opt/alist/data} &
 ALIST_PID=$!
@@ -13,7 +13,7 @@ ALIST_PID=$!
 # 等待 alist 启动（最多10秒，起来就继续，不阻塞node启动）
 echo "[entrypoint] Waiting for alist to start..."
 for i in $(seq 1 10); do
-  if curl -s http://localhost:${ALIST_PORT:-5234}/api/public/settings > /dev/null 2>&1; then
+  if curl -s http://localhost:${ALIST_PORT:-5345}/api/public/settings > /dev/null 2>&1; then
     echo "[entrypoint] Alist is ready after ${i}s"
     break
   fi

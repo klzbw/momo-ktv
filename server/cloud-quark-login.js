@@ -21,7 +21,7 @@ const QUARK_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (
 const qrSessions = new Map();
 
 let _db = null;
-let _alistUrl = 'http://localhost:5234';
+let _alistUrl = 'http://localhost:5345';
 let _alistToken = null;
 let _alistTokenExpiry = 0;
 
@@ -30,7 +30,7 @@ let _alistTokenExpiry = 0;
  */
 function init(db, alistUrl) {
   _db = db;
-  _alistUrl = alistUrl || process.env.ALIST_URL || 'http://localhost:5234';
+  _alistUrl = alistUrl || process.env.ALIST_URL || 'http://localhost:5345';
   return router;
 }
 

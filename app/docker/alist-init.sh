@@ -102,5 +102,5 @@ kill $ALIST_PID 2>/dev/null || true
 wait $ALIST_PID 2>/dev/null || true
 
 echo "[alist-init] alist 初始化完成"
-echo "[alist-init] 管理界面: http://localhost:5234"
+echo "[alist-init] 管理界面: http://localhost:5345"
 echo "[alist-init] admin 密码: $ADMIN_PASSWORD"

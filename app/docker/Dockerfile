@@ -54,7 +54,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ENV DATA_DIR=/data
 ENV MV_DIR=/mv
 ENV PORT=8080
-ENV ALIST_PORT=5234
+ENV ALIST_PORT=5345
 ENV ALIST_DATA_DIR=/opt/alist/data
 ENV LD_LIBRARY_PATH=/opt/alist/lib
 
@@ -62,7 +62,7 @@ ENV LD_LIBRARY_PATH=/opt/alist/lib
 ARG BUILD_TIME=unknown
 LABEL org.opencontainers.image.created=$BUILD_TIME
 
-EXPOSE 8080 5234
+EXPOSE 8080 5345
 VOLUME ["/data", "/mv", "/opt/alist/data"]
 
 # 启动 alist + momo-ktv

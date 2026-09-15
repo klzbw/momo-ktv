@@ -1,7 +1,7 @@
 /**
  * AList 自动挂载辅助模块
  *
- * 封装对内置 AList（http://127.0.0.1:5234）admin API 的调用：
+ * 封装对内置 AList（http://127.0.0.1:5345）admin API 的调用：
  *   - 登录取 token 并缓存（47 小时），401 时自动重新登录
  *   - createStorage / enable / deleteByPath / listStorages
  *   - 按 momo 的 driver 类型映射到 AList driver 与 addition
@@ -14,7 +14,7 @@ const http = require('http');
 
 // ===== AList 连接配置 =====
 const ALIST_HOST = process.env.ALIST_HOST || '127.0.0.1';
-const ALIST_PORT = parseInt(process.env.ALIST_PORT || '5234', 10);
+const ALIST_PORT = parseInt(process.env.ALIST_PORT || '5345', 10);
 const ALIST_USER = process.env.ALIST_USER || 'admin';
 const ALIST_PASS = process.env.ALIST_PASSWORD || 'admin123';
 

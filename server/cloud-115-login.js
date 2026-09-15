@@ -127,7 +127,7 @@ function httpPost(url, data, headers = {}) {
  * 获取 alist 管理员 token
  */
 async function getAlistToken() {
-  const res = await httpPost('http://localhost:5234/api/auth/login', {
+  const res = await httpPost('http://localhost:5345/api/auth/login', {
     username: 'admin',
     password: process.env.ALIST_PASS || 'Dd112233'
   });
@@ -144,7 +144,7 @@ async function getAlistToken() {
 async function find115Storage(token) {
   // 分页查找
   for (let page = 1; page <= 20; page++) {
-    const res = await httpGet(`http://localhost:5234/api/admin/storage/list?page=${page}&per_page=100`, {
+    const res = await httpGet(`http://localhost:5345/api/admin/storage/list?page=${page}&per_page=100`, {
       'Authorization': token
     });
     const data = JSON.parse(res.body);
@@ -399,7 +399,7 @@ async function updateAlist115Cookie(cookie) {
   };
 
   const updateRes = await httpPost(
-    'http://localhost:5234/api/admin/storage/update',
+    'http://localhost:5345/api/admin/storage/update',
     updateData,
     { 'Authorization': alistToken }
   );
@@ -474,7 +474,7 @@ router.post('/test', async (req, res) => {
 
     // 列出根目录测试
     const listRes = await httpPost(
-      'http://localhost:5234/api/fs/list',
+      'http://localhost:5345/api/fs/list',
       {
         path: storage.mount_path,
         page: 1,

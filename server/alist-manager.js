@@ -3,7 +3,7 @@
  *
  * 功能：
  * 1. 容器启动时自动启动 /opt/alist/alist server
- * 2. 配置 AList 端口 5234，管理员密码 admin123
+ * 2. 配置 AList 端口 5345，管理员密码 admin123
  * 3. 健康检查与自动重启
  * 4. 提供 start/stop/status API
  *
@@ -23,7 +23,7 @@ let _restartCount = 0;
 const MAX_RESTARTS = 5;
 let _dataDir = '/data';
 let _alistBin = '/opt/alist/alist';
-let _alistPort = 5234;
+let _alistPort = 5345;
 let _adminPassword = 'admin123';
 let _starting = false;
 let _stopping = false;
@@ -49,7 +49,7 @@ async function _isAlistRunning() {
 function init(dataDir) {
   _dataDir = dataDir || '/data';
   _alistBin = process.env.ALIST_BIN || '/opt/alist/alist';
-  _alistPort = parseInt(process.env.ALIST_PORT || '5234', 10);
+  _alistPort = parseInt(process.env.ALIST_PORT || '5345', 10);
   _adminPassword = process.env.ALIST_ADMIN_PASSWORD || 'admin123';
 
   // 确保数据目录存在

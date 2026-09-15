@@ -35,7 +35,7 @@ const router = express.Router();
 
 let _db = null;
 let _dataDir = '/data';
-let _alistUrl = 'http://localhost:5234';
+let _alistUrl = 'http://localhost:5345';
 let _alistToken = null;
 let _alistTokenExpiry = 0;
 // strm 文件对外基础地址（由 init() 读环境变量 SHARE_PUBLIC_BASE 填充）
@@ -293,7 +293,7 @@ function parseShareUrl(url) {
 function init(db, dataDir) {
   _db = db;
   _dataDir = dataDir || '/data';
-  _alistUrl = process.env.ALIST_URL || 'http://localhost:5234';
+  _alistUrl = process.env.ALIST_URL || 'http://localhost:5345';
 
   // strm 文件对外基础地址。
   // 【部署必配】播放端（VLC/浏览器）不在容器内，必须设为 NAS 对外可访问的地址，

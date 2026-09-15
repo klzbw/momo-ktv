@@ -27,7 +27,7 @@ class CloudDriveStreamer {
   constructor(manager) {
     this.manager = manager;
     this.alistEnabled = true;
-    this.alistUrl = process.env.ALIST_URL || 'http://localhost:5234';
+    this.alistUrl = process.env.ALIST_URL || 'http://localhost:5345';
     // 不再硬编码 token；启动后由 _alistLogin() 动态获取
     this.alistToken = null;
     this._alistTokenExpiry = 0;
