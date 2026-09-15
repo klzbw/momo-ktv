@@ -900,6 +900,13 @@
           await self._appendQueue(seg, self._audioSB);
         }
         self._extendDurationIfUnknown();
+        // Bug1修复：旧电视 WebView 上 attachMedia/tryAutoplay 里的 play() 可能早于
+        // sourceopen 或首块数据到达就被丢弃，导致视频停在暂停态、currentTime 一直 0。
+        // 首块真正 append 进 SourceBuffer 后再温和地踢一次播放（仅一次，不打扰用户暂停）。
+        if (!self._kickedPlay) {
+          self._kickedPlay = true;
+          try { const ve = self._videoEl; if (ve && ve.paused && !ve.ended) { const pr = ve.play(); if (pr && pr.catch) pr.catch(() => {}); } } catch (_) {}
+        }
       }
 
       try {

@@ -3740,7 +3740,7 @@ setInterval(tickCtrlProgress,500);
 // 逐帧上报制造无意义的 WS 流量。
 setInterval(()=>{
   if(!isActivePlayer||!curSong)return;
-  sendWS({type:'progress',deviceId:myDeviceId,queueId:curSong.queue_id,currentTime:video.currentTime||0,duration:(isFinite(realMediaDuration())?realMediaDuration():0),paused:video.paused,voice:VoiceManager.isOriginal?'original':'accompaniment'});
+  sendWS({type:'progress',deviceId:myDeviceId,queueId:curSong.queue_id,currentTime:playbackPos(),duration:(isFinite(realMediaDuration())?realMediaDuration():0),paused:video.paused,voice:VoiceManager.isOriginal?'original':'accompaniment'});
 },1000);
 function renderAll(){
   const playing=queueData.find(q=>q.status==='playing');
@@ -4013,7 +4013,22 @@ video.addEventListener('timeupdate',()=>{if(!video.duration)return;document.getE
 // 250ms 兜底定时器，不依赖 timeupdate 事件，主动读 video.currentTime；duration
 // 无效时用曲库元数据时长兜底(ctrlSongDuration / curSong.duration / playing.duration)。
 // 仅在本机是播放端时生效——控制端进度由 tickCtrlProgress() 走 WS 插值，互不干扰；
-// 歌词逐字扫色仍由下面那行 requestAnimationFrame 驱动，这里不重复渲染。
+// Bug1修复(进度条一直0:00)：上次加的250ms兜底定时器已主动读 video.currentTime，但这台
+// 电视内置 WebView 在 MSE/网络MKV/双FLAC 路径下会出现"画面声音都在走、唯独 <video>.
+// currentTime 一直停在 0"——直接读它当然永远 0:00。改用对媒体时钟停滞免疫的 playbackPos()：
+// 媒体时钟在推进时以它为准(seek 也跟着它)；播放中媒体时钟本次没比上次大(停滞)时退回墙钟
+// 累计；大跳变(>2s)判为 seek/换歌重新锚定。下面的进度定时器与 progress 广播都用它。
+let _pbWall=0,_pbMedia=-1,_pbAcc=0;
+function playbackPos(){
+  const now=performance.now()/1000;
+  const mt=(video&&isFinite(video.currentTime))?video.currentTime:0;
+  const playing=isActivePlayer&&!!curSong&&!video.paused&&!video.ended;
+  if(!playing){_pbWall=now;_pbMedia=mt;_pbAcc=mt;return mt;}
+  if(_pbMedia<0||Math.abs(mt-_pbMedia)>2.0){_pbAcc=mt;_pbWall=now;_pbMedia=mt;return mt;}
+  if(mt>_pbMedia){_pbAcc=mt;_pbWall=now;_pbMedia=mt;return mt;}
+  if(_pbWall===0)_pbWall=now;
+  return _pbAcc+(now-_pbWall);
+}
 setInterval(()=>{
   if(!isActivePlayer||!curSong)return;
   const fillEl=document.getElementById('prog-fill'),curEl=document.getElementById('tcur'),totEl=document.getElementById('ttot');
@@ -4023,7 +4038,7 @@ setInterval(()=>{
     const playing=queueData.find(q=>q.status==='playing');
     dur=ctrlSongDuration||saneDur(curSong&&curSong.duration)||saneDur(playing&&playing.duration)||0;
   }
-  const cur=isFinite(video.currentTime)?video.currentTime:0;
+  const cur=playbackPos();
   fillEl.style.width=dur>0?Math.min(100,cur/dur*100)+'%':'0%';
   curEl.textContent=fmt(cur);
   totEl.textContent=fmt(dur>0?dur:0);
@@ -5102,19 +5117,34 @@ function renderSongs(el,songs){
       <div class="so-info"><div class="so-t">${s.title}${getSongBadges(s)}</div><div class="so-a">${s.artist||''}</div></div>
       <div class="so-acts">
         <button class="btn-fav${isFaved?' faved':''}" data-f onclick="toggleFav(${s.id},this)">❤</button>
-        <button class="btn-add" data-f onclick="addSong(${s.id},'${esc(s.title)}')">点歌</button>
+        <button class="btn-add" data-f onclick="addSong(${s.id},'${esc(s.title)}',this)">点歌</button>
       </div>`;
     frag.appendChild(d);
   });
   el.appendChild(frag);
 }
 async function toggleFav(id,btn){const key='fav_'+id,faved=localStorage.getItem(key)==='1';if(faved){await fetch(`/api/favorites/${id}?device=${devId()}`,{method:'DELETE'});localStorage.removeItem(key);btn.classList.remove('faved');showToast('已取消收藏');}else{await fetch(`/api/favorites/${id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device:devId()})});localStorage.setItem(key,'1');btn.classList.add('faved');showToast('已收藏 ❤');};allFav=[];}
-async function addSong(id,title){await fetch('/api/queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({song_id:id,nickname:'TV点歌'})});showToast(`《${title}》已加入队列 🎶`);}
+async function addSong(id,title,btn){
+  // Bug4修复(点歌卡一下)：原实现先 await POST /api/queue 再 toast。网络/网盘曲目在服务端要
+  // 解析115直链/探测源，POST 常需 1~2s 才返回，这期间按钮毫无反应，体感就是"点一下卡住"。
+  // 这里点击瞬间立即给按钮 loading 态并提示"点歌中"，真正的入队请求在后台发，不等它再反馈。
+  const oldTxt=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='点歌中…';}
+  showToast(`《${title}》点歌中…`);
+  try{
+    await fetch('/api/queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({song_id:id,nickname:'TV点歌'})});
+    showToast(`《${title}》已加入队列 🎶`);
+    if(btn){btn.textContent='已点 ✓';setTimeout(()=>{btn.disabled=false;btn.textContent=oldTxt;},1200);}
+  }catch(e){
+    showToast(`《${title}》点歌失败，请重试`);
+    if(btn){btn.disabled=false;btn.textContent=oldTxt;}
+  }
+}
 // 各面板加载
 function loadQueue(){const el=document.getElementById('pl-queue');el.innerHTML='';const visibleQueue=queueData.filter(q=>!q.is_autoplay);if(!visibleQueue.length){el.innerHTML='<div style="color:#555;text-align:center;padding:30px">暂无点歌</div>';return;}visibleQueue.forEach((q,i)=>{const d=document.createElement('div');d.className='qr-row'+(q.status==='playing'?' qrp':'');d.innerHTML=`<div class="qr-num">${q.status==='playing'?'♪':i+1}</div><div class="qr-info"><div class="qr-t">${q.title}${getSongBadges(q)}</div><div class="qr-m">${q.artist||''} · ${q.nickname}${qDurLabel(q)}${q.status==='playing'?' <span style="color:var(--ac)">播放中</span>':''}</div></div><div class="qr-acts">${q.status!=='playing'?`<button class="ma ma-top" data-f onclick="topQ(${q.queue_id})">置顶</button>`:''}<button class="ma ma-del" data-f onclick="delQ(${q.queue_id})">✕</button></div>`;el.appendChild(d);});}
 async function topQ(id){await fetch(`/api/queue/${id}/top`,{method:'POST'});}
 async function delQ(id){await fetch(`/api/queue/${id}`,{method:'DELETE'});}
-async function loadCharts(){const el=document.getElementById('pl-charts');el.innerHTML='';const songs=(await fetch('/api/charts').then(r=>r.json())).slice(0,20);if(!songs.length){el.innerHTML='<div style="color:#555;text-align:center;padding:30px">还没有人唱过歌</div>';return;}songs.forEach((s,i)=>{const d=document.createElement('div');d.className='chart-row';const rk=i===0?'🥇':i===1?'🥈':i===2?'🥉':`${i+1}`;d.innerHTML=`<div class="ck ${i<3?'r'+(i+1):''}"> ${rk}</div><div class="chart-info"><div class="ct">${s.title}${getSongBadges(s)}</div><div class="cm">${s.artist||'未知歌手'}</div></div><button class="btn-add" data-f onclick="addSong(${s.id},'${esc(s.title)}')">点歌</button>`;el.appendChild(d);});}
+async function loadCharts(){const el=document.getElementById('pl-charts');el.innerHTML='';const songs=(await fetch('/api/charts').then(r=>r.json())).slice(0,20);if(!songs.length){el.innerHTML='<div style="color:#555;text-align:center;padding:30px">还没有人唱过歌</div>';return;}songs.forEach((s,i)=>{const d=document.createElement('div');d.className='chart-row';const rk=i===0?'🥇':i===1?'🥈':i===2?'🥉':`${i+1}`;d.innerHTML=`<div class="ck ${i<3?'r'+(i+1):''}"> ${rk}</div><div class="chart-info"><div class="ct">${s.title}${getSongBadges(s)}</div><div class="cm">${s.artist||'未知歌手'}</div></div><button class="btn-add" data-f onclick="addSong(${s.id},'${esc(s.title)}',this)">点歌</button>`;el.appendChild(d);});}
 // 最新入库：直接复用"歌名点歌"那份 allSongs 缓存按 id 倒序排列——
 // id 是自增主键，值越大代表越晚被扫描入库，不需要额外接口/额外字段。
 // 需求：改成左右两栏、每栏10首后，每页实际展示的是 10行×2栏=20首，
@@ -5142,7 +5172,7 @@ function renderNewest(){
   el.innerHTML='';
   songs.forEach((s,i)=>{
     const d=document.createElement('div');d.className='chart-row';
-    d.innerHTML=`<div class="ck">${newestPg*NEWEST_PG+i+1}</div><div class="chart-info"><div class="ct">${s.title}</div><div class="cm">${s.artist||'未知歌手'}</div></div><span class="cp">${[s.language,s.genre].filter(Boolean).join(' · ')||'—'}</span><button class="btn-add" data-f onclick="addSong(${s.id},'${esc(s.title)}')">点歌</button>`;
+    d.innerHTML=`<div class="ck">${newestPg*NEWEST_PG+i+1}</div><div class="chart-info"><div class="ct">${s.title}</div><div class="cm">${s.artist||'未知歌手'}</div></div><span class="cp">${[s.language,s.genre].filter(Boolean).join(' · ')||'—'}</span><button class="btn-add" data-f onclick="addSong(${s.id},'${esc(s.title)}',this)">点歌</button>`;
     el.appendChild(d);
   });
   if(pgEl)pgEl.textContent=`${newestPg+1}/${t} (共${newestSorted.length}首)`;
