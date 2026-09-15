@@ -104,6 +104,18 @@ struct SearchResponse: Codable {
     let total: Int?
 }
 
+// MARK: - 歌词响应
+/// GET /api/songs/:id/lyrics
+struct LyricsResponse: Codable {
+    let id: Int?
+    let title: String?
+    let artist: String?
+    let lyrics: String?      // LRC 字符串
+    let word: String?        // 逐字时间轴 JSON（可选）
+    let source: String?      // 歌词来源
+    let align_status: String?
+}
+
 // MARK: - WebSocket 消息
 struct WSMessage {
     let type: String

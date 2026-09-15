@@ -112,6 +112,18 @@ class KTVAPIClient {
         }.resume()
     }
 
+    // MARK: - 歌词
+    /// GET /api/songs/:id/lyrics -> LyricsResponse
+    func fetchLyrics(songId: Int, completion: @escaping (LyricsResponse?) -> Void) {
+        guard let url = apiURL("/api/songs/\(songId)/lyrics") else { completion(nil); return }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data = data else { completion(nil); return }
+            DispatchQueue.main.async {
+                completion(try? JSONDecoder().decode(LyricsResponse.self, from: data))
+            }
+        }.resume()
+    }
+
     // MARK: - 播放信息
     func fetchSepInfo(songId: Int, completion: @escaping (SepInfo?) -> Void) {
         guard let url = apiURL("/api/songs/\(songId)/sep-info") else { completion(nil); return }

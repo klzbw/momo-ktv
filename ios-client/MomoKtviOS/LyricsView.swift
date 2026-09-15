@@ -10,6 +10,8 @@ class LyricsView: UIView {
 
     private var lyrics: [LyricLine] = []
     private var currentIndex = -1
+    /// true = 已尝试加载歌词但为空，显示“暂无歌词”
+    private var hasTriedLoad = false
 
     private let currentLabel = UILabel()
     private let prevLabel = UILabel()
@@ -63,7 +65,16 @@ class LyricsView: UIView {
     }
 
     func setLyrics(_ lrcText: String) {
+        hasTriedLoad = true
         lyrics = parseLRC(lrcText)
+        currentIndex = -1
+        updateLabels()
+    }
+
+    /// 服务端确认无歌词时调用
+    func setNoLyrics() {
+        hasTriedLoad = true
+        lyrics = []
         currentIndex = -1
         updateLabels()
     }
@@ -85,6 +96,7 @@ class LyricsView: UIView {
     func clear() {
         lyrics = []
         currentIndex = -1
+        hasTriedLoad = false
         updateLabels()
     }
 
@@ -122,14 +134,16 @@ class LyricsView: UIView {
     private func updateLabels() {
         if lyrics.isEmpty {
             prevLabel.text = ""
-            currentLabel.text = "♪"
             nextLabel.text = ""
+            currentLabel.text = hasTriedLoad ? "暂无歌词" : "♪"
             return
         }
         prevLabel.text = currentIndex > 0 ? lyrics[currentIndex - 1].text : ""
         currentLabel.text = currentIndex >= 0 ? lyrics[currentIndex].text : "♪"
         nextLabel.text = (currentIndex >= 0 && currentIndex < lyrics.count - 1) ? lyrics[currentIndex + 1].text : ""
     }
+
+    var lineCount: Int { lyrics.count }
 
     var currentLyricText: String {
         currentIndex >= 0 && currentIndex < lyrics.count ? lyrics[currentIndex].text : ""

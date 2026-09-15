@@ -18,6 +18,16 @@ class MainViewController: UIViewController {
     private let nextButton = UIButton(type: .system)
     private let configButton = UIButton(type: .system)
 
+    /// 人声音量滑块（MKV 双音轨两段式：>50 原唱 / <=50 伴唱）
+    private let vocalSlider = UISlider()
+    private let vocalModeLabel = UILabel()
+    private let vocalLeftLabel = UILabel()
+    private let vocalRightLabel = UILabel()
+    /// 点歌按钮（队列面板头部）
+    private let addSongButton = UIButton(type: .system)
+    /// 防抖：滑块拖动时避免频繁切轨
+    private var lastTrackSegment: Int = -1
+
     private var queueItems: [QueueItem] = []
     private var currentQueueId: Int?
     private var progressTimer: Timer?
@@ -90,6 +100,15 @@ class MainViewController: UIViewController {
         queueTitleLabel.translatesAutoresizingMaskIntoConstraints = false
         queuePanel.addSubview(queueTitleLabel)
 
+        addSongButton.setTitle("点歌", for: .normal)
+        addSongButton.setTitleColor(.white, for: .normal)
+        addSongButton.backgroundColor = UIColor(red: 1.0, green: 0.62, blue: 0.2, alpha: 1.0)
+        addSongButton.layer.cornerRadius = 6
+        addSongButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .bold)
+        addSongButton.translatesAutoresizingMaskIntoConstraints = false
+        addSongButton.addTarget(self, action: #selector(openSongSearch), for: .touchUpInside)
+        queuePanel.addSubview(addSongButton)
+
         tableView.backgroundColor = .clear
         tableView.separatorColor = UIColor(white: 0.2, alpha: 1)
         tableView.delegate = self
@@ -123,7 +142,7 @@ class MainViewController: UIViewController {
 
         // 布局
         let queueWidth: CGFloat = 280
-        let barHeight: CGFloat = 60
+        let barHeight: CGFloat = 110
         NSLayoutConstraint.activate([
             videoContainer.topAnchor.constraint(equalTo: view.topAnchor),
             videoContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -152,7 +171,12 @@ class MainViewController: UIViewController {
 
             queueTitleLabel.topAnchor.constraint(equalTo: queuePanel.safeAreaLayoutGuide.topAnchor, constant: 12),
             queueTitleLabel.leadingAnchor.constraint(equalTo: queuePanel.leadingAnchor, constant: 12),
-            queueTitleLabel.trailingAnchor.constraint(equalTo: queuePanel.trailingAnchor, constant: -12),
+            queueTitleLabel.trailingAnchor.constraint(equalTo: addSongButton.leadingAnchor, constant: -8),
+
+            addSongButton.centerYAnchor.constraint(equalTo: queueTitleLabel.centerYAnchor),
+            addSongButton.trailingAnchor.constraint(equalTo: queuePanel.trailingAnchor, constant: -12),
+            addSongButton.widthAnchor.constraint(equalToConstant: 56),
+            addSongButton.heightAnchor.constraint(equalToConstant: 32),
 
             tableView.topAnchor.constraint(equalTo: queueTitleLabel.bottomAnchor, constant: 8),
             tableView.leadingAnchor.constraint(equalTo: queuePanel.leadingAnchor),
@@ -165,7 +189,7 @@ class MainViewController: UIViewController {
             controlBar.heightAnchor.constraint(equalToConstant: barHeight),
         ])
 
-        // 控制栏按钮布局
+        // 控制栏按钮布局（上行）
         let buttonStack = UIStackView(arrangedSubviews: [prevButton, playPauseButton, nextButton, voiceButton, configButton])
         buttonStack.axis = .horizontal
         buttonStack.spacing = 10
@@ -173,11 +197,53 @@ class MainViewController: UIViewController {
         buttonStack.alignment = .center
         buttonStack.translatesAutoresizingMaskIntoConstraints = false
         controlBar.addSubview(buttonStack)
+
+        // 人声滑块行（下行）：伴唱 [slider] 原唱   右侧标注 MKV双音轨模式
+        vocalLeftLabel.text = "伴唱"
+        vocalLeftLabel.textColor = .lightGray
+        vocalLeftLabel.font = .systemFont(ofSize: 11)
+        vocalLeftLabel.translatesAutoresizingMaskIntoConstraints = false
+        controlBar.addSubview(vocalLeftLabel)
+
+        vocalRightLabel.text = "原唱"
+        vocalRightLabel.textColor = UIColor(red: 1.0, green: 0.84, blue: 0.0, alpha: 1.0)
+        vocalRightLabel.font = .systemFont(ofSize: 11)
+        vocalRightLabel.translatesAutoresizingMaskIntoConstraints = false
+        controlBar.addSubview(vocalRightLabel)
+
+        vocalSlider.minimumValue = 0
+        vocalSlider.maximumValue = 100
+        vocalSlider.value = 100  // 默认原唱
+        vocalSlider.isContinuous = true
+        vocalSlider.tintColor = UIColor(red: 1.0, green: 0.62, blue: 0.2, alpha: 1.0)
+        vocalSlider.translatesAutoresizingMaskIntoConstraints = false
+        vocalSlider.addTarget(self, action: #selector(vocalSliderChanged(_:)), for: .valueChanged)
+        controlBar.addSubview(vocalSlider)
+
+        vocalModeLabel.text = "MKV双音轨模式"
+        vocalModeLabel.textColor = UIColor(white: 0.65, alpha: 1.0)
+        vocalModeLabel.font = .systemFont(ofSize: 10)
+        vocalModeLabel.translatesAutoresizingMaskIntoConstraints = false
+        controlBar.addSubview(vocalModeLabel)
+
         NSLayoutConstraint.activate([
-            buttonStack.centerYAnchor.constraint(equalTo: controlBar.centerYAnchor),
+            buttonStack.topAnchor.constraint(equalTo: controlBar.topAnchor, constant: 8),
             buttonStack.leadingAnchor.constraint(equalTo: controlBar.leadingAnchor, constant: 16),
             buttonStack.trailingAnchor.constraint(equalTo: controlBar.trailingAnchor, constant: -16),
             buttonStack.heightAnchor.constraint(equalToConstant: 40),
+
+            vocalLeftLabel.leadingAnchor.constraint(equalTo: controlBar.leadingAnchor, constant: 16),
+            vocalLeftLabel.centerYAnchor.constraint(equalTo: vocalSlider.centerYAnchor),
+
+            vocalSlider.leadingAnchor.constraint(equalTo: vocalLeftLabel.trailingAnchor, constant: 8),
+            vocalSlider.centerYAnchor.constraint(equalTo: vocalModeLabel.centerYAnchor),
+
+            vocalRightLabel.leadingAnchor.constraint(equalTo: vocalSlider.trailingAnchor, constant: 8),
+            vocalRightLabel.centerYAnchor.constraint(equalTo: vocalSlider.centerYAnchor),
+            vocalRightLabel.trailingAnchor.constraint(lessThanOrEqualTo: vocalModeLabel.leadingAnchor, constant: -8),
+
+            vocalModeLabel.trailingAnchor.constraint(equalTo: controlBar.trailingAnchor, constant: -16),
+            vocalModeLabel.bottomAnchor.constraint(equalTo: controlBar.bottomAnchor, constant: -10),
         ])
     }
 
@@ -262,12 +328,33 @@ class MainViewController: UIViewController {
         VLCPlayerManager.shared.play(url: url)
         debugLog("已调用 VLCPlayerManager.play()")
 
+        // 重置人声滑块到原唱段
+        lastTrackSegment = -1
+        vocalSlider.value = 100
+
         // 获取分离信息（音轨）
         KTVAPIClient.shared.fetchSepInfo(songId: item.song_id) { info in
             if let info = info, let tracks = info.audioTracks, !tracks.isEmpty {
                 DispatchQueue.main.async {
                     self.voiceLabel.text = "声道: 原唱 (\(tracks.count)轨)"
                 }
+            }
+        }
+
+        // 拉取歌词
+        loadLyrics(songId: item.song_id)
+    }
+
+    // MARK: - 歌词
+    private func loadLyrics(songId: Int) {
+        KTVAPIClient.shared.fetchLyrics(songId: songId) { [weak self] resp in
+            guard let self = self else { return }
+            if let lrc = resp?.lyrics, !lrc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                self.lyricsView.setLyrics(lrc)
+                self.debugLog("歌词加载成功, \(self.lyricsView.lineCount)行")
+            } else {
+                self.lyricsView.setNoLyrics()
+                self.debugLog("暂无歌词")
             }
         }
     }
@@ -291,6 +378,23 @@ class MainViewController: UIViewController {
     @objc private func toggleVoice() {
         VLCPlayerManager.shared.toggleVoice()
         voiceLabel.text = "声道: \(VLCPlayerManager.shared.voiceLabel)"
+        // 同步滑块到当前轨
+        vocalSlider.value = VLCPlayerManager.shared.currentAudioTrackIndex == 0 ? 100 : 0
+        lastTrackSegment = VLCPlayerManager.shared.currentAudioTrackIndex
+        KTVWebSocketClient.shared.sendPlaybackState(paused: !VLCPlayerManager.shared.isPlaying,
+                                                  voice: VLCPlayerManager.shared.voiceLabel)
+    }
+
+    /// 人声音量滑块：MKV 双音轨限制，VLC 只能选一个音轨。
+    /// value > 50 -> 原唱轨(index=0)，<= 50 -> 伴唱轨(index=1)。
+    /// 视觉连续但行为两段式。
+    @objc private func vocalSliderChanged(_ slider: UISlider) {
+        let segment: Int = slider.value > 50 ? 0 : 1
+        guard segment != lastTrackSegment else { return }
+        lastTrackSegment = segment
+        VLCPlayerManager.shared.setAudioTrack(index: segment)
+        voiceLabel.text = "声道: \(VLCPlayerManager.shared.voiceLabel)"
+        debugLog("人声滑块 -> 段\(segment) (\(Int(slider.value))%)")
         KTVWebSocketClient.shared.sendPlaybackState(paused: !VLCPlayerManager.shared.isPlaying,
                                                   voice: VLCPlayerManager.shared.voiceLabel)
     }
@@ -315,6 +419,11 @@ class MainViewController: UIViewController {
         navigationController?.pushViewController(ServerConfigViewController(), animated: true)
     }
 
+    @objc private func openSongSearch() {
+        let vc = SongSearchViewController()
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
     private func handleControl(_ action: String, _ payload: [String: Any]) {
         switch action {
         case "play": VLCPlayerManager.shared.resume()
@@ -332,6 +441,28 @@ class MainViewController: UIViewController {
                 KTVAPIClient.shared.addToQueue(songId: songId)
             }
         default: break
+        }
+    }
+
+    // MARK: - 队列操作
+    private func removeQueueItem(_ item: QueueItem) {
+        KTVAPIClient.shared.removeFromQueue(queueId: item.queue_id) { [weak self] ok in
+            self?.debugLog("删除队列项 \(item.queue_id): \(ok ? "OK" : "失败")")
+            // WebSocket 会推送队列更新，无需本地删
+        }
+    }
+
+    private func topQueueItem(_ item: QueueItem) {
+        KTVAPIClient.shared.topQueue(queueId: item.queue_id) { [weak self] ok in
+            self?.debugLog("置顶队列项 \(item.queue_id): \(ok ? "OK" : "失败")")
+        }
+    }
+
+    private func showToast(_ msg: String) {
+        let alert = UIAlertController(title: nil, message: msg, preferredStyle: .alert)
+        present(alert, animated: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            alert.dismiss(animated: true)
         }
     }
 
@@ -359,7 +490,8 @@ extension MainViewController: UITableViewDelegate, UITableViewDataSource {
         let cell = tableView.dequeueReusableCell(withIdentifier: "QueueCell", for: indexPath)
         let item = queueItems[indexPath.row]
         cell.backgroundColor = .clear
-        cell.textLabel?.text = item.displayTitle
+        let prefix = item.isTop ? "★ " : ""
+        cell.textLabel?.text = prefix + item.displayTitle
         cell.textLabel?.textColor = item.isPlaying ?
             UIColor(red: 1.0, green: 0.84, blue: 0.0, alpha: 1.0) : .white
         cell.detailTextLabel?.text = item.displayArtist
@@ -370,5 +502,28 @@ extension MainViewController: UITableViewDelegate, UITableViewDataSource {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         playQueueItem(queueItems[indexPath.row])
+    }
+
+    // 左滑：删除
+    func tableView(_ tableView: UITableView,
+                    trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        let item = queueItems[indexPath.row]
+        let delete = UIContextualAction(style: .destructive, title: "删除") { [weak self] _, _, done in
+            self?.removeQueueItem(item)
+            done(true)
+        }
+        return UISwipeActionsConfiguration(actions: [delete])
+    }
+
+    // 右滑：置顶
+    func tableView(_ tableView: UITableView,
+                   leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        let item = queueItems[indexPath.row]
+        let top = UIContextualAction(style: .normal, title: "置顶") { [weak self] _, _, done in
+            self?.topQueueItem(item)
+            done(true)
+        }
+        top.backgroundColor = UIColor(red: 1.0, green: 0.62, blue: 0.2, alpha: 1.0)
+        return UISwipeActionsConfiguration(actions: [top])
     }
 }
