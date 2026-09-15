@@ -74,7 +74,6 @@ services:
     image: ghcr.io/klzbw/momo-ktv:latest
     container_name: momo-ktv
     restart: unless-stopped
-    network_mode: momo-ktv_default
     ports:
       - "8083:8080"    # Web 主界面
       - "5236:5234"    # 内置 AList
@@ -88,7 +87,7 @@ services:
       - NETKTV_CLOUD_ACCOUNT_ID=1
       - AUTO_SCAN_MIN=5
       - VAAPI_DEVICE=/dev/dri/renderD128
-      - ALIST_PORT=5234
+      - ALIST_PORT=5345
       - ALIST_DATA_DIR=/opt/alist/data
       - LD_LIBRARY_PATH=/opt/alist/lib
     volumes:
