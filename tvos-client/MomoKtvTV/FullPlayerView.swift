@@ -18,8 +18,11 @@ struct FullPlayerView: View {
 
     @ObservedObject private var playerManager = PlayerManager.shared
     private let vlcManager = VLCPlayerManager.shared
-    /// 当前是否使用VLC播放器（网络MKV歌曲）
-    private var isUsingVLC: Bool { vlcManager.isPlaying }
+    /// 当前是否使用VLC播放器（网络MKV歌曲）。
+    /// 必须由父视图按"曲目类型"传入稳定值，绝不能用 vlcManager.isPlaying——
+    /// 一按暂停 isPlaying 变 false，ZStack 就会把 VLCVideoView 整个拆成音频 SharedVideoView，
+    /// VLC 共享 surface 被 detach，恢复播放时重建不回来 -> 全屏黑屏（小屏正常因小屏用的是稳定@State）。
+    let isUsingVLC: Bool
 
 
 

@@ -151,7 +151,8 @@ struct ContentView: View {
                     song: playing,
                     onNext: { advancePlayback() },
                     onClose: { showingPlayer = false },
-                    api: api
+                    api: api,
+                    isUsingVLC: isUsingVLC
                 )
             }
         }
