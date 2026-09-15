@@ -1,54 +1,41 @@
-# momo-ktv 通用 Docker Compose 部署文件
-# 使用方法：
-#   1. 将本文件保存为 docker-compose.yml
-#   2. 修改下方 volumes 中的曲库路径为你实际的音乐目录
-#   3. 执行: docker compose up -d
-#   4. 访问: http://<你的IP>:8080
-#
-# 目录说明：
-#   ./data         - 数据库、配置、缓存（自动创建）
-#   ./mv           - 本地曲库目录（需自行创建并放入音乐文件）
-#   ./alist-data   - AList 配置数据（自动创建，用于115网盘等）
-#   ./separated    - 人声/伴奏分离文件目录（可选，用于原唱/伴唱切换）
-#
-# 115网盘网络曲库（无需挂载到本地）：
-#   通过 cloud-drive 的 pan115 驱动直接扫描115网盘上的歌曲，不需要在
-#   docker-compose 里挂载网盘目录。首次启动后，「曲库管理 → 曲库来源」
-#   后台会自动登记两个内置网络来源：
-#     - netktv-mkv  -> 115上的 MKV 视频目录（默认 /momo-ktv/ktv-output）
-#     - netktv      -> 115上的 分离双FLAC 目录（默认 /momo-ktv/separated）
-#   也可以在后台点「添加115网盘网络曲库」自选账号和路径。点列表里的
-#   「▶ 扫描网盘」即可触发扫描，分批+间隔调用115 API，避免风控。
+version: "3.8"
 
 services:
   momo-ktv:
     image: ghcr.io/klzbw/momo-ktv:latest
     container_name: momo-ktv
     restart: unless-stopped
+    network_mode: momo-ktv_default
     ports:
-      - "8080:8080"      # Web 界面 / API
-      - "5234:5234"      # AList（115网盘等云存储管理）
+      - "8083:8080"    # Web 主界面
+      - "5236:5234"    # 内置 AList
     environment:
-      - TZ=Asia/Shanghai
-      - PORT=8080
-      - DATA_DIR=/data
       - MV_DIR=/mv
-      - ADMIN_PASSWORD=admin888       # 管理后台密码，请修改为你自己的密码
-      - AUTO_SCAN_MIN=5               # 自动扫描间隔（分钟），设为0禁用
-      - HLS_CACHE_MAX_AGE_DAYS=3      # HLS 缓存保留天数
-      # - VAAPI_DEVICE=/dev/dri/renderD128  # 硬件转码设备（Intel核显），取消注释启用
+      - DATA_DIR=/data
+      - PORT=8080
+      - ADMIN_PASSWORD=admin
+      - TZ=Asia/Shanghai
+      - HLS_CACHE_MAX_AGE_DAYS=3
+      - NETKTV_CLOUD_ACCOUNT_ID=1
+      - AUTO_SCAN_MIN=5
+      - VAAPI_DEVICE=/dev/dri/renderD128
+      - ALIST_PORT=5234
+      - ALIST_DATA_DIR=/opt/alist/data
+      - LD_LIBRARY_PATH=/opt/alist/lib
     volumes:
-      # 数据目录（数据库、配置、缓存）
-      - ./data:/data
-      # 本地曲库目录（支持多个子目录，如 /mv/library1、/mv/library2）
-      - ./mv:/mv
-      # AList 数据目录（115网盘配置、缓存）
-      - ./alist-data:/opt/alist/data
-      # 人声/伴奏分离文件目录（可选，取消注释并修改为你的路径）
-      # - ./separated:/data/separated
-      # ===== 示例：挂载多个本地曲库目录 =====
-      # - /path/to/your/music1:/mv/library1
-      # - /path/to/your/music2:/mv/library2
-    # 硬件转码（可选，Intel核显用户取消注释）
-    # devices:
-    #   - /dev/dri:/dev/dri
+      # 数据库、配置、上传文件
+      - /vol1/1000/docker/momo-ktv:/data
+      # AList 数据
+      - /vol1/1000/docker/momo-ktv/alist-data:/opt/alist/data
+      # 分离FLAC（人声+伴奏）
+      - /vol02/1000-0-b845c2ef/separated:/data/separated
+      # 曲库挂载
+      - /vol02/1000-0-c8f19a7f/KTV/music:/mv/library1
+      - /vol02/1000-0-b845c2ef:/mv/library2
+      # 匿名volume（HLS缓存等）
+      - momo-ktv-mv:/mv
+    devices:
+      - /dev/dri:/dev/dri   # 核显硬解（VAAPI）
+
+volumes:
+  momo-ktv-mv:
