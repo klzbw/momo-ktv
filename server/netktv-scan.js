@@ -278,7 +278,11 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
 
   if (!fs.existsSync(strmDir)) fs.mkdirSync(strmDir, { recursive: true });
 
-  const songDirs = await findSongDirsViaAlist(alistRoot);
+  // 置位运行状态（启动自动同步不经路由，这里兜底保证 /sync/status 准确）
+  syncStatus.running = true;
+
+  try {
+    const songDirs = await findSongDirsViaAlist(alistRoot);
   const presentKeys = new Set();
   let createdStrm = 0, removedStrm = 0, addedSongs = 0, removedSongs = 0;
 
@@ -374,6 +378,9 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
   console.log(`[NETKTV-SYNC] 完成: 目录=${songDirs.length} 新增strm=${createdStrm} 删除strm=${removedStrm} 入库=${addedSongs} 删库=${removedSongs}`);
 
   return { songDirs: songDirs.length, createdStrm, removedStrm, addedSongs, removedSongs };
+  } finally {
+    syncStatus.running = false;
+  }
 }
 
 /**
