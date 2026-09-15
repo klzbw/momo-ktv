@@ -10182,7 +10182,7 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
   const song = db.prepare('SELECT * FROM songs WHERE id=?').get(parseInt(req.params.id, 10));
-  const cloud_driver = getCloudDriver(song.cloud_account_id);
+  const cloud_driver = song ? getCloudDriver(song.cloud_account_id) : null;
 
 
 
@@ -10440,6 +10440,19 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
     if (netktvId) {
+      // 优先读本地 .strm 正文（AList DAV URL），读不到再回退内部 stream 路由
+      let _vocalUrl = `/api/netktv/stream/${netktvId}/vocals`;
+      let _accompUrl = `/api/netktv/stream/${netktvId}/accompaniment`;
+      try {
+        if (song.vocal_path && fs.existsSync(song.vocal_path)) {
+          const _v = fs.readFileSync(song.vocal_path, 'utf-8').trim();
+          if (_v) _vocalUrl = _v;
+        }
+        if (song.accomp_path && fs.existsSync(song.accomp_path)) {
+          const _a = fs.readFileSync(song.accomp_path, 'utf-8').trim();
+          if (_a) _accompUrl = _a;
+        }
+      } catch (e) { /* keep fallback */ }
 
 
 
@@ -10500,7 +10513,7 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
-        vocalUrl: `/api/netktv/stream/${netktvId}/vocals`,
+        vocalUrl: _vocalUrl,
 
 
 
@@ -10510,7 +10523,7 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
-        accompUrl: `/api/netktv/stream/${netktvId}/accompaniment`,
+        accompUrl: _accompUrl,
 
 
 
