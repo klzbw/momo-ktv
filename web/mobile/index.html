@@ -65,6 +65,11 @@ header{
 .song-card .info{flex:1}
 .song-card .title{font-size:15px;font-weight:600}
 .song-card .artist{font-size:12px;color:var(--sub);margin-top:3px}
+.media-badge{display:inline-block;font-size:10px;font-weight:700;line-height:1;
+ padding:3px 6px;border-radius:6px;letter-spacing:.5px;margin-left:6px;vertical-align:middle}
+.badge-mkv{background:rgba(90,200,250,.18);color:#5ac8fa}
+.badge-flac{background:rgba(255,199,90,.2);color:#ffc75a}
+.badge-other{background:rgba(255,255,255,.12);color:#bbb}
 .btn-add{
   width:38px;height:38px;border-radius:50%;border:none;
   background:linear-gradient(135deg,var(--accent),var(--accent2));
@@ -916,6 +921,17 @@ function renderSongPager(){
 // 通用歌曲列表渲染：点歌入口 HUB 下的 7 个子页面（歌名/歌手作品/分类/热歌/
 // 最近/收藏/最新入库）都复用这一份，跟 TV 端 renderSongs(el,songs) 是同一套
 // 「❤收藏 + ＋点歌」按钮逻辑，只是外层容器换成移动端的 el 参数。
+// 媒体类型徽章：MKV(视频)/FLAC(音频)/其他格式。优先用 media_type，兜底按文件扩展名。
+function mediaBadge(s){
+  const fn=String(s.filename||s.filepath||'').toLowerCase();
+  const isVideo = s.media_type==='video' || /\.(mkv|mp4|ts|mov|strm|avi|wmv)$/.test(fn);
+  const isAudio = s.media_type==='audio' || /\.(flac|mp3|wav|m4a|aac|ogg)$/.test(fn);
+  let label='',cls='';
+  if(isVideo){label='MKV';cls='badge-mkv';}
+  else if(isAudio){label='FLAC';cls='badge-flac';}
+  else{const m=fn.match(/\.([a-z0-9]{2,4})$/); if(m){label=m[1].toUpperCase();cls='badge-other';}}
+  return label?`<span class="media-badge ${cls}">${label}</span>`:'';
+}
 function renderSongsInto(el,list,emptyText){
   el.innerHTML='';
   if(!list.length){el.innerHTML=`<div class="mfull-empty">${emptyText||'暂无歌曲'}</div>`;return;}
@@ -926,7 +942,7 @@ function renderSongsInto(el,list,emptyText){
     const favKey='fav_'+s.id;
     const isFaved=localStorage.getItem(favKey)==='1';
     c.innerHTML=`
-      <div class="info"><div class="title">${s.title}</div><div class="artist">${s.artist||''}</div></div>
+      <div class="info"><div class="title">${s.title}</div><div class="artist">${s.artist||''}${mediaBadge(s)}</div></div>
       <div style="display:flex;gap:6px;align-items:center">
         <button class="btn-fav${isFaved?' faved':''}">❤</button>
         <button class="btn-add">＋</button>

@@ -396,11 +396,11 @@ struct FullPlayerView: View {
                                 // 仅 DUAL 模式(已分离出人声+伴奏双声道)下有效，非DUAL模式不响应
                                 guard playerManager.dualEnabled else { return }
                                 if direction == .up {
-                                    playerManager.nudgeVocalLevel(+0.34)
+                                    playerManager.nudgeVocalLevel(+0.05)
                                     showVocalHUD()
                                     resetHideTimer()
                                 } else if direction == .down {
-                                    playerManager.nudgeVocalLevel(-0.34)
+                                    playerManager.nudgeVocalLevel(-0.05)
                                     showVocalHUD()
                                     resetHideTimer()
                                 }
@@ -685,7 +685,7 @@ struct FullPlayerView: View {
                         }
                         if state == .began || state == .changed {
                             // 系数：滑动600pt对应音量变化100%；向上滑(translationY<0)=增加人声
-                            let delta = -Float(translationY) / 600
+                            let delta = -Float(translationY) / 420
                             // 限制单次滑动最多变化40%，不会一次性调到极值
                             let clampedDelta = max(-0.4, min(0.4, delta))
                             let target = panStartLevel + clampedDelta

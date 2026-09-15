@@ -731,7 +731,10 @@ struct ContentView: View {
                 FeedbackCenter.shared.show("切到下一首", icon: "forward.end.fill")
                 advancePlayback()
             case "fullscreen":
-                if api.queue.contains(where: { $0.isPlaying }) { showingPlayer = true }
+                // 遥控端"全屏"按钮：在大屏 FullPlayerView / 迷你小屏之间切换（不只开不回）。
+                // 没有正在播放的歌时不动作，避免把空界面弹成全屏。
+                guard api.queue.contains(where: { $0.isPlaying }) else { return }
+                showingPlayer.toggle()
             case "home":
                 showingPlayer = false
                 activePanel = nil

@@ -764,12 +764,12 @@ class PlayerManager: ObservableObject {
         // 每次创建新的 params 对象（用 composition 里的 track 引用），避免复用旧对象累积音量段
         let vParams = AVMutableAudioMixInputParameters(track: vTrack)
         let aParams = AVMutableAudioMixInputParameters(track: aTrack)
-        // 丝滑渐变：从当前播放时间开始，0.3秒内从 previousVocalLevel 渐变到目标音量 q
-        // 避免瞬时跳变，调节体验丝滑。timeRange 用有限值(0.3秒)，不会触发 positiveInfinity 崩溃。
+        // 丝滑渐变：从当前播放时间开始，0.12秒内从 previousVocalLevel 渐变到目标音量 q
+        // 避免瞬时跳变，调节体验丝滑。timeRange 用有限值(0.12秒)，不会触发 positiveInfinity 崩溃。
         if let player = player, player.rate > 0 {
             let currentTime = player.currentTime()
             if currentTime.isValid && currentTime.seconds >= 0 {
-                let rampDuration = CMTime(seconds: 0.3, preferredTimescale: 600)
+                let rampDuration = CMTime(seconds: 0.12, preferredTimescale: 600)
                 let rampRange = CMTimeRange(start: currentTime, duration: rampDuration)
                 vParams.setVolumeRamp(fromStartVolume: previousVocalLevel, toEndVolume: q, timeRange: rampRange)
             } else {
