@@ -42,10 +42,13 @@ class VLCSharedVideoView {
                 view.leadingAnchor.constraint(equalTo: parent.leadingAnchor),
                 view.trailingAnchor.constraint(equalTo: parent.trailingAnchor),
             ])
-            // 不在此处调用 layoutIfNeeded()：
+            // 不在此处同步调用 layoutIfNeeded()：
             // 这行同步布局会卡在大小屏切换的转场动画主线程上，造成掉帧卡顿。
-            // 约束已建立，UIKit/SwiftUI 会在下一帧正常布局；同一个 UIView 实例的
-            // VLC 视频输出不会中断。
+            // 改为异步布局：下一 runloop 把共享视图尺寸更新为新容器 bounds，
+            // 既不阻塞转场，也避免一帧"旧小窗画面被拉伸到全屏"的闪现。
+            DispatchQueue.main.async {
+                parent.layoutIfNeeded()
+            }
         }
     }
 

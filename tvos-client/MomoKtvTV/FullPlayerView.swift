@@ -157,7 +157,12 @@ struct FullPlayerView: View {
                 // Song changed, re-attach layer to ensure video shows
                 if isUsingVLC {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        vlcManager.refreshDrawables()
+                        // 共享视图已是当前 drawable 时跳过 refreshDrawables：
+                        // 它会再开一条 nil->set 七段重建链，与起播/挂载时的延迟链重叠，
+                        // 大小屏切换/切歌瞬间反复撕毁 VLC 视频输出层，造成卡顿。
+                        if !self.vlcManager.isSharedDrawableActive {
+                            self.vlcManager.refreshDrawables()
+                        }
                     }
                 } else {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {

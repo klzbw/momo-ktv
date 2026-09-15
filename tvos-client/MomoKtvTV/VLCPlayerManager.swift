@@ -405,15 +405,14 @@ class VLCPlayerManager: NSObject, ObservableObject {
         self.media = media
         player.media = media
 
-        // 设置视频输出
-        let views = drawableViews.allObjects
-        for view in views {
-            player.drawable = view
-        }
-        log("已注册drawable数量: \(views.count)")
-        if views.isEmpty {
-            log("⚠️ 警告：没有已注册的视频输出视图！")
-        }
+        // 设置视频输出：新架构下 VLCVideoView 走共享单例视图(VLCSharedVideoView)，
+        // 不再调用 addDrawable，drawableViews 恒为空。这里直接把 drawable 立即指向
+        // 共享视图（或上一次的活动 drawable），让首帧视频立刻可渲染，不再全靠
+        // ensureVideoOutput 的多段延迟链兜底（那会让首帧最长延迟 ~1.8s）。
+        // ensureVideoOutput 仅在 drawable 丢失/黑屏时自愈使用。
+        let targetDrawable: UIView = activeDrawable ?? VLCSharedVideoView.shared.view
+        player.drawable = targetDrawable
+        log("已立即设置drawable(共享单例视图): \(targetDrawable === VLCSharedVideoView.shared.view)")
 
         let is115Cloud = url.absoluteString.contains("115cdn")
             || url.absoluteString.contains("direct-stream")
@@ -810,6 +809,18 @@ class VLCPlayerManager: NSObject, ObservableObject {
         } else if let first = drawableViews.allObjects.first as? UIView {
             setActiveDrawable(first)
         }
+        #endif
+    }
+
+    /// 共享单例视图是否已经是当前正在渲染的 drawable。
+    /// 大小屏互切/切歌时，若已是同一个实例，再调 refreshDrawables 只会触发
+    /// ensureVideoOutput 的 nil->set 七段重建，反复撕毁 VLC 视频输出层造成卡顿。
+    /// 调用方据此跳过冗余刷新；真正黑屏自愈仍走 refreshDrawables。
+    var isSharedDrawableActive: Bool {
+        #if canImport(TVVLCKit)
+        return player?.drawable as? UIView === VLCSharedVideoView.shared.view
+        #else
+        return false
         #endif
     }
 
