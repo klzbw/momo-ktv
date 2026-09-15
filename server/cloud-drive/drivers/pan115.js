@@ -1,4 +1,4 @@
-[sudo] password for klzbw: /**
+/**
  * 115 网盘驱动（v2 - 参考 115drive-webdav 实现）
  *
  * 认证方式：Cookie 登录（UID + CID + SEID + KID）
