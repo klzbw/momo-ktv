@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   momo-ktv:
     image: ghcr.io/klzbw/momo-ktv:latest
