@@ -25440,7 +25440,7 @@ let playerState = { activeDeviceId: null, activeDeviceName: '', locked: false };
 
 
 
-let lastProgress = { queueId: null, currentTime: 0, updatedAt: Date.now(), paused: true, voice: 'original' };
+let lastProgress = { queueId: null, currentTime: 0, updatedAt: Date.now(), paused: true, voice: 'original', duration: 0 };
 
 
 
@@ -27641,6 +27641,9 @@ wss.on('connection', (ws, req) => {
 
 
             voice: p.voice === 'accompaniment' ? 'accompaniment' : 'original',
+
+
+            duration: Number(p.duration) || 0,
 
 
 

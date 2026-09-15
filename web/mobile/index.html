@@ -664,7 +664,7 @@ function applyPlaybackState(state){
 // 声明角色为 controller 即可，跟 TV 网页(可能是"闺蜜机"点歌屏，需要
 // 手动选)不是一回事。deviceId 复用已有的 ktvdev(见下面 getDevId())，
 // 不再另起一个 key，保持"同一台设备只有一个 id"。
-let ctrlProgress={queueId:null,currentTime:0,updatedAt:Date.now(),paused:true};
+let ctrlProgress={queueId:null,currentTime:0,updatedAt:Date.now(),paused:true,duration:0};
 function connectWS(){
   const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);
   ws.onopen=()=>{ sendWS({type:'role_announce',deviceId:getDevId(),deviceName:'手机遥控',role:'controller'}); };
@@ -672,7 +672,7 @@ function connectWS(){
     const msg=JSON.parse(ev.data);
     if(msg.type==='queue'){queueData=msg.data;onQueue();}
     if(msg.type==='state'){applyPlaybackState(msg);}
-    if(msg.type==='progress'){ctrlProgress={queueId:msg.queueId,currentTime:Number(msg.currentTime)||0,updatedAt:Date.now(),paused:!!msg.paused};}
+    if(msg.type==='progress'){ctrlProgress={queueId:msg.queueId,currentTime:Number(msg.currentTime)||0,updatedAt:Date.now(),paused:!!msg.paused,duration:Number(msg.duration)||0};}
   };
   ws.onclose=()=>setTimeout(connectWS,2000);
   window._ws=ws;
@@ -685,14 +685,25 @@ function tickCtrlProgress(){
   const playing=queueData.find(q=>q.status==='playing');
   const fillEl=document.getElementById('nb-prog-fill'),curEl=document.getElementById('nb-tcur'),totEl=document.getElementById('nb-ttot');
   if(!fillEl)return;
-  if(!playing||playing.duration==null){fillEl.style.width='0%';curEl.textContent='0:00';totEl.textContent='0:00';return;}
-  const total=playing.duration||0;
-  let cur=ctrlProgress.currentTime;
-  if(ctrlProgress.queueId===playing.queue_id&&!ctrlProgress.paused)cur+=(Date.now()-ctrlProgress.updatedAt)/1000;
-  if(total>0)cur=Math.min(cur,total);
-  fillEl.style.width=total?(cur/total*100)+'%':'0%';
+  // 没有正在播放的歌才整体归零。
+  if(!playing){fillEl.style.width='0%';curEl.textContent='0:00';totEl.textContent='0:00';return;}
+  // Bug修复(进度条两端恒为0:00)：以前只要队列里这首 duration 为 null
+  // (115网盘/STRM 曲库服务端 ffprobe 探测不到本地缓存，时长一直留空)，这里
+  // 就直接 return 把左右时间都写成 0:00——但播放端每 1s 都在经 progress 广播
+  // 真实 currentTime。现在：总时长优先用队列探测值，缺失时回退到 progress 带
+  // 回的 duration(服务器已透传)；只要 currentTime 是当前这首歌上报的就照常
+  // 展示已唱时长，total 未知时右侧显示短横而不是误导性的 0:00。
+  const qd=(playing.duration!=null&&isFinite(playing.duration)&&playing.duration>0)?playing.duration:0;
+  const total=(qd>0?qd:(ctrlProgress.duration>0?ctrlProgress.duration:0));
+  let cur=0;
+  if(ctrlProgress.queueId===playing.queue_id){
+    cur=ctrlProgress.currentTime;
+    if(!ctrlProgress.paused)cur+=(Date.now()-ctrlProgress.updatedAt)/1000;
+  }
+  if(total>0)cur=Math.min(cur,total);else cur=Math.max(0,cur);
+  fillEl.style.width=total>0?(cur/total*100)+'%':'0%';
   curEl.textContent=fmtTime(cur);
-  totEl.textContent=fmtTime(total);
+  totEl.textContent=total>0?fmtTime(total):'—';
 }
 setInterval(tickCtrlProgress,500);
 
@@ -1051,12 +1062,17 @@ async function ensureAllSongs(){
 let filtOrder=[],odPg=0;const ORDER_PG=20;
 alphaState['od']='';
 alphaFilter['od']=()=>{const q=alphaState['od'];filtOrder=!q?[...allSongsCache]:allSongsCache.filter(s=>getInitials(s.title).startsWith(q));odPg=0;renderOrder();};
+// Bug修复(首次呼出歌名点歌慢)：以前先 await ensureAllSongs()(整库约20MB下载+解析)
+// 完成后才 openMPage，表现为点一下卡片要等 1~2 秒输入栏才弹出。改成先把面板
+// 立即打开(输入栏/键盘秒出)，列表区先显示加载中，数据在后台拉完再渲染。
 async function openOrder(){
-  await ensureAllSongs();
-  filtOrder=[...allSongsCache];odPg=0;
-  resetAlphaKeyboard('od');
-  renderOrder();
   openMPage('page-order');
+  resetAlphaKeyboard('od');
+  const _oe=document.getElementById('order-list');
+  _oe.innerHTML='<div class="mfull-empty">曲库加载中…</div>';
+  if(!allSongsCache.length){try{await ensureAllSongs();}catch(e){_oe.innerHTML='<div class="mfull-empty">曲库加载失败，请重试</div>';return;}}
+  filtOrder=[...allSongsCache];odPg=0;
+  if(alphaState['od'])alphaFilter['od']();else renderOrder();
 }
 function renderOrder(){
   const t=Math.ceil(filtOrder.length/ORDER_PG)||1;
@@ -1080,12 +1096,15 @@ function sortArtistsByPinyin(list){
     return a.artist.localeCompare(b.artist,'zh-CN');
   });
 }
+// 同上：先打开面板与输入键盘，再异步拉歌手列表(首次约200KB，避免点击后白等)。
 async function openArtists(){
-  if(!allArtists.length){allArtists=await fetch('/api/artists').then(r=>r.json());sortArtistsByPinyin(allArtists);}
-  filtArtists=[...allArtists];arPg=0;
-  resetAlphaKeyboard('ar');
-  renderArtists();
   openMPage('page-artists');
+  resetAlphaKeyboard('ar');
+  const _ag=document.getElementById('artist-grid');
+  _ag.innerHTML='<div class="mfull-empty" style="grid-column:span 3">歌手加载中…</div>';
+  if(!allArtists.length){try{allArtists=await fetch('/api/artists').then(r=>r.json());sortArtistsByPinyin(allArtists);}catch(e){_ag.innerHTML='<div class="mfull-empty" style="grid-column:span 3">歌手加载失败，请重试</div>';return;}}
+  filtArtists=[...allArtists];arPg=0;
+  if(alphaState['ar'])alphaFilter['ar']();else renderArtists();
 }
 function renderArtists(){
   const g=document.getElementById('artist-grid');g.innerHTML='';
@@ -1138,11 +1157,12 @@ function artistSongsPage(d){const t=Math.ceil(allArtistSongs.length/AS_PG)||1;as
 //      clearCategoryDim() 一致——每个维度单选，两个维度之间取交集 ----
 let selLang='',selGenre='',filtCat=[],catPg=0;const CAT_PG=20;
 async function openCategory(){
-  await ensureAllSongs();
+  openMPage('page-category');
   selLang='';selGenre='';filtCat=[];catPg=0;
+  const _cl=document.getElementById('category-list');
+  if(!allSongsCache.length){_cl.innerHTML='<div class="mfull-empty">曲库加载中…</div>';try{await ensureAllSongs();}catch(e){_cl.innerHTML='<div class="mfull-empty">曲库加载失败，请重试</div>';return;}}
   renderCategoryChips();
   renderCategory();
-  openMPage('page-category');
 }
 function renderCategoryChips(){
   const langMap={},genreMap={};
@@ -1258,11 +1278,13 @@ function favPage(d){const t=Math.ceil(filtFav.length/FV_PG)||1;fvPg=Math.max(0,M
 //      100 首，避免曲库很大时还要翻几十页。 ----
 let newestSorted=[],newestPg=0;const NEWEST_PG=20;
 async function openNewest(){
-  await ensureAllSongs();
+  openMPage('page-newest');
+  const _nl=document.getElementById('newest-list');
+  _nl.innerHTML='<div class="mfull-empty">曲库加载中…</div>';
+  if(!allSongsCache.length){try{await ensureAllSongs();}catch(e){_nl.innerHTML='<div class="mfull-empty">曲库加载失败，请重试</div>';return;}}
   newestSorted=[...allSongsCache].sort((a,b)=>b.id-a.id).slice(0,100);
   newestPg=0;
   renderNewest();
-  openMPage('page-newest');
 }
 function renderNewest(){
   const el=document.getElementById('newest-list');
