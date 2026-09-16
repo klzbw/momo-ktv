@@ -167,6 +167,10 @@ const DRIVE_CONFIGS = {
     webdavPolicy: 'native_proxy',
     proxyBytes: true, // CDN 校验 Referer/UA，需服务端字节中转（裸 302 会 403）
     mountPrefix: '/我的夸克分享/',
+    // 注意：QuarkShare 驱动的登录态(cookie)不在 storage addition 里——该驱动 schema
+    // 只有 share_id/share_pwd/root_folder_id/order_by/order_direction 五个字段，任何
+    // cookie 字段经 /storage/create 都会被过滤丢弃。夸克分享的登录态由 Alist 全局设置项
+    // quark_cookie 统一提供（见 _alistSyncGlobalCookie），故这里不要放 quark_cookie。
     addition: (share) => ({
       share_id: share.share_id,
       share_pwd: share.password || '',
@@ -350,9 +354,12 @@ function init(db, dataDir) {
     fs.mkdirSync(strmDir, { recursive: true });
   }
 
-  // 启动时登录 Alist（延迟等待 AList 启动）
+  // 启动时登录 Alist（延迟等待 AList 启动）；登录成功后幂等同步夸克/UC cookie 到
+  // Alist 全局设置（分享驱动的登录态来源），保证 Alist 重建/重启后能自愈。
   setTimeout(() => {
-    _alistLogin().catch(e => console.warn('[ShareImport] Alist 登录失败:', e.message));
+    _alistLogin()
+      .then(() => _syncAccountCookiesOnBoot())
+      .catch(e => console.warn('[ShareImport] Alist 登录失败:', e.message));
   }, 5000);
 
   return router;
@@ -514,6 +521,49 @@ async function _alistApi(method, apiPath, body = null, retry = true) {
     return await _alistApi(method, apiPath, body, false);
   }
   return result.data;
+}
+
+/**
+ * 把夸克/UC 的登录 cookie 写入 Alist 全局设置项。
+ * QuarkShare / UCShare 驱动取播放直链时读的是全局 quark_cookie / uc_cookie，
+ * 而不是单个 storage 的 addition（addition 里的 cookie 字段会被驱动 schema 过滤）。
+ * 不写这一项，匿名访客取直链会报 "require login [guest]"；写了但账号非会员/容量超限，
+ * 夸克服务端会返回 "capacity limit[{0}]"（账号侧问题，需更换 SVIP/容量充足的账号）。
+ */
+const _GLOBAL_COOKIE_SETTING = { quark: 'quark_cookie', uc: 'uc_cookie' };
+async function _alistSyncGlobalCookie(platform, cookie) {
+  const key = _GLOBAL_COOKIE_SETTING[platform];
+  if (!key || !cookie) return false;
+  try {
+    // 该魔改 Alist 的 /setting/save 接收数组（[]model.SettingItem）
+    const r = await _alistApi('POST', '/api/admin/setting/save', [
+      { key, value: cookie, type: 'text', group: 0 },
+    ]);
+    if (r && r.code === 200) {
+      console.log('[ShareImport] 已同步全局 ' + key + ' (len=' + cookie.length + ')');
+      return true;
+    }
+    console.warn('[ShareImport] 同步全局 ' + key + ' 失败:', r && r.message);
+  } catch (e) {
+    console.warn('[ShareImport] 同步全局 ' + key + ' 异常:', e.message);
+  }
+  return false;
+}
+
+/**
+ * 启动自愈：从 cloud_accounts 取最近一个有效夸克/UC 账号的 cookie，幂等同步到
+ * Alist 全局设置。Alist 存储/设置被重建或服务重启后，QuarkShare/UCShare 分享挂载
+ * 依赖的登录态也能自动恢复，不必等用户再次手动添加分享或重新扫码。
+ */
+async function _syncAccountCookiesOnBoot() {
+  for (const platform of ['quark', 'uc']) {
+    try {
+      const acct = _db.prepare(
+        "SELECT access_token FROM cloud_accounts WHERE driver=? AND status='active' ORDER BY id DESC LIMIT 1"
+      ).get(platform);
+      if (acct && acct.access_token) await _alistSyncGlobalCookie(platform, acct.access_token);
+    } catch (e) { /* cloud_accounts 表可能不存在或该驱动无账号 */ }
+  }
 }
 
 /**
@@ -699,12 +749,14 @@ router.post('/links', async (req, res) => {
 
     // 115 Share 驱动必须带账号 cookie(分享码本身不够)。用户在"分享管理"只填分享链接，
     // cookie 这里从已扫码登录过的 115 网盘账号里自动取，省去手动再粘一次。
+    // 夸克 QuarkShare 同理：夸克现在要求登录态，否则取直链会 require login [guest]。
     let cookie = (req.body && req.body.cookie) || '';
-    if (platform === '115' && !cookie) {
+    if ((platform === '115' || platform === 'quark') && !cookie) {
       try {
+        const drv = platform === '115' ? 'pan115' : 'quark';
         const acct = _db.prepare(
-          "SELECT access_token FROM cloud_accounts WHERE driver='pan115' AND status='active' ORDER BY id DESC LIMIT 1"
-        ).get();
+          "SELECT access_token FROM cloud_accounts WHERE driver=? AND status='active' ORDER BY id DESC LIMIT 1"
+        ).get(drv);
         if (acct && acct.access_token) cookie = acct.access_token;
       } catch (e) { /* cloud_accounts 表可能不存在 */ }
     }
@@ -726,6 +778,11 @@ router.post('/links', async (req, res) => {
     if (cookie) {
       _db.prepare("UPDATE share_links SET cookie = ? WHERE id = ?").run(cookie, linkId);
       link.cookie = cookie;
+      // 夸克/UC 分享驱动的登录态走 Alist 全局设置（addition 字段会被 schema 过滤）。
+      // 115 的 cookie 仍由 DRIVE_CONFIGS['115'].addition 带入（115 Share 驱动接受该字段）。
+      if (platform === 'quark' || platform === 'uc') {
+        setImmediate(() => { _alistSyncGlobalCookie(platform, cookie); });
+      }
     }
 
     // 在 Alist 中添加对应网盘的 Share 存储
