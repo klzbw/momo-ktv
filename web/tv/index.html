@@ -3479,6 +3479,20 @@ function startDirectMkvPlayback(v,songId,videoUrl){
   },{once:true});
   if(!isPaused)tryAutoplay(v,songId);
 }
+// 判断当前歌是否"本地视频歌"：用于放宽 MSE 硬解直连——本地 MKV/MP4 也先试
+// MSE 解封装 + /stream/:id 字节直传（服务端不转码），失败自动回退 HLS。
+// 规则：视频扩展名命中 filepath/filename，且不是云端/网络/strm（那些走各自已有链路）。
+// 安全前提：MSE 初始化一旦失败会落到下方 HLS 转码兜底，判错也只是多一次失败尝试，不会黑屏。
+function _isLocalVideoMse(){
+  const s=curSong;
+  if(!s) return false;
+  const n=((s.filename||s.filepath)||'').toLowerCase();
+  if(!VIDEO_RE.test(n)) return false;
+  if(s.is_network===1||s.is_strm===1) return false;
+  if(s.source_root && /netktv|网盘|115|cloud|share|strm|ktv-output/i.test(s.source_root)) return false;
+  if(/netktv|网盘|115|cloud|ktv-output/i.test(s.filepath||'')) return false;
+  return true;
+}
 async function loadSong(v,songId,needsDownload){
   hideToast();
   document.getElementById('video-loading').classList.add('show');
@@ -3504,21 +3518,28 @@ async function loadSong(v,songId,needsDownload){
     if(sepR.ok){
       const sepJ=await sepR.json();
       if(!curSong||curSong.song_id!==songId) return; // await 期间已切歌，丢弃
+      // 决定是否尝试 MSE 硬解直连、用哪个源、是否本地歌：
+      //  - 网络 netktv-mkv：sepJ.videoUrl（/115-direct/ 加 ?proxy=1 走 NAS 同源字节管道）
+      //  - 本地 MKV/MP4（_isLocalVideoMse 命中、非云端/strm）：同源 /stream/:id 字节直传，服务端不转码
+      let _mseSrc=null, _mseIsLocal=false, _mseTracks=(sepJ&&sepJ.audioTracks)||2;
       if(sepJ&&sepJ.isNetKtvMkv&&sepJ.videoUrl){
-        // 优先尝试纯JS MSE MKV 直连播放器：浏览器直接从115 CDN拉MKV，
-        // JS解封装→fMP4→MediaSource，不经过NAS转码。
+        _mseSrc=withCloudProxy(sepJ.videoUrl);
+      } else if(_isLocalVideoMse()){
+        _mseSrc=`/stream/${songId}`;
+        _mseIsLocal=true;
+        _mseTracks=(curSong&&curSong.audio_tracks)||2;
+      }
+      if(_mseSrc){
+        // 优先尝试纯JS MSE MKV 直连播放器：浏览器直接拉MKV，JS解封装->fMP4->MediaSource，不经过NAS转码。
         if(window.MkvMsePlayer){
-          console.log('[loadSong] 网盘MKV，尝试 MSE 直连播放');
+          console.log('[loadSong] MSE 直连播放', _mseIsLocal?'(本地MKV /stream)':'(网盘MKV)');
           const msePlayer=new MkvMsePlayer();
           try{
-            // web MSE fetch() 必须同源：115 CDN 不带 CORS 头，浏览器 fetch 跟随裸 302 会被拦。
-            // 对 /115-direct/ 链接加 ?proxy=1，让 NAS 走同源字节管道（Range 透传）。
-            const _mseSrc = withCloudProxy(sepJ.videoUrl);
             await msePlayer.load(resolveMediaUrl(_mseSrc),{audioTrackIndex:0});
             if(!curSong||curSong.song_id!==songId){ msePlayer.destroy(); return; } // await 期间切歌
             _mseMkvPlayer=msePlayer;
             msePlayer.attachMedia(v);
-            try{ VoiceManager.enterMseMkv(msePlayer, sepJ.audioTracks||2); }catch(e){}
+            try{ VoiceManager.enterMseMkv(msePlayer,_mseTracks); }catch(e){}
             // MSE 播放中途出错（网络断/解码失败等）：回退到 HLS 转码，保证不黑屏
             v.addEventListener('error',function onMseErr(){
               if(!curSong||curSong.song_id!==songId) return;
@@ -3542,16 +3563,22 @@ async function loadSong(v,songId,needsDownload){
             if(!isPaused)tryAutoplay(v,songId);
             return; // 不继续走 HLS
           }catch(err){
-            console.warn('[MSE-MKV] 初始化失败，回退 DIRECT_MKV:',err);
             try{ msePlayer.destroy(); }catch(e){}
             _mseMkvPlayer=null;
             try{ VoiceManager.exitMseMkv(); }catch(e){}
-            // 第二级回退：startDirectMkvPlayback（video.src 直连，Safari系可工作；Chrome必败再回HLS）
-            startDirectMkvPlayback(v,songId,sepJ.videoUrl);
-            return;
+            if(_mseIsLocal){
+              // 本地 MKV MSE 初始化失败（非 H.264/AAC、浏览器不支持 MSE 解码等）：
+              // 不做 DIRECT_MKV 兜底（本地 MKV 浏览器原生解不了封装），直接落到下方 HLS 转码兜底。
+              console.warn('[MSE-LOCAL] 初始化失败，回退 HLS 转码:',err);
+            } else {
+              // 第二级回退：startDirectMkvPlayback（video.src 直连，Safari系可工作；Chrome必败再回HLS）
+              console.warn('[MSE-MKV] 初始化失败，回退 DIRECT_MKV:',err);
+              startDirectMkvPlayback(v,songId,sepJ.videoUrl);
+              return;
+            }
           }
-        } else {
-          // 无 MSE 播放器模块：直接走 Safari 直连回退链
+        } else if(!_mseIsLocal){
+          // 无 MSE 播放器模块：网盘歌走 Safari 直连回退链；本地歌直接落到下方 HLS
           startDirectMkvPlayback(v,songId,sepJ.videoUrl);
           return;
         }
