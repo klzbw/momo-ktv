@@ -218,6 +218,37 @@ async function createStorage(account) {
   return { id, mountPath };
 }
 
+/** 更新一个已存在存储的 addition（token/cookie 刷新）。AList update 要求带完整字段 + id。 */
+async function updateStorage(account, existing) {
+  const mapping = DRIVER_MAP[account.driver];
+  if (!mapping) throw new Error(`不支持的 driver 映射: ${account.driver}`);
+  const addition = JSON.stringify(mapping.buildAddition(account));
+  const body = {
+    id: existing.id,
+    mount_path: existing.mount_path,
+    order: existing.order || 0,
+    driver: mapping.alistDriver,
+    cache_expiration: existing.cache_expiration || 30,
+    // AList storage.status 是 "work"/"stop" 开关，不是运行时错误 JSON
+    // (existing.status 里存的是上次初始化错误)。固定写 work 让它重新初始化。
+    status: 'work',
+    webdav_policy: existing.webdav_policy || mapping.webdavPolicy,
+    addition,
+    remark: existing.remark || '',
+    enable_sign: existing.enable_sign || false,
+    order_by: existing.order_by || '',
+    order_direction: existing.order_direction || '',
+    extract_folder: existing.extract_folder || '',
+    web_proxy: existing.web_proxy || false,
+    down_proxy_url: existing.down_proxy_url || '',
+  };
+  const { json } = await apiWithAuth('POST', '/api/admin/storage/update', { body });
+  if (!json || json.code !== 200) {
+    throw new Error(`AList 更新存储失败: ${JSON.stringify(json).slice(0, 200)}`);
+  }
+  return existing.id;
+}
+
 /** 按 id 删除存储（必须用 query 参数 ?id=N） */
 async function deleteStorageById(id) {
   if (id == null) return false;
@@ -275,8 +306,18 @@ async function mountAccount(account) {
   const list = await listStorages();
   const existing = list.find((s) => s.mount_path === mountPath);
   if (existing) {
-    console.log(`[AList] 存储已存在: ${mountPath} (id=${existing.id})，跳过创建。`);
-    return { id: existing.id, mountPath, created: false };
+    // 幂等：存储已存在。但重新登录拿到的是新 cookie/refresh_token，
+    // 必须把 addition 里的凭证刷新进去——否则 AList 里那条旧存储一直用着
+    // 失效凭证，表现为"扫码登录成功但 Alist 里该账号 storage 一直报错"。
+    try {
+      await updateStorage(account, existing);
+      console.log(`[AList] 已刷新现有存储凭证: ${mountPath} (id=${existing.id})`);
+      return { id: existing.id, mountPath, created: false, updated: true };
+    } catch (e) {
+      console.warn(`[AList] 刷新现有存储 ${mountPath} 凭证失败，尝试重建:`, e.message);
+      await deleteStorageById(existing.id).catch(() => {});
+      // 落下去走 createStorage 重建
+    }
   }
 
   const result = await createStorage(account);
@@ -310,6 +351,7 @@ async function unmountAccount(account) {
 
 module.exports = {
   mountAccount,
+  updateStorage,
   unmountAccount,
   listStorages,
   buildMountPath,
