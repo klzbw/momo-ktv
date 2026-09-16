@@ -51,12 +51,15 @@ function main() {
   const { limit, dryRun, type } = parseArgs(process.argv.slice(2));
 
   // 本地待分离歌曲：纯音频/整轨、非网络源、尚未分离。
+  // 排除 all-flacs/ 路径：这些是历史转换中断留下的 0 字节占位 FLAC（备份用，非真实源），
+  // 且与真实源文件重复，入队只会全部失败。
   const rows = db.prepare(
     `SELECT id, title, artist, album, genre, media_type, sep_status
        FROM songs
       WHERE media_type IN ('audio','cue')
         AND IFNULL(is_network,0) = 0
         AND sep_status = 'none'
+        AND filename NOT LIKE '%all-flacs/%'
       ORDER BY id ASC`
   ).all();
 
