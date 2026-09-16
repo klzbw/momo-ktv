@@ -363,6 +363,11 @@ function _initDB() {
     _db.exec("ALTER TABLE share_links ADD COLUMN folder_id TEXT DEFAULT ''");
   }
 
+  // 115 Share 驱动需要账号 cookie；存到 share_links 里以便重建/更新 AList storage
+  try {
+    _db.exec("ALTER TABLE share_links ADD COLUMN cookie TEXT DEFAULT ''");
+  } catch (e) { /* 已存在 */ }
+
   // 确保 songs 表有 share_link_id 字段
   try {
     _db.exec("ALTER TABLE songs ADD COLUMN share_link_id INTEGER");
@@ -491,8 +496,21 @@ async function _alistAddShareStorage(link) {
     addition: addition,
   });
 
-  if (result.code !== 200 && !result.message.includes('UNIQUE')) {
-    throw new Error('Alist 添加存储失败: ' + (result.message || JSON.stringify(result)));
+  // AList v3 行为：当 storage 记录已落库、但初始化(校验分享码/cookie)失败时，
+  // 它会返回非 200，message 形如 "failed init storage but storage is already created: ..."。
+  // 这种情况下 storage 其实已经在 AList 里建好了(只是状态报错)，不能当成"挂载失败"
+  // 把 mountPath 丢掉——否则前端永远显示"未挂载"，而用户去 AList 里又能看到这条。
+  // 这里识别 "already created" / "already exists" / UNIQUE 三种情况，一律视为已建，
+  // 把 mountPath 落库；真正的初始化错误留给"扫描入库"那一步暴露。
+  const msg = (result && result.message) || '';
+  const alreadyThere = result.code === 200
+    || msg.includes('UNIQUE')
+    || /already (created|exists|is created)/i.test(msg);
+  if (!alreadyThere) {
+    throw new Error('Alist 添加存储失败: ' + (msg || JSON.stringify(result)));
+  }
+  if (result.code !== 200) {
+    console.warn('[ShareImport] Alist storage 已创建但初始化报错(可后续重试扫描):', msg);
   }
 
   // P0-2: 新建成功拿到存储 id 后，调用 /storage/enable 启用。
@@ -636,6 +654,18 @@ router.post('/links', async (req, res) => {
       return res.status(400).json({ success: false, error: '分享ID不能为空' });
     }
 
+    // 115 Share 驱动必须带账号 cookie(分享码本身不够)。用户在"分享管理"只填分享链接，
+    // cookie 这里从已扫码登录过的 115 网盘账号里自动取，省去手动再粘一次。
+    let cookie = (req.body && req.body.cookie) || '';
+    if (platform === '115' && !cookie) {
+      try {
+        const acct = _db.prepare(
+          "SELECT access_token FROM cloud_accounts WHERE driver='pan115' AND status='active' ORDER BY id DESC LIMIT 1"
+        ).get();
+        if (acct && acct.access_token) cookie = acct.access_token;
+      } catch (e) { /* cloud_accounts 表可能不存在 */ }
+    }
+
     const config = DRIVE_CONFIGS[platform];
     const finalName = name || `${config.name}-${share_id.substring(0, 8)}`;
 
@@ -653,6 +683,10 @@ router.post('/links', async (req, res) => {
     }
 
     const link = _db.prepare("SELECT * FROM share_links WHERE id = ?").get(linkId);
+    if (cookie) {
+      _db.prepare("UPDATE share_links SET cookie = ? WHERE id = ?").run(cookie, linkId);
+      link.cookie = cookie;
+    }
 
     // 在 Alist 中添加对应网盘的 Share 存储
     try {
