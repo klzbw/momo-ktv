@@ -49,6 +49,36 @@ let _scanState = {
   done: 0,
   message: '',
 };
+// 扫描队列：多个分享串行扫描，避免并发打网盘 API
+let _scanQueue = [];
+let _scanQueueRunning = false;
+
+async function _enqueueScan(link) {
+  _scanQueue.push(link);
+  if (_scanQueueRunning) return;
+  _scanQueueRunning = true;
+  while (_scanQueue.length) {
+    const lk = _scanQueue.shift();
+    if (!lk) continue;
+    // 重新读库状态：可能在排队期间被停用/删除
+    const fresh = _db.prepare("SELECT * FROM share_links WHERE id=?").get(lk.id);
+    if (!fresh) continue;
+    if (fresh.status === 'paused') {
+      console.log('[ShareImport] 分享 #' + fresh.id + ' 已停用，跳过扫描');
+      continue;
+    }
+    try {
+      await _scanShareLink(fresh);
+    } catch (e) {
+      console.error('[ShareImport] 扫描失败 #' + fresh.id + ':', e.message);
+      _scanState.running = false;
+      _scanState.message = '失败: ' + e.message;
+    }
+  }
+  _scanQueueRunning = false;
+  _scanState.running = false;
+  _scanState.message = '空闲';
+}
 
 // 媒体文件扩展名（视频+音频）
 const MEDIA_EXTENSIONS = [
@@ -346,6 +376,19 @@ function _initDB() {
       UNIQUE(platform, share_id)
     );
   `);
+
+  // 老表 UNIQUE(platform, share_id) 会挡住"同一分享链接下不同子目录(folder_id)"的多条记录——
+  // 实际使用中一个分享链接往往要按歌手/风格拆成多个子目录分别挂。这里把唯一约束迁移成
+  // UNIQUE(platform, share_id, folder_id)。
+  const tblSql = _db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='share_links'").get();
+  if (tblSql && /UNIQUE\s*\(\s*platform\s*,\s*share_id\s*\)/i.test(tblSql.sql)
+      && !/UNIQUE\s*\(\s*platform\s*,\s*share_id\s*,\s*folder_id\s*\)/i.test(tblSql.sql)) {
+    console.log('[ShareImport] 迁移 share_links 唯一约束: (platform,share_id) -> (platform,share_id,folder_id)');
+    _db.exec("ALTER TABLE share_links RENAME TO share_links_old");
+    _db.exec("CREATE TABLE share_links (id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT NOT NULL DEFAULT '115', name TEXT NOT NULL, share_id TEXT NOT NULL, password TEXT DEFAULT '', folder_id TEXT DEFAULT '', alist_mount_path TEXT, status TEXT DEFAULT 'active', file_count INTEGER DEFAULT 0, total_size INTEGER DEFAULT 0, last_scan_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, cookie TEXT DEFAULT '', UNIQUE(platform, share_id, folder_id))");
+    _db.exec("INSERT OR IGNORE INTO share_links (id, platform, name, share_id, password, folder_id, alist_mount_path, status, file_count, total_size, last_scan_at, created_at, cookie) SELECT id, platform, name, share_id, password, folder_id, alist_mount_path, status, file_count, total_size, last_scan_at, created_at, COALESCE(cookie, '') FROM share_links_old");
+    _db.exec("DROP TABLE share_links_old");
+  }
 
   // 兼容旧表结构：添加缺失字段
   const columns = _db.prepare("PRAGMA table_info(share_links)").all();
@@ -669,19 +712,16 @@ router.post('/links', async (req, res) => {
     const config = DRIVE_CONFIGS[platform];
     const finalName = name || `${config.name}-${share_id.substring(0, 8)}`;
 
-    // 先插入数据库获取 ID
-    const stmt = _db.prepare(`
-      INSERT OR IGNORE INTO share_links (platform, name, share_id, password, folder_id, status)
-      VALUES (?, ?, ?, ?, ?, 'active')
-    `);
-    const result = stmt.run(platform, finalName, share_id, password || '', folder_id || '');
-
-    let linkId = result.lastInsertRowid;
-    if (result.changes === 0) {
-      const existing = _db.prepare("SELECT id FROM share_links WHERE platform=? AND share_id=?").get(platform, share_id);
-      linkId = existing.id;
+    // 按 (platform, share_id, folder_id) 查重：同一分享链接下不同子目录要能分别挂载
+    let linkId;
+    const existingLink = _db.prepare("SELECT id FROM share_links WHERE platform=? AND share_id=? AND IFNULL(folder_id,'')=?").get(platform, share_id, folder_id || '');
+    if (existingLink) {
+      linkId = existingLink.id;
+      _db.prepare("UPDATE share_links SET name=?, password=? WHERE id=?").run(finalName, password || '', linkId);
+    } else {
+      const ins = _db.prepare("INSERT INTO share_links (platform, name, share_id, password, folder_id, status) VALUES (?, ?, ?, ?, ?, 'active')");
+      linkId = ins.run(platform, finalName, share_id, password || '', folder_id || '').lastInsertRowid;
     }
-
     const link = _db.prepare("SELECT * FROM share_links WHERE id = ?").get(linkId);
     if (cookie) {
       _db.prepare("UPDATE share_links SET cookie = ? WHERE id = ?").run(cookie, linkId);
@@ -696,6 +736,9 @@ router.post('/links', async (req, res) => {
     } catch (e) {
       console.warn('[ShareImport] Alist 添加存储失败:', e.message);
     }
+
+    // 添加成功后自动后台扫描入库（串行队列，不阻塞响应）
+    setImmediate(() => { _enqueueScan(link); });
 
     res.json({
       success: true,
@@ -760,13 +803,23 @@ router.delete('/links/:id', async (req, res) => {
 });
 
 /**
+ * 启用/停用分享链接（active=扫描入库，paused=暂停扫描，已入库曲目保留）
+ */
+router.patch('/links/:id', (req, res) => {
+  const { id } = req.params;
+  const status = (req.body && req.body.status) || '';
+  if (!['active', 'paused'].includes(status)) {
+    return res.status(400).json({ success: false, error: 'status 必须为 active 或 paused' });
+  }
+  const r = _db.prepare("UPDATE share_links SET status=? WHERE id=?").run(status, id);
+  if (!r.changes) return res.status(404).json({ success: false, error: '分享不存在' });
+  res.json({ success: true, status });
+});
+
+/**
  * 扫描分享链接中的媒体文件
  */
 router.post('/links/:id/scan', async (req, res) => {
-  if (_scanState.running) {
-    return res.status(400).json({ success: false, error: '已有扫描任务在运行', state: _scanState });
-  }
-
   const link = _db.prepare("SELECT * FROM share_links WHERE id = ?").get(req.params.id);
   if (!link) {
     return res.status(404).json({ success: false, error: '分享链接不存在' });
@@ -784,13 +837,8 @@ router.post('/links/:id/scan', async (req, res) => {
     }
   }
 
-  _scanShareLink(link).catch(e => {
-    console.error('[ShareImport] 扫描失败:', e);
-    _scanState.running = false;
-    _scanState.message = '失败: ' + e.message;
-  });
-
-  res.json({ success: true, message: '扫描已启动', state: _scanState });
+  _enqueueScan(link);
+  res.json({ success: true, message: '扫描已入队', state: _scanState });
 });
 
 /**
@@ -803,6 +851,10 @@ router.get('/scan-state', (req, res) => {
 // ==================== 核心扫描逻辑 ====================
 
 async function _scanShareLink(link) {
+  if (link.status === 'paused') {
+    console.log('[ShareImport] 跳过已停用分享 #' + link.id);
+    return;
+  }
   _scanState = {
     running: true,
     current: link.name,

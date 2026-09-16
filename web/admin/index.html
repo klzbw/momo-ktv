@@ -3308,6 +3308,49 @@ select option{color:#000}
 
 
     <div class="src-section-divider">
+      <div class="src-col-title" style="margin-bottom:10px">🔗 网盘分享曲库（粘贴分享链接 → 自动挂载 AList → 生成 STRM 入库）</div>
+    </div>
+    <div id="share-source-block">
+    <div style="background:rgba(255,255,255,.03);border-radius:12px;padding:14px;margin-bottom:16px;border:1px solid rgba(255,255,255,.06)">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">➕ 添加分享链接</div>
+      <div class="share-form-row">
+        <input id="share-url" type="text" placeholder="粘贴分享链接（自动识别网盘类型）" style="flex:2 1 320px" oninput="onShareUrlInput()">
+        <select id="share-platform" onchange="onSharePlatformChange()" style="flex:1 1 160px;min-width:140px">
+          <option value="">网盘类型</option>
+          <option value="115">115网盘</option>
+          <option value="baidu">百度网盘</option>
+          <option value="quark">夸克网盘</option>
+          <option value="ali">阿里云盘</option>
+          <option value="thunder">迅雷云盘</option>
+          <option value="123">123网盘</option>
+          <option value="189">天翼云盘</option>
+          <option value="139">移动云盘</option>
+          <option value="uc">UC网盘</option>
+          <option value="pikpak">PikPak</option>
+          <option value="guangya">光芽网盘</option>
+        </select>
+        <input id="share-name" type="text" placeholder="名称（可选，如：周杰伦专辑）" style="flex:1 1 180px">
+      </div>
+      <div class="share-form-row">
+        <input id="share-id" type="text" placeholder="分享ID / pickcode（粘贴链接后自动填入，也可手动填）" style="flex:2 1 280px">
+        <input id="share-pwd" type="text" placeholder="提取码（可选）" style="flex:1 1 160px">
+      </div>
+      <div class="share-form-row" id="share-folder-row" style="display:none">
+        <input id="share-folder" type="text" placeholder="文件夹ID（可选，留空表示根目录；115/百度/阿里分享子文件夹时填）" style="flex:1 1 auto">
+      </div>
+      <div id="share-scan-status" style="font-size:12px;color:var(--cyan);margin-bottom:8px;min-height:16px"></div>
+      <div style="display:flex;gap:8px">
+        <button onclick="addShareLink()" class="hbtn primary" style="flex:1">✓ 添加并创建存储</button>
+        <button onclick="clearShareForm()" class="hbtn">清空</button>
+      </div>
+    </div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px">📋 已配置的分享链接</div>
+    <div class="share-list" id="share-list">
+      <div class="share-empty">加载中...</div>
+    </div>
+    </div>
+
+    <div class="src-section-divider">
 
 
 
@@ -4041,56 +4084,7 @@ select option{color:#000}
 
 
 
-<!-- 115分享链接管理 Modal -->
-<div id="share-modal-overlay" onclick="if(event.target===this)closeShareModal()">
-  <div id="share-modal" onclick="event.stopPropagation()">
-    <h3>🔗 全网盘分享链接管理</h3>
-    <div style="font-size:12px;color:var(--sub);margin:-10px 0 16px;line-height:1.7">
-      支持 <b style="color:var(--cyan)">115/百度/夸克/阿里/迅雷/123/天翼/移动/UC/PikPak/光芽</b> 共11种网盘分享链接。添加后自动在内置 AList 中创建对应存储，可一键扫描入库。使用分享者的账号，自己网盘零API调用、零风控。
-    </div>
-    <div style="background:rgba(255,255,255,.03);border-radius:12px;padding:14px;margin-bottom:16px;border:1px solid rgba(255,255,255,.06)">
-      <div style="font-size:13px;font-weight:600;margin-bottom:10px">➕ 添加分享链接</div>
-      <div class="share-form-row">
-        <input id="share-url" type="text" placeholder="粘贴分享链接（自动识别网盘类型）" style="flex:2 1 320px" oninput="onShareUrlInput()">
-        <select id="share-platform" onchange="onSharePlatformChange()" style="flex:1 1 160px;min-width:140px">
-          <option value="">网盘类型</option>
-          <option value="115">115网盘</option>
-          <option value="baidu">百度网盘</option>
-          <option value="quark">夸克网盘</option>
-          <option value="ali">阿里云盘</option>
-          <option value="thunder">迅雷云盘</option>
-          <option value="123">123网盘</option>
-          <option value="189">天翼云盘</option>
-          <option value="139">移动云盘</option>
-          <option value="uc">UC网盘</option>
-          <option value="pikpak">PikPak</option>
-          <option value="guangya">光芽网盘</option>
-        </select>
-        <input id="share-name" type="text" placeholder="名称（可选，如：周杰伦专辑）" style="flex:1 1 180px">
-      </div>
-      <div class="share-form-row">
-        <input id="share-id" type="text" placeholder="分享ID / pickcode（粘贴链接后自动填入，也可手动填）" style="flex:2 1 280px">
-        <input id="share-pwd" type="text" placeholder="提取码（可选）" style="flex:1 1 160px">
-      </div>
-      <div class="share-form-row" id="share-folder-row" style="display:none">
-        <input id="share-folder" type="text" placeholder="文件夹ID（可选，留空表示根目录；115/百度/阿里分享子文件夹时填）" style="flex:1 1 auto">
-      </div>
-      <div id="share-scan-status" style="font-size:12px;color:var(--cyan);margin-bottom:8px;min-height:16px"></div>
-      <div style="display:flex;gap:8px">
-        <button onclick="addShareLink()" class="hbtn primary" style="flex:1">✓ 添加并创建存储</button>
-        <button onclick="clearShareForm()" class="hbtn">清空</button>
-      </div>
-    </div>
-    <div style="font-size:13px;font-weight:600;margin-bottom:10px">📋 已配置的分享链接</div>
-    <div class="share-list" id="share-list">
-      <div class="share-empty">加载中...</div>
-    </div>
-    <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
-      <button onclick="closeShareModal()" class="hbtn">关闭</button>
-      <button onclick="loadShareLinks()" class="hbtn primary">🔄 刷新列表</button>
-    </div>
-  </div>
-</div>
+<!-- 分享管理已并入曲库源设置 modal -->
 
 
 <div id="toast"></div>
@@ -7806,6 +7800,7 @@ async function loadLibrarySources(){
 
 
     renderSrcRootsList();
+    if(typeof renderShareSources==='function') renderShareSources();
 
 
 
@@ -11400,11 +11395,12 @@ function closeCloudModal(){ document.getElementById('cloud-modal-overlay').class
 
 // ---------- 115分享链接管理 ----------
 function openShareModal(){
-  document.getElementById('share-modal-overlay').classList.add('open');
+  openSrcModal();
   loadShareLinks();
   pollShareScanState();
+  setTimeout(()=>{ const b=document.getElementById('share-source-block'); if(b) b.scrollIntoView({behavior:'smooth',block:'center'}); }, 150);
 }
-function closeShareModal(){ document.getElementById('share-modal-overlay').classList.remove('open'); }
+function closeShareModal(){ closeSrcModal(); }
 
 let _shareScanPollTimer = null;
 function pollShareScanState(){
@@ -11543,6 +11539,7 @@ async function addShareLink(){
       alert('添加成功！正在创建Alist存储...');
       clearShareForm();
       loadShareLinks();
+      if(typeof loadLibrarySources==='function') loadLibrarySources();
     } else {
       alert('添加失败: ' + (d.error || '未知错误'));
     }
@@ -11560,6 +11557,7 @@ async function deleteShareLink(id, name){
       const deletedCount = d.deletedSongs || 0;
       alert('删除成功' + (deletedCount > 0 ? '，已清理 ' + deletedCount + ' 首歌曲' : ''));
       loadShareLinks();
+      if(typeof loadLibrarySources==='function') loadLibrarySources();
       if (typeof loadAll === 'function') loadAll();
     } else {
       alert('删除失败: ' + (d.error || '未知错误'));
@@ -11589,6 +11587,40 @@ function escapeHtml(str){
   const div = document.createElement('div');
   div.textContent = str || '';
   return div.innerHTML;
+}
+
+async function renderShareSources(){
+  const el = document.getElementById('src-roots-list');
+  if(!el) return;
+  el.querySelectorAll('.share-source-row').forEach(n=>n.remove());
+  try{
+    const r = await fetch('/api/share/links');
+    const d = await r.json();
+    if(!d.success || !d.data) return;
+    for(const link of d.data){
+      const row = document.createElement('div');
+      row.className = 'src-root-row share-source-row';
+      const pname = PLATFORM_NAMES[link.platform] || link.platform;
+      const active = link.status !== 'paused';
+      const safeName = escapeHtml(link.name).replace(/'/g,"\\'");
+      row.innerHTML = '<div class="rr-top"><div class="rr-label">🔗 '+escapeHtml(link.name)+'</div></div>'
+        + '<div class="rr-dir">'+escapeHtml(link.alist_mount_path || '未挂载')+'</div>'
+        + '<div class="cache-hint" style="margin:2px 0 6px">'+pname+' · 分享ID '+escapeHtml(link.share_id||'-')+' · 约 '+(link.file_count||0)+' 个媒体文件</div>'
+        + '<div class="rr-btns">'
+        + '<label><input type="checkbox" '+(active?'checked':'')+' onchange="toggleShareSource('+link.id+',this.checked)"> 启用</label>'
+        + '<label><input type="checkbox" checked disabled> 网络路径</label>'
+        + '<span class="rr-del" style="color:var(--cyan)" onclick="scanShareLink('+link.id+')">▶ 扫描入库</span>'
+        + '<span class="rr-del" onclick="deleteShareLink('+link.id+',\''+safeName+'\')">🗑️ 移除</span>'
+        + '</div>';
+      el.appendChild(row);
+    }
+  }catch(e){}
+}
+async function toggleShareSource(id, enabled){
+  try{
+    await fetch('/api/share/links/'+id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status: enabled?'active':'paused'})});
+    loadShareLinks();
+  }catch(e){ alert('操作失败: '+e.message); }
 }
 
 
