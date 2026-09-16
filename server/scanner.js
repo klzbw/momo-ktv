@@ -862,8 +862,28 @@ async function scanLibrary(mode = 'full') {
   // 音频K歌改造：先为整轮文件建立 CUE 索引（整轨音频->分轨信息、cue 文件集合）
   const { wholeToCue, cueToWhole } = buildCueIndex(perRoot);
   let cueAdded = 0;
+  // Bug修复("移除/禁用某个曲库来源后，正在跑的这轮扫描仍把该源的曲目继续入库")：
+  // listAllFiles() 在本轮扫描开头一次性快照了 perRoot，管理员若在这轮扫描
+  // 跑的过程中点了"移除"或取消勾选"启用"，下面的 for 循环仍拿着旧快照里的
+  // root.dir 继续 insert，结果就是"明明已经移除了，总曲目还在往上涨"，且新
+  // insert 的曲目 source_root 指向一个已不在配置里的目录，变成孤儿曲目。
+  // 这里在每个根目录开始处理前、以及文件循环里每处理一批文件，都重新读一次
+  // 最新的 library_roots(它每次都从 DB 读，见 getMVRoots)，一旦发现这个 root
+  // 已经被移除或被禁用，立刻跳过该 root 剩余文件，不再入库。
+  const liveRootDirs = () => new Set(getMVRoots().map(r => r.dir));
+  let guardTick = 0;
   for (const { root, files } of perRoot) {
+    if (!liveRootDirs().has(root.dir)) {
+      console.log(`曲库扫描: 根目录 ${root.dir} 在本轮扫描期间被移除/禁用，跳过其剩余 ${files.length} 个文件`);
+      continue;
+    }
+    guardTick = 0;
     for (const f of files) {
+      // 长扫描中途每 200 个文件复检一次配置，避免"移除后等当前根目录扫完才停"
+      if ((++guardTick % 200) === 0 && !liveRootDirs().has(root.dir)) {
+        console.log(`曲库扫描: 根目录 ${root.dir} 在扫描中途被移除/禁用，提前中断该根目录剩余文件`);
+        break;
+      }
       const rel = `${root.tag}::${path.relative(root.dir, f)}`;
       allCurrentFilenames.add(rel);
       const extNow = path.extname(f).toLowerCase();
