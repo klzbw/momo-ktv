@@ -21,7 +21,7 @@ const QUARK_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (
 const qrSessions = new Map();
 
 let _db = null;
-let _alistUrl = 'http://localhost:5345';
+let _alistUrl = 'http://localhost:5234';
 let _alistToken = null;
 let _alistTokenExpiry = 0;
 
@@ -30,7 +30,7 @@ let _alistTokenExpiry = 0;
  */
 function init(db, alistUrl) {
   _db = db;
-  _alistUrl = alistUrl || process.env.ALIST_URL || 'http://localhost:5345';
+  _alistUrl = alistUrl || process.env.ALIST_URL || 'http://localhost:5234';
   return router;
 }
 
@@ -357,6 +357,20 @@ router.post('/apply', async (req, res) => {
       }
     } catch (e) {
       console.warn('[QuarkLogin] 创建本地 quark 账号失败（不影响 Alist）:', e.message);
+    }
+
+    // 关键：QuarkShare(夸克"分享"挂载) 驱动取播放直链时读的是 Alist 全局设置项
+    // quark_cookie，而不是上面个人网盘(Quark 驱动) storage 的 addition。扫码登录拿到
+    // cookie 后必须同步这个全局项，否则所有"夸克分享"链接取直链仍报 require login [guest]。
+    // 注意：若账号非 SVIP 或网盘容量超限，夸克服务端会进一步返回 capacity limit[{0}]，
+    // 那是账号资质问题，需要换 SVIP 在期/容量充足的账号。
+    try {
+      const sr = await alistApi('POST', '/api/admin/setting/save', [
+        { key: 'quark_cookie', value: cookie, type: 'text', group: 0 },
+      ]);
+      console.log('[QuarkLogin] 同步全局 quark_cookie:', sr && sr.code === 200 ? ('ok len=' + cookie.length) : JSON.stringify(sr));
+    } catch (e) {
+      console.warn('[QuarkLogin] 同步全局 quark_cookie 失败:', e.message);
     }
 
     // 检查是否已存在
