@@ -141,6 +141,13 @@ function resetDriverCache() {
   _driverCache.clear();
 }
 
+/**
+ * 清空直链 URL 缓存（账号/分享更新时调用，避免命中过期直链）
+ */
+function clearDirectUrlCache() {
+  _directUrlCache.clear();
+}
+
 // AList 配置（仅作 fallback，目前只对 115 路径有效）
 const ALIST_BASE_URL = process.env.ALIST_BASE_URL || 'http://localhost:5345';
 const ALIST_BASE_PATH = process.env.ALIST_BASE_PATH || '/🥝115网盘/115';
