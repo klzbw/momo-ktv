@@ -4051,13 +4051,34 @@ select option{color:#000}
     <div style="background:rgba(255,255,255,.03);border-radius:12px;padding:14px;margin-bottom:16px;border:1px solid rgba(255,255,255,.06)">
       <div style="font-size:13px;font-weight:600;margin-bottom:10px">➕ 添加分享链接</div>
       <div class="share-form-row">
-        <input id="share-name" type="text" placeholder="名称（可选，如：周杰伦专辑）">
-        <input id="share-pickcode" type="text" placeholder="分享码 pickcode（必填）" required>
-        <input id="share-receive-code" type="text" placeholder="提取码（可选）">
+        <input id="share-url" type="text" placeholder="粘贴分享链接（自动识别网盘类型）" style="flex:2 1 320px" oninput="onShareUrlInput()">
+        <select id="share-platform" onchange="onSharePlatformChange()" style="flex:1 1 160px;min-width:140px">
+          <option value="">网盘类型</option>
+          <option value="115">115网盘</option>
+          <option value="baidu">百度网盘</option>
+          <option value="quark">夸克网盘</option>
+          <option value="ali">阿里云盘</option>
+          <option value="thunder">迅雷云盘</option>
+          <option value="123">123网盘</option>
+          <option value="189">天翼云盘</option>
+          <option value="139">移动云盘</option>
+          <option value="uc">UC网盘</option>
+          <option value="pikpak">PikPak</option>
+          <option value="guangya">光芽网盘</option>
+        </select>
+        <input id="share-name" type="text" placeholder="名称（可选，如：周杰伦专辑）" style="flex:1 1 180px">
       </div>
+      <div class="share-form-row">
+        <input id="share-id" type="text" placeholder="分享ID / pickcode（粘贴链接后自动填入，也可手动填）" style="flex:2 1 280px">
+        <input id="share-pwd" type="text" placeholder="提取码（可选）" style="flex:1 1 160px">
+      </div>
+      <div class="share-form-row" id="share-folder-row" style="display:none">
+        <input id="share-folder" type="text" placeholder="文件夹ID（可选，留空表示根目录；115/百度/阿里分享子文件夹时填）" style="flex:1 1 auto">
+      </div>
+      <div id="share-scan-status" style="font-size:12px;color:var(--cyan);margin-bottom:8px;min-height:16px"></div>
       <div style="display:flex;gap:8px">
         <button onclick="addShareLink()" class="hbtn primary" style="flex:1">✓ 添加并创建存储</button>
-        <button onclick="document.getElementById('share-pickcode').value='';document.getElementById('share-receive-code').value='';document.getElementById('share-name').value=''" class="hbtn">清空</button>
+        <button onclick="clearShareForm()" class="hbtn">清空</button>
       </div>
     </div>
     <div style="font-size:13px;font-weight:600;margin-bottom:10px">📋 已配置的分享链接</div>
