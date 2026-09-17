@@ -98,7 +98,7 @@ class DemucsEngine:
             wav = wav.unsqueeze(0).to(self._device)
             if progress_cb: progress_cb(30)
             with torch.no_grad():
-                out = apply_model(self._model, wav, split=True, overlap=0.25, device=self._device)
+                out = apply_model(self._model, wav, split=True, overlap=0.1, device=self._device)
             vocals = out[0, 3].cpu()
             accomp = (out[0, 0] + out[0, 1] + out[0, 2]).cpu()
             del out, wav
@@ -147,6 +147,27 @@ class WhisperEngine:
         self._loaded = True
         log(f'[WhisperEngine] 模型就绪, device={self._device}, batch={self._whisper_batch}')
 
+    def _vad_speech_ratio(self, audio, torch):
+        """用 whisperx 内置的 pyannote VAD 快速检测音频中人声占总时长的百分比。
+        返回 0-100 的浮点数；任何异常返回 None（调用方应降级为正常 transcribe）。
+        安全设计：VAD 失败时绝不误判纯音乐。"""
+        try:
+            vad_pipeline = getattr(self._model, 'vad_model', None)
+            if vad_pipeline is None:
+                return None
+            from whisperx.vad import merge_chunks
+            sr = 16000
+            wav_tensor = torch.from_numpy(audio).unsqueeze(0).float()
+            vad_scores = vad_pipeline({"waveform": wav_tensor, "sample_rate": sr})
+            vad_segments = merge_chunks(vad_scores, 30, onset=0.5, offset=0.363)
+            total_dur = len(audio) / float(sr)
+            if total_dur <= 0:
+                return None
+            speech_dur = sum(float(s['end']) - float(s['start']) for s in vad_segments)
+            return speech_dur / total_dur * 100.0
+        except Exception:
+            return None
+
     def align(self, audio_path, ref_text='', model_name='large-v3', progress_cb=None):
         """对齐一首，返回增强 LRC 文本。失败抛异常。"""
         with self._lock:
@@ -156,6 +177,19 @@ class WhisperEngine:
             if progress_cb: progress_cb(5)
             audio = whisperx.load_audio(audio_path)
             if progress_cb: progress_cb(20)
+            # --- VAD 预检测：快速判断纯音乐，跳过昂贵的 ASR transcribe ---
+            try:
+                vad_ratio = self._vad_speech_ratio(audio, torch)
+                if vad_ratio is not None and vad_ratio < 5.0:
+                    log('[VAD] 人声占比=%.1f%% (<5%%)，跳过 transcribe，判定为纯音乐' % vad_ratio)
+                    raise RuntimeError('对齐后没有得到任何歌词行')
+                if vad_ratio is not None:
+                    log('[VAD] 人声占比=%.1f%%，继续 transcribe' % vad_ratio)
+            except RuntimeError:
+                raise
+            except Exception as e:
+                log('[VAD] 预检测异常(降级继续 transcribe):', repr(e))
+            # --- VAD 预检测结束 ---
             result = self._model.transcribe(audio, batch_size=self._whisper_batch, language='zh', num_workers=0)
             if progress_cb: progress_cb(55)
             aligned = whisperx.align(result['segments'], self._model_a, self._meta, audio, self._device,
