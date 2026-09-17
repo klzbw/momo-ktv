@@ -15,6 +15,8 @@
 const https = require('https');
 const http = require('http');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { URL } = require('url');
 const CloudDriveBase = require('./base');
 

@@ -432,9 +432,15 @@ function _initDB() {
 
 async function _alistLogin(maxRetries = 5) {
   const password = process.env.ALIST_ADMIN_PASSWORD || 'admin123';
-  const body = JSON.stringify({ username: 'admin', password });
+  // Gbox/飞牛部署 AList 管理员可能是 klzbw（随宿主机用户名初始化），而非 admin。
+  // 用独立 userIdx：仅在遇到明确认证错误（record not found / 密码错误）时才换用户名；
+  // 遇 "Loading storage" / 超时则保持当前用户名重试，避免还没就绪就误判用户名错。
+  const users = ['klzbw', 'admin'];
+  let userIdx = 0;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const username = users[userIdx];
+    const body = JSON.stringify({ username, password });
     try {
       const result = await new Promise((resolve, reject) => {
         const req = http.request(_alistUrl + '/api/auth/login', {
@@ -470,6 +476,14 @@ async function _alistLogin(maxRetries = 5) {
       if (result.message && result.message.includes('Loading storage')) {
         console.log(`[ShareImport] Alist 正在加载存储，等待 5 秒后重试 (${attempt + 1}/${maxRetries})`);
         await new Promise(r => setTimeout(r, 5000));
+        continue;
+      }
+      // 明确认证错误：换下一个用户名重试
+      const msg = result.message || '';
+      if ((msg.includes('record not found') || msg.includes('password')) && userIdx < users.length - 1) {
+        userIdx++;
+        console.log(`[ShareImport] 用户名 ${username} 登录失败(${msg})，尝试 ${users[userIdx]}`);
+        await new Promise(r => setTimeout(r, 1500));
         continue;
       }
       throw new Error('Alist 登录失败: ' + result.message);

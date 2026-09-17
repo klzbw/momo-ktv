@@ -341,53 +341,28 @@ async function fetch115(url, options = {}, timeoutMs = 6000) {
 
 
 async function alistLogin() {
-
-
-
-  const loginData = JSON.stringify({ username: ALIST_USER, password: ALIST_PASS });
-
-
-
-  const resp = await fetch(`${ALIST_URL}/api/auth/login`, {
-
-
-
-    method: 'POST',
-
-
-
-    headers: { 'Content-Type': 'application/json' },
-
-
-
-    body: loginData,
-
-
-
-  });
-
-
-
-  const result = await resp.json();
-
-
-
-  if (result.code === 200 && result.data?.token) {
-
-
-
-    return result.data.token;
-
-
-
+  // Gbox/飞牛部署 AList 管理员为 klzbw（随宿主机用户名初始化），密码由 entrypoint 设为 admin123。
+  // 依次尝试候选凭证，任一成功即返回 token。
+  const candidates = [
+    { username: 'klzbw', password: process.env.ALIST_ADMIN_PASSWORD || 'admin123' },
+    { username: ALIST_USER, password: ALIST_PASS },
+    { username: 'admin', password: process.env.ALIST_ADMIN_PASSWORD || 'admin123' },
+  ];
+  let lastErr = '未知错误';
+  for (const cred of candidates) {
+    const loginData = JSON.stringify(cred);
+    const resp = await fetch(`${ALIST_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: loginData,
+    });
+    const result = await resp.json();
+    if (result.code === 200 && result.data && result.data.token) {
+      return result.data.token;
+    }
+    lastErr = result.message || '未知错误';
   }
-
-
-
-  throw new Error('Alist 登录失败: ' + (result.message || '未知错误'));
-
-
-
+  throw new Error('Alist 登录失败: ' + lastErr);
 }
 
 

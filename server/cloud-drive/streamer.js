@@ -49,9 +49,14 @@ class CloudDriveStreamer {
    */
   async _alistLogin(maxRetries = 5) {
     const password = process.env.ALIST_ADMIN_PASSWORD || 'admin123';
-    const body = JSON.stringify({ username: 'admin', password });
+    // Gbox/飞牛部署 AList 管理员可能是 klzbw（随宿主机用户名初始化），而非 admin。
+    // 用独立 userIdx：仅在明确认证错误时才换用户名；遇 Loading storage/超时保持当前用户名。
+    const users = ['klzbw', 'admin'];
+    let userIdx = 0;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const username = users[userIdx];
+      const body = JSON.stringify({ username, password });
       try {
         const result = await new Promise((resolve, reject) => {
           const req = http.request(this.alistUrl + '/api/auth/login', {
@@ -95,6 +100,14 @@ class CloudDriveStreamer {
         if (result.message && result.message.includes('Loading storage')) {
           console.log(`[Streamer] AList 正在加载存储，等待 5 秒后重试 (${attempt + 1}/${maxRetries})`);
           await new Promise(r => setTimeout(r, 5000));
+          continue;
+        }
+        // 明确认证错误：换下一个用户名重试
+        const smsg = result.message || '';
+        if ((smsg.includes('record not found') || smsg.includes('password')) && userIdx < users.length - 1) {
+          userIdx++;
+          console.log(`[Streamer] AList 用户名 ${username} 失败(${smsg})，尝试 ${users[userIdx]}`);
+          await new Promise(r => setTimeout(r, 1500));
           continue;
         }
 

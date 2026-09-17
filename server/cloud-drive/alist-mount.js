@@ -150,15 +150,22 @@ function request(method, pathName, { body, query, token } = {}) {
 /** 登录取 token，带缓存；返回 token 字符串，失败抛错 */
 async function login() {
   if (_cachedToken && Date.now() < _tokenExpireAt) return _cachedToken;
-  const { json } = await request('POST', '/api/auth/login', {
-    body: { username: ALIST_USER, password: ALIST_PASS },
-  });
-  if (!json || json.code !== 200 || !json.data || !json.data.token) {
-    throw new Error(`AList 登录失败: ${JSON.stringify(json).slice(0, 200)}`);
+  // 此 Gbox/飞牛 NAS 部署的 AList 管理员用户名可能是 klzbw（随宿主机用户名初始化），
+  // 而非默认 admin。依次尝试候选用户名，任一成功即返回。
+  const candidates = [ALIST_USER, 'klzbw', 'admin'].filter((u, i, a) => u && a.indexOf(u) === i);
+  let lastJson = null;
+  for (const username of candidates) {
+    const { json } = await request('POST', '/api/auth/login', {
+      body: { username, password: ALIST_PASS },
+    });
+    if (json && json.code === 200 && json.data && json.data.token) {
+      _cachedToken = json.data.token;
+      _tokenExpireAt = Date.now() + TOKEN_TTL;
+      return _cachedToken;
+    }
+    lastJson = json;
   }
-  _cachedToken = json.data.token;
-  _tokenExpireAt = Date.now() + TOKEN_TTL;
-  return _cachedToken;
+  throw new Error(`AList 登录失败（已尝试用户名: ${candidates.join('/')}）: ${JSON.stringify(lastJson).slice(0, 200)}`);
 }
 
 /** 带 401 重试的 API 调用 */
