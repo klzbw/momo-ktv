@@ -273,6 +273,15 @@ try {
     db.exec('ALTER TABLE queue ADD COLUMN is_autoplay INTEGER DEFAULT 0');
   }
 } catch (e) { console.error('queue.top_order/is_autoplay 字段迁移失败:', e.message); }
+// 分离/对齐任务队列：失败退避时间戳。worker 硬崩溃(segfault/CUDA 访问冲突)来不及
+// POST /fail，任务会被 reclaimStale 回收；用这一列记录下次允许被 claim 的时间，
+// 做指数退避，避免同一首坏歌每 20 分钟被无限期反复领走。
+try {
+  const sjCols = db.prepare("PRAGMA table_info(separation_jobs)").all().map(c => c.name);
+  if (!sjCols.includes('next_attempt_at')) {
+    db.exec('ALTER TABLE separation_jobs ADD COLUMN next_attempt_at DATETIME');
+  }
+} catch (e) { console.error('separation_jobs.next_attempt_at 字段迁移失败:', e.message); }
 
 // song_artists 关联表是本次新增的，老库里原有的曲目还没有对应的拆分记录。
 // 这里做一次性回填：只要这张表还是空的、而 songs 里已经有数据，就按现有

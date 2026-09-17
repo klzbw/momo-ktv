@@ -9165,9 +9165,21 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
       const kind = stem === 'vocals' ? 'vocal' : 'accomp';
       const cnName = sepMod.trackFileName(sepSong, kind, 'flac');
       const cnNameWav = sepMod.trackFileName(sepSong, kind, 'wav');
-      const tmpWav = path.join(dir, stem + '._in.wav');
+      // 写端先用唯一 .part 临时名：避免转换进行中被 scanner/其它进程读到半成品，
+      // 也避免上一轮中断残留的 <stem>._in.wav 干扰。写完 fsync 再交给 ffmpeg。
+      const tmpWav = path.join(dir, '.' + stem + '._in.' + process.pid + '.' + Date.now() + '.part');
       const flacP = path.join(dir, cnName);
       const wavP = path.join(dir, cnNameWav);
+      try {
+        // 只清理本 stem 的历史残留中间文件(旧命名 <stem>._in.wav，或之前中断的 .<stem>._in.*.part)，
+        // 不碰同目录其它轨的 .part，避免和 Promise.all 并发起的另一轨转换竞态。
+        for (const stale of fs.readdirSync(dir)) {
+          if (stale === stem + '._in.wav' || stale === '.' + stem + '._in.wav' ||
+              (stale.startsWith('.' + stem + '._in.') && stale.endsWith('.part'))) {
+            try { fs.unlinkSync(path.join(dir, stale)); } catch (e) {}
+          }
+        }
+      } catch (e) {}
 
 
 
@@ -9178,6 +9190,7 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
       fs.writeFileSync(tmpWav, buf);
+      try { const __fd = fs.openSync(tmpWav, 'r'); fs.fsyncSync(__fd); fs.closeSync(__fd); } catch (e) {}
 
 
 

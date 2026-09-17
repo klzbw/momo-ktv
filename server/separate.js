@@ -102,7 +102,11 @@ const TYPES = ['separate', 'align'];
 // 被慢 CPU 抢占、也不会在 GPU 离线时永远卡住。
 const WORKERS = new Map();                       // name -> {capability, lastSeen(ms)}
 const ONLINE_TTL_MS = 30 * 1000;                 // 30 秒没心跳判离线（长任务靠 progress 续命）
-const GPU_RESERVE_MS = 45 * 1000;                // CPU 兜底前给 GPU 的预留窗口
+const GPU_RESERVE_MS = 45 * 1000;                // CPU 兜底前给 GPU 的预留窗口// 失败重试策略：worker 硬崩溃(segfault/CUDA 访问冲突)来不及 POST /fail，任务会被
+// reclaimStale 回收重排。为避免同一首坏歌被无限期反复领走烧光 GPU 时间，限制最多
+// MAX_ATTEMPTS 次领取，超过即永久失败；每次回收按指数退避延后再领，让好歌先跑。
+const MAX_ATTEMPTS = 4;            // 累计 claim 次数上限，超过即置永久失败
+const BASE_BACKOFF_SEC = 60;       // 第 1 次回收后退避 60s，之后指数翻倍(封顶)
 
 function touchWorker(worker, capability) {
   const name = String(worker || 'anonymous').slice(0, 64);
@@ -180,12 +184,17 @@ function claimNext(db, { worker = 'anonymous', type = 'separate', capability = '
   // 本轮先让 CPU 空转（返回 null -> 路由回 204），把任务留给更快的 GPU。
   if (capability !== 'gpu') {
     const head = db.prepare(
-      "SELECT created_at FROM separation_jobs WHERE status='pending' AND job_type=? ORDER BY id LIMIT 1"
+      "SELECT created_at FROM separation_jobs WHERE status='pending' AND job_type=? " +
+      "AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP) ORDER BY id LIMIT 1"
     ).get(type);
     if (head && hasOnlineGpu(worker) && jobAgeMs(head.created_at) < GPU_RESERVE_MS) return null;
   }
   const tx = db.transaction(() => {
-    const job = db.prepare("SELECT * FROM separation_jobs WHERE status='pending' AND job_type=? ORDER BY id LIMIT 1").get(type);
+    const job = db.prepare(
+      "SELECT * FROM separation_jobs WHERE status='pending' AND job_type=? " +
+      "AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP) " +
+      "ORDER BY COALESCE(next_attempt_at, created_at), id LIMIT 1"
+    ).get(type);
     if (!job) return null;
     const r = db.prepare(
       "UPDATE separation_jobs SET status='processing', worker=?, claimed_at=CURRENT_TIMESTAMP, attempts=attempts+1 WHERE id=? AND status='pending'"
@@ -253,18 +262,37 @@ function fail(db, jobId, error) {
 }
 
 function resetJob(db, jobId) {
-  db.prepare("UPDATE separation_jobs SET status='pending', progress=0, error=NULL, worker=NULL, claimed_at=NULL WHERE id=?").run(jobId);
+  // 手动重置=给一次全新机会：清掉退避时间戳与错误，让它立刻可被 claim
+  db.prepare("UPDATE separation_jobs SET status='pending', progress=0, error=NULL, worker=NULL, claimed_at=NULL, next_attempt_at=NULL WHERE id=?").run(jobId);
 }
 
-// worker 异常退出留下的 processing 僵尸任务，超过 staleMin 分钟回收为 pending（attempts 已自增）
+// worker 异常退出留下的 processing 僵尸任务，超过 staleMin 分钟回收为 pending。
+// 带指数退避：同一首歌累计领取达到 MAX_ATTEMPTS 仍崩，视为永久不可处理(置 failed)，
+// 不再无限重排；否则按 2^attempts 秒退避后重新入队，避免坏歌每轮都被立刻领走。
 function reclaimStale(db, staleMin = 20) {
   const rows = db.prepare(
-    "SELECT id FROM separation_jobs WHERE status='processing' AND claimed_at IS NOT NULL AND (julianday(CURRENT_TIMESTAMP)-julianday(claimed_at))*24*60 > ?"
+    "SELECT id, attempts FROM separation_jobs WHERE status='processing' AND claimed_at IS NOT NULL AND (julianday(CURRENT_TIMESTAMP)-julianday(claimed_at))*24*60 > ?"
   ).all(staleMin);
-  const upd = db.prepare("UPDATE separation_jobs SET status='pending', worker=NULL WHERE id=?");
-  const tx = db.transaction((list) => list.forEach((r) => upd.run(r.id)));
+  const requeue = db.prepare(
+    "UPDATE separation_jobs SET status='pending', worker=NULL, next_attempt_at=datetime(CURRENT_TIMESTAMP, ?) WHERE id=?"
+  );
+  const dead = db.prepare(
+    "UPDATE separation_jobs SET status='failed', worker=NULL, progress=0, error=?, finished_at=CURRENT_TIMESTAMP WHERE id=?"
+  );
+  let requeued = 0, deadCount = 0;
+  const tx = db.transaction((list) => list.forEach((r) => {
+    const attempts = r.attempts || 0;
+    if (attempts >= MAX_ATTEMPTS) {
+      dead.run('worker 连续崩溃 ' + (attempts + 1) + ' 次仍未产出，判定为永久不可处理(GPU 驱动/模型/源文件问题)；看板点 reset 可手动重试', r.id);
+      deadCount++;
+    } else {
+      const backoffSec = Math.round(BASE_BACKOFF_SEC * Math.pow(2, Math.min(attempts, 4)));
+      requeue.run('+' + backoffSec + ' seconds', r.id);
+      requeued++;
+    }
+  }));
   tx(rows);
-  return rows.length;
+  return { requeued, dead: deadCount, scanned: rows.length };
 }
 
 function stats(db) {

@@ -526,6 +526,11 @@ function isSkippedDirName(name) {
 }
 function isIncompleteFile(name) {
   const lower = String(name).toLowerCase();
+  // 服务端 convertTrack 写出的分离转换中间文件 <stem>._in.wav：此刻正被 ffmpeg 读取，
+  // 或上一轮转换中断残留的半成品，ffprobe 打开必然失败刷屏；成品 flac 落盘后下一轮
+  // 增量扫描自然收录。同理跳过 . 开头的 .part 临时名。
+  if (/_in\.wav$/.test(lower)) return true;
+  if (lower.startsWith('.')) return true;
   for (const suffix of INCOMPLETE_SUFFIX) {
     if (lower.endsWith(suffix)) return true;
     // 中间态文件：转码器先写 xxx.flac.tmp 再补最终扩展名变成 xxx.flac.tmp.flac，
