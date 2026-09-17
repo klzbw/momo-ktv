@@ -1,3 +1,4 @@
+process.env.STARTUP_SCAN_DISABLED = process.env.STARTUP_SCAN_DISABLED || '1';
     const express = require('express');
 
 
@@ -28588,7 +28589,7 @@ const STARTUP_SCAN_DELAY_MS = Number(process.env.STARTUP_SCAN_DELAY_MS) || 20000
 
 
 
-const STARTUP_SCAN_MAX_WAIT_MS = Number(process.env.STARTUP_SCAN_MAX_WAIT_MS) || 60000;
+const STARTUP_SCAN_MAX_WAIT_MS = Number(process.env.STARTUP_SCAN_MAX_WAIT_MS) || 5000;
 
 
 
@@ -29357,10 +29358,9 @@ setInterval(() => {
     }
 
     // 启动后延迟 40s 跑首次（等 AList 就绪），之后按间隔循环
-    setTimeout(() => {
-      runSync();
-      setInterval(runSync, SYNC_MS).unref();
-    }, 40000);
+    // 自动同步已停用（网盘列目录慢会堵死事件循环）
+    // 需要时手动 POST /api/netktv/sync-strm 触发
+    // setInterval(runSync, SYNC_MS).unref();
 
     log.info('NETKTV-SYNC', `strm 定时同步已启用：每 ${hours} 小时通过 AList 同步一次（目录=${basePath}）`);
   } catch (e) {

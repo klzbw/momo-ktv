@@ -142,7 +142,7 @@ async function _alistListDir(alistPath, { page = 1, perPage = 100, refresh = fal
         'Content-Length': Buffer.byteLength(postData),
         'Authorization': token,
       },
-      timeout: 30000,
+      timeout: 8000,
     }, (res) => {
       let data = '';
       res.on('data', c => data += c);
