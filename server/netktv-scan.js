@@ -29,6 +29,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const lrcFileMod = require('./lrcFile');
 
 const router = express.Router();
 
@@ -230,6 +231,39 @@ function alistDavUrl(basePath, songKey, fileName) {
   return ext + '/d' + encodeURI(dir + '/' + songKey + '/' + fileName) + '\n';
 }
 
+// 通过 AList /d/ 直链下载小文本文件（.lrc）的内容。
+// lrc 文件通常几 KB，超时 10s 足够。失败返回 null。
+async function downloadTextViaAlist(alistBase, mountPath, basePath, songKey, fileName) {
+  try {
+    const ext = (process.env.ALIST_EXTERNAL_URL || alistBase).replace(/\/+$/, '');
+    const dir = (mountPath.replace(/\/+$/, '') + (basePath || ''));
+    const url = ext + '/d' + encodeURI(dir + '/' + songKey + '/' + fileName);
+    const result = await new Promise((resolve, reject) => {
+      const req = http.get(url, { timeout: 10000 }, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          http.get(res.headers.location, { timeout: 10000 }, (res2) => {
+            const chunks = [];
+            res2.on('data', c => chunks.push(c));
+            res2.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+            res2.on('error', reject);
+          }).on('error', reject);
+          return;
+        }
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+        res.on('error', reject);
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(new Error('lrc download timeout')); });
+    });
+    return result && result.trim() ? result : null;
+  } catch (e) {
+    console.warn('[NETKTV-SYNC] 下载 lrc 失败:', songKey, e.message);
+    return null;
+  }
+}
+
 // ==================== 阶段一：走 AList 同步网盘 → 本地 strm ====================
 
 /**
@@ -315,6 +349,13 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
         continue;
       }
 
+      // 检测同目录下的 .lrc 逐字歌词文件（<sha>.lrc）
+      const lrcFile = files.find(f => /\.lrc$/i.test(f.name));
+      let lrcContent = null;
+      if (lrcFile) {
+        lrcContent = await downloadTextViaAlist(_alistBase(), mountPath, basePath, songKey, lrcFile.name);
+      }
+
       const vPath = path.join(strmDir, `${songKey}_vocals.strm`);
       const aPath = path.join(strmDir, `${songKey}_accomp.strm`);
       const vContent = alistDavUrlForAccount(account, basePath, songKey, vocalFile.name);
@@ -338,15 +379,23 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
       if (!existing) {
         const now = new Date().toISOString();
         const result = db.prepare(`
-          INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, cloud_account_id, duration, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 'audio', 2, 'done', ?, ?, ?)
+          INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, align_status, lyrics_word, lyrics_source, cloud_account_id, duration, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 'audio', 2, 'done', ?, ?, ?, ?, ?, ?)
         `).run(
           meta.title, meta.artist, `${songKey}_vocals.strm`, vPath, vPath, aPath,
-          sourceRoot, accountId, null, now
+          sourceRoot, accountId,
+          lrcContent ? 'done' : 'none', lrcContent, lrcContent ? 'lrc-file' : null,
+          null, now
         );
         db.prepare('INSERT OR IGNORE INTO song_artists (song_id, artist) VALUES (?, ?)').run(result.lastInsertRowid, meta.artist);
         addedSongs++;
-        console.log(`[NETKTV-SYNC] 新增: ${meta.artist} - ${meta.title} (id=${result.lastInsertRowid})`);
+        console.log(`[NETKTV-SYNC] 新增: ${meta.artist} - ${meta.title} (id=${result.lastInsertRowid})${lrcContent ? ' [含逐字歌词]' : ''}`);
+      } else if (lrcContent) {
+        // 已入库但缺逐字歌词 -> 补写
+        const upd = db.prepare(
+          "UPDATE songs SET lyrics_word=?, align_status='done', lyrics_source='lrc-file' WHERE id=? AND (lyrics_word IS NULL OR lyrics_word='' OR align_status != 'done')"
+        ).run(lrcContent, existing.id);
+        if (upd.changes > 0) console.log(`[NETKTV-SYNC] 补写逐字歌词: id=${existing.id}`);
       }
     } catch (e) {
       console.warn(`[NETKTV-SYNC] 处理 ${songKey} 失败:`, e.message);

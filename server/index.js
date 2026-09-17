@@ -160,6 +160,7 @@ const lyricsMod = require('./lyrics');
 
 
 const sepMod = require('./separate');
+const lrcFileMod = require('./lrcFile');
 
 
 
@@ -8068,6 +8069,14 @@ app.post('/api/songs/:id/lyrics/offset', (req, res) => {
 
     db.prepare('UPDATE songs SET lyrics=?, lyrics_word=? WHERE id=?').run(newLyrics, newWord, id);
 
+    // 把修正后的 lyrics_word 回写到 separated/<sha>/<sha>.lrc，方便重新上传 115 分发
+    if (newWord) {
+      try {
+        const songRow = db.prepare('SELECT vocal_path, accomp_path, filepath FROM songs WHERE id=?').get(id);
+        if (songRow) lrcFileMod.writeLrcForSong(songRow, newWord);
+      } catch (e) { console.error('[LRC-EXPORT] 回写 .lrc 失败 (id=' + id + '):', e.message); }
+    }
+
 
 
 
@@ -8175,6 +8184,24 @@ let lyricBatch = { running: false, total: 0, done: 0, ok: 0, fail: 0, startedAt:
 
 
 
+
+// 批量导出所有有逐字歌词的歌到 /data/separated/<sha>/<sha>.lrc
+// 供分发者一键重新导出全部歌词文件，准备上传 115 网盘
+app.get('/api/admin/export-lrc', requireAdminAuth, (req, res) => {
+  try {
+    const rows = db.prepare(
+      "SELECT id, vocal_path, accomp_path, filepath, title, artist, lyrics_word FROM songs WHERE lyrics_word IS NOT NULL AND lyrics_word != ''"
+    ).all();
+    let written = 0, skipped = 0;
+    for (const row of rows) {
+      const p = lrcFileMod.writeLrcForSong(row, row.lyrics_word);
+      if (p) written++; else skipped++;
+    }
+    res.json({ ok: true, total: rows.length, written, skipped });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.post('/api/lyrics/batch-missing', (req, res) => {
 

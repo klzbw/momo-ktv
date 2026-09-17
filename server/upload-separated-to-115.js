@@ -508,6 +508,22 @@ async function processHash(hash, token, db, hashMap, remoteDirSet, stats) {
     }
   }
 
+  // 同时上传 <hash>.lrc 逐字歌词文件（如果存在）
+  const localLrc = path.join(dir, hash + '.lrc');
+  const remoteLrc = `${remoteDir}/${hash}.lrc`;
+  if (fs.existsSync(localLrc)) {
+    const needUploadLrc = (remoteFiles === null) ? false : !remoteFiles.has(hash + '.lrc');
+    if (needUploadLrc) {
+      if (opts.dryRun) {
+        log(`  [dry-run] 将上传 ${hash}.lrc -> ${remoteLrc}`);
+      } else {
+        await uploadOne(token, localLrc, remoteLrc);
+        stats.filesUploaded++;
+        log(`  [上传] ${hash}/${hash}.lrc (${(fs.statSync(localLrc).size / 1024).toFixed(1)} KB)`);
+      }
+    }
+  }
+
   // 3. strm
   const vocalStrm = path.join(STRM_DIR, `${hash}_vocals.strm`);
   const accompStrm = path.join(STRM_DIR, `${hash}_accomp.strm`);

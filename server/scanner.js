@@ -9,6 +9,7 @@ const sourceCache = require('./sourceCache');
 const { parseCue } = require('./cueParser');
 const { readAudioTags } = require('./tagReader');
 const { findLocalLrc, normalizeLrc } = require('./lyrics');
+const lrcFileMod = require('./lrcFile');
 const { VIDEO_EXT, AUDIO_EXT, isAudioExt, isCueExt, isCollectableExt, mediaTypeOf } = require('./mediaFormats');
 const log = require('./logger');
 const sepMod = require('./separate');
@@ -1043,6 +1044,17 @@ async function scanLibrary(mode = 'full') {
                     if (existing) {
                       db.prepare('UPDATE songs SET sep_status=?, vocal_path=?, accomp_path=? WHERE id=?')
                         .run('done', existing.vocal_path, existing.accomp_path, songId);
+                      // 如果同目录下有 <sha>.lrc 逐字歌词文件，直接读入库，跳过 WhisperX
+                      try {
+                        const shaMatch = existing.vocal_path.match(/separated\/([0-9a-f]{16})\//);
+                        if (shaMatch) {
+                          const wordLrc = lrcFileMod.readLrcFile(shaMatch[1]);
+                          if (wordLrc) {
+                            db.prepare("UPDATE songs SET lyrics_word=?, align_status='done', lyrics_source='lrc-file' WHERE id=?")
+                              .run(wordLrc, songId);
+                          }
+                        }
+                      } catch (e) { /* .lrc 读取失败不影响入库 */ }
                     }
                   } catch (e) { /* 分离产物检查失败不影响入库 */ }
                 }
