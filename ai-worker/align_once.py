@@ -23,6 +23,10 @@ if hasattr(sys.stdout, 'reconfigure'):
 # 国内直连 HuggingFace 常超时，会导致 Whisper转写模型 / 中文对齐模型下载失败（历史60个对齐任务全因此失败）。
 # 默认走 hf-mirror 镜像；若用户已显式设置 HF_ENDPOINT，则尊重用户设置。必须在 import torch/whisperx 之前执行。
 os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
+# 多任务并发时降低 CUDA 显存碎片、缓解 OOM（WhisperX large-v3 + pyannote VAD 很吃显存）
+os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+# WhisperX 转写批大小：默认从 16 降到 8（16GB 卡多并发时 batch16 易 OOM），可用环境变量 MOMO_BATCH_SIZE 覆盖
+WHISPER_BATCH = int(os.environ.get('MOMO_BATCH_SIZE', '8') or '8')
 
 def fmt(t):
     if t is None or t < 0: t = 0.0
@@ -129,7 +133,7 @@ def main():
     audio = whisperx.load_audio(src)
     print('PROGRESS 20', flush=True)
     model = whisperx.load_model(model_name, device, compute_type=compute, language='zh')
-    result = model.transcribe(audio, batch_size=16, language='zh')
+    result = model.transcribe(audio, batch_size=WHISPER_BATCH, language='zh', num_workers=0)
     print(f'转写得到 {len(result["segments"])} 句', flush=True)
     print('PROGRESS 55', flush=True)
 

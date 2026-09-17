@@ -31,6 +31,8 @@ if hasattr(sys.stdout, 'reconfigure'):
 # 子进程(sep_once/align_once)会继承本环境变量：让 Demucs/Whisper/对齐模型默认走 hf-mirror，
 # 避免国内直连 HuggingFace 超时导致任务全失败；用户已设置 HF_ENDPOINT 时不覆盖。
 os.environ.setdefault('HF_ENDPOINT', 'https://hf-mirror.com')
+# 缓解多任务并发时的 CUDA 显存碎片/峰值，降低 OOM 概率（子进程 sep_once/align_once 会继承）
+os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
 
 def log(*a):
     print(time.strftime('%H:%M:%S'), *a, flush=True)
