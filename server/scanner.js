@@ -1076,6 +1076,9 @@ async function scanLibrary(mode = 'full') {
     const pending = db.prepare("SELECT id, filepath, is_network FROM songs WHERE audio_tracks IS NULL AND is_strm = 0 AND is_network = 0").all();
     const upd = db.prepare('UPDATE songs SET audio_tracks = ?, audio_needs_soft = ?, video_needs_soft = ? WHERE id = ?');
     for (const row of pending) {
+      // 跳过分离转换中间文件残留(phantom)：它们曾被老扫描误收进 songs 表，
+      // audio_tracks=NULL 会让本补探循环每轮都对它 ffprobe 刷屏；不是真歌，跳过。
+      if (isIncompleteFile(path.basename(row.filepath))) continue;
       try {
         const probePath = await resolveProbePath(row.id, row.filepath, !!row.is_network);
         const { tracks, audioNeedsSoft, videoNeedsSoft } = await probeAudioTracks(probePath);
@@ -1109,6 +1112,7 @@ async function scanLibrary(mode = 'full') {
     ).all();
     const updCached = db.prepare('UPDATE songs SET audio_tracks = ?, audio_needs_soft = ?, video_needs_soft = ? WHERE id = ?');
     for (const row of pendingCached) {
+      if (isIncompleteFile(path.basename(row.cache_path || ''))) continue;
       try {
         // 双重保险：数据库说 cache_status='ready'，但缓存目录可能被
         // cacheCleaner.js 按最大容量/最长存放天数清理掉了(这两个动作跟这里
