@@ -112,6 +112,87 @@ class DemucsEngine:
 
 DEMUCS_ENGINE = DemucsEngine()
 
+# ---------- WhisperX 模型常驻引擎（避免每首 align 子进程冷启动加载 large-v3 ~15s） ----------
+class WhisperEngine:
+    """进程内单例：whisperx large-v3 + 中文对齐模型只加载一次，多首复用。
+    和 DemucsEngine 各一把锁，W1/W2 可一个跑分离一个跑对齐，互不阻塞。"""
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._loaded = False
+        return cls._instance
+
+    def _ensure_loaded(self, model_name='large-v3'):
+        if self._loaded:
+            return
+        import torch
+        _orig = torch.load
+        def _safe(*a, **kw):
+            kw['weights_only'] = False
+            return _orig(*a, **kw)
+        torch.load = _safe
+        log('[WhisperEngine] 首次对齐，加载 whisperx large-v3 + 中文对齐模型...')
+        import whisperx
+        self._torch = torch
+        self._whisperx = whisperx
+        self._device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self._model = whisperx.load_model(model_name, self._device, compute_type='float16' if self._device=='cuda' else 'int8', language='zh')
+        self._model_a, self._meta = whisperx.load_align_model(language_code='zh', device=self._device)
+        self._whisper_batch = int(os.environ.get('MOMO_BATCH_SIZE', '8') or '8')
+        self._loaded = True
+        log(f'[WhisperEngine] 模型就绪, device={self._device}, batch={self._whisper_batch}')
+
+    def align(self, audio_path, ref_text='', model_name='large-v3', progress_cb=None):
+        """对齐一首，返回增强 LRC 文本。失败抛异常。"""
+        with self._lock:
+            self._ensure_loaded(model_name)
+            whisperx = self._whisperx
+            torch = self._torch
+            if progress_cb: progress_cb(5)
+            audio = whisperx.load_audio(audio_path)
+            if progress_cb: progress_cb(20)
+            result = self._model.transcribe(audio, batch_size=self._whisper_batch, language='zh', num_workers=0)
+            if progress_cb: progress_cb(55)
+            aligned = whisperx.align(result['segments'], self._model_a, self._meta, audio, self._device,
+                                    return_char_alignments=False)
+            if progress_cb: progress_cb(85)
+            # 官方歌词纠错
+            lrc = ''
+            if ref_text and ref_text.strip():
+                try:
+                    from lyric_matcher import correct_with_reference
+                    all_words = [w for seg in aligned.get('segments', []) for w in (seg.get('words') or [])]
+                    corr, info = correct_with_reference(all_words, ref_text)
+                    log(f'官方歌词校正: 匹配率={info.get("score")} ({info.get("matched")}/{info.get("total")})')
+                    if corr and info.get('score', 0) >= 0.25:
+                        lrc = _build_corrected_lrc_text(corr)
+                    else:
+                        log('匹配率过低，回退纯 WhisperX 结果')
+                except Exception as e:
+                    log('官方歌词校正异常(回退):', repr(e))
+            if not lrc.strip():
+                lrc = _build_enhanced_lrc_text(aligned)
+            if not lrc.strip():
+                raise RuntimeError('对齐后没有得到任何歌词行')
+            if progress_cb: progress_cb(100)
+            return lrc
+
+# 从 align_once.py 复用 LRC 生成函数（避免重复维护）
+def _build_enhanced_lrc_text(aligned):
+    import align_once as _ao
+    return _ao.build_enhanced_lrc(aligned)
+
+def _build_corrected_lrc_text(out_lines):
+    import align_once as _ao
+    return _ao.build_corrected_lrc(out_lines)
+
+WHISPER_ENGINE = WhisperEngine()
+
 # ---------- 纯音乐/轻音乐/无人声 检测规则 ----------
 # 匹配乐器名、纯音乐关键词、演奏曲等；命中则视为无人声，跳过人声分离和歌词对齐
 INSTRUMENTAL_RE = re.compile(
@@ -373,7 +454,12 @@ class MomoWorker:
                         args.append('large-v3')   # 第3位是模型名，第4位才是参考歌词路径
                         args.append(ref_path)
                         log(f'附带官方参考歌词 {len(ref)} 字符用于纠错')
-                    self.run_child('align_once.py', args, job_id, None)
+                    lrc_text = WHISPER_ENGINE.align(vocal_src, ref_text=ref,
+                        progress_cb=lambda p: (self.progress(job_id, p),
+                                              self.current_job.update(progress=p) if self.current_job else None))
+                    with open(word, 'w', encoding='utf-8') as f:
+                        f.write(lrc_text)
+                    log(f'逐字歌词 {lrc_text.count(chr(10))} 行 -> {os.path.basename(word)}')
                 files = {'wordLrc': ('word.lrc', open(word, 'rb'), 'text/plain')}
             try:
                 self.progress(job_id, 95)
