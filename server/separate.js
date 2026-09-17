@@ -191,9 +191,10 @@ function claimNext(db, { worker = 'anonymous', type = 'separate', capability = '
   }
   const tx = db.transaction(() => {
     const job = db.prepare(
-      "SELECT * FROM separation_jobs WHERE status='pending' AND job_type=? " +
-      "AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP) " +
-      "ORDER BY COALESCE(next_attempt_at, created_at), id LIMIT 1"
+      "SELECT j.* FROM separation_jobs j JOIN songs s ON s.id=j.song_id WHERE j.status='pending' AND j.job_type=? " +
+       "AND (j.next_attempt_at IS NULL OR j.next_attempt_at <= CURRENT_TIMESTAMP) " +
+       "AND s.instrumental IS NOT 1 " +
+       "ORDER BY COALESCE(j.next_attempt_at, j.created_at), j.id LIMIT 1"
     ).get(type);
     if (!job) return null;
     const r = db.prepare(
