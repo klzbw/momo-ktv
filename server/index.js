@@ -1,4 +1,5 @@
 process.env.STARTUP_SCAN_DISABLED = process.env.STARTUP_SCAN_DISABLED || '1';
+process.env.AUTO_SCAN_DISABLED = process.env.AUTO_SCAN_DISABLED || '1';
     const express = require('express');
 
 
