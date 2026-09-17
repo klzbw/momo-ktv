@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 墨墨爱K歌 —— AI 分离/对齐 Worker（跑在带 N 卡的 Windows 工作站，例如 4070TiS）
 ==============================================================================
@@ -98,9 +98,12 @@ class DemucsEngine:
             wav = wav.unsqueeze(0).to(self._device)
             if progress_cb: progress_cb(30)
             with torch.no_grad():
-                out = apply_model(self._model, wav, split=True, overlap=0.1, device=self._device)
-            vocals = out[0, 3].cpu()
-            accomp = (out[0, 0] + out[0, 1] + out[0, 2]).cpu()
+                # 与 sep_once.py CLI 参数对齐：segment=7, overlap=0.25
+                # 之前 overlap=0.1 太低，分块拼接处产生白噪音，导致伴奏变噪音、人声被吃掉
+                out = apply_model(self._model, wav, split=True, overlap=0.25,
+                                  segment=7.0, device=self._device)
+            vocals = out[0, 3].float().cpu()
+            accomp = (out[0, 0] + out[0, 1] + out[0, 2]).float().cpu()
             del out, wav
             import gc; gc.collect()
             torch.cuda.empty_cache()
@@ -270,6 +273,22 @@ def is_instrumental_song(song):
         # 目前关键词已足够精确，命中即视为纯音乐
         return True
     return False
+
+# 无意义歌词判定：对齐后歌词如果只剩这些拟声词，判纯音乐
+NONSENSE_LYRIC_RE = re.compile(r'[嗯啊哦诶唉呜呃呀哟啦哼哈嘿呵哎~～\s🎵♪♫♬\[\]\(\)<>0-9:.\-]')
+
+def is_nonsense_lrc(lrc_text):
+    if not lrc_text or not lrc_text.strip(): return True
+    lines = re.sub(r'\[\d+:\d+\.\d+\]', '', lrc_text)
+    real = NONSENSE_LYRIC_RE.sub('', lines)
+    return len(real.strip()) < 3
+
+def detect_vocal_db(path):
+    try:
+        r = subprocess.run(['ffmpeg','-i',path,'-af','volumedetect','-f','null','-'],capture_output=True,text=True,timeout=15)
+        m = re.search(r'mean_volume:\s*(-?[\d.]+)\s*dB', r.stderr)
+        return float(m.group(1)) if m else None
+    except: return None
 
 def log(*a):
     tname = threading.current_thread().name
@@ -472,28 +491,39 @@ class MomoWorker:
                 else:
                     # 对齐优先用分离出的纯人声（更准）；没有就用源音频
                     vocal_src = self._separated_vocal(job['songId'], tmp) or src
-                    args = [vocal_src, word]
-                    # 官方参考歌词：优先用任务下发的；为空则当场向服务端要一次（本地同名lrc优先，
-                    # 缺则在线网易云/QQ/酷我三源补抓并入库），尽量让每首都能"官方文字+精准时间"
-                    ref = (song or {}).get('refLyrics') or ''
-                    if not ref.strip():
-                        ref = self.fetch_ref_lyrics(song['id'])
+                    # 对齐前检测人声音量：太轻说明没有人声，直接判纯音乐
+                    vdb = detect_vocal_db(vocal_src)
+                    if vdb is not None and vdb < -45:
+                        log(f'人声音量过低({vdb}dB)，判纯音乐: 《{song.get("title")}》')
+                        self._make_instrumental_align(word)
+                    else:
+                        args = [vocal_src, word]
+                        # 官方参考歌词：优先用任务下发的；为空则当场向服务端要一次（本地同名lrc优先，
+                        # 缺则在线网易云/QQ/酷我三源补抓并入库），尽量让每首都能"官方文字+精准时间"
+                        ref = (song or {}).get('refLyrics') or ''
+                        if not ref.strip():
+                            ref = self.fetch_ref_lyrics(song['id'])
+                            if ref.strip():
+                                log(f'补到官方参考歌词 {len(ref)} 字符（本地/在线）')
+                        # 官方参考歌词（本地同名lrc/三源刮削已入库）：传给对齐子进程做逐字纠错
                         if ref.strip():
-                            log(f'补到官方参考歌词 {len(ref)} 字符（本地/在线）')
-                    # 官方参考歌词（本地同名lrc/三源刮削已入库）：传给对齐子进程做逐字纠错
-                    if ref.strip():
-                        ref_path = os.path.join(tmp, 'ref.lrc')
-                        with open(ref_path, 'w', encoding='utf-8') as f:
-                            f.write(ref)
-                        args.append('large-v3')   # 第3位是模型名，第4位才是参考歌词路径
-                        args.append(ref_path)
-                        log(f'附带官方参考歌词 {len(ref)} 字符用于纠错')
-                    lrc_text = WHISPER_ENGINE.align(vocal_src, ref_text=ref,
-                        progress_cb=lambda p: (self.progress(job_id, p),
-                                              self.current_job.update(progress=p) if self.current_job else None))
-                    with open(word, 'w', encoding='utf-8') as f:
-                        f.write(lrc_text)
-                    log(f'逐字歌词 {lrc_text.count(chr(10))} 行 -> {os.path.basename(word)}')
+                            ref_path = os.path.join(tmp, 'ref.lrc')
+                            with open(ref_path, 'w', encoding='utf-8') as f:
+                                f.write(ref)
+                            args.append('large-v3')   # 第3位是模型名，第4位才是参考歌词路径
+                            args.append(ref_path)
+                            log(f'附带官方参考歌词 {len(ref)} 字符用于纠错')
+                        lrc_text = WHISPER_ENGINE.align(vocal_src, ref_text=ref,
+                            progress_cb=lambda p: (self.progress(job_id, p),
+                                                  self.current_job.update(progress=p) if self.current_job else None))
+                        # 校验：如果歌词只是"嗯嗯嗯/🎵"等无意义内容，判定为纯音乐
+                        if is_nonsense_lrc(lrc_text):
+                            log(f'歌词无意义(只剩拟声词)，判定为纯音乐: 《{song.get("title")}》')
+                            self._make_instrumental_align(word)
+                        else:
+                            with open(word, 'w', encoding='utf-8') as f:
+                                f.write(lrc_text)
+                            log(f'逐字歌词 {lrc_text.count(chr(10))} 行 -> {os.path.basename(word)}')
                 files = {'wordLrc': ('word.lrc', open(word, 'rb'), 'text/plain')}
             try:
                 self.progress(job_id, 95)
