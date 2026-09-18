@@ -2504,6 +2504,16 @@ const VoiceManager = (() => {
       }
     };
     follow(dualVocalEl); follow(dualAccEl);
+    // 屏上调试浮层：实时显示双轨状态(诊断无声)
+    try{
+      let dbg=document.getElementById('dual-dbg');
+      if(!dbg){ dbg=document.createElement('div'); dbg.id='dual-dbg'; dbg.style.cssText='position:fixed;left:8px;bottom:8px;z-index:99999;background:rgba(0,0,0,.75);color:#0f0;font:12px/1.4 monospace;padding:6px 8px;border-radius:6px;max-width:480px;white-space:pre-wrap;'; document.body.appendChild(dbg); }
+      const e=dualVocalEl;
+      const err=e.error?('err'+e.error.code+'/'+(e.error.message||'')):'ok';
+      dbg.textContent='v2026.09.18-dual-dbg\nV: rs='+e.readyState+' paused='+e.paused+' t='+e.currentTime.toFixed(1)+' vol='+e.volume+' '+err+
+        '\nA: rs='+dualAccEl.readyState+' paused='+dualAccEl.paused+' t='+dualAccEl.currentTime.toFixed(1)+
+        '\nvid: paused='+v.paused+' t='+v.currentTime.toFixed(1)+' muted='+v.muted;
+    }catch(e){}
   }
   function dualStart(info,v){
     if(!info||!info.dual) return false;
