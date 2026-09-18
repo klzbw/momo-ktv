@@ -76,3 +76,25 @@ jobs:
             echo "- tags: \`${{ steps.meta.outputs.tags }}\`"
             echo "- digest: \`${{ steps.build.outputs.digest }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # 闭环：镜像推送成功后回调 NAS 上的部署 webhook，
+      # NAS 后端自动 docker pull 新镜像并重建容器（等价 docker compose pull && up -d）。
+      # 注意：NAS 在局域网，runner 无法直连 192.168.3.x。
+      # NAS_DEPLOY_WEBHOOK_URL 需填 NAS 公网可达地址（公网 IPv6 / 反向代理域名），
+      # 形如 http://[<公网IPv6>]:8083/api/deploy/webhook?token=<DEPLOY_WEBHOOK_TOKEN>
+      # 即使本步因网络不可达失败，也不影响镜像构建（continue-on-error），
+      # 且 NAS 上 watchtower 每 5 分钟轮询 GHCR 仍会兜底自动更新。
+      - name: Trigger NAS deploy webhook
+        if: success()
+        continue-on-error: true
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.NAS_DEPLOY_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DEPLOY_WEBHOOK_URL" ]; then
+            echo "NAS_DEPLOY_WEBHOOK_URL 未配置，跳过 webhook（依赖 watchtower 兜底）"
+            exit 0
+          fi
+          echo "回调 NAS 部署 webhook..."
+          curl -fsS --max-time 30 "$DEPLOY_WEBHOOK_URL" \
+            && echo "webhook 回调成功" \
+            || echo "::warning::webhook 回调失败（NAS 公网不可达，watchtower 兜底）"

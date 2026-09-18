@@ -213,6 +213,8 @@ const netktvScan = require('./netktv-scan');
 
 const netktvMkvScan = require('./netktv-mkv-scan');
 
+const deployWebhook = require('./deploy-webhook');
+
 
 
 
@@ -785,6 +787,9 @@ app.use('/api/netktv', netktvScan.init(db, cloudDrive));
 
 
 app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
+
+// 部署 webhook：GitHub Actions 构建成功后回调，自动拉新镜像并重建容器
+deployWebhook.register(app);
 
 
 
