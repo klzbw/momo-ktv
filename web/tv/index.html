@@ -2515,7 +2515,9 @@ const VoiceManager = (() => {
       const mk=(url)=>{
         const el=new Audio(); el.preload='auto';
         el.src=resolveMediaUrl(url);   // 已是 http(s):// 绝对URL则直接用(修复 BASE+绝对URL 拼畸形)，否则拼 BASE
-        el.addEventListener('error',()=>{ if(!dualBroken){ dualBroken=true; console.warn('[VoiceManager] DUAL 子音频加载失败，回退五档 HLS'); dualStop(true); } },{once:true});
+        el.style.display='none';
+        document.body.appendChild(el);  // 挂到 DOM(部分浏览器对脱离文档的 Audio 不发声)
+        el.addEventListener('error',()=>{ if(!dualBroken){ dualBroken=true; console.warn('[VoiceManager] DUAL 子音频加载失败 code='+el.error, url); dualStop(true); } },{once:true});
         return {el};
       };
       const voc=mk(info.vocalUrl), acc=mk(info.accompUrl);
@@ -3901,7 +3903,7 @@ video.addEventListener('pause',syncPauseUI);
 // 也顺便修掉了另一个隐患："切歌"广播以前是所有在线的 TV 标签页各自都会
 // 调用一次 cutSong()，同一浏览器再开一个控制标签页时，一次遥控端"下一首"
 // 会被多算一次，实际跳过不止一首歌。
-function localTogglePause(){VoiceManager.wake(video);if(video.paused)video.play().catch(()=>{});else video.pause();}
+function localTogglePause(){VoiceManager.wake(video);if(video.paused){video.play().catch(()=>{});if(typeof dualActive!=='undefined'&&dualActive){[dualVocalEl,dualAccEl].forEach(el=>{if(el&&el.paused)el.play().catch(()=>{});});}}else{video.pause();}}
 function togglePause(){
   if(!isActivePlayer){sendWS({type:'control',action:'play_pause'});return;}
   localTogglePause();
