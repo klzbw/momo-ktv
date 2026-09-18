@@ -473,14 +473,34 @@ class CloudDriveManager {
 
 
 
-  deleteAccount(id) {
+  async deleteAccount(id) {
 
-    // 删除前先移除对应的 AList 存储（best-effort，失败不阻断主流程）
+    const acc = this.getAccount(id);
+    if (!acc) {
+      throw new Error(`网盘账号不存在: ${id}`);
+    }
+
+    // 5) AList 挂载存储卸载（await，确保删干净；best-effort，失败不阻断主流程）
     try {
-      const acc = this.getAccount(id);
-      alistMount.unmountAccount(acc);
+      await alistMount.unmountAccount(acc);
     } catch (e) {
       console.warn('[AList] 删除前卸载失败（忽略）:', e.message);
+    }
+
+    // 1)+2) 主页"曲库来源与扫描" / admin"曲库源设置"共用的 library_roots 配置里，
+    //       绑定到该账号（cloud.accountId === id）的来源条目一并移除。
+    try {
+      this._removeLibraryRootsForAccount(id);
+    } catch (e) {
+      console.warn('[删除账号] 清理曲库来源配置失败（忽略）:', e.message);
+    }
+
+    // 3)+4) 该账号在 songs 表下的所有歌曲记录，以及本地 /data/netseparated-strm 中
+    //       这些歌曲引用到的 strm 文件。
+    try {
+      this._deleteSongsAndStrmForAccount(id);
+    } catch (e) {
+      console.warn('[删除账号] 清理歌曲/strm 失败（忽略）:', e.message);
     }
 
     // 删除关联的曲库和文件
@@ -493,6 +513,62 @@ class CloudDriveManager {
 
     this.invalidateDriver(id);
 
+  }
+
+
+  /**
+   * 从 settings.library_roots 中移除所有 cloud.accountId === accountId 的曲库来源配置。
+   * 主页"曲库来源与扫描"与 admin"曲库源设置"读的是同一份配置，这里清掉即两处同时生效。
+   * 内置动态来源（cloud.accountId=0，或按当前 active 账号动态取）不会被误删。
+   */
+  _removeLibraryRootsForAccount(accountId) {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key = 'library_roots'").get();
+    if (!row || !row.value) return;
+    let roots;
+    try { roots = JSON.parse(row.value); } catch (e) { return; }
+    if (!Array.isArray(roots)) return;
+    const kept = roots.filter((r) => !(r && r.cloud && Number(r.cloud.accountId) === Number(accountId)));
+    if (kept.length === roots.length) return;
+    const removed = roots.length - kept.length;
+    this.db.prepare(
+      "INSERT INTO settings (key, value) VALUES ('library_roots', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    ).run(JSON.stringify(kept));
+    console.log(`[删除账号] 已从曲库来源配置移除 ${removed} 个绑定账号 ${accountId} 的来源`);
+  }
+
+
+  /**
+   * 级联删除该账号在 songs 表下的全部歌曲记录，并删除这些歌曲引用到的本地 strm 文件。
+   * 歌曲通过 cloud_account_id 归属；queue/history/favorites/song_artists 一并清。
+   * strm 文件按歌曲行 filepath/vocal_path/accomp_path 指向 /data/netseparated-strm 的路径删除。
+   */
+  _deleteSongsAndStrmForAccount(accountId) {
+    const DATA_DIR = process.env.DATA_DIR || '/data';
+    const STRM_DIR = path.join(DATA_DIR, 'netseparated-strm');
+
+    const songRows = this.db
+      .prepare('SELECT filepath, vocal_path, accomp_path FROM songs WHERE cloud_account_id = ?')
+      .all(accountId);
+
+    let strmDeleted = 0;
+    for (const s of songRows) {
+      for (const p of [s.filepath, s.vocal_path, s.accomp_path]) {
+        if (p && typeof p === 'string' && p.indexOf(STRM_DIR) === 0) {
+          try { fs.rmSync(p, { force: true }); strmDeleted++; } catch (e) { /* 单个文件失败不阻断 */ }
+        }
+      }
+    }
+
+    const sub = 'SELECT id FROM songs WHERE cloud_account_id = ?';
+    const del = this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM queue WHERE song_id IN (${sub})`).run(accountId);
+      this.db.prepare(`DELETE FROM history WHERE song_id IN (${sub})`).run(accountId);
+      this.db.prepare(`DELETE FROM favorites WHERE song_id IN (${sub})`).run(accountId);
+      this.db.prepare(`DELETE FROM song_artists WHERE song_id IN (${sub})`).run(accountId);
+      this.db.prepare('DELETE FROM songs WHERE cloud_account_id = ?').run(accountId);
+    });
+    del();
+    console.log(`[删除账号] 已删除账号 ${accountId} 的歌曲 ${songRows.length} 首、本地 strm 文件 ${strmDeleted} 个`);
   }
 
 
