@@ -2487,10 +2487,15 @@ const VoiceManager = (() => {
     if(!dualActive) return;
     dualRaf=requestAnimationFrame(dualLoop);
     const v=video; if(!v||!dualVocalEl||!dualAccEl) return;
-    const master=isFinite(v.currentTime)?v.currentTime:0;
+    // 主时钟：video 在播就用 video；否则用 vocal 元素自身时钟(FLAC 纯音频无 HLS 画面)
+    const vPlaying=v && !v.paused && !v.ended && isFinite(v.currentTime) && v.currentTime>0;
+    const master=vPlaying?v.currentTime:dualVocalEl.currentTime;
+    // 暂停意图：video 被用户暂停(且音频已在播>0.5s)才停音频；
+    // video 因 HLS 没起播而 paused 不算暂停，要让两个 FLAC 元素自己出声
+    const userPaused=v && v.paused && dualVocalEl.currentTime>0.5;
     const follow=(el)=>{
       if(!el) return;
-      if(v.paused||v.ended){ if(!el.paused){ try{el.pause();}catch(e){} } return; }
+      if(userPaused){ if(!el.paused){ try{el.pause();}catch(e){} } return; }
       if(el.readyState>=2){
         if(el.paused){ const p=el.play(); if(p&&p.catch)p.catch(()=>{}); }
         if(isFinite(el.currentTime)&&Math.abs(el.currentTime-master)>0.35){ try{el.currentTime=master;}catch(e){} }
@@ -2522,6 +2527,8 @@ const VoiceManager = (() => {
       // 起播定位到主时钟当前位置
       const t=isFinite(v.currentTime)?v.currentTime:0;
       [voc.el,acc.el].forEach(el=>{ try{el.currentTime=t;}catch(e){} });
+      // 直接 kickstart 播放(FLAC 纯音频无 HLS 画面，不等 video 起播)；自动播放策略会 reject 但 dualLoop 每帧重试
+      [voc.el,acc.el].forEach(el=>{ try{ const p=el.play(); if(p&&p.catch)p.catch(()=>{}); }catch(e){} });
       dualLoop(); syncDualUI();
       console.log('[VoiceManager] DUAL 双轨(原生audio直连CDN)已启用 song='+info.songId+' level='+dualLevel);
       return true;
