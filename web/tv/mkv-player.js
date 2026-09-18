@@ -515,6 +515,12 @@
       // 3) 构造 fMP4 init segment
       this._buildInitSegment();
 
+      // MP2/MP3 in MSE：即使 isTypeSupported(mp4a.6B) 误报 true，Edge/Chrome MSE 实际解不出
+      // MP2 音频(有画无声)。直接抛错回退原生 DIRECT_MKV——Chromium 原生 MKV 容器能解 MP2。
+      const aTrack0chk = this._tracks.audios[0];
+      if (aTrack0chk && aTrack0chk.audioKind === 'mpeg') {
+        throw new Error('MP2/MP3 音轨，MSE 不解，回退原生 DIRECT_MKV');
+      }
       // 3.1) 浏览器不支持该音频编码(如 MP2/MP3 in MSE) -> 抛错让上层回退 DIRECT_MKV/HLS
       if (!MediaSource.isTypeSupported(this._mimeAudio)) {
         throw new Error('浏览器不支持此音频编码: ' + this._mimeAudio);
