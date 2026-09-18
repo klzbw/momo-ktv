@@ -518,7 +518,7 @@
         this._audioSB = audioSB;
         audioSB.mode = 'segments';
       } else { this._audioSB = null; }
-      audioSB.mode = 'segments';
+      
 
       // 设置时长
       if (this._duration > 0) {
@@ -529,7 +529,7 @@
       this._appendQueue(this._initVideoSeg, videoSB)
         .then(() => {
           if (this._initAudioSeg && this._initAudioSeg.length > 0) {
-            return this._appendQueue(this._initAudioSeg, audioSB);
+            return this._appendQueue(this._initAudioSeg, this._audioSB);
           }
         })
         .then(() => {
