@@ -2731,6 +2731,8 @@ const VoiceManager = (() => {
     dualSetPaused(p){ _dualUserPaused=!!p; if(!dualActive) return; [dualVocalEl,dualAccEl].forEach(el=>{ try{ if(p){ if(el&&!el.paused)el.pause(); }else{ if(el&&el.paused){ const x=el.play(); if(x&&x.catch)x.catch(()=>{}); } } }catch(e){} }); },
     dualSeek(t){ if(!dualActive) return; [dualVocalEl,dualAccEl].forEach(el=>{ try{ if(el) el.currentTime=t; }catch(e){} }); },
     dualMasterVol(v){ if(!dualActive) return; try{ if(dualVocalEl) dualVocalEl.volume=Math.max(0,Math.min(1,dualLevel*v)); if(dualAccEl) dualAccEl.volume=Math.max(0,Math.min(1,v)); }catch(e){} },
+    dualIsActive(){ return !!dualActive; },
+    dualIsPaused(){ return !!_dualUserPaused; },
     /** DIRECT_MKV：进入 115 MKV 直连模式（由 loadSong 在拿到 sep-info.isNetKtvMkv=true 后调用） */
     enterDirectMkv() {
       _directMkvActive = true;
@@ -3927,7 +3929,7 @@ video.addEventListener('pause',syncPauseUI);
 // 也顺便修掉了另一个隐患："切歌"广播以前是所有在线的 TV 标签页各自都会
 // 调用一次 cutSong()，同一浏览器再开一个控制标签页时，一次遥控端"下一首"
 // 会被多算一次，实际跳过不止一首歌。
-function localTogglePause(){VoiceManager.wake(video);if(video.paused){video.play().catch(()=>{});VoiceManager.dualSetPaused(false);}else{video.pause();VoiceManager.dualSetPaused(true);}}
+function localTogglePause(){VoiceManager.wake(video);try{ if(VoiceManager.dualIsActive&&VoiceManager.dualIsActive()){ const p=VoiceManager.dualIsPaused(); VoiceManager.dualSetPaused(!p); isPaused=!p; return; } }catch(e){} if(video.paused){video.play().catch(()=>{});}else{video.pause();}}
 function togglePause(){
   if(!isActivePlayer){sendWS({type:'control',action:'play_pause'});return;}
   localTogglePause();
