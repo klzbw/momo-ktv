@@ -3596,10 +3596,9 @@ async function loadSong(v,songId,needsDownload){
               // 不做 DIRECT_MKV 兜底（本地 MKV 浏览器原生解不了封装），直接落到下方 HLS 转码兜底。
               console.warn('[MSE-LOCAL] 初始化失败，回退 HLS 转码:',err);
             } else {
-              // 第二级回退：startDirectMkvPlayback（video.src 直连，Safari系可工作；Chrome必败再回HLS）
-              console.warn('[MSE-MKV] 初始化失败，回退 DIRECT_MKV:',err);
-              startDirectMkvPlayback(v,songId,sepJ.videoUrl);
-              return;
+              // MSE 初始化失败(常见:浏览器不支持MP2/MP3 in MSE, isTypeSupported(mp4a.6B)=false)。
+              // 不再回退 DIRECT_MKV(原生解不了MP2音轨->有画无声)，直接落到下方 HLS 转码(服务端转AAC)。
+              console.warn('[MSE-MKV] 初始化失败，回退 HLS 转码(服务端转AAC):',err && err.message);
             }
           }
         } else if(!_mseIsLocal){
