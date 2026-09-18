@@ -2531,6 +2531,15 @@ const VoiceManager = (() => {
       [voc.el,acc.el].forEach(el=>{ try{el.currentTime=t;}catch(e){} });
       // 直接 kickstart 播放(FLAC 纯音频无 HLS 画面，不等 video 起播)；自动播放策略会 reject 但 dualLoop 每帧重试
       [voc.el,acc.el].forEach(el=>{ try{ const p=el.play(); if(p&&p.catch)p.catch(()=>{}); }catch(e){} });
+      // 手机自动播放策略解锁：dualStart 是 await fetch 后执行，点歌手势已过期，play() 被拦。
+      // 注册一次性 document 手势监听：用户再点/触屏任意处即同步 kick 两个音频(此时在手势栈内，play() 被放行)。
+      const unlock=()=>{
+        if(!dualActive) return;
+        [dualVocalEl,dualAccEl].forEach(el=>{ try{ if(el&&el.paused){ const p=el.play(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} });
+        try{ if(v.paused){ const p=v.play(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){}
+      };
+      document.addEventListener('click',unlock,{passive:true});
+      document.addEventListener('touchend',unlock,{passive:true});
       dualLoop(); syncDualUI();
       console.log('[VoiceManager] DUAL 双轨(原生audio直连CDN)已启用 song='+info.songId+' level='+dualLevel);
       return true;
