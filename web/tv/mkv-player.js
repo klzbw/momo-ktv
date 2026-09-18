@@ -747,7 +747,7 @@
         const size = await r.readVint();
         const s = r.tell();
         const e = s + size.value;
-        switch (id.value) {
+        switch (id.raw) {
           case ID.TRACK_NUMBER: trackNum = await r.readUint(Math.min(8, size.value)); break;
           case ID.TRACK_TYPE: trackType = await r.readUint(size.value); break;
           case ID.CODEC_ID:
@@ -781,8 +781,8 @@
               const asz = await r.readVint();
               const ad = r.tell();
               const ade = ad + asz.value;
-              if (aid.value === ID.SAMPLING_FREQ) sampleRate = await r.readFloat();
-              else if (aid.value === ID.CHANNELS) channels = await r.readUint(asz.value);
+              if (aid.raw === ID.SAMPLING_FREQ) sampleRate = await r.readFloat();
+              else if (aid.raw === ID.CHANNELS) channels = await r.readUint(asz.value);
               else r._pos += asz.value;
               r._pos = ade;
             }
