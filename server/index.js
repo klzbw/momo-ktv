@@ -213,8 +213,6 @@ const netktvScan = require('./netktv-scan');
 
 const netktvMkvScan = require('./netktv-mkv-scan');
 
-const deployWebhook = require('./deploy-webhook');
-
 
 
 
@@ -787,9 +785,6 @@ app.use('/api/netktv', netktvScan.init(db, cloudDrive));
 
 
 app.use('/api/netktv', netktvMkvScan.init(db, cloudDrive));
-
-// 部署 webhook：GitHub Actions 构建成功后回调，自动拉新镜像并重建容器
-deployWebhook.register(app);
 
 
 
@@ -10445,19 +10440,11 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
     if (netktvId) {
-      // 优先读本地 .strm 正文（AList DAV URL），读不到再回退内部 stream 路由
+      // 浏览器 <audio> 直连 AList/115 CDN 会被 Content-Disposition: attachment 拒播(rs=0)。
+      // 统一走内部同源代理端点 /api/netktv/stream/...（服务端拉CDN字节以 audio/flac inline 转发）。
+      // 不再用 .strm 正文里的 AList 直链。
       let _vocalUrl = `/api/netktv/stream/${netktvId}/vocals`;
       let _accompUrl = `/api/netktv/stream/${netktvId}/accompaniment`;
-      try {
-        if (song.vocal_path && fs.existsSync(song.vocal_path)) {
-          const _v = fs.readFileSync(song.vocal_path, 'utf-8').trim();
-          if (_v) _vocalUrl = _v;
-        }
-        if (song.accomp_path && fs.existsSync(song.accomp_path)) {
-          const _a = fs.readFileSync(song.accomp_path, 'utf-8').trim();
-          if (_a) _accompUrl = _a;
-        }
-      } catch (e) { /* keep fallback */ }
 
 
 

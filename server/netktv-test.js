@@ -334,11 +334,38 @@ router.get('/stream/:dir/:type', async (req, res) => {
     // 方案一：通过 cloud-drive 获取 302 直链（标准方案，支持多账号自动识别）
     const directUrl = await getCloudDirectUrl(dir, type);
     if (directUrl && directUrl.url) {
-      console.log(`[NETKTV] 使用 cloud-drive 302 直链: ${dir}/${type}`);
-      // 302 重定向到 115 CDN 直链
-      res.setHeader('Location', directUrl.url);
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      return res.status(302).send();
+      // 浏览器 <audio> 直连 115 CDN 会被 Content-Disposition: attachment 拒播(rs=0)。
+      // 改为同源代理：服务端拉 CDN 字节，以 audio/flac inline 转发给浏览器。
+      // 注意：此路径会占用 NAS 上下行带宽（CDN->NAS->浏览器）。
+      const target = directUrl.url;
+      const isHttps = /^https:/.test(target);
+      const lib = isHttps ? https : http;
+      const u = new URL(target);
+      const proxyReqOpts = {
+        method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+        hostname: u.hostname,
+        port: u.port || (isHttps ? 443 : 80),
+        path: u.pathname + u.search,
+        headers: req.headers['range'] ? { Range: req.headers['range'] } : {},
+      };
+      const proxyReq = lib.request(proxyReqOpts, (proxyRes) => {
+        const up = proxyRes.statusCode || 200;
+        const outHeaders = {
+          'Content-Type': 'audio/flac',
+          'Accept-Ranges': 'bytes',
+          'Content-Disposition': 'inline',
+        };
+        if (proxyRes.headers['content-length']) outHeaders['Content-Length'] = proxyRes.headers['content-length'];
+        if (proxyRes.headers['content-range']) outHeaders['Content-Range'] = proxyRes.headers['content-range'];
+        res.writeHead(up, outHeaders);
+        proxyRes.pipe(res);
+      });
+      proxyReq.on('error', (e) => {
+        console.error('[NETKTV] 代理拉取CDN失败:', e.message);
+        if (!res.headersSent) res.status(502).json({ error: '代理拉取CDN失败: ' + e.message });
+      });
+      proxyReq.end();
+      return;
     }
 
     // 方案二：回退到直接从挂载路径读取文件（兼容模式）
