@@ -795,12 +795,16 @@
       const duration = Math.ceil(this._duration * timescale);
 
       const stsdV = stsdVideoBox(cp, v.width, v.height);
-      const stsdA = stsdAudioBox(
-        this._tracks.audios[0].codecPrivate,
-        this._tracks.audios[0].channels,
-        this._tracks.audios[0].sampleRate
-      );
-
+      const stsdV = stsdVideoBox(cp, v.width, v.height);
+      const _isMpeg = (this._tracks.audios[0] && this._tracks.audios[0].audioKind === 'mpeg');
+      let stsdA = null;
+      if (!_isMpeg) {
+        stsdA = stsdAudioBox(
+          this._tracks.audios[0].codecPrivate,
+          this._tracks.audios[0].channels,
+          this._tracks.audios[0].sampleRate
+        );
+      }
       let tracks;
       if (this._tracks.audios[0] && this._tracks.audios[0].audioKind === 'mpeg') {
         tracks = [{ video: true, trackId: 1, width: v.width, height: v.height, volume: 0, timescale, stsd: stsdV }];
