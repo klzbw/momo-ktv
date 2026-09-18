@@ -2501,42 +2501,36 @@ const VoiceManager = (() => {
     follow(dualVocalEl); follow(dualAccEl);
   }
   function dualStart(info,v){
-    if(!info||!info.dual||!dualSupported()) return false;
+    if(!info||!info.dual) return false;
     dualStop(false);
     try{
-      const AC=window.AudioContext||window.webkitAudioContext;
-      dualCtx=new AC();
+      // 网盘 FLAC 直链(AList /d/ -> 302 115 CDN)不带 CORS，createMediaElementSource 走 Web Audio 必被跨域拦死。
+      // 改用原生 <audio> 元素直接播放：跨域媒体元素本就可播，.volume/.muted/.currentTime 不受 CORS 限制，
+      // 原唱/伴唱用两个元素各自音量控制——浏览器直连 CDN，不占 NAS 带宽，也不卡 CORS。
       const mk=(url)=>{
-        const el=new Audio(); el.preload='auto'; el.crossOrigin='anonymous'; el.src=BASE+url;
-        el.addEventListener('error',()=>{ if(!dualBroken){ dualBroken=true; console.warn('[VoiceManager] DUAL 子音频解码失败，回退五档 HLS'); dualStop(true); } },{once:true});
-        const src=dualCtx.createMediaElementSource(el);
-        const g=dualCtx.createGain(); g.gain.value=1;
-        src.connect(g); g.connect(dualCtx.destination);
-        return {el,src,g};
+        const el=new Audio(); el.preload='auto';
+        el.src=resolveMediaUrl(url);   // 已是 http(s):// 绝对URL则直接用(修复 BASE+绝对URL 拼畸形)，否则拼 BASE
+        el.addEventListener('error',()=>{ if(!dualBroken){ dualBroken=true; console.warn('[VoiceManager] DUAL 子音频加载失败，回退五档 HLS'); dualStop(true); } },{once:true});
+        return {el};
       };
       const voc=mk(info.vocalUrl), acc=mk(info.accompUrl);
-      dualVocalEl=voc.el; dualVocalSrc=voc.src; dualVocalGain=voc.g;
-      dualAccEl=acc.el; dualAccSrc=acc.src; dualAccGain=acc.g;
-      voc.g.gain.value=dualLevel;
-      // 频谱探针挂到伴奏总线，继续驱动动态背景随音乐律动
-      try{ dualAnalyser=dualCtx.createAnalyser(); dualAnalyser.fftSize=256; dualAnalyser.smoothingTimeConstant=0.78;
-        dualFreq=new Uint8Array(dualAnalyser.frequencyBinCount); acc.src.connect(dualAnalyser); }catch(e){ dualAnalyser=null; }
-      analyser=dualAnalyser; freqData=dualFreq;
+      dualVocalEl=voc.el; dualAccEl=acc.el;
+      dualVocalEl.volume=dualLevel;   // 人声音量由滑块控制(0..1)
+      dualAccEl.volume=1;              // 伴奏恒满
       dualActive=true; dualSongId=info.songId; dualBroken=false; mode=MODE.DUAL;
-      v.muted=true;  // DUAL 下不 initWA(video)，video 走普通通路，muted 才能真正关掉其自带音轨
-      if(dualCtx.state==='suspended') dualCtx.resume();
+      v.muted=true;  // DUAL 下不 initWA(video)，背景 video 自带音轨静音，声音由两个 FLAC 元素出
       // 起播定位到主时钟当前位置
       const t=isFinite(v.currentTime)?v.currentTime:0;
       [voc.el,acc.el].forEach(el=>{ try{el.currentTime=t;}catch(e){} });
       dualLoop(); syncDualUI();
-      console.log('[VoiceManager] DUAL 双轨连续滑块已启用 song='+info.songId);
+      console.log('[VoiceManager] DUAL 双轨(原生audio直连CDN)已启用 song='+info.songId+' level='+dualLevel);
       return true;
     }catch(e){ console.warn('[VoiceManager] DUAL 启动失败，回退:',e); dualStop(true); return false; }
   }
   // 连续设置人声音量 0(纯伴奏)..1(原唱)，0.04s 指数斜坡避免咔哒爆音
   function setVocalLevel(x){
     dualLevel=Math.max(0,Math.min(1,+x));
-    if(dualVocalGain&&dualCtx){ try{ dualVocalGain.gain.setTargetAtTime(dualLevel,dualCtx.currentTime,0.04); }catch(e){ dualVocalGain.gain.value=dualLevel; } }
+    if(dualVocalEl){ try{ dualVocalEl.volume=dualLevel; }catch(e){} }
     _isOriginal=dualLevel>0.5;
     syncDualUI();
   }
