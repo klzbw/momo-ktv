@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
@@ -2390,7 +2390,7 @@ const VoiceManager = (() => {
   // 子音频的播放/暂停/寻址。任何不支持/出错都 dualStop() 回退到旧五档 HLS，零影响。
   let dualCtx=null, dualVocalEl=null, dualAccEl=null, dualVocalSrc=null, dualAccSrc=null;
   let dualVocalGain=null, dualAccGain=null, dualRaf=0, dualActive=false, dualSongId=null;
-  let dualLevel=1, dualAnalyser=null, dualFreq=null, dualBroken=false;
+  let dualLevel=1, dualAnalyser=null, dualFreq=null, dualBroken=false, _dualUserPaused=false;
   // 原生HLS(无MSE的iPad iOS12/tvOS)：没有 hls.js、JS 无法切 EXT-X-MEDIA 音轨，
   // 改由服务端 master?voice=N 只下发选定档，前端换源并断点续播来实现原唱/伴奏切换。
   let _nativeTracks = 1, _nativeNames = null, _nativeSongId = null, _switchingNative = false;
@@ -2487,10 +2487,15 @@ const VoiceManager = (() => {
     if(!dualActive) return;
     dualRaf=requestAnimationFrame(dualLoop);
     const v=video; if(!v||!dualVocalEl||!dualAccEl) return;
-    const master=isFinite(v.currentTime)?v.currentTime:0;
+    // 主时钟：video 在播就用 video；否则用 vocal 元素自身时钟(FLAC 纯音频无 HLS 画面)
+    const vPlaying=v && !v.paused && !v.ended && isFinite(v.currentTime) && v.currentTime>0;
+    const master=vPlaying?v.currentTime:dualVocalEl.currentTime;
+    // 暂停意图：video 被用户暂停(且音频已在播>0.5s)才停音频；
+    // video 因 HLS 没起播而 paused 不算暂停，要让两个 FLAC 元素自己出声
+    const userPaused=_dualUserPaused;
     const follow=(el)=>{
       if(!el) return;
-      if(v.paused||v.ended){ if(!el.paused){ try{el.pause();}catch(e){} } return; }
+      if(userPaused){ if(!el.paused){ try{el.pause();}catch(e){} } return; }
       if(el.readyState>=2){
         if(el.paused){ const p=el.play(); if(p&&p.catch)p.catch(()=>{}); }
         if(isFinite(el.currentTime)&&Math.abs(el.currentTime-master)>0.35){ try{el.currentTime=master;}catch(e){} }
@@ -2499,44 +2504,63 @@ const VoiceManager = (() => {
       }
     };
     follow(dualVocalEl); follow(dualAccEl);
+    // 屏上调试浮层：实时显示双轨状态(诊断无声)
+    try{
+      let dbg=document.getElementById('dual-dbg');
+      if(!dbg){ dbg=document.createElement('div'); dbg.id='dual-dbg'; dbg.style.cssText='position:fixed;left:8px;bottom:8px;z-index:99999;background:rgba(0,0,0,.75);color:#0f0;font:12px/1.4 monospace;padding:6px 8px;border-radius:6px;max-width:480px;white-space:pre-wrap;'; document.body.appendChild(dbg); }
+      const e=dualVocalEl;
+      const err=e.error?('err'+e.error.code+'/'+(e.error.message||'')):'ok';
+      const vsrc=(e.src||'').slice(0,90);
+      dbg.textContent='v2026.09.18-dual-dbg2\nV: rs='+e.readyState+' p='+e.paused+' t='+e.currentTime.toFixed(1)+' vol='+e.volume+' '+err+
+        '\n src='+vsrc+
+        '\nA: rs='+dualAccEl.readyState+' p='+dualAccEl.paused+' t='+dualAccEl.currentTime.toFixed(1)+
+        '\nvid: p='+v.paused+' t='+v.currentTime.toFixed(1)+' muted='+v.muted;
+    }catch(e){}
   }
   function dualStart(info,v){
-    if(!info||!info.dual||!dualSupported()) return false;
+    if(!info||!info.dual) return false;
     dualStop(false);
     try{
-      const AC=window.AudioContext||window.webkitAudioContext;
-      dualCtx=new AC();
+      // 网盘 FLAC 直链(AList /d/ -> 302 115 CDN)不带 CORS，createMediaElementSource 走 Web Audio 必被跨域拦死。
+      // 改用原生 <audio> 元素直接播放：跨域媒体元素本就可播，.volume/.muted/.currentTime 不受 CORS 限制，
+      // 原唱/伴唱用两个元素各自音量控制——浏览器直连 CDN，不占 NAS 带宽，也不卡 CORS。
       const mk=(url)=>{
-        const el=new Audio(); el.preload='auto'; el.crossOrigin='anonymous'; el.src=BASE+url;
-        el.addEventListener('error',()=>{ if(!dualBroken){ dualBroken=true; console.warn('[VoiceManager] DUAL 子音频解码失败，回退五档 HLS'); dualStop(true); } },{once:true});
-        const src=dualCtx.createMediaElementSource(el);
-        const g=dualCtx.createGain(); g.gain.value=1;
-        src.connect(g); g.connect(dualCtx.destination);
-        return {el,src,g};
+        const el=new Audio(); el.preload='auto';
+        el.src=resolveMediaUrl(url);   // 已是 http(s):// 绝对URL则直接用(修复 BASE+绝对URL 拼畸形)，否则拼 BASE
+        el.style.display='none';
+        document.body.appendChild(el);  // 挂到 DOM(部分浏览器对脱离文档的 Audio 不发声)
+        el.addEventListener('error',()=>{ if(!dualBroken){ dualBroken=true; console.warn('[VoiceManager] DUAL 子音频加载失败 code='+el.error, url); dualStop(true); } },{once:true});
+        return {el};
       };
       const voc=mk(info.vocalUrl), acc=mk(info.accompUrl);
-      dualVocalEl=voc.el; dualVocalSrc=voc.src; dualVocalGain=voc.g;
-      dualAccEl=acc.el; dualAccSrc=acc.src; dualAccGain=acc.g;
-      voc.g.gain.value=dualLevel;
-      // 频谱探针挂到伴奏总线，继续驱动动态背景随音乐律动
-      try{ dualAnalyser=dualCtx.createAnalyser(); dualAnalyser.fftSize=256; dualAnalyser.smoothingTimeConstant=0.78;
-        dualFreq=new Uint8Array(dualAnalyser.frequencyBinCount); acc.src.connect(dualAnalyser); }catch(e){ dualAnalyser=null; }
-      analyser=dualAnalyser; freqData=dualFreq;
-      dualActive=true; dualSongId=info.songId; dualBroken=false; mode=MODE.DUAL;
-      v.muted=true;  // DUAL 下不 initWA(video)，video 走普通通路，muted 才能真正关掉其自带音轨
-      if(dualCtx.state==='suspended') dualCtx.resume();
+      dualVocalEl=voc.el; dualAccEl=acc.el;
+      dualVocalEl.volume=dualLevel;   // 人声音量由滑块控制(0..1)
+      dualAccEl.volume=1;              // 伴奏恒满
+      dualActive=true; dualSongId=info.songId; dualBroken=false; mode=MODE.DUAL; _dualUserPaused=false;
+      v.muted=true;  // DUAL 下不 initWA(video)，背景 video 自带音轨静音，声音由两个 FLAC 元素出
       // 起播定位到主时钟当前位置
       const t=isFinite(v.currentTime)?v.currentTime:0;
       [voc.el,acc.el].forEach(el=>{ try{el.currentTime=t;}catch(e){} });
+      // 直接 kickstart 播放(FLAC 纯音频无 HLS 画面，不等 video 起播)；自动播放策略会 reject 但 dualLoop 每帧重试
+      [voc.el,acc.el].forEach(el=>{ try{ const p=el.play(); if(p&&p.catch)p.catch(()=>{}); }catch(e){} });
+      // 手机自动播放策略解锁：dualStart 是 await fetch 后执行，点歌手势已过期，play() 被拦。
+      // 注册一次性 document 手势监听：用户再点/触屏任意处即同步 kick 两个音频(此时在手势栈内，play() 被放行)。
+      const unlock=()=>{
+        if(!dualActive) return;
+        [dualVocalEl,dualAccEl].forEach(el=>{ try{ if(el&&el.paused){ const p=el.play(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){} });
+        try{ if(v.paused){ const p=v.play(); if(p&&p.catch)p.catch(()=>{}); } }catch(e){}
+      };
+      document.addEventListener('click',unlock,{passive:true});
+      document.addEventListener('touchend',unlock,{passive:true});
       dualLoop(); syncDualUI();
-      console.log('[VoiceManager] DUAL 双轨连续滑块已启用 song='+info.songId);
+      console.log('[VoiceManager] DUAL 双轨(原生audio直连CDN)已启用 song='+info.songId+' level='+dualLevel);
       return true;
     }catch(e){ console.warn('[VoiceManager] DUAL 启动失败，回退:',e); dualStop(true); return false; }
   }
   // 连续设置人声音量 0(纯伴奏)..1(原唱)，0.04s 指数斜坡避免咔哒爆音
   function setVocalLevel(x){
     dualLevel=Math.max(0,Math.min(1,+x));
-    if(dualVocalGain&&dualCtx){ try{ dualVocalGain.gain.setTargetAtTime(dualLevel,dualCtx.currentTime,0.04); }catch(e){ dualVocalGain.gain.value=dualLevel; } }
+    if(dualVocalEl){ try{ dualVocalEl.volume=dualLevel; }catch(e){} }
     _isOriginal=dualLevel>0.5;
     syncDualUI();
   }
@@ -2703,7 +2727,12 @@ const VoiceManager = (() => {
         .catch(()=>{});
     },
     /** DUAL：换歌/停止时清理双轨并恢复背景音轨出声 */
-    dualReset(){ _dualReqId++; if(dualActive) dualStop(false); _directMkvActive=false; _mseMkvActive=false; _mseMkvPlayer=null; if(mode===MODE.DIRECT_MKV||mode===MODE.MSE_MKV) mode=MODE.UNKNOWN; try{video.muted=false;}catch(e){} },
+    dualReset(){ _dualReqId++; if(dualActive) dualStop(false); _directMkvActive=false; _mseMkvActive=false; _mseMkvPlayer=null; if(mode===MODE.DIRECT_MKV||mode===MODE.MSE_MKV) mode=MODE.UNKNOWN; try{video.muted=false;}catch(e){} _dualUserPaused=false; },
+    dualSetPaused(p){ _dualUserPaused=!!p; if(!dualActive) return; [dualVocalEl,dualAccEl].forEach(el=>{ try{ if(p){ if(el&&!el.paused)el.pause(); }else{ if(el&&el.paused){ const x=el.play(); if(x&&x.catch)x.catch(()=>{}); } } }catch(e){} }); },
+    dualSeek(t){ if(!dualActive) return; [dualVocalEl,dualAccEl].forEach(el=>{ try{ if(el) el.currentTime=t; }catch(e){} }); },
+    dualMasterVol(v){ if(!dualActive) return; try{ if(dualVocalEl) dualVocalEl.volume=Math.max(0,Math.min(1,dualLevel*v)); if(dualAccEl) dualAccEl.volume=Math.max(0,Math.min(1,v)); }catch(e){} },
+    dualIsActive(){ return !!dualActive; },
+    dualIsPaused(){ return !!_dualUserPaused; },
     /** DIRECT_MKV：进入 115 MKV 直连模式（由 loadSong 在拿到 sep-info.isNetKtvMkv=true 后调用） */
     enterDirectMkv() {
       _directMkvActive = true;
@@ -3442,11 +3471,14 @@ document.addEventListener('keydown',resumePendingAutoplay,{passive:true});
 // 失败时按 直连 -> 代理(?proxy=1) -> HLS 顺序回退，保证不黑屏。
 function startDirectMkvPlayback(v,songId,videoUrl){
   _directMkv=true;
+  try{ v.muted=false; v.volume=1; }catch(e){}
   try{ VoiceManager.enterDirectMkv(); }catch(e){}
   const fullUrl=resolveMediaUrl(videoUrl);
-  v.crossOrigin='anonymous';
+  // 走同源代理避免CDN跨域导致Edge音轨识别失败(audioTracks=0)
+  const proxyUrl=fullUrl+(fullUrl.indexOf('?')>=0?'&':'?')+'proxy=1';
+  try{ v.removeAttribute('crossorigin'); }catch(e){}
   v.removeAttribute('src');
-  v.src=fullUrl;
+  v.src=proxyUrl;
   v.addEventListener('loadedmetadata',function onMd(){
     if(!curSong||curSong.song_id!==songId) return;
     try{ VoiceManager.onDirectMkvReady(v); }catch(e){ console.warn('directMkv ready',e); }
@@ -3487,7 +3519,7 @@ function _isLocalVideoMse(){
   const s=curSong;
   if(!s) return false;
   const n=((s.filename||s.filepath)||'').toLowerCase();
-  if(!VIDEO_RE.test(n)) return false;
+  if(!BG_VIDEO_RE.test(n)) return false;
   if(s.is_network===1||s.is_strm===1) return false;
   if(s.source_root && /netktv|网盘|115|cloud|share|strm|ktv-output/i.test(s.source_root)) return false;
   if(/netktv|网盘|115|cloud|ktv-output/i.test(s.filepath||'')) return false;
@@ -3571,8 +3603,8 @@ async function loadSong(v,songId,needsDownload){
               // 不做 DIRECT_MKV 兜底（本地 MKV 浏览器原生解不了封装），直接落到下方 HLS 转码兜底。
               console.warn('[MSE-LOCAL] 初始化失败，回退 HLS 转码:',err);
             } else {
-              // 第二级回退：startDirectMkvPlayback（video.src 直连，Safari系可工作；Chrome必败再回HLS）
-              console.warn('[MSE-MKV] 初始化失败，回退 DIRECT_MKV:',err);
+              // 回退 DIRECT_MKV(原生播放)：至少有画面；MP2音轨浏览器原生不支持会无声，待后续转码优化。
+              console.warn('[MSE-MKV] 初始化失败，回退 DIRECT_MKV:',err && err.message);
               startDirectMkvPlayback(v,songId,sepJ.videoUrl);
               return;
             }
@@ -3857,7 +3889,7 @@ function hideSongIntro(){clearTimeout(songIntroTimer);document.getElementById('s
 // 拦截、系统媒体键等)，都能反映真实状态，而不是在每个"调用播放"的地方各自假设
 // 结果一定成功。
 function syncPauseUI(){
-  isPaused=video.paused;
+  try{ if(VoiceManager.dualIsActive&&VoiceManager.dualIsActive()){ isPaused=VoiceManager.dualIsPaused(); } else { isPaused=video.paused; } }catch(e){ isPaused=video.paused; }
   const playIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>';
   const pauseIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="10"/><line x1="10" y1="8" x2="10" y2="16"/><line x1="14" y1="8" x2="14" y2="16"/></svg>';
   document.getElementById('picon').innerHTML=isPaused?playIcon:pauseIcon;
@@ -3900,7 +3932,7 @@ video.addEventListener('pause',syncPauseUI);
 // 也顺便修掉了另一个隐患："切歌"广播以前是所有在线的 TV 标签页各自都会
 // 调用一次 cutSong()，同一浏览器再开一个控制标签页时，一次遥控端"下一首"
 // 会被多算一次，实际跳过不止一首歌。
-function localTogglePause(){VoiceManager.wake(video);if(video.paused)video.play().catch(()=>{});else video.pause();}
+function localTogglePause(){VoiceManager.wake(video);try{ if(VoiceManager.dualIsActive&&VoiceManager.dualIsActive()){ const p=VoiceManager.dualIsPaused(); VoiceManager.dualSetPaused(!p); isPaused=!p; try{syncPauseUI();}catch(e){} return; } }catch(e){} if(video.paused){video.play().catch(()=>{});}else{video.pause();}}
 function togglePause(){
   if(!isActivePlayer){sendWS({type:'control',action:'play_pause'});return;}
   localTogglePause();
@@ -3916,7 +3948,7 @@ function togglePause(){
 // 本机(不管是不是播放端)点这个按钮都直接调用——它本来就是一次性的 HTTP
 // 请求，全局只生效一次，不需要也不应该走"判断角色再转发"那一套。
 function cutSong(){isPaused=false;fetch('/api/queue/next',{method:'POST'});}
-function localRestartSong(){VoiceManager.wake(video);video.currentTime=0;isPaused=false;video.play().catch(()=>{});showToast('重唱 🔄');}
+function localRestartSong(){VoiceManager.wake(video);video.currentTime=0;isPaused=false;video.play().catch(()=>{});try{VoiceManager.dualSeek(0);VoiceManager.dualSetPaused(false);}catch(e){}showToast('重唱 🔄');}
 function restartSong(){
   if(!isActivePlayer){sendWS({type:'control',action:'repeat'});showToast('已发送「重唱」指令');return;}
   localRestartSong();
@@ -4036,6 +4068,7 @@ function setEQ(name){
 // 播放端调它自己的音量；是播放端就直接调本地音量，不用绕一次网络。
 function localAdjVolume(delta){
   video.volume=Math.max(0,Math.min(1,Math.round((video.volume+delta)*10)/10));
+  try{ if(typeof VoiceManager!=='undefined'&&VoiceManager.dualMasterVol) VoiceManager.dualMasterVol(video.volume); }catch(e){}
   showToast('🔊 音量 '+Math.round(video.volume*100)+'%');
 }
 function adjVolume(delta){

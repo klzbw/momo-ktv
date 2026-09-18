@@ -1,4 +1,4 @@
-﻿/**
+/**
  * mkv-player.js — MSE MKV 直连播放器（纯 JS，无构建依赖）
  *
  * 工作原理：
@@ -238,6 +238,37 @@
     return fullBox('stsd', 0, 0, body);
   }
 
+  // stsd：MPEG audio(MP2/MP3) in fMP4。objectTypeIndication=0x6B(MPEG-1 Audio)，
+  // 帧头自带，无需 decSpecificInfo。codec string 用 mp4a.6B。
+  function stsdMpegAudioBox(channels, sampleRate) {
+    const decSpecificInfo = concat(u8(0x06), u8(0x01), u8(0x02));
+    const decoderConfig = concat(
+      u8(0x04),
+      u8(13),              // length = 13 固定字段，无 decSpecificInfo
+      u8(0x6B),            // objectTypeIndication: MPEG-1 Audio (MP1/MP2/MP3)
+      u8(0x15),            // streamType=5(audio) <<2 | upstream=1
+      u24(0x000000),       // bufferSizeDB
+      u32(0),              // maxBitrate
+      u32(0),              // avgBitrate
+      decSpecificInfo
+    );
+    const esDescriptor = concat(
+      u8(0x03),
+      u8(3 + decoderConfig.length),
+      u16(0x01), u8(0x00),
+      decoderConfig
+    );
+    const esds = fullBox('esds', 0, 0, esDescriptor);
+    const entry = concat(
+      zeros(6), u16(1), zeros(8),
+      u16(channels), u16(16), u16(0), u16(0),
+      u32(sampleRate << 16),
+      esds
+    );
+    const body = concat(u32(0), u32(1), box('mp4a', entry));
+    return fullBox('stsd', 0, 0, body);
+  }
+
   // 空 stbl 子表（init segment 里不填样本级信息，由 moof/trun 提供）
   function sttsEmpty() { return fullBox('stts', 0, 0, u32(0)); }
   function stscEmpty() { return fullBox('stsc', 0, 0, u32(0)); }
@@ -391,7 +422,8 @@
         for (let i = 1; i < len; i++) if (this._buf[this._pos - len + i] !== 0xFF) return false;
         return true;
       })();
-      return { value: val, length: len, unknown: allOne };
+      let raw = first; for (let i = 1; i < len; i++) { raw = (raw << 8) | this._buf[this._pos - len + i]; }
+      return { value: val, raw: raw, length: len, unknown: allOne };
     }
 
     // 读 N 字节（返回拷贝）
@@ -483,6 +515,10 @@
 
       // 3) 构造 fMP4 init segment
       this._buildInitSegment();
+
+      if (!MediaSource.isTypeSupported(this._mimeAudio)) {
+        throw new Error('浏览器不支持此音频编码: ' + this._mimeAudio);
+      }
     }
 
     /** 挂到 <video> 并起播 */
@@ -627,7 +663,7 @@
       const r = this._reader;
       // EBML 头（校验）
       const ebmlId = await r.readVint();
-      if (ebmlId.value !== ID.EBML) throw new Error('不是 EBML 文件');
+      if (ebmlId.raw !== ID.EBML) throw new Error('不是 EBML 文件');
       const ebmlSize = await r.readVint();
       await r.ensure(ebmlSize.value);
       // 跳过 EBML body（我们不需要 DocType 等）
@@ -635,7 +671,7 @@
 
       // Segment
       const segId = await r.readVint();
-      if (segId.value !== ID.SEGMENT) throw new Error('缺少 Segment');
+      if (segId.raw !== ID.SEGMENT) throw new Error('缺少 Segment');
       const segSize = await r.readVint();
       const segStart = r.tell();
       const segEnd = segSize.unknown ? Infinity : segStart + segSize.value;
@@ -647,16 +683,16 @@
         const elemSize = await r.readVint();
         const elemStart = r.tell();
         const elemEnd = elemStart + (elemSize.unknown ? 0 : elemSize.value);
-        if (elemId.value === ID.SEEK_HEAD) {
+        if (elemId.raw === ID.SEEK_HEAD) {
           // SeekHead：跳过（我们直接顺序扫，不必用它）
           r._pos += elemSize.value;
-        } else if (elemId.value === ID.INFO) {
+        } else if (elemId.raw === ID.INFO) {
           await this._parseInfo(r, elemStart, elemEnd);
           r._pos += (elemEnd - r.tell());
-        } else if (elemId.value === ID.TRACKS) {
+        } else if (elemId.raw === ID.TRACKS) {
           await this._parseTracks(r, elemStart, elemEnd);
           r._pos += (elemEnd - r.tell());
-        } else if (elemId.value === ID.CLUSTER) {
+        } else if (elemId.raw === ID.CLUSTER) {
           // 第一个 cluster 出现：记录文件偏移（ID 之前），头部解析完毕
           this._firstClusterOffset = elemElemStart;
           break;
@@ -693,7 +729,7 @@
         const size = await r.readVint();
         const s = r.tell();
         const e = s + size.value;
-        if (id.value === ID.TRACK_ENTRY) {
+        if (id.raw === ID.TRACK_ENTRY) {
           await this._parseTrackEntry(r, s, e);
           r._pos = e;
         } else {
@@ -711,7 +747,7 @@
         const size = await r.readVint();
         const s = r.tell();
         const e = s + size.value;
-        switch (id.value) {
+        switch (id.raw) {
           case ID.TRACK_NUMBER: trackNum = await r.readUint(Math.min(8, size.value)); break;
           case ID.TRACK_TYPE: trackType = await r.readUint(size.value); break;
           case ID.CODEC_ID:
@@ -730,8 +766,8 @@
               const vsz = await r.readVint();
               const vd = r.tell();
               const vde = vd + vsz.value;
-              if (vid.value === ID.PIXEL_WIDTH) width = await r.readUint(2);
-              else if (vid.value === ID.PIXEL_HEIGHT) height = await r.readUint(2);
+              if (vid.raw === ID.PIXEL_WIDTH) width = await r.readUint(2);
+              else if (vid.raw === ID.PIXEL_HEIGHT) height = await r.readUint(2);
               else r._pos += vsz.value;
               r._pos = vde;
             }
@@ -745,8 +781,8 @@
               const asz = await r.readVint();
               const ad = r.tell();
               const ade = ad + asz.value;
-              if (aid.value === ID.SAMPLING_FREQ) sampleRate = await r.readFloat();
-              else if (aid.value === ID.CHANNELS) channels = await r.readUint(asz.value);
+              if (aid.raw === ID.SAMPLING_FREQ) sampleRate = await r.readFloat();
+              else if (aid.raw === ID.CHANNELS) channels = await r.readUint(asz.value);
               else r._pos += asz.value;
               r._pos = ade;
             }
@@ -763,8 +799,12 @@
       };
       if (trackType === TRACK_TYPE_VIDEO && /AVC/i.test(codecID)) {
         this._tracks.video = track;
-      } else if (trackType === TRACK_TYPE_AUDIO && /AAC/i.test(codecID)) {
-        this._tracks.audios.push(track);
+      } else if (trackType === TRACK_TYPE_AUDIO) {
+        // 识别音频编码：AAC 或 MPEG audio(MP1/MP2/MP3)。网盘 MTV MKV 常见 MP2(A_MPEG/L2)
+        if (/AAC/i.test(codecID)) track.audioKind = 'aac';
+        else if (/A_MPEG\/L[123]/i.test(codecID) || /MP3/i.test(codecID)) track.audioKind = 'mpeg';
+        else track.audioKind = null;
+        if (track.audioKind) this._tracks.audios.push(track);
       }
     }
 
@@ -787,11 +827,16 @@
       const duration = Math.ceil(this._duration * timescale);
 
       const stsdV = stsdVideoBox(cp, v.width, v.height);
-      const stsdA = stsdAudioBox(
-        this._tracks.audios[0].codecPrivate,
-        this._tracks.audios[0].channels,
-        this._tracks.audios[0].sampleRate
-      );
+      const aTrack = this._tracks.audios[0];
+      let stsdA;
+      if (aTrack.audioKind === 'mpeg') {
+        // MPEG audio(MP2/MP3) in fMP4
+        stsdA = stsdMpegAudioBox(aTrack.channels, aTrack.sampleRate);
+        this._mimeAudio = 'audio/mp4; codecs="mp4a.6B"';
+      } else {
+        stsdA = stsdAudioBox(aTrack.codecPrivate, aTrack.channels, aTrack.sampleRate);
+        this._mimeAudio = 'audio/mp4; codecs="mp4a.40.2"';
+      }
 
       const tracks = [
         { video: true, trackId: 1, width: v.width, height: v.height, volume: 0, timescale, stsd: stsdV },
@@ -919,7 +964,7 @@
           const clusterElemStart = r.tell();
           // 读取 cluster 头
           const clusterId = await r.readVint();
-          if (clusterId.value !== ID.CLUSTER) {
+          if (clusterId.raw !== ID.CLUSTER) {
             // 可能是 Segment 末尾 padding，跳过
             break;
           }
