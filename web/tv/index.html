@@ -3471,6 +3471,7 @@ document.addEventListener('keydown',resumePendingAutoplay,{passive:true});
 // 失败时按 直连 -> 代理(?proxy=1) -> HLS 顺序回退，保证不黑屏。
 function startDirectMkvPlayback(v,songId,videoUrl){
   _directMkv=true;
+  try{ v.muted=false; v.volume=1; }catch(e){}
   try{ VoiceManager.enterDirectMkv(); }catch(e){}
   const fullUrl=resolveMediaUrl(videoUrl);
   v.crossOrigin='anonymous';
