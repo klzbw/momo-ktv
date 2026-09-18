@@ -422,7 +422,8 @@
         for (let i = 1; i < len; i++) if (this._buf[this._pos - len + i] !== 0xFF) return false;
         return true;
       })();
-      return { value: val, length: len, unknown: allOne };
+      let raw = first; for (let i = 1; i < len; i++) { raw = (raw << 8) | this._buf[this._pos - len + i]; }
+      return { value: val, raw: raw, length: len, unknown: allOne };
     }
 
     // 读 N 字节（返回拷贝）
@@ -515,13 +516,8 @@
       // 3) 构造 fMP4 init segment
       this._buildInitSegment();
 
-      // MP2/MP3 in MSE：即使 isTypeSupported(mp4a.6B) 误报 true，Edge/Chrome MSE 实际解不出
       // MP2 音频(有画无声)。直接抛错回退原生 DIRECT_MKV——Chromium 原生 MKV 容器能解 MP2。
-      const aTrack0chk = this._tracks.audios[0];
-      if (aTrack0chk && aTrack0chk.audioKind === 'mpeg') {
-        throw new Error('MP2/MP3 音轨，MSE 不解，回退原生 DIRECT_MKV');
       }
-      // 3.1) 浏览器不支持该音频编码(如 MP2/MP3 in MSE) -> 抛错让上层回退 DIRECT_MKV/HLS
       if (!MediaSource.isTypeSupported(this._mimeAudio)) {
         throw new Error('浏览器不支持此音频编码: ' + this._mimeAudio);
       }
@@ -669,7 +665,7 @@
       const r = this._reader;
       // EBML 头（校验）
       const ebmlId = await r.readVint();
-      if (ebmlId.value !== ID.EBML) throw new Error('不是 EBML 文件');
+      if (ebmlId.raw !== ID.EBML) throw new Error('不是 EBML 文件');
       const ebmlSize = await r.readVint();
       await r.ensure(ebmlSize.value);
       // 跳过 EBML body（我们不需要 DocType 等）
@@ -677,7 +673,7 @@
 
       // Segment
       const segId = await r.readVint();
-      if (segId.value !== ID.SEGMENT) throw new Error('缺少 Segment');
+      if (segId.raw !== ID.SEGMENT) throw new Error('缺少 Segment');
       const segSize = await r.readVint();
       const segStart = r.tell();
       const segEnd = segSize.unknown ? Infinity : segStart + segSize.value;
@@ -689,16 +685,16 @@
         const elemSize = await r.readVint();
         const elemStart = r.tell();
         const elemEnd = elemStart + (elemSize.unknown ? 0 : elemSize.value);
-        if (elemId.value === ID.SEEK_HEAD) {
+        if (elemId.raw === ID.SEEK_HEAD) {
           // SeekHead：跳过（我们直接顺序扫，不必用它）
           r._pos += elemSize.value;
-        } else if (elemId.value === ID.INFO) {
+        } else if (elemId.raw === ID.INFO) {
           await this._parseInfo(r, elemStart, elemEnd);
           r._pos += (elemEnd - r.tell());
-        } else if (elemId.value === ID.TRACKS) {
+        } else if (elemId.raw === ID.TRACKS) {
           await this._parseTracks(r, elemStart, elemEnd);
           r._pos += (elemEnd - r.tell());
-        } else if (elemId.value === ID.CLUSTER) {
+        } else if (elemId.raw === ID.CLUSTER) {
           // 第一个 cluster 出现：记录文件偏移（ID 之前），头部解析完毕
           this._firstClusterOffset = elemElemStart;
           break;
@@ -735,7 +731,7 @@
         const size = await r.readVint();
         const s = r.tell();
         const e = s + size.value;
-        if (id.value === ID.TRACK_ENTRY) {
+        if (id.raw === ID.TRACK_ENTRY) {
           await this._parseTrackEntry(r, s, e);
           r._pos = e;
         } else {
@@ -772,8 +768,8 @@
               const vsz = await r.readVint();
               const vd = r.tell();
               const vde = vd + vsz.value;
-              if (vid.value === ID.PIXEL_WIDTH) width = await r.readUint(2);
-              else if (vid.value === ID.PIXEL_HEIGHT) height = await r.readUint(2);
+              if (vid.raw === ID.PIXEL_WIDTH) width = await r.readUint(2);
+              else if (vid.raw === ID.PIXEL_HEIGHT) height = await r.readUint(2);
               else r._pos += vsz.value;
               r._pos = vde;
             }
@@ -970,7 +966,7 @@
           const clusterElemStart = r.tell();
           // 读取 cluster 头
           const clusterId = await r.readVint();
-          if (clusterId.value !== ID.CLUSTER) {
+          if (clusterId.raw !== ID.CLUSTER) {
             // 可能是 Segment 末尾 padding，跳过
             break;
           }
