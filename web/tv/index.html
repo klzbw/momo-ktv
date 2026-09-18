@@ -3886,7 +3886,7 @@ function hideSongIntro(){clearTimeout(songIntroTimer);document.getElementById('s
 // 拦截、系统媒体键等)，都能反映真实状态，而不是在每个"调用播放"的地方各自假设
 // 结果一定成功。
 function syncPauseUI(){
-  isPaused=video.paused;
+  try{ if(VoiceManager.dualIsActive&&VoiceManager.dualIsActive()){ isPaused=VoiceManager.dualIsPaused(); } else { isPaused=video.paused; } }catch(e){ isPaused=video.paused; }
   const playIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>';
   const pauseIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="10"/><line x1="10" y1="8" x2="10" y2="16"/><line x1="14" y1="8" x2="14" y2="16"/></svg>';
   document.getElementById('picon').innerHTML=isPaused?playIcon:pauseIcon;
