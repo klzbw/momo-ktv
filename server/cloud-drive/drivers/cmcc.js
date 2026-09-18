@@ -15,8 +15,6 @@
 const https = require('https');
 const http = require('http');
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 const { URL } = require('url');
 const CloudDriveBase = require('./base');
 
@@ -421,6 +419,11 @@ class CmccDriver extends CloudDriveBase {
       usedSize: 0,
       rootItemCount: items.length,
     };
+  }
+
+  // 网盘唯一用户标识（手机号），用于重新登录后自动归并同账号的历史数据
+  getDriveUserId() {
+    return this.account2 || null;
   }
 
   async testConnection() {

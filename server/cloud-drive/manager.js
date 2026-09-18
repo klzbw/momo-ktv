@@ -202,6 +202,13 @@ class CloudDriveManager {
 
     } catch (e) { /* 列已存在 */ }
 
+    // 同网盘账号唯一标识：drive_type + 网盘用户ID，用于重新登录后自动归并旧账号的歌曲/来源
+    try {
+
+      this.db.exec("ALTER TABLE cloud_accounts ADD COLUMN driver_user_id TEXT");
+
+    } catch (e) { /* 列已存在 */ }
+
   }
 
 
@@ -408,6 +415,18 @@ class CloudDriveManager {
 
         this.updateAccount(account.id, { status: 'active', user_info: JSON.stringify(userInfo) });
 
+        // 记录网盘唯一用户标识，并按 drive+标识 自动归并同账号的旧记录（换号重新登录后歌曲/来源不丢）
+        try {
+          const driverUserId = (typeof driverInstance.getDriveUserId === 'function') ? driverInstance.getDriveUserId() : null;
+          if (driverUserId) {
+            this.updateAccount(account.id, { driver_user_id: String(driverUserId) });
+            const dup = this.db.prepare('SELECT id FROM cloud_accounts WHERE driver = ? AND driver_user_id = ? AND id <> ? ORDER BY id ASC').get(driver, String(driverUserId), account.id);
+            if (dup) this._mergeAccountInto(dup.id, account.id);
+          }
+        } catch (e) {
+          console.warn('[CloudDrive] 同账号归并失败（忽略）:', e.message);
+        }
+
       } else {
 
         this.updateAccount(account.id, { status: 'error' });
@@ -441,7 +460,7 @@ class CloudDriveManager {
 
   updateAccount(id, updates) {
 
-    const allowed = ['name', 'access_token', 'refresh_token', 'token_expires_at', 'user_info', 'status'];
+    const allowed = ['name', 'access_token', 'refresh_token', 'token_expires_at', 'user_info', 'status', 'driver_user_id'];
 
     const sets = [];
 
@@ -472,6 +491,46 @@ class CloudDriveManager {
   }
 
 
+
+  /**
+   * 把旧账号 oldId 的全部数据归并到 newId，然后删除 oldId 账号行。
+   * 场景：同一网盘账号重新登录后换了新 account_id，避免歌曲/曲库来源留在旧 id 上变成孤儿。
+   * queue/history/favorites/song_artists 按 song_id 关联，歌曲换归属后自动跟随，无需改。
+   */
+  _mergeAccountInto(oldId, newId) {
+    if (Number(oldId) === Number(newId)) return;
+    const oldRow = this.getAccount(oldId);
+    if (!oldRow) return;
+    const tx = this.db.transaction(() => {
+      this.db.prepare('UPDATE songs SET cloud_account_id = ? WHERE cloud_account_id = ?').run(newId, oldId);
+      this.db.prepare('UPDATE cloud_libraries SET account_id = ? WHERE account_id = ?').run(newId, oldId);
+      this._repointLibraryRootAccount(oldId, newId);
+      this.db.prepare('DELETE FROM cloud_libraries WHERE account_id = ?').run(oldId);
+      this.db.prepare('DELETE FROM cloud_accounts WHERE id = ?').run(oldId);
+    });
+    tx();
+    this.invalidateDriver(oldId);
+    console.log(`[CloudDrive] 同账号归并：旧账号 ${oldId} 已并入新账号 ${newId} 并删除旧记录`);
+  }
+
+
+  /**
+   * 把 settings.library_roots 里 cloud.accountId === oldId 的来源指向改为 newId。
+   */
+  _repointLibraryRootAccount(oldId, newId) {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key = 'library_roots'").get();
+    if (!row || !row.value) return;
+    let roots;
+    try { roots = JSON.parse(row.value); } catch (e) { return; }
+    if (!Array.isArray(roots)) return;
+    let changed = false;
+    for (const r of roots) {
+      if (r && r.cloud && Number(r.cloud.accountId) === Number(oldId)) { r.cloud.accountId = Number(newId); changed = true; }
+    }
+    if (changed) {
+      this.db.prepare("INSERT INTO settings (key, value) VALUES ('library_roots', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify(roots));
+    }
+  }
 
   async deleteAccount(id) {
 
