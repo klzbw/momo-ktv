@@ -41,6 +41,13 @@ targets:
           # 墨=U+58A8, 爱=U+7231, 歌=U+6B4C  ->  墨墨爱K歌
           # plumesign sees pure ASCII (no filtering); tvOS XML parser decodes to Chinese.
           sed -i '' 's/PLACEHOLDER_CN_NAME/\&#x58a8;\&#x58a8;\&#x7231;K\&#x6b4c;/g' "$PLIST"
+          # Step 4: 强制写入 Top Shelf（桌面背景墙）配置到生成的 Info.plist。
+          # XcodeGen 的 GENERATE_INFOPLIST_FILE 对嵌套 dict(TVTopShelfImage) 不一定落盘；
+          # 若缺这个 key，Apple TV 聚焦图标时背景墙回退成灰色默认图。这里用 PlistBuddy 幂等写入。
+          /usr/libexec/PlistBuddy -c "Add :TVTopShelfImage dict" "$PLIST" 2>/dev/null
+          /usr/libexec/PlistBuddy -c "Set :TVTopShelfImage:TVTopShelfPrimaryImage 'Top Shelf Image'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :TVTopShelfImage:TVTopShelfPrimaryImage string 'Top Shelf Image'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :TVTopShelfImage:TVTopShelfPrimaryImageWide 'Top Shelf Image Wide'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :TVTopShelfImage:TVTopShelfPrimaryImageWide string 'Top Shelf Image Wide'" "$PLIST"
+          echo "TVTopShelfPrimaryImage=$( /usr/libexec/PlistBuddy -c 'Print :TVTopShelfImage:TVTopShelfPrimaryImage' "$PLIST" )"
           echo "CFBundleName=$( /usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$PLIST" )"
     settings:
       base:
