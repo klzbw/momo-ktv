@@ -3474,9 +3474,11 @@ function startDirectMkvPlayback(v,songId,videoUrl){
   try{ v.muted=false; v.volume=1; }catch(e){}
   try{ VoiceManager.enterDirectMkv(); }catch(e){}
   const fullUrl=resolveMediaUrl(videoUrl);
+  // 走同源代理避免CDN跨域导致Edge音轨识别失败(audioTracks=0)
+  const proxyUrl=fullUrl+(fullUrl.indexOf('?')>=0?'&':'?')+'proxy=1';
   try{ v.removeAttribute('crossorigin'); }catch(e){}
   v.removeAttribute('src');
-  v.src=fullUrl;
+  v.src=proxyUrl;
   v.addEventListener('loadedmetadata',function onMd(){
     if(!curSong||curSong.song_id!==songId) return;
     try{ VoiceManager.onDirectMkvReady(v); }catch(e){ console.warn('directMkv ready',e); }
