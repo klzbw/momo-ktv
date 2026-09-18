@@ -774,7 +774,6 @@
         else if (/A_MPEG\/L[123]/i.test(codecID)) { track.audioKind="mpeg"; this._tracks.audios.push(track); }
         console.log("[MSE-MKV] audio track codecID=", codecID, "kind=", track.audioKind);
       }
-      }
     }
 
     // ────────────────────────────────────────────────────────────────
