@@ -2729,6 +2729,8 @@ const VoiceManager = (() => {
     /** DUAL：换歌/停止时清理双轨并恢复背景音轨出声 */
     dualReset(){ _dualReqId++; if(dualActive) dualStop(false); _directMkvActive=false; _mseMkvActive=false; _mseMkvPlayer=null; if(mode===MODE.DIRECT_MKV||mode===MODE.MSE_MKV) mode=MODE.UNKNOWN; try{video.muted=false;}catch(e){} _dualUserPaused=false; },
     dualSetPaused(p){ _dualUserPaused=!!p; if(!dualActive) return; [dualVocalEl,dualAccEl].forEach(el=>{ try{ if(p){ if(el&&!el.paused)el.pause(); }else{ if(el&&el.paused){ const x=el.play(); if(x&&x.catch)x.catch(()=>{}); } } }catch(e){} }); },
+    dualSeek(t){ if(!dualActive) return; [dualVocalEl,dualAccEl].forEach(el=>{ try{ if(el) el.currentTime=t; }catch(e){} }); },
+    dualMasterVol(v){ if(!dualActive) return; try{ if(dualVocalEl) dualVocalEl.volume=Math.max(0,Math.min(1,dualLevel*v)); if(dualAccEl) dualAccEl.volume=Math.max(0,Math.min(1,v)); }catch(e){} },
     /** DIRECT_MKV：进入 115 MKV 直连模式（由 loadSong 在拿到 sep-info.isNetKtvMkv=true 后调用） */
     enterDirectMkv() {
       _directMkvActive = true;
@@ -3596,9 +3598,10 @@ async function loadSong(v,songId,needsDownload){
               // 不做 DIRECT_MKV 兜底（本地 MKV 浏览器原生解不了封装），直接落到下方 HLS 转码兜底。
               console.warn('[MSE-LOCAL] 初始化失败，回退 HLS 转码:',err);
             } else {
-              // MSE 初始化失败(常见:浏览器不支持MP2/MP3 in MSE, isTypeSupported(mp4a.6B)=false)。
-              // 不再回退 DIRECT_MKV(原生解不了MP2音轨->有画无声)，直接落到下方 HLS 转码(服务端转AAC)。
-              console.warn('[MSE-MKV] 初始化失败，回退 HLS 转码(服务端转AAC):',err && err.message);
+              // 回退 DIRECT_MKV(原生播放)：至少有画面；MP2音轨浏览器原生不支持会无声，待后续转码优化。
+              console.warn('[MSE-MKV] 初始化失败，回退 DIRECT_MKV:',err && err.message);
+              startDirectMkvPlayback(v,songId,sepJ.videoUrl);
+              return;
             }
           }
         } else if(!_mseIsLocal){
@@ -3940,7 +3943,7 @@ function togglePause(){
 // 本机(不管是不是播放端)点这个按钮都直接调用——它本来就是一次性的 HTTP
 // 请求，全局只生效一次，不需要也不应该走"判断角色再转发"那一套。
 function cutSong(){isPaused=false;fetch('/api/queue/next',{method:'POST'});}
-function localRestartSong(){VoiceManager.wake(video);video.currentTime=0;isPaused=false;video.play().catch(()=>{});showToast('重唱 🔄');}
+function localRestartSong(){VoiceManager.wake(video);video.currentTime=0;isPaused=false;video.play().catch(()=>{});try{VoiceManager.dualSeek(0);VoiceManager.dualSetPaused(false);}catch(e){}showToast('重唱 🔄');}
 function restartSong(){
   if(!isActivePlayer){sendWS({type:'control',action:'repeat'});showToast('已发送「重唱」指令');return;}
   localRestartSong();
@@ -4060,6 +4063,7 @@ function setEQ(name){
 // 播放端调它自己的音量；是播放端就直接调本地音量，不用绕一次网络。
 function localAdjVolume(delta){
   video.volume=Math.max(0,Math.min(1,Math.round((video.volume+delta)*10)/10));
+  try{ if(typeof VoiceManager!=='undefined'&&VoiceManager.dualMasterVol) VoiceManager.dualMasterVol(video.volume); }catch(e){}
   showToast('🔊 音量 '+Math.round(video.volume*100)+'%');
 }
 function adjVolume(delta){
