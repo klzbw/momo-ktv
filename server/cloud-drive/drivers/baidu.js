@@ -403,6 +403,7 @@ class BaiduDriver extends CloudDriveBase {
       method: 'uinfo',
     });
 
+    this._cachedDriveUserId = result.uk ? String(result.uk) : (result.cname ? String(result.cname) : null);
     return {
       nickname: result.uname || '百度网盘用户',
       totalSize: result.total || 0,
@@ -411,6 +412,9 @@ class BaiduDriver extends CloudDriveBase {
       vip_type: result.vip_type,
     };
   }
+
+  // 网盘唯一用户标识（同账号重登自动归并用），getUserInfo 成功后缓存
+  getDriveUserId() { return this._cachedDriveUserId || null; }
 
   async testConnection() {
     try {

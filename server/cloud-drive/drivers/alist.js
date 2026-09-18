@@ -300,6 +300,9 @@ class AlistDriver extends CloudDriveBase {
     };
   }
 
+  // 网盘唯一用户标识（同账号重登自动归并用）：外部 Alist 地址 + 用户名
+  getDriveUserId() { return this.baseUrl ? String(this.baseUrl) : null; }
+
   /**
    * 测试 Alist 连接
    */

@@ -276,6 +276,7 @@ class AliyunDriver extends CloudDriveBase {
 
   async getUserInfo() {
     const result = await this._request('POST', '/adrive/v1.0/user/getDriveInfo', {});
+    this._cachedDriveUserId = result.default_drive_id ? String(result.default_drive_id) : null;
     return {
       nickname: result.nick_name || result.user_name || '阿里云盘用户',
       totalSize: result.total_size || 0,
@@ -285,6 +286,9 @@ class AliyunDriver extends CloudDriveBase {
       resource_drive_id: result.resource_drive_id,
     };
   }
+
+  // 网盘唯一用户标识（同账号重登自动归并用），getUserInfo 成功后缓存
+  getDriveUserId() { return this._cachedDriveUserId || null; }
 }
 
 module.exports = AliyunDriver;

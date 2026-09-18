@@ -481,11 +481,15 @@ class Pan115Driver extends CloudDriveBase {
   async getUserInfo() {
     // 115 没有单独的用户信息接口，用登录检查代替
     const loginInfo = await this.checkLogin();
+    this._cachedDriveUserId = loginInfo.userId ? String(loginInfo.userId) : null;
     return {
       userId: loginInfo.userId,
       nickname: `115用户_${loginInfo.userId}`,
     };
   }
+
+  // 网盘唯一用户标识（同账号重登自动归并用），getUserInfo 成功后缓存
+  getDriveUserId() { return this._cachedDriveUserId || null; }
 
   /**
    * 测试连接

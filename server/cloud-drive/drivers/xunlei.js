@@ -272,6 +272,7 @@ class XunleiDriver extends CloudDriveBase {
   async getUserInfo() {
     const result = await this._request('GET', '/drive/v1/profile');
 
+    this._cachedDriveUserId = (result.user_id || result.id || result.uid) ? String(result.user_id || result.id || result.uid) : null;
     return {
       nickname: result.nickname || result.name || '迅雷云盘用户',
       totalSize: result.total_size || 0,
@@ -280,6 +281,9 @@ class XunleiDriver extends CloudDriveBase {
       vip: result.vip || result.member_type,
     };
   }
+
+  // 网盘唯一用户标识（同账号重登自动归并用），getUserInfo 成功后缓存
+  getDriveUserId() { return this._cachedDriveUserId || null; }
 }
 
 module.exports = XunleiDriver;

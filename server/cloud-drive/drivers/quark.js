@@ -439,6 +439,7 @@ class QuarkDriver extends CloudDriveBase {
   async getUserInfo() {
     try {
       const info = await this.checkLogin();
+      this._cachedDriveUserId = info.userId ? String(info.userId) : null;
       return {
         userId: info.userId,
         nickname: info.nickname || `夸克用户_${info.userId}`,
@@ -450,6 +451,9 @@ class QuarkDriver extends CloudDriveBase {
       };
     }
   }
+
+  // 网盘唯一用户标识（同账号重登自动归并用），getUserInfo 成功后缓存
+  getDriveUserId() { return this._cachedDriveUserId || null; }
 
   async testConnection() {
     try {
