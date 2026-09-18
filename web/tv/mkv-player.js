@@ -7,6 +7,8 @@
         }
       }
       console.log("[MSE-MKV] mp2Mode=", this._mp2Mode, "audioKind=", aTrack0 && aTrack0.audioKind);
+    }
+
 
     /** 挂到 <video> 并起播 */
     attachMedia(videoEl) {
