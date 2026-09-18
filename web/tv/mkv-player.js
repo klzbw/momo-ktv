@@ -795,7 +795,6 @@
       const duration = Math.ceil(this._duration * timescale);
 
       const stsdV = stsdVideoBox(cp, v.width, v.height);
-      const stsdV = stsdVideoBox(cp, v.width, v.height);
       const _isMpeg = (this._tracks.audios[0] && this._tracks.audios[0].audioKind === 'mpeg');
       let stsdA = null;
       if (!_isMpeg) {
