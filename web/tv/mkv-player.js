@@ -1,14 +1,490 @@
-/**  * mkv-player.js — MSE MKV 直连播放器（纯 JS，无构建依赖）  *  * 工作原理：  *   浏览器直接 fetch 115 CDN 的 MKV 字节流（经 /api/direct-stream/ 302 跳转），  *   JS 端用轻量 EBML 解析器解封装出 H.264 视频帧 + AAC 音频帧，  *   再用手写的 fMP4 muxer 封装成 fMP4（ftyp+moov+moof+mdat）喂给 MediaSource，  *   完全不经过 NAS 转码/代理媒体数据。  *  * 仅针对 KTV MKV 固定格式：H.264(V_MPEG4/ISO/AVC) + 2 条 AAC(A_AAC)，无字幕无附件。  *  * 暴露：window.MkvMsePlayer  *  * 用法：  *   const p = new MkvMsePlayer();  *   await p.load(url, { audioTrackIndex: 0 });  // 解析头+探测CORS  *   p.attachMedia(videoEl);                       // 挂到 <video>，起播  *   p.setAudioTrack(1);                           // 切到伴唱  *   p.destroy();                                  // 清理  */ (function (global) {   'use strict';    // ═══════════════════════════════════════════════════════════════════   // EBML / Matroska 元素 ID 常量（仅列出本播放器需要的）   // ═══════════════════════════════════════════════════════════════════   const ID = {     EBML:        0x1A45DFA3,     SEGMENT:     0x18538067,     SEEK_HEAD:   0x114D9B74,     INFO:        0x1549A966,     TRACKS:      0x1654AE6B,     CLUSTER:     0x1F43B675,     // Info     TIMECODE_SCALE: 0x2AD7B1,     DURATION:       0x4489,     // Tracks     TRACK_ENTRY:    0xAE,     TRACK_NUMBER:   0xD7,     TRACK_TYPE:     0x83,     CODEC_ID:       0x86,     CODEC_PRIVATE:  0x63A2,     VIDEO:          0xE0,     PIXEL_WIDTH:   0xB0,     PIXEL_HEIGHT:   0xBA,     AUDIO:          0xE1,     SAMPLING_FREQ:  0xB5,     CHANNELS:       0x9F,     // Cluster     TIMESTAMP:     0xE7,     SIMPLE_BLOCK:   0xA3,     BLOCK_GROUP:    0xA0,     BLOCK:          0xA1,   };   const TRACK_TYPE_VIDEO = 1;   const TRACK_TYPE_AUDIO = 2;    // ═══════════════════════════════════════════════════════════════════   // 工具：字节拼接 / 写二进制   // ═══════════════════════════════════════════════════════════════════   function concat() {     const parts = [];     let total = 0;     for (let i = 0; i < arguments.length; i++) {       const p = arguments[i];       if (!p) continue;       parts.push(p);       total += p.length;     }     const out = new Uint8Array(total);     let o = 0;     for (const p of parts) { out.set(p, o); o += p.length; }     return out;   }   function u8(v)  { const a = new Uint8Array(1); a[0] = v & 0xFF; return a; }   function u16(v) { const a = new Uint8Array(2); new DataView(a.buffer).setUint16(0, v); return a; }   function u24(v) { const a = new Uint8Array(3); const d = new DataView(a.buffer); d.setUint8(0, (v >> 16) & 0xFF); d.setUint8(1, (v >> 8) & 0xFF); d.setUint8(2, v & 0xFF); return a; }   function u32(v) { const a = new Uint8Array(4); new DataView(a.buffer).setUint32(0, v); return a; }   function u64(v) { const a = new Uint8Array(8); const d = new DataView(a.buffer); d.setUint32(0, Math.floor(v / 0x100000000)); d.setUint32(4, v >>> 0); return a; }   function s16(v) { const a = new Uint8Array(2); new DataView(a.buffer).setInt16(0, v); return a; }   function beFloat(v) { const a = new Uint8Array(4); new DataView(a.buffer).setFloat32(0, v); return a; }   function str(s) { const a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }   function zeros(n) { return new Uint8Array(n); }   function identityMatrix() {     // 标准 MP4 恒等矩阵（36 字节）     return new Uint8Array([       0,0x01,0,0, 0,0,0,0, 0,0,0,0,       0,0,0,0, 0,0x01,0,0, 0,0,0,0,       0,0,0,0, 0,0,0,0, 0x40,0,0,0     ]);   }    // ═══════════════════════════════════════════════════════════════════   // MP4 Box 构造   // ═══════════════════════════════════════════════════════════════════   function box(type, body) {     const size = 8 + body.length;     const out = new Uint8Array(size);     const dv = new DataView(out.buffer);     dv.setUint32(0, size);     dv.setUint32(4, (type.charCodeAt(0) << 24) | (type.charCodeAt(1) << 16) | (type.charCodeAt(2) << 8) | type.charCodeAt(3));     out.set(body, 8);     return out;   }   function fullBox(type, version, flags, body) {     return box(type, concat(u8(version), u8((flags >> 16) & 0xFF), u8((flags >> 8) & 0xFF), u8(flags & 0xFF), body));   }    // ftyp   function ftypBox() {     return box('ftyp', concat(str('iso5'), u32(0x200), str('iso5'), str('iso2'), str('avc1'), str('mp41')));   }    // mvhd（timescale 单位：秒的分母）   function mvhdBox(timescale, duration, nextTrackId) {     const body = concat(       u32(0), u32(0),       u32(timescale), u32(duration),       u32(0x00010000), u16(0x0100),       zeros(10),       identityMatrix(),       zeros(24),       u32(nextTrackId)     );     return fullBox('mvhd', 0, 0, body);   }    // tkhd   function tkhdBox(trackId, width, height, volume, duration) {     const body = concat(       u32(0), u32(0),       u32(trackId),       u32(0),       u32(duration),       zeros(8),       u16(0), u16(0),          // layer, alt group       u16(volume), u16(0),     // volume       identityMatrix(),       u32(Math.round(width * 65536)),       u32(Math.round(height * 65536))     );     return fullBox('tkhd', 0, 0x7 /*enabled|inMovie|inPreview*/, body);   }    // mdhd   function mdhdBox(timescale, duration) {     const body = concat(       u32(0), u32(0),       u32(timescale), u32(duration),       u16(0x55C0), u16(0)  // language 'und', pre-defined     );     return fullBox('mdhd', 0, 0, body);   }    // hdlr   function hdlrBox(handlerType) {     const body = concat(       u32(0),       str(handlerType),       zeros(12),       str('momo-mkv'), u8(0)     );     return fullBox('hdlr', 0, 0, body);   }    // dinf/dref   function dinfBox() {     const urlEntry = fullBox('url ', 0, 0x01 /*self-contained*/, zeros(0));     const dref = fullBox('dref', 0, 0, concat(u32(1), urlEntry));     return box('dinf', dref);   }    // vmhd（视频 media header）   function vmhdBox() { return fullBox('vmhd', 0, 1 /*presentation*/, u16(0)); }   // smhd（音频 media header）   function smhdBox() { return fullBox('smhd', 0, 0, concat(u16(0), u16(0))); }    // stsd：视频 avc1（内嵌 avcC）   function stsdVideoBox(codecPrivate, width, height) {     // avcC 直接就是 MKV CodecPrivate（AVCDecoderConfigurationRecord）     const avcC = box('avcC', codecPrivate);     // avc1 visual sample entry     const entry = concat(       zeros(6),            // reserved       u16(1),              // data_reference_index       zeros(16),           // pre-defined + reserved       u16(width), u16(height),       u32(0x00480000),     // horizres 72dpi       u32(0x00480000),     // vertres       u32(0),              // reserved       u16(1),              // frame_count       zeros(32),           // compressorname       u16(0x0018),         // depth       u16(0xFFFF),         // pre-defined (-1)       avcC     );     const body = concat(u32(0) /*version+flags*/, u32(1) /*entry_count*/, box('avc1', entry));     return fullBox('stsd', 0, 0, body);   }    // stsd：音频 mp4a（内嵌 esds，esds 里包 AudioSpecificConfig）   function stsdAudioBox(codecPrivate, channels, sampleRate) {     // 构造 esds（MPEG-4 DSM descriptor）     const asc = codecPrivate; // MKV A_AAC CodecPrivate 即 AudioSpecificConfig     const decSpecificInfo = concat(u8(0x05), u8(asc.length), asc);     const slConfig = concat(u8(0x06), u8(0x01), u8(0x02));     const decoderConfig = concat(       u8(0x04),       u8(13 + asc.length), // length = 13 (固定字段) + asc.length       u8(0x40),            // objectTypeIndication: Audio ISO/IEC 14496-3       u8(0x15),            // streamType=5(audio) <<2 | upstream=1       u24(0x000000),       // bufferSizeDB       u32(0),              // maxBitrate       u32(0),              // avgBitrate       decSpecificInfo,       slConfig     );     const esDescriptor = concat(       u8(0x03),       u8(3 + decoderConfig.length),       u16(0x01),           // ES_ID       u8(0x00),            // flags       decoderConfig     );     const esds = fullBox('esds', 0, 0, esDescriptor);      const entry = concat(       zeros(6),            // reserved       u16(1),              // data_reference_index       zeros(8),            // reserved       u16(channels),       // channels       u16(16),             // samplesize       u16(0), u16(0),      // pre-defined, reserved       u32(sampleRate << 16), // samplerate (16.16 fixed)       esds     );     const body = concat(u32(0), u32(1), box('mp4a', entry));     return fullBox('stsd', 0, 0, body);   }    // stsd：MPEG audio(MP2/MP3) in fMP4。objectTypeIndication=0x6B(MPEG-1 Audio)，   // 帧头自带，无需 decSpecificInfo。codec string 用 mp4a.6B。   function stsdMpegAudioBox(channels, sampleRate) {     const decSpecificInfo = concat(u8(0x06), u8(0x01), u8(0x02));     const decoderConfig = concat(       u8(0x04),       u8(13),              // length = 13 固定字段，无 decSpecificInfo       u8(0x6B),            // objectTypeIndication: MPEG-1 Audio (MP1/MP2/MP3)       u8(0x15),            // streamType=5(audio) <<2 | upstream=1       u24(0x000000),       // bufferSizeDB       u32(0),              // maxBitrate       u32(0),              // avgBitrate       decSpecificInfo     );     const esDescriptor = concat(       u8(0x03),       u8(3 + decoderConfig.length),       u16(0x01), u8(0x00),       decoderConfig     );     const esds = fullBox('esds', 0, 0, esDescriptor);     const entry = concat(       zeros(6), u16(1), zeros(8),       u16(channels), u16(16), u16(0), u16(0),       u32(sampleRate << 16),       esds     );     const body = concat(u32(0), u32(1), box('mp4a', entry));     return fullBox('stsd', 0, 0, body);   }    // 空 stbl 子表（init segment 里不填样本级信息，由 moof/trun 提供）   function sttsEmpty() { return fullBox('stts', 0, 0, u32(0)); }   function stscEmpty() { return fullBox('stsc', 0, 0, u32(0)); }   function stszEmpty() { return fullBox('stsz', 0, 0, concat(u32(0), u32(0))); }    // stbl 组装   function stblBox(video, stsd) {     const children = video       ? concat(stsd, sttsEmpty(), stscEmpty(), stszEmpty())       : concat(stsd, sttsEmpty(), stscEmpty(), stszEmpty());     return box('stbl', children);   }    // minf   function minfBox(video, stsd) {     const header = video ? vmhdBox() : smhdBox();     return box('minf', concat(header, dinfBox(), stblBox(video, stsd)));   }    // mdia   function mdiaBox(video, handlerType, timescale, duration, stsd) {     return box('mdia', concat(mdhdBox(timescale, duration), hdlrBox(handlerType), minfBox(video, stsd)));   }    // trak   function trakBox(video, trackId, width, height, volume, timescale, duration, stsd) {     return box('trak', concat(tkhdBox(trackId, width, height, volume, duration), mdiaBox(video, video ? 'vide' : 'soun', timescale, duration, stsd)));   }    // moov（init segment 用）   function moovBox(tracks, duration) {     // tracks: [{video:bool, trackId, width, height, volume, timescale, stsd}]     let trackBoxes = zeros(0);     for (const t of tracks) {       trackBoxes = concat(trackBoxes, trakBox(t.video, t.trackId, t.width, t.height, t.volume, t.timescale, duration, t.stsd));     }     return box('moov', concat(mvhdBox(1000000, duration, tracks.length + 1), trackBoxes));   }    // ── fragment boxes（moof + mdat）─────────────────────────────────────   function mfhdBox(seq) { return fullBox('mfhd', 0, 0, u32(seq)); }    function tfhdBox(trackId, flags) {     // flags: default-base-is-moof (0x02000000) 等     const body = concat(u32(trackId));     return fullBox('tfhd', 0, flags, body);   }    function tfdtBox(baseMediaDecodeTime) {     // version 1 用 64bit，避免 long video 溢出     return fullBox('tfdt', 1, 0, u64(baseMediaDecodeTime));   }    // trun：samples 为 [{size, duration, flags?}]   function trunBox(flags, dataOffset, firstSampleFlags, samples) {     const parts = [u32(samples.length)];     if (flags & 0x100) parts.push(u32(dataOffset));           // data-offset-present     if (flags & 0x200) parts.push(u32(firstSampleFlags));    // first-sample-flags-present     for (const s of samples) {       if (flags & 0x400) parts.push(u32(s.duration));        // sample-duration       if (flags & 0x800) parts.push(u32(s.size));            // sample-size       if (flags & 0x1000) parts.push(u32(s.flags));          // sample-flags     }     return fullBox('trun', 0, flags, concat.apply(null, parts));   }    // ═══════════════════════════════════════════════════════════════════   // 流式字节读取器：按 HTTP Range 分段拉取，维护一个滑动窗口   // ═══════════════════════════════════════════════════════════════════   class RangeReader {     constructor(url, abortSignal) {       this._url = url;       this._signal = abortSignal;       this._buf = new Uint8Array(0); // 当前窗口       this._winStart = 0;            // 窗口首字节在文件中的偏移       this._pos = 0;                 // 窗口内当前读位置       this._eof = false;       this._fetched = 0;             // 已拉取的总字节（日志用）     }      // 当前绝对文件偏移     tell() { return this._winStart + this._pos; }      // 跳到绝对文件偏移     seek(absOff) {       this._winStart = absOff;       this._buf = new Uint8Array(0);       this._pos = 0;       this._eof = false;     }      // 确保窗口内至少有 n 字节可用（不足则继续拉）     async ensure(n) {       while (this._buf.length - this._pos < n) {         if (this._eof) throw new Error('EBML 读取越界 EOF');         const need = Math.max(n - (this._buf.length - this._pos), 64 * 1024);         const start = this._winStart + this._buf.length;         const end = start + need - 1;         const resp = await fetch(this._url, {           headers: { Range: `bytes=${start}-${end}` },           signal: this._signal,         });         if (resp.status !== 206 && resp.status !== 200) {           throw new Error('Range 请求失败 HTTP ' + resp.status);         }         const data = new Uint8Array(await resp.arrayBuffer());         if (data.length === 0) { this._eof = true; break; }         // 服务端可能忽略 Range 返回 200 全量：此时按起始偏移对齐         let fileStart = start;         if (resp.status === 200) {           // 全量响应：把窗口对齐到文件 0           this._buf = data;           this._winStart = 0;           this._pos = 0;           this._eof = true;           this._fetched += data.length;           continue;         }         this._buf = concat(this._buf, data);         this._fetched += data.length;       }       // 释放已读部分，控制内存       if (this._pos > 256 * 1024) {         const keep = this._buf.length - this._pos;         this._winStart += this._pos;         this._buf = this._buf.slice(this._pos);         this._pos = 0;       }     }      // 读一个 VINT（EBML 变长整数），返回 {value, length, unknown}     async readVint() {       await this.ensure(1);       const first = this._buf[this._pos];       let len = 0;       for (let i = 0; i < 8; i++) {         if (first & (0x80 >> i)) { len = i + 1; break; }       }       if (len === 0) throw new Error('非法 VINT');       await this.ensure(len);       let val = this._buf[this._pos] & (0xFF >> len);       for (let i = 1; i < len; i++) {         val = (val << 8) | this._buf[this._pos + i];       }       this._pos += len;       // 全 1 = unknown size       const allOne = (() => {         const mask = (0x80 >> (len - 1)) - 1;         let v = first & mask;         if (v !== mask) return false;         for (let i = 1; i < len; i++) if (this._buf[this._pos - len + i] !== 0xFF) return false;         return true;       })();       let raw = first; for (let i = 1; i < len; i++) { raw = (raw << 8) | this._buf[this._pos - len + i]; }       return { value: val, raw: raw, length: len, unknown: allOne };     }      // 读 N 字节（返回拷贝）     async readBytes(n) {       await this.ensure(n);       const out = this._buf.slice(this._pos, this._pos + n);       this._pos += n;       return out;     }      // 读 uint（n=1..8 字节；>4 字节用乘积累加避免位运算截断）     async readUint(n) {       const b = await this.readBytes(n);       let v = 0;       for (let i = 0; i < n; i++) v = v * 256 + b[i];       return v;     }     async readInt(n) {       const b = await this.readBytes(n);       let v = 0;       for (let i = 0; i < n; i++) v = v * 256 + b[i];       if (b[0] & 0x80) v -= Math.pow(2, 8 * n);       return v;     }     async readFloat() {       const b = await this.readBytes(4);       return new DataView(b.buffer).getFloat32(0);     }     async readFloatSize(n) {       const b = await this.readBytes(n);       const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);       if (n === 8) return dv.getFloat64(0, false);       if (n === 4) return dv.getFloat32(0, false);       return n >= 4 ? dv.getFloat32(0, false) : NaN;     }   }    // ═══════════════════════════════════════════════════════════════════   // MkvMsePlayer 主类   // ═══════════════════════════════════════════════════════════════════   class MkvMsePlayer {     constructor() {       this._url = null;       this._abort = null;          // AbortController       this._reader = null;       this._videoEl = null;       this._ms = null;             // MediaSource       this._videoSB = null;        // SourceBuffer (video)       this._audioSB = null;       // SourceBuffer (audio)       this._tracks = { video: null, audios: [] };       this._timecodeScale = 1000000; // ns per timestamp tick       this._duration = 0;            // 秒       this._clusters = [];           // [{fileOffset, timecode(us)}]       this._currentAudioIdx = 0;       this._seq = 0;                 // moof sequence number       this._destroyed = false;       this._streaming = false;       this._streamToken = 0;         // 每次重置递增，丢弃旧异步循环       this._audioOnlyMode = false;   // 切音轨后只补音频       this._mimeVideo = '';       this._mimeAudio = 'audio/mp4; codecs="mp4a.40.2"';       this._initVideoSeg = null;       this._initAudioSeg = null;       this._ended = false;     }      /** 探测 + 解析头部。失败 throw（上层回退）。 */     async load(url, opts) {       opts = opts || {};       this._url = url;       this._currentAudioIdx = opts.audioTrackIndex || 0;        // 0) 能力检测       if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported) {         throw new Error('MediaSource 不可用');       }        // 1) CORS / Range 探测：拉前 64KB       this._abort = new AbortController();       this._reader = new RangeReader(url, this._abort.signal);       // 触发一次真实拉取（ensure 64KB）       await this._reader.ensure(64 * 1024);        // 2) 解析 EBML 头       await this._parseHeader();        if (!this._tracks.video) throw new Error('未找到视频轨');       if (this._tracks.audios.length < 1) throw new Error('未找到音频轨');        // 3) 构造 fMP4 init segment       this._buildInitSegment();        // MP2/MP3音轨: Edge MSE不支持mp4a.6B, 跳过音频SourceBuffer, 只走视频
-      const aTrack0 = this._tracks.audios[0];
-      this._mp2Mode = (aTrack0 && aTrack0.audioKind === "mpeg");
-      if (!this._mp2Mode) {
-        if (!MediaSource.isTypeSupported(this._mimeAudio)) {
-          throw new Error("浏览器不支持此音频编码: " + this._mimeAudio);
-        }
-      }
-      console.log("[MSE-MKV] mp2Mode=", this._mp2Mode, "audioKind=", aTrack0 && aTrack0.audioKind);
+/**
+ * mkv-player.js — MSE MKV 直连播放器（纯 JS，无构建依赖）
+ *
+ * 工作原理：
+ *   浏览器直接 fetch 115 CDN 的 MKV 字节流（经 /api/direct-stream/ 302 跳转），
+ *   JS 端用轻量 EBML 解析器解封装出 H.264 视频帧 + AAC 音频帧，
+ *   再用手写的 fMP4 muxer 封装成 fMP4（ftyp+moov+moof+mdat）喂给 MediaSource，
+ *   完全不经过 NAS 转码/代理媒体数据。
+ *
+ * 仅针对 KTV MKV 固定格式：H.264(V_MPEG4/ISO/AVC) + 2 条 AAC(A_AAC)，无字幕无附件。
+ *
+ * 暴露：window.MkvMsePlayer
+ *
+ * 用法：
+ *   const p = new MkvMsePlayer();
+ *   await p.load(url, { audioTrackIndex: 0 });  // 解析头+探测CORS
+ *   p.attachMedia(videoEl);                       // 挂到 <video>，起播
+ *   p.setAudioTrack(1);                           // 切到伴唱
+ *   p.destroy();                                  // 清理
+ */
+(function (global) {
+  'use strict';
+
+  // ═══════════════════════════════════════════════════════════════════
+  // EBML / Matroska 元素 ID 常量（仅列出本播放器需要的）
+  // ═══════════════════════════════════════════════════════════════════
+  const ID = {
+    EBML:        0x1A45DFA3,
+    SEGMENT:     0x18538067,
+    SEEK_HEAD:   0x114D9B74,
+    INFO:        0x1549A966,
+    TRACKS:      0x1654AE6B,
+    CLUSTER:     0x1F43B675,
+    // Info
+    TIMECODE_SCALE: 0x2AD7B1,
+    DURATION:       0x4489,
+    // Tracks
+    TRACK_ENTRY:    0xAE,
+    TRACK_NUMBER:   0xD7,
+    TRACK_TYPE:     0x83,
+    CODEC_ID:       0x86,
+    CODEC_PRIVATE:  0x63A2,
+    VIDEO:          0xE0,
+    PIXEL_WIDTH:   0xB0,
+    PIXEL_HEIGHT:   0xBA,
+    AUDIO:          0xE1,
+    SAMPLING_FREQ:  0xB5,
+    CHANNELS:       0x9F,
+    // Cluster
+    TIMESTAMP:     0xE7,
+    SIMPLE_BLOCK:   0xA3,
+    BLOCK_GROUP:    0xA0,
+    BLOCK:          0xA1,
+  };
+  const TRACK_TYPE_VIDEO = 1;
+  const TRACK_TYPE_AUDIO = 2;
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 工具：字节拼接 / 写二进制
+  // ═══════════════════════════════════════════════════════════════════
+  function concat() {
+    const parts = [];
+    let total = 0;
+    for (let i = 0; i < arguments.length; i++) {
+      const p = arguments[i];
+      if (!p) continue;
+      parts.push(p);
+      total += p.length;
+    }
+    const out = new Uint8Array(total);
+    let o = 0;
+    for (const p of parts) { out.set(p, o); o += p.length; }
+    return out;
+  }
+  function u8(v)  { const a = new Uint8Array(1); a[0] = v & 0xFF; return a; }
+  function u16(v) { const a = new Uint8Array(2); new DataView(a.buffer).setUint16(0, v); return a; }
+  function u24(v) { const a = new Uint8Array(3); const d = new DataView(a.buffer); d.setUint8(0, (v >> 16) & 0xFF); d.setUint8(1, (v >> 8) & 0xFF); d.setUint8(2, v & 0xFF); return a; }
+  function u32(v) { const a = new Uint8Array(4); new DataView(a.buffer).setUint32(0, v); return a; }
+  function u64(v) { const a = new Uint8Array(8); const d = new DataView(a.buffer); d.setUint32(0, Math.floor(v / 0x100000000)); d.setUint32(4, v >>> 0); return a; }
+  function s16(v) { const a = new Uint8Array(2); new DataView(a.buffer).setInt16(0, v); return a; }
+  function beFloat(v) { const a = new Uint8Array(4); new DataView(a.buffer).setFloat32(0, v); return a; }
+  function str(s) { const a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
+  function zeros(n) { return new Uint8Array(n); }
+  function identityMatrix() {
+    // 标准 MP4 恒等矩阵（36 字节）
+    return new Uint8Array([
+      0,0x01,0,0, 0,0,0,0, 0,0,0,0,
+      0,0,0,0, 0,0x01,0,0, 0,0,0,0,
+      0,0,0,0, 0,0,0,0, 0x40,0,0,0
+    ]);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MP4 Box 构造
+  // ═══════════════════════════════════════════════════════════════════
+  function box(type, body) {
+    const size = 8 + body.length;
+    const out = new Uint8Array(size);
+    const dv = new DataView(out.buffer);
+    dv.setUint32(0, size);
+    dv.setUint32(4, (type.charCodeAt(0) << 24) | (type.charCodeAt(1) << 16) | (type.charCodeAt(2) << 8) | type.charCodeAt(3));
+    out.set(body, 8);
+    return out;
+  }
+  function fullBox(type, version, flags, body) {
+    return box(type, concat(u8(version), u8((flags >> 16) & 0xFF), u8((flags >> 8) & 0xFF), u8(flags & 0xFF), body));
+  }
+
+  // ftyp
+  function ftypBox() {
+    return box('ftyp', concat(str('iso5'), u32(0x200), str('iso5'), str('iso2'), str('avc1'), str('mp41')));
+  }
+
+  // mvhd（timescale 单位：秒的分母）
+  function mvhdBox(timescale, duration, nextTrackId) {
+    const body = concat(
+      u32(0), u32(0),
+      u32(timescale), u32(duration),
+      u32(0x00010000), u16(0x0100),
+      zeros(10),
+      identityMatrix(),
+      zeros(24),
+      u32(nextTrackId)
+    );
+    return fullBox('mvhd', 0, 0, body);
+  }
+
+  // tkhd
+  function tkhdBox(trackId, width, height, volume, duration) {
+    const body = concat(
+      u32(0), u32(0),
+      u32(trackId),
+      u32(0),
+      u32(duration),
+      zeros(8),
+      u16(0), u16(0),          // layer, alt group
+      u16(volume), u16(0),     // volume
+      identityMatrix(),
+      u32(Math.round(width * 65536)),
+      u32(Math.round(height * 65536))
+    );
+    return fullBox('tkhd', 0, 0x7 /*enabled|inMovie|inPreview*/, body);
+  }
+
+  // mdhd
+  function mdhdBox(timescale, duration) {
+    const body = concat(
+      u32(0), u32(0),
+      u32(timescale), u32(duration),
+      u16(0x55C0), u16(0)  // language 'und', pre-defined
+    );
+    return fullBox('mdhd', 0, 0, body);
+  }
+
+  // hdlr
+  function hdlrBox(handlerType) {
+    const body = concat(
+      u32(0),
+      str(handlerType),
+      zeros(12),
+      str('momo-mkv'), u8(0)
+    );
+    return fullBox('hdlr', 0, 0, body);
+  }
+
+  // dinf/dref
+  function dinfBox() {
+    const urlEntry = fullBox('url ', 0, 0x01 /*self-contained*/, zeros(0));
+    const dref = fullBox('dref', 0, 0, concat(u32(1), urlEntry));
+    return box('dinf', dref);
+  }
+
+  // vmhd（视频 media header）
+  function vmhdBox() { return fullBox('vmhd', 0, 1 /*presentation*/, u16(0)); }
+  // smhd（音频 media header）
+  function smhdBox() { return fullBox('smhd', 0, 0, concat(u16(0), u16(0))); }
+
+  // stsd：视频 avc1（内嵌 avcC）
+  function stsdVideoBox(codecPrivate, width, height) {
+    // avcC 直接就是 MKV CodecPrivate（AVCDecoderConfigurationRecord）
+    const avcC = box('avcC', codecPrivate);
+    // avc1 visual sample entry
+    const entry = concat(
+      zeros(6),            // reserved
+      u16(1),              // data_reference_index
+      zeros(16),           // pre-defined + reserved
+      u16(width), u16(height),
+      u32(0x00480000),     // horizres 72dpi
+      u32(0x00480000),     // vertres
+      u32(0),              // reserved
+      u16(1),              // frame_count
+      zeros(32),           // compressorname
+      u16(0x0018),         // depth
+      u16(0xFFFF),         // pre-defined (-1)
+      avcC
+    );
+    const body = concat(u32(0) /*version+flags*/, u32(1) /*entry_count*/, box('avc1', entry));
+    return fullBox('stsd', 0, 0, body);
+  }
+
+  // stsd：音频 mp4a（内嵌 esds，esds 里包 AudioSpecificConfig）
+  function stsdAudioBox(codecPrivate, channels, sampleRate) {
+    // 构造 esds（MPEG-4 DSM descriptor）
+    const asc = codecPrivate; // MKV A_AAC CodecPrivate 即 AudioSpecificConfig
+    const decSpecificInfo = concat(u8(0x05), u8(asc.length), asc);
+    const slConfig = concat(u8(0x06), u8(0x01), u8(0x02));
+    const decoderConfig = concat(
+      u8(0x04),
+      u8(13 + asc.length), // length = 13 (固定字段) + asc.length
+      u8(0x40),            // objectTypeIndication: Audio ISO/IEC 14496-3
+      u8(0x15),            // streamType=5(audio) <<2 | upstream=1
+      u24(0x000000),       // bufferSizeDB
+      u32(0),              // maxBitrate
+      u32(0),              // avgBitrate
+      decSpecificInfo,
+      slConfig
+    );
+    const esDescriptor = concat(
+      u8(0x03),
+      u8(3 + decoderConfig.length),
+      u16(0x01),           // ES_ID
+      u8(0x00),            // flags
+      decoderConfig
+    );
+    const esds = fullBox('esds', 0, 0, esDescriptor);
+
+    const entry = concat(
+      zeros(6),            // reserved
+      u16(1),              // data_reference_index
+      zeros(8),            // reserved
+      u16(channels),       // channels
+      u16(16),             // samplesize
+      u16(0), u16(0),      // pre-defined, reserved
+      u32(sampleRate << 16), // samplerate (16.16 fixed)
+      esds
+    );
+    const body = concat(u32(0), u32(1), box('mp4a', entry));
+    return fullBox('stsd', 0, 0, body);
+  }
+
+  // 空 stbl 子表（init segment 里不填样本级信息，由 moof/trun 提供）
+  function sttsEmpty() { return fullBox('stts', 0, 0, u32(0)); }
+  function stscEmpty() { return fullBox('stsc', 0, 0, u32(0)); }
+  function stszEmpty() { return fullBox('stsz', 0, 0, concat(u32(0), u32(0))); }
+
+  // stbl 组装
+  function stblBox(video, stsd) {
+    const children = video
+      ? concat(stsd, sttsEmpty(), stscEmpty(), stszEmpty())
+      : concat(stsd, sttsEmpty(), stscEmpty(), stszEmpty());
+    return box('stbl', children);
+  }
+
+  // minf
+  function minfBox(video, stsd) {
+    const header = video ? vmhdBox() : smhdBox();
+    return box('minf', concat(header, dinfBox(), stblBox(video, stsd)));
+  }
+
+  // mdia
+  function mdiaBox(video, handlerType, timescale, duration, stsd) {
+    return box('mdia', concat(mdhdBox(timescale, duration), hdlrBox(handlerType), minfBox(video, stsd)));
+  }
+
+  // trak
+  function trakBox(video, trackId, width, height, volume, timescale, duration, stsd) {
+    return box('trak', concat(tkhdBox(trackId, width, height, volume, duration), mdiaBox(video, video ? 'vide' : 'soun', timescale, duration, stsd)));
+  }
+
+  // moov（init segment 用）
+  function moovBox(tracks, duration) {
+    // tracks: [{video:bool, trackId, width, height, volume, timescale, stsd}]
+    let trackBoxes = zeros(0);
+    for (const t of tracks) {
+      trackBoxes = concat(trackBoxes, trakBox(t.video, t.trackId, t.width, t.height, t.volume, t.timescale, duration, t.stsd));
+    }
+    return box('moov', concat(mvhdBox(1000000, duration, tracks.length + 1), trackBoxes));
+  }
+
+  // ── fragment boxes（moof + mdat）─────────────────────────────────────
+  function mfhdBox(seq) { return fullBox('mfhd', 0, 0, u32(seq)); }
+
+  function tfhdBox(trackId, flags) {
+    // flags: default-base-is-moof (0x02000000) 等
+    const body = concat(u32(trackId));
+    return fullBox('tfhd', 0, flags, body);
+  }
+
+  function tfdtBox(baseMediaDecodeTime) {
+    // version 1 用 64bit，避免 long video 溢出
+    return fullBox('tfdt', 1, 0, u64(baseMediaDecodeTime));
+  }
+
+  // trun：samples 为 [{size, duration, flags?}]
+  function trunBox(flags, dataOffset, firstSampleFlags, samples) {
+    const parts = [u32(samples.length)];
+    if (flags & 0x100) parts.push(u32(dataOffset));           // data-offset-present
+    if (flags & 0x200) parts.push(u32(firstSampleFlags));    // first-sample-flags-present
+    for (const s of samples) {
+      if (flags & 0x400) parts.push(u32(s.duration));        // sample-duration
+      if (flags & 0x800) parts.push(u32(s.size));            // sample-size
+      if (flags & 0x1000) parts.push(u32(s.flags));          // sample-flags
+    }
+    return fullBox('trun', 0, flags, concat.apply(null, parts));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 流式字节读取器：按 HTTP Range 分段拉取，维护一个滑动窗口
+  // ═══════════════════════════════════════════════════════════════════
+  class RangeReader {
+    constructor(url, abortSignal) {
+      this._url = url;
+      this._signal = abortSignal;
+      this._buf = new Uint8Array(0); // 当前窗口
+      this._winStart = 0;            // 窗口首字节在文件中的偏移
+      this._pos = 0;                 // 窗口内当前读位置
+      this._eof = false;
+      this._fetched = 0;             // 已拉取的总字节（日志用）
     }
 
+    // 当前绝对文件偏移
+    tell() { return this._winStart + this._pos; }
+
+    // 跳到绝对文件偏移
+    seek(absOff) {
+      this._winStart = absOff;
+      this._buf = new Uint8Array(0);
+      this._pos = 0;
+      this._eof = false;
+    }
+
+    // 确保窗口内至少有 n 字节可用（不足则继续拉）
+    async ensure(n) {
+      while (this._buf.length - this._pos < n) {
+        if (this._eof) throw new Error('EBML 读取越界 EOF');
+        const need = Math.max(n - (this._buf.length - this._pos), 64 * 1024);
+        const start = this._winStart + this._buf.length;
+        const end = start + need - 1;
+        const resp = await fetch(this._url, {
+          headers: { Range: `bytes=${start}-${end}` },
+          signal: this._signal,
+        });
+        if (resp.status !== 206 && resp.status !== 200) {
+          throw new Error('Range 请求失败 HTTP ' + resp.status);
+        }
+        const data = new Uint8Array(await resp.arrayBuffer());
+        if (data.length === 0) { this._eof = true; break; }
+        // 服务端可能忽略 Range 返回 200 全量：此时按起始偏移对齐
+        let fileStart = start;
+        if (resp.status === 200) {
+          // 全量响应：把窗口对齐到文件 0
+          this._buf = data;
+          this._winStart = 0;
+          this._pos = 0;
+          this._eof = true;
+          this._fetched += data.length;
+          continue;
+        }
+        this._buf = concat(this._buf, data);
+        this._fetched += data.length;
+      }
+      // 释放已读部分，控制内存
+      if (this._pos > 256 * 1024) {
+        const keep = this._buf.length - this._pos;
+        this._winStart += this._pos;
+        this._buf = this._buf.slice(this._pos);
+        this._pos = 0;
+      }
+    }
+
+    // 读一个 VINT（EBML 变长整数），返回 {value, length, unknown}
+    async readVint() {
+      await this.ensure(1);
+      const first = this._buf[this._pos];
+      let len = 0;
+      for (let i = 0; i < 8; i++) {
+        if (first & (0x80 >> i)) { len = i + 1; break; }
+      }
+      if (len === 0) throw new Error('非法 VINT');
+      await this.ensure(len);
+      let val = this._buf[this._pos] & (0xFF >> len);
+      for (let i = 1; i < len; i++) {
+        val = (val << 8) | this._buf[this._pos + i];
+      }
+      this._pos += len;
+      // 全 1 = unknown size
+      const allOne = (() => {
+        const mask = (0x80 >> (len - 1)) - 1;
+        let v = first & mask;
+        if (v !== mask) return false;
+        for (let i = 1; i < len; i++) if (this._buf[this._pos - len + i] !== 0xFF) return false;
+        return true;
+      })();
+      let raw = first; for (let i = 1; i < len; i++) { raw = (raw << 8) | this._buf[this._pos - len + i]; }
+      return { value: val, raw: raw, length: len, unknown: allOne };
+    }
+
+    // 读 N 字节（返回拷贝）
+    async readBytes(n) {
+      await this.ensure(n);
+      const out = this._buf.slice(this._pos, this._pos + n);
+      this._pos += n;
+      return out;
+    }
+
+    // 读 uint（n=1..8 字节；>4 字节用乘积累加避免位运算截断）
+    async readUint(n) {
+      const b = await this.readBytes(n);
+      let v = 0;
+      for (let i = 0; i < n; i++) v = v * 256 + b[i];
+      return v;
+    }
+    async readInt(n) {
+      const b = await this.readBytes(n);
+      let v = 0;
+      for (let i = 0; i < n; i++) v = v * 256 + b[i];
+      if (b[0] & 0x80) v -= Math.pow(2, 8 * n);
+      return v;
+    }
+    async readFloat() {
+      const b = await this.readBytes(4);
+      return new DataView(b.buffer).getFloat32(0);
+    }
+    async readFloatSize(n) {
+      const b = await this.readBytes(n);
+      const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+      if (n === 8) return dv.getFloat64(0, false);
+      if (n === 4) return dv.getFloat32(0, false);
+      return n >= 4 ? dv.getFloat32(0, false) : NaN;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // MkvMsePlayer 主类
+  // ═══════════════════════════════════════════════════════════════════
+  class MkvMsePlayer {
+    constructor() {
+      this._url = null;
+      this._abort = null;          // AbortController
+      this._reader = null;
+      this._videoEl = null;
+      this._ms = null;             // MediaSource
+      this._videoSB = null;        // SourceBuffer (video)
+      this._audioSB = null;       // SourceBuffer (audio)
+      this._tracks = { video: null, audios: [] };
+      this._timecodeScale = 1000000; // ns per timestamp tick
+      this._duration = 0;            // 秒
+      this._clusters = [];           // [{fileOffset, timecode(us)}]
+      this._currentAudioIdx = 0;
+      this._seq = 0;                 // moof sequence number
+      this._destroyed = false;
+      this._streaming = false;
+      this._streamToken = 0;         // 每次重置递增，丢弃旧异步循环
+      this._audioOnlyMode = false;   // 切音轨后只补音频
+      this._mimeVideo = '';
+      this._mimeAudio = 'audio/mp4; codecs="mp4a.40.2"';
+      this._initVideoSeg = null;
+      this._initAudioSeg = null;
+      this._ended = false;
+    }
+
+    /** 探测 + 解析头部。失败 throw（上层回退）。 */
+    async load(url, opts) {
+      opts = opts || {};
+      this._url = url;
+      this._currentAudioIdx = opts.audioTrackIndex || 0;
+
+      // 0) 能力检测
+      if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported) {
+        throw new Error('MediaSource 不可用');
+      }
+
+      // 1) CORS / Range 探测：拉前 64KB
+      this._abort = new AbortController();
+      this._reader = new RangeReader(url, this._abort.signal);
+      // 触发一次真实拉取（ensure 64KB）
+      await this._reader.ensure(64 * 1024);
+
+      // 2) 解析 EBML 头
+      await this._parseHeader();
+
+      if (!this._tracks.video) throw new Error('未找到视频轨');
+      if (this._tracks.audios.length < 1) throw new Error('未找到音频轨');
+
+      // 3) 构造 fMP4 init segment
+      this._buildInitSegment();
+    }
 
     /** 挂到 <video> 并起播 */
     attachMedia(videoEl) {
@@ -288,12 +764,8 @@
       };
       if (trackType === TRACK_TYPE_VIDEO && /AVC/i.test(codecID)) {
         this._tracks.video = track;
-      } else if (trackType === TRACK_TYPE_AUDIO) {
-        // 识别音频编码：AAC 或 MPEG audio(MP1/MP2/MP3)。网盘 MTV MKV 常见 MP2(A_MPEG/L2)
-        if (/AAC/i.test(codecID)) track.audioKind = 'aac';
-        else if (/A_MPEG\/L[123]/i.test(codecID) || /MP3/i.test(codecID)) track.audioKind = 'mpeg';
-        else track.audioKind = null;
-        if (track.audioKind) this._tracks.audios.push(track);
+      } else if (trackType === TRACK_TYPE_AUDIO && /AAC/i.test(codecID)) {
+        this._tracks.audios.push(track);
       }
     }
 
@@ -316,16 +788,11 @@
       const duration = Math.ceil(this._duration * timescale);
 
       const stsdV = stsdVideoBox(cp, v.width, v.height);
-      const aTrack = this._tracks.audios[0];
-      let stsdA;
-      if (aTrack.audioKind === 'mpeg') {
-        // MPEG audio(MP2/MP3) in fMP4
-        stsdA = stsdMpegAudioBox(aTrack.channels, aTrack.sampleRate);
-        this._mimeAudio = 'audio/mp4; codecs="mp4a.6B"';
-      } else {
-        stsdA = stsdAudioBox(aTrack.codecPrivate, aTrack.channels, aTrack.sampleRate);
-        this._mimeAudio = 'audio/mp4; codecs="mp4a.40.2"';
-      }
+      const stsdA = stsdAudioBox(
+        this._tracks.audios[0].codecPrivate,
+        this._tracks.audios[0].channels,
+        this._tracks.audios[0].sampleRate
+      );
 
       const tracks = [
         { video: true, trackId: 1, width: v.width, height: v.height, volume: 0, timescale, stsd: stsdV },
