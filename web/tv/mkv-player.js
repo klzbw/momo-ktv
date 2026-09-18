@@ -509,10 +509,15 @@
     _onSourceOpen() {
       const ms = this._ms;
       const videoSB = ms.addSourceBuffer(this._mimeVideo);
-      const audioSB = ms.addSourceBuffer(this._mimeAudio);
       this._videoSB = videoSB;
-      this._audioSB = audioSB;
       videoSB.mode = 'segments';
+      this._mp2Mode = (this._tracks.audios[0] && this._tracks.audios[0].audioKind === 'mpeg');
+      console.log('[MSE-MKV] mp2Mode=', this._mp2Mode);
+      if (!this._mp2Mode) {
+        const audioSB = ms.addSourceBuffer(this._mimeAudio);
+        this._audioSB = audioSB;
+        audioSB.mode = 'segments';
+      } else { this._audioSB = null; }
       audioSB.mode = 'segments';
 
       // 设置时长
@@ -764,8 +769,11 @@
       };
       if (trackType === TRACK_TYPE_VIDEO && /AVC/i.test(codecID)) {
         this._tracks.video = track;
-      } else if (trackType === TRACK_TYPE_AUDIO && /AAC/i.test(codecID)) {
-        this._tracks.audios.push(track);
+      } else if (trackType === TRACK_TYPE_AUDIO) {
+        if (/AAC/i.test(codecID)) { track.audioKind="aac"; this._tracks.audios.push(track); }
+        else if (/A_MPEG\/L[123]/i.test(codecID)) { track.audioKind="mpeg"; this._tracks.audios.push(track); }
+        console.log("[MSE-MKV] audio track codecID=", codecID, "kind=", track.audioKind);
+      }
       }
     }
 
@@ -794,10 +802,15 @@
         this._tracks.audios[0].sampleRate
       );
 
-      const tracks = [
-        { video: true, trackId: 1, width: v.width, height: v.height, volume: 0, timescale, stsd: stsdV },
-        { video: false, trackId: 2, width: 0, height: 0, volume: 256, timescale, stsd: stsdA },
-      ];
+      let tracks;
+      if (this._tracks.audios[0] && this._tracks.audios[0].audioKind === 'mpeg') {
+        tracks = [{ video: true, trackId: 1, width: v.width, height: v.height, volume: 0, timescale, stsd: stsdV }];
+      } else {
+        tracks = [
+          { video: true, trackId: 1, width: v.width, height: v.height, volume: 0, timescale, stsd: stsdV },
+          { video: false, trackId: 2, width: 0, height: 0, volume: 256, timescale, stsd: stsdA },
+        ];
+      }
       const moov = moovBox(tracks, duration);
       const ftyp = ftypBox();
       this._initVideoSeg = concat(ftyp, moov);
