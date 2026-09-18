@@ -3516,7 +3516,7 @@ function _isLocalVideoMse(){
   const s=curSong;
   if(!s) return false;
   const n=((s.filename||s.filepath)||'').toLowerCase();
-  if(!VIDEO_RE.test(n)) return false;
+  if(!BG_VIDEO_RE.test(n)) return false;
   if(s.is_network===1||s.is_strm===1) return false;
   if(s.source_root && /netktv|网盘|115|cloud|share|strm|ktv-output/i.test(s.source_root)) return false;
   if(/netktv|网盘|115|cloud|ktv-output/i.test(s.filepath||'')) return false;

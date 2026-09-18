@@ -516,8 +516,6 @@
       // 3) 构造 fMP4 init segment
       this._buildInitSegment();
 
-      // MP2 音频(有画无声)。直接抛错回退原生 DIRECT_MKV——Chromium 原生 MKV 容器能解 MP2。
-      }
       if (!MediaSource.isTypeSupported(this._mimeAudio)) {
         throw new Error('浏览器不支持此音频编码: ' + this._mimeAudio);
       }
