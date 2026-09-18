@@ -1,5 +1,3 @@
-process.env.STARTUP_SCAN_DISABLED = process.env.STARTUP_SCAN_DISABLED || '1';
-process.env.AUTO_SCAN_DISABLED = process.env.AUTO_SCAN_DISABLED || '1';
     const express = require('express');
 
 
@@ -161,7 +159,6 @@ const lyricsMod = require('./lyrics');
 
 
 const sepMod = require('./separate');
-const lrcFileMod = require('./lrcFile');
 
 
 
@@ -8070,14 +8067,6 @@ app.post('/api/songs/:id/lyrics/offset', (req, res) => {
 
     db.prepare('UPDATE songs SET lyrics=?, lyrics_word=? WHERE id=?').run(newLyrics, newWord, id);
 
-    // 把修正后的 lyrics_word 回写到 separated/<sha>/<sha>.lrc，方便重新上传 115 分发
-    if (newWord) {
-      try {
-        const songRow = db.prepare('SELECT vocal_path, accomp_path, filepath FROM songs WHERE id=?').get(id);
-        if (songRow) lrcFileMod.writeLrcForSong(songRow, newWord);
-      } catch (e) { console.error('[LRC-EXPORT] 回写 .lrc 失败 (id=' + id + '):', e.message); }
-    }
-
 
 
 
@@ -8185,24 +8174,6 @@ let lyricBatch = { running: false, total: 0, done: 0, ok: 0, fail: 0, startedAt:
 
 
 
-
-// 批量导出所有有逐字歌词的歌到 /data/separated/<sha>/<sha>.lrc
-// 供分发者一键重新导出全部歌词文件，准备上传 115 网盘
-app.get('/api/admin/export-lrc', requireAdminAuth, (req, res) => {
-  try {
-    const rows = db.prepare(
-      "SELECT id, vocal_path, accomp_path, filepath, title, artist, lyrics_word FROM songs WHERE lyrics_word IS NOT NULL AND lyrics_word != ''"
-    ).all();
-    let written = 0, skipped = 0;
-    for (const row of rows) {
-      const p = lrcFileMod.writeLrcForSong(row, row.lyrics_word);
-      if (p) written++; else skipped++;
-    }
-    res.json({ ok: true, total: rows.length, written, skipped });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
 
 app.post('/api/lyrics/batch-missing', (req, res) => {
 
@@ -9194,21 +9165,9 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
       const kind = stem === 'vocals' ? 'vocal' : 'accomp';
       const cnName = sepMod.trackFileName(sepSong, kind, 'flac');
       const cnNameWav = sepMod.trackFileName(sepSong, kind, 'wav');
-      // 写端先用唯一 .part 临时名：避免转换进行中被 scanner/其它进程读到半成品，
-      // 也避免上一轮中断残留的 <stem>._in.wav 干扰。写完 fsync 再交给 ffmpeg。
-      const tmpWav = path.join(dir, '.' + stem + '._in.' + process.pid + '.' + Date.now() + '.part');
+      const tmpWav = path.join(dir, stem + '._in.wav');
       const flacP = path.join(dir, cnName);
       const wavP = path.join(dir, cnNameWav);
-      try {
-        // 只清理本 stem 的历史残留中间文件(旧命名 <stem>._in.wav，或之前中断的 .<stem>._in.*.part)，
-        // 不碰同目录其它轨的 .part，避免和 Promise.all 并发起的另一轨转换竞态。
-        for (const stale of fs.readdirSync(dir)) {
-          if (stale === stem + '._in.wav' || stale === '.' + stem + '._in.wav' ||
-              (stale.startsWith('.' + stem + '._in.') && stale.endsWith('.part'))) {
-            try { fs.unlinkSync(path.join(dir, stale)); } catch (e) {}
-          }
-        }
-      } catch (e) {}
 
 
 
@@ -9219,7 +9178,6 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
       fs.writeFileSync(tmpWav, buf);
-      try { const __fd = fs.openSync(tmpWav, 'r'); fs.fsyncSync(__fd); fs.closeSync(__fd); } catch (e) {}
 
 
 
@@ -21220,9 +21178,11 @@ app.post('/api/admin/library-sources/roots/:idx/scan', requireAdminAuth, async (
     const mediaType = (cloud.mediaType || 'mkv').toLowerCase();
     const isFlac = mediaType === 'flac' || mediaType === 'separated' || root.dir === 'netktv';
     if (isFlac) {
-      const { scanSeparatedFiles } = require('./netktv-scan');
-      scanSeparatedFiles(cd, accountId, cloudPath, db, path.join(process.env.DATA_DIR || '/data', 'netseparated-strm'), root.dir).catch(e => console.error('[ADMIN-SCAN-FLAC]', e.message));
-      return res.json({ ok: true, message: '分离FLAC扫描已开始', sourceRoot: root.dir, accountId, cloudPath });
+      // FLAC/分离曲库：先通过 AList 列网盘目录、在本地生成 .strm(正文=AList DAV URL)，再入库。
+      // 之前误调 scanSeparatedFiles（只读本地 strm），新云盘路径下没有本地 strm → 不生成 strm、tvOS 无法播放。
+      const { syncStrmViaAlist } = require('./netktv-scan');
+      syncStrmViaAlist(cd, accountId, cloudPath, db, path.join(process.env.DATA_DIR || '/data', 'netseparated-strm'), root.dir).catch(e => console.error('[ADMIN-SCAN-FLAC]', e.message));
+      return res.json({ ok: true, message: '分离FLAC扫描已开始（AList 同步+生成strm+入库）', sourceRoot: root.dir, accountId, cloudPath });
     } else {
       const { scanMkvFiles } = require('./netktv-mkv-scan');
       // 异步触发，立即返回状态(扫描可能很长，不阻塞 HTTP)
@@ -28617,7 +28577,7 @@ const STARTUP_SCAN_DELAY_MS = Number(process.env.STARTUP_SCAN_DELAY_MS) || 20000
 
 
 
-const STARTUP_SCAN_MAX_WAIT_MS = Number(process.env.STARTUP_SCAN_MAX_WAIT_MS) || 5000;
+const STARTUP_SCAN_MAX_WAIT_MS = Number(process.env.STARTUP_SCAN_MAX_WAIT_MS) || 60000;
 
 
 
@@ -29386,9 +29346,10 @@ setInterval(() => {
     }
 
     // 启动后延迟 40s 跑首次（等 AList 就绪），之后按间隔循环
-    // 自动同步已停用（网盘列目录慢会堵死事件循环）
-    // 需要时手动 POST /api/netktv/sync-strm 触发
-    // setInterval(runSync, SYNC_MS).unref();
+    setTimeout(() => {
+      runSync();
+      setInterval(runSync, SYNC_MS).unref();
+    }, 40000);
 
     log.info('NETKTV-SYNC', `strm 定时同步已启用：每 ${hours} 小时通过 AList 同步一次（目录=${basePath}）`);
   } catch (e) {

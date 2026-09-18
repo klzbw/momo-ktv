@@ -251,8 +251,8 @@ async function getCloudDirectUrl(dir, type) {
 
   // 步骤1：从数据库查询歌曲所属账号和 source_root
   const songInfo = lookupSongAccountId(dir);
+  let songAccountId = (songInfo && songInfo.accountId) ? songInfo.accountId : null;
   if (songInfo && songInfo.accountId) {
-    const songAccountId = songInfo.accountId;
     // 根据 source_root 查找曲库来源的 cloudPath，回退到全局 cloudBasePath
     const basePath = lookupCloudPathBySourceRoot(songInfo.sourceRoot) || cloudBasePath;
     try {
