@@ -192,7 +192,7 @@ class VLCPlayerManager: NSObject, ObservableObject {
         library = lib
         player = VLCMediaPlayer(library: lib)
         player?.delegate = self
-        log("=== MomoKtvTV v2026.09.13-quark-fix12 ===")
+        log("=== MomoKtvTV v2026.09.18-flac-absolute-url-fix ===")
         log("VLCLibrary初始化成功(无任何library cookie,不闪退), UA=\(VLCPlayerManager.cloud115UserAgent)")
     }
     #endif
