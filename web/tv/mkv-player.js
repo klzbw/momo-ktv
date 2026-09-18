@@ -7,9 +7,6 @@
         }
       }
       console.log("[MSE-MKV] mp2Mode=", this._mp2Mode, "audioKind=", aTrack0 && aTrack0.audioKind);
-        throw new Error('浏览器不支持此音频编码: ' + this._mimeAudio);
-      }
-    }
 
     /** 挂到 <video> 并起播 */
     attachMedia(videoEl) {
