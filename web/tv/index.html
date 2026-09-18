@@ -2390,7 +2390,7 @@ const VoiceManager = (() => {
   // 子音频的播放/暂停/寻址。任何不支持/出错都 dualStop() 回退到旧五档 HLS，零影响。
   let dualCtx=null, dualVocalEl=null, dualAccEl=null, dualVocalSrc=null, dualAccSrc=null;
   let dualVocalGain=null, dualAccGain=null, dualRaf=0, dualActive=false, dualSongId=null;
-  let dualLevel=1, dualAnalyser=null, dualFreq=null, dualBroken=false;
+  let dualLevel=1, dualAnalyser=null, dualFreq=null, dualBroken=false, _dualUserPaused=false;
   // 原生HLS(无MSE的iPad iOS12/tvOS)：没有 hls.js、JS 无法切 EXT-X-MEDIA 音轨，
   // 改由服务端 master?voice=N 只下发选定档，前端换源并断点续播来实现原唱/伴奏切换。
   let _nativeTracks = 1, _nativeNames = null, _nativeSongId = null, _switchingNative = false;
@@ -2492,7 +2492,7 @@ const VoiceManager = (() => {
     const master=vPlaying?v.currentTime:dualVocalEl.currentTime;
     // 暂停意图：video 被用户暂停(且音频已在播>0.5s)才停音频；
     // video 因 HLS 没起播而 paused 不算暂停，要让两个 FLAC 元素自己出声
-    const userPaused=v && v.paused && dualVocalEl.currentTime>0.5;
+    const userPaused=_dualUserPaused;
     const follow=(el)=>{
       if(!el) return;
       if(userPaused){ if(!el.paused){ try{el.pause();}catch(e){} } return; }
@@ -2536,7 +2536,7 @@ const VoiceManager = (() => {
       dualVocalEl=voc.el; dualAccEl=acc.el;
       dualVocalEl.volume=dualLevel;   // 人声音量由滑块控制(0..1)
       dualAccEl.volume=1;              // 伴奏恒满
-      dualActive=true; dualSongId=info.songId; dualBroken=false; mode=MODE.DUAL;
+      dualActive=true; dualSongId=info.songId; dualBroken=false; mode=MODE.DUAL; _dualUserPaused=false;
       v.muted=true;  // DUAL 下不 initWA(video)，背景 video 自带音轨静音，声音由两个 FLAC 元素出
       // 起播定位到主时钟当前位置
       const t=isFinite(v.currentTime)?v.currentTime:0;
@@ -2727,7 +2727,8 @@ const VoiceManager = (() => {
         .catch(()=>{});
     },
     /** DUAL：换歌/停止时清理双轨并恢复背景音轨出声 */
-    dualReset(){ _dualReqId++; if(dualActive) dualStop(false); _directMkvActive=false; _mseMkvActive=false; _mseMkvPlayer=null; if(mode===MODE.DIRECT_MKV||mode===MODE.MSE_MKV) mode=MODE.UNKNOWN; try{video.muted=false;}catch(e){} },
+    dualReset(){ _dualReqId++; if(dualActive) dualStop(false); _directMkvActive=false; _mseMkvActive=false; _mseMkvPlayer=null; if(mode===MODE.DIRECT_MKV||mode===MODE.MSE_MKV) mode=MODE.UNKNOWN; try{video.muted=false;}catch(e){} _dualUserPaused=false; },
+    dualSetPaused(p){ _dualUserPaused=!!p; if(!dualActive) return; [dualVocalEl,dualAccEl].forEach(el=>{ try{ if(p){ if(el&&!el.paused)el.pause(); }else{ if(el&&el.paused){ const x=el.play(); if(x&&x.catch)x.catch(()=>{}); } } }catch(e){} }); },
     /** DIRECT_MKV：进入 115 MKV 直连模式（由 loadSong 在拿到 sep-info.isNetKtvMkv=true 后调用） */
     enterDirectMkv() {
       _directMkvActive = true;
@@ -3924,7 +3925,7 @@ video.addEventListener('pause',syncPauseUI);
 // 也顺便修掉了另一个隐患："切歌"广播以前是所有在线的 TV 标签页各自都会
 // 调用一次 cutSong()，同一浏览器再开一个控制标签页时，一次遥控端"下一首"
 // 会被多算一次，实际跳过不止一首歌。
-function localTogglePause(){VoiceManager.wake(video);if(video.paused){video.play().catch(()=>{});if(typeof dualActive!=='undefined'&&dualActive){[dualVocalEl,dualAccEl].forEach(el=>{if(el&&el.paused)el.play().catch(()=>{});});}}else{video.pause();}}
+function localTogglePause(){VoiceManager.wake(video);if(video.paused){video.play().catch(()=>{});VoiceManager.dualSetPaused(false);}else{video.pause();VoiceManager.dualSetPaused(true);}}
 function togglePause(){
   if(!isActivePlayer){sendWS({type:'control',action:'play_pause'});return;}
   localTogglePause();
