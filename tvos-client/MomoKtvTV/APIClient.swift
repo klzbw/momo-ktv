@@ -54,7 +54,14 @@ class KTVAPIClient: ObservableObject {
     }
 
     func apiURL(_ path: String) -> URL? {
-        URL(string: "\(baseURL)\(path)")
+        // 服务端可能直接返回完整 http(s) URL（如 AList /d/ 直链、网盘 CDN 直链、
+        // netktv .strm 正文里的绝对地址）。此时不能再拼接 baseURL，否则会拼成
+        // "http://serverhttp://alist:5345/..." 这种畸形地址导致 dual FLAC 无法播放。
+        // 与 cloudDirectURL() 里 hasPrefix("http") 的处理保持一致。
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            return URL(string: path)
+        }
+        return URL(string: "\(baseURL)\(path)")
     }
 
     func fetchAll() {
