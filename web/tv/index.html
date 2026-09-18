@@ -3474,7 +3474,7 @@ function startDirectMkvPlayback(v,songId,videoUrl){
   try{ v.muted=false; v.volume=1; }catch(e){}
   try{ VoiceManager.enterDirectMkv(); }catch(e){}
   const fullUrl=resolveMediaUrl(videoUrl);
-  v.crossOrigin='anonymous';
+  try{ v.removeAttribute('crossorigin'); }catch(e){}
   v.removeAttribute('src');
   v.src=fullUrl;
   v.addEventListener('loadedmetadata',function onMd(){
