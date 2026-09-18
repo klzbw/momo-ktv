@@ -3929,7 +3929,7 @@ video.addEventListener('pause',syncPauseUI);
 // 也顺便修掉了另一个隐患："切歌"广播以前是所有在线的 TV 标签页各自都会
 // 调用一次 cutSong()，同一浏览器再开一个控制标签页时，一次遥控端"下一首"
 // 会被多算一次，实际跳过不止一首歌。
-function localTogglePause(){VoiceManager.wake(video);try{ if(VoiceManager.dualIsActive&&VoiceManager.dualIsActive()){ const p=VoiceManager.dualIsPaused(); VoiceManager.dualSetPaused(!p); isPaused=!p; return; } }catch(e){} if(video.paused){video.play().catch(()=>{});}else{video.pause();}}
+function localTogglePause(){VoiceManager.wake(video);try{ if(VoiceManager.dualIsActive&&VoiceManager.dualIsActive()){ const p=VoiceManager.dualIsPaused(); VoiceManager.dualSetPaused(!p); isPaused=!p; try{syncPauseUI();}catch(e){} return; } }catch(e){} if(video.paused){video.play().catch(()=>{});}else{video.pause();}}
 function togglePause(){
   if(!isActivePlayer){sendWS({type:'control',action:'play_pause'});return;}
   localTogglePause();
