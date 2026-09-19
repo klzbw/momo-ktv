@@ -507,7 +507,7 @@
         const clusterDataEnd = clusterDataStart + clusterSize.value;
         const subId = await r.readVint();
         const subSize = await r.readVint();
-        if (subId.value === ID.TIMESTAMP) {
+        if (subId.raw === ID.TIMESTAMP) {
           await r.readUint(Math.min(8, subSize.value));
         } else {
           r._pos += subSize.value;
@@ -1007,7 +1007,7 @@
           let clusterTimeUs = 0;
           const subId = await r.readVint();
           const subSize = await r.readVint();
-          if (subId.value === ID.TIMESTAMP) {
+          if (subId.raw === ID.TIMESTAMP) {
             const ts = await r.readUint(Math.min(8, subSize.value));
             clusterTimeUs = Math.round(ts * this._timecodeScale / 1000); // ns -> us
           } else {
