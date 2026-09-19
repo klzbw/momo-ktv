@@ -517,7 +517,7 @@
           const bSize = await r.readVint();
           const bStart = r.tell();
           const bEnd = bStart + bSize.value;
-          if (bId.value === ID.SIMPLE_BLOCK || bId.value === ID.BLOCK) {
+          if (bId.raw === ID.SIMPLE_BLOCK || bId.raw === ID.BLOCK) {
             const tn = await r.readVint();
             const trackNum = tn.value;
             await r.readInt(2);
@@ -1025,7 +1025,7 @@
             const bStart = r.tell();
             const bEnd = bStart + bSize.value;
 
-            if (bId.value === ID.SIMPLE_BLOCK || bId.value === ID.BLOCK) {
+            if (bId.raw === ID.SIMPLE_BLOCK || bId.raw === ID.BLOCK) {
               // 直接解析 SimpleBlock 数据区间
               const frame = await this._parseBlockAt(r, bStart, bEnd, clusterTimeUs);
               if (frame) {
