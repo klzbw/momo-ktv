@@ -1299,7 +1299,7 @@
     constructor(videoEl, mkvUrl) {
       this.video = videoEl;
       this.url = mkvUrl;
-      this.ctx = new (window.AudioContext || window.webkitAudioContext)({sampleRate:48000});
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
       this.gain = this.ctx.createGain();
       this.gain.connect(this.ctx.destination);
       this._paused = true;
