@@ -1912,7 +1912,21 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
   <div class="pf-head"><h2>🎵 在线音乐</h2><div class="pf-back" data-f onclick="closePF('online')">返回</div></div>
   <div class="pf-body">
     <div class="pf-main">
-      <div style="color:var(--sub);font-size:18px;text-align:center;padding:40px">在线音乐模块开发中...</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <span id="online-count" style="color:var(--sub);font-size:14px">0首</span>
+        <button class="pf-pg-btn" data-f onclick="scanOnlineMusic()">扫描网盘音乐</button>
+      </div>
+      <div class="song-list" id="pl-online"></div>
+    </div>
+  </div>
+  <div class="pf-foot" id="online-player-bar" style="display:none;position:sticky;bottom:0;background:var(--ds-bg-secondary,rgba(0,0,0,.85));padding:12px;backdrop-filter:blur(10px)">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="mvbtn" data-f id="online-play-btn" onclick="toggleOnlinePlay()"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg></button>
+      <div style="flex:1;min-width:0">
+        <div id="online-now-title" style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">未播放</div>
+        <div style="font-size:12px;color:var(--sub)" id="online-now-artist"></div>
+      </div>
+      <span id="online-time" style="font-size:12px;color:var(--sub)">0:00</span>
     </div>
   </div>
 </div>
@@ -4729,7 +4743,7 @@ function openPF(name){
   const el=document.getElementById(`pf-${name}`);
   el.classList.add('open');
   focIdx=0;
-  const inits={artists:initArtists,order:initOrder,history:initHistory,favorites:initFavorites,category:initCategory,charts:loadCharts,newest:loadNewest,online:function(){console.log('[在线音乐] 打开面板');}};
+  const inits={artists:initArtists,order:initOrder,history:initHistory,favorites:initFavorites,category:initCategory,charts:loadCharts,newest:loadNewest,online:loadOnline};
   if(inits[name])inits[name]();
   playOpenAnim(el);
   updateS3CarouselVisibility();
@@ -5275,6 +5289,63 @@ function renderNewest(){
   if(pgEl)pgEl.textContent=`${newestPg+1}/${t} (共${newestSorted.length}首)`;
 }
 function newestPage(d){const t=Math.ceil(newestSorted.length/NEWEST_PG)||1;newestPg=Math.max(0,Math.min(t-1,newestPg+d));renderNewest();}
+// ============ 在线音乐播放器 ============
+let _onlineAudio=null,_onlineSongList=[],_onlineIdx=0;
+async function loadOnline(){
+  const el=document.getElementById('pl-online');
+  el.innerHTML='<div style="color:var(--sub);text-align:center;padding:30px">加载中...</div>';
+  try{
+    const j=await fetch('/api/netktv/music/list').then(r=>r.json());
+    _onlineSongList=j.songs||[];
+    document.getElementById('online-count').textContent=_onlineSongList.length+'首';
+    if(!_onlineSongList.length){
+      el.innerHTML='<div style="color:var(--sub);text-align:center;padding:40px">还没有在线音乐<br><br>点击右上角"扫描网盘音乐"按钮扫描网盘音乐目录</div>';
+      return;
+    }
+    el.innerHTML='';
+    _onlineSongList.forEach((s,i)=>{
+      const d=document.createElement('div');d.className='so-row';
+      d.innerHTML=<div class="so-num"></div>
+        <div class="so-info"><div class="so-t"></div><div class="so-a"></div></div>
+        <div class="so-acts"><button class="btn-add" data-f onclick="playOnlineSong()">播放</button></div>;
+      el.appendChild(d);
+    });
+  }catch(e){el.innerHTML='<div style="color:var(--sub);text-align:center;padding:30px">加载失败: '+e.message+'</div>';}
+}
+async function playOnlineSong(idx){
+  _onlineIdx=idx;
+  const s=_onlineSongList[idx];if(!s)return;
+  document.getElementById('online-now-title').textContent=s.title;
+  document.getElementById('online-now-artist').textContent=s.artist||'';
+  document.getElementById('online-player-bar').style.display='block';
+  if(!_onlineAudio){
+    _onlineAudio=new Audio();
+    _onlineAudio.addEventListener('ended',()=>{if(_onlineIdx<_onlineSongList.length-1)playOnlineSong(_onlineIdx+1);});
+    _onlineAudio.addEventListener('timeupdate',()=>{
+      const t=_onlineAudio.currentTime||0;const m=Math.floor(t/60);const sec=Math.floor(t%60);
+      document.getElementById('online-time').textContent=m+':'+(sec<10?'0':'')+sec;
+    });
+  }
+  _onlineAudio.src='/api/netktv/music/stream/'+s.id;
+  try{await _onlineAudio.play();}catch(e){console.warn('[在线音乐] 播放失败:',e);}
+}
+function toggleOnlinePlay(){
+  if(!_onlineAudio)return;
+  if(_onlineAudio.paused){_onlineAudio.play();}else{_onlineAudio.pause();}
+}
+async function scanOnlineMusic(){
+  showToast('开始扫描网盘音乐目录...');
+  try{
+    const j=await fetch('/api/netktv/sync-music',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accountId:1,basePath:'/music'})}).then(r=>r.json());
+    showToast(j.message||'扫描已开始');
+    // 轮询状态
+    const poll=setInterval(async()=>{
+      try{const s=await fetch('/api/netktv/sync/status').then(r=>r.json());
+        if(!s.running){clearInterval(poll);showToast('扫描完成，入库'+(s.addedSongs||0)+'首');loadOnline();}
+      }catch(e){}
+    },2000);
+  }catch(e){showToast('扫描失败: '+e.message);}
+}
 let st2;
 // 搜歌点歌：之前不管有没有输入关键字，都会一次性把匹配到的全部歌曲(空
 // 关键字=整个曲库)拉回来直接渲染成一整屏 DOM，曲库大了以后明显卡顿。

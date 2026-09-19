@@ -667,6 +667,38 @@ function init(db, cloudDrive) {
     res.json(syncStatus);
   });
 
+  // GET /api/netktv/music/list — 列出在线音乐（source_root=netktv-music）
+  router.get('/music/list', (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+      const offset = parseInt(req.query.offset) || 0;
+      const songs = db.prepare(
+        "SELECT id, title, artist, filename, cloud_account_id, duration FROM songs WHERE source_root='netktv-music' ORDER BY id DESC LIMIT ? OFFSET ?"
+      ).all(limit, offset);
+      const total = db.prepare("SELECT COUNT(*) as cnt FROM songs WHERE source_root='netktv-music'").get();
+      res.json({ songs, total: total.cnt });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/netktv/music/stream/:id — 302到AList直链播放
+  router.get('/music/stream/:id', (req, res) => {
+    try {
+      const song = db.prepare("SELECT * FROM songs WHERE id=? AND source_root='netktv-music'").get(parseInt(req.params.id, 10));
+      if (!song) return res.status(404).json({ error: '歌曲不存在' });
+      if (!song.vocal_path || !fs.existsSync(song.vocal_path)) {
+        return res.status(404).json({ error: 'STRM文件不存在' });
+      }
+      const strmContent = fs.readFileSync(song.vocal_path, 'utf-8').trim();
+      if (!strmContent.startsWith('http')) return res.status(500).json({ error: 'STRM内容无效' });
+      // 直接302到AList直链（AList再302到CDN），不占NAS带宽
+      res.redirect(302, strmContent);
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // POST /api/netktv/sync-music — 同步网盘音乐目录（单轨，在线音乐用）
   router.post('/sync-music', async (req, res) => {
     if (syncStatus.running) {
