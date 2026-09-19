@@ -1457,9 +1457,9 @@
               pos += 3; // timecode + flags
               console.log('[MP2-AUDIO] block trackNum=',trackNum,'audioTrackNum=',audioTrackNum,'dataLen=',bEnd-pos);
               const dataLen = bEnd - pos;
-              if(trackNum === audioTrackNum && dataLen > 0) {
+              if(trackNum === 2 && dataLen > 0) {
                 frames.push(buf.slice(pos, bEnd));
-              } else if(trackNum !== 1 && trackNum !== audioTrackNum && dataLen > 0) {
+              } else if(trackNum === 3 && dataLen > 0) {
                 frames2.push(buf.slice(pos, bEnd));
               }
             } else {
