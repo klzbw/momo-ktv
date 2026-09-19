@@ -2406,6 +2406,8 @@ const VoiceManager = (() => {
   function realTrackCount() {
     if (mode === MODE.NATIVE) return _nativeTracks || _trackCount || 1;
     if (mode === MODE.DIRECT_MKV) { const tl = directMkvTrackList(); return tl ? tl.length : 0; }
+        _trackIndex = _trackIndex === 0 ? 1 : 0;
+        try{ this.mp2SetTrack(_trackIndex+1); }catch(e){}
     if (mode === MODE.MSE_MKV) return _mseMkvTrackCount || 2;
     const n = hlsInstance && hlsInstance.audioTracks ? hlsInstance.audioTracks.length : 0;
     return n >= 1 ? n : _trackCount;
@@ -2798,10 +2800,6 @@ const VoiceManager = (() => {
     /** 在当前歌曲全部档位间循环（五档/三档/双档自适应）；声道型在两态间切换 */
     cycle(v) {
       if (mode === MODE.DUAL) { setVocalLevel(dualLevel > 0.5 ? 0 : 1); return this.trackLabel; }
-      if (mode === MODE.DIRECT_MKV) {
-        const tl = directMkvTrackList();
-        if (!tl || tl.length < 2) { try{ showToast('当前浏览器不支持MKV多音轨切换'); }catch(e){} return this.trackLabel; }
-        _trackIndex = _trackIndex === 0 ? 1 : 0;
       } else if (mode === MODE.MSE_MKV) {
         const total = realTrackCount();
         _trackIndex = _trackIndex === 0 ? Math.min(1, total - 1) : 0;
