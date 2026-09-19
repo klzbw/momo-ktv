@@ -1897,14 +1897,6 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
 </div>
 <div class="pd-full" id="pf-newest">
   <div class="pf-head"><h2>🆕 最新入库</h2><div class="pf-back" data-f onclick="closePF('newest')">返回</div></div>
-<div class="pd-full" id="pf-online">
-  <div class="pf-head"><h2>🎵 在线音乐</h2><div class="pf-back" data-f onclick="closePF('online')">返回</div></div>
-  <div class="pf-body">
-    <div class="pf-main">
-      <div style="color:var(--sub);font-size:18px;text-align:center;padding:40px">在线音乐模块开发中...</div>
-    </div>
-  </div>
-</div>
   <div class="pf-body">
     <div class="pf-main">
       <div class="song-list" id="pl-newest"></div>
@@ -1915,6 +1907,15 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
       </div>
     </div>
   </div>
+</div>
+<div class="pd-full" id="pf-online">
+  <div class="pf-head"><h2>🎵 在线音乐</h2><div class="pf-back" data-f onclick="closePF('online')">返回</div></div>
+  <div class="pf-body">
+    <div class="pf-main">
+      <div style="color:var(--sub);font-size:18px;text-align:center;padding:40px">在线音乐模块开发中...</div>
+    </div>
+  </div>
+</div>
 </div>
 <!-- 需求：风格三"扫码"不再弹出二级菜单浮窗(原来的 #pd-qr，跟风格一/二共用
      一个弹层，现在两边都已经各自换成别的形式，这个共用弹层不再需要，删掉)，
