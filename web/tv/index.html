@@ -2737,6 +2737,7 @@ const VoiceManager = (() => {
     mp2SetPaused(p){ if(window._mp2Audio){ try{ window._mp2Audio.setPaused(p); }catch(e){} } },
     mp2Seek(t){ if(window._mp2Audio){ try{ if(window._mp2Audio._src){ window._mp2Audio._src.stop(); } window._mp2Audio._play(t); }catch(e){} } },
     mp2SetVolume(v){ if(window._mp2Audio){ try{ window._mp2Audio.setVolume(v); }catch(e){} } },
+    mp2SetTrack(t){ if(window._mp2Audio){ try{ window._mp2Audio.setTrack(t); }catch(e){} } },
     /** DIRECT_MKV：进入 115 MKV 直连模式（由 loadSong 在拿到 sep-info.isNetKtvMkv=true 后调用） */
     enterDirectMkv() {
       _directMkvActive = true;
