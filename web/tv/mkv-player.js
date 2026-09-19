@@ -1455,19 +1455,7 @@
               if(!tn) { pos = bEnd; continue; }
               const trackNum = tn.value;
               pos += 3; // timecode + flags
-              pos += 2; // timecode
-              const flags = buf[pos++];
-              const lacing = (flags >> 1) & 0x03;
-              if(lacing) {
-                if(lacing === 1) { let sz; do { sz = buf[pos++]; } while(sz === 0xFF && pos < bEnd); }
-                else if(lacing === 2) { pos += 1; }
-                else if(lacing === 3) { readVint(); }
-              }
               const dataLen = bEnd - pos;
-              if(window._mp2DbgFirst < 2 && dataLen > 0) {
-                console.log("[MP2-AUDIO] first block track=", trackNum, "flags=0x"+flags.toString(16), "lacing=", lacing, "first10=", Array.from(buf.slice(pos, pos+10)).map(b=>b.toString(16).padStart(2,"0")).join(" "));
-                window._mp2DbgFirst++;
-              }
               if(trackNum === audioTrackNum && dataLen > 0) {
                 frames.push(buf.slice(pos, bEnd));
               } else if(trackNum !== 1 && trackNum !== audioTrackNum && dataLen > 0) {
