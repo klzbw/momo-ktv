@@ -1350,7 +1350,7 @@
         if(!id) break;
         const sz = readVint();
         if(!sz) break;
-        if(window._mp2DbgClusters < 10) console.log('[MP2-AUDIO] elem ID=0x'+id.raw.toString(16),'sz=0x'+sz.value.toString(16),'pos=',pos); window._mp2DbgClusters++;
+        if(pos < 500000) console.log('[MP2-AUDIO] elem ID=0x'+id.raw.toString(16),'sz=0x'+sz.value.toString(16),'pos=',pos);
         if(id.raw === 0x1F43B675) { // CLUSTER
           const clusterEnd = pos + sz.value;
           while(pos < clusterEnd) {
