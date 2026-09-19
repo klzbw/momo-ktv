@@ -5305,9 +5305,9 @@ async function loadOnline(){
     el.innerHTML='';
     _onlineSongList.forEach((s,i)=>{
       const d=document.createElement('div');d.className='so-row';
-      d.innerHTML=<div class="so-num"></div>
-        <div class="so-info"><div class="so-t"></div><div class="so-a"></div></div>
-        <div class="so-acts"><button class="btn-add" data-f onclick="playOnlineSong()">播放</button></div>;
+      d.innerHTML='<div class="so-num">'+(i+1)+'</div>'+
+        '<div class="so-info"><div class="so-t">'+s.title+'</div><div class="so-a">'+(s.artist||'')+'</div></div>'+
+        '<div class="so-acts"><button class="btn-add" data-f onclick="playOnlineSong('+i+')">播放</button></div>';
       el.appendChild(d);
     });
   }catch(e){el.innerHTML='<div style="color:var(--sub);text-align:center;padding:30px">加载失败: '+e.message+'</div>';}
