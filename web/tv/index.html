@@ -2803,6 +2803,11 @@ const VoiceManager = (() => {
     },
     /** 在当前歌曲全部档位间循环（五档/三档/双档自适应）；声道型在两态间切换 */
     cycle(v) {
+      if (mode === MODE.DUAL) { setVocalLevel(dualLevel > 0.5 ? 0 : 1); return this.trackLabel; }
+      if (mode === MODE.DIRECT_MKV) {
+        _trackIndex = _trackIndex === 0 ? 1 : 0;
+        try{ this.mp2SetTrack(_trackIndex+1); }catch(e){}
+      } else if (mode === MODE.MSE_MKV) {
         const total = realTrackCount();
         _trackIndex = _trackIndex === 0 ? Math.min(1, total - 1) : 0;
       } else if (mode === MODE.STEREO) {
