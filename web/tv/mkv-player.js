@@ -1333,6 +1333,7 @@
         const d1 = new DecoderClass();
         await d1.ready;
         const dec1 = await d1.decode(track1Data);
+        console.log('[MP2-AUDIO] track1 decoded:', dec1.channelData.length, 'ch', dec1.sampleRate, 'Hz', dec1.channelData[0].length, 'samples');
         this._track1Buf = this._mkBuf(dec1);
         this._buf = this._track1Buf;
         this._track2Buf = null;
