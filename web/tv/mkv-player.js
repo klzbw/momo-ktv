@@ -1333,11 +1333,11 @@
         await d1.ready;
         const dec1 = await d1.decode(track1Data);
         this._track1Buf = this._mkBuf(dec1);
-        this._buf = this._track1Buf;
         this._track2Buf = null;
         if(track2Data && track2Data.length > 0) {
           try { const d2 = new DecoderClass(); await d2.ready; const dec2 = await d2.decode(track2Data); this._track2Buf = this._mkBuf(dec2); } catch(e) {}
         }
+        if(this._track2Buf) this._buf = this._track2Buf;
         console.log("[MP2-AUDIO] 解码成功, 开始播放");
         this._play(this.video.currentTime);
       } catch(e) { console.warn("[MP2-AUDIO] 失败:", e); }
@@ -1349,7 +1349,7 @@
       return buf;
     }
     setTrack(t) {
-      try { const cur = this.video.currentTime; if(t===2 && this._track2Buf){ this._buf = this._track2Buf; this._play(cur); } else { this._buf = this._track1Buf; this._play(cur); } } catch(e) {}
+      try { const cur = this.video.currentTime; if(t===1 && this._track2Buf){ this._buf = this._track2Buf; this._play(cur); } else { this._buf = this._track1Buf; this._play(cur); } } catch(e) {}
     }
 
     _extractFrames(buf) {
