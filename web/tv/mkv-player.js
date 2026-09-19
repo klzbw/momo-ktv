@@ -1235,70 +1235,45 @@
       this.gain.connect(this.ctx.destination);
       this.source = null;
       this._paused = true;
-      this._started = false;
-      this._frames = [];
-      this._sampleRate = 44100;
-      this._channels = 2;
-      this._onEnded = null;
+      this._buf = null;
     }
 
     async start() {
-      console.log("[MP2-AUDIO] 开始提取MP2音频...");
+      console.log("[MP2-AUDIO] 开始...");
       try {
-        // 先拉前 64KB 找轨道信息
-        const resp = await fetch(this.url, { headers: { Range: "bytes=0-65535" } });
-        const buf = new Uint8Array(await resp.arrayBuffer());
-        // 简单查找音频轨道号
-        this._audioTrackNum = await this._findAudioTrack(buf);
-        console.log("[MP2-AUDIO] 音频轨道号:", this._audioTrackNum);
-        // 拉整个文件提取音频帧（先试拉全量，后续改流式）
-        const resp2 = await fetch(this.url);
-        const fullBuf = new Uint8Array(await resp2.arrayBuffer());
+        const resp = await fetch(this.url);
+        const fullBuf = new Uint8Array(await resp.arrayBuffer());
         console.log("[MP2-AUDIO] 文件大小:", fullBuf.length);
-        this._extractAudioFrames(fullBuf);
-        console.log("[MP2-AUDIO] 提取帧数:", this._frames.length);
-        // 合并成一个 Blob 给 decodeAudioData
-        const allFrames = new Uint8Array(this._frames.reduce((a,f)=>a+f.length,0));
-        let off=0; for(const f of this._frames){ allFrames.set(f,off); off+=f.length; }
+        const frames = this._extractAudioFrames(fullBuf);
+        console.log("[MP2-AUDIO] 提取帧数:", frames.length);
+        const allFrames = new Uint8Array(frames.reduce((a,f)=>a+f.length,0));
+        let off=0; for(const f of frames){ allFrames.set(f,off); off+=f.length; }
         console.log("[MP2-AUDIO] 总音频字节:", allFrames.length);
-        const audioBuf = await this.ctx.decodeAudioData(allFrames.buffer);
-        // 用 WASM mpg123-decoder 解码 MP2
-        console.log("[MP2-AUDIO] 加载WASM解码器...");
         const DecoderClass = window["mpg123-decoder"].MPEGDecoder;
         const decoder = new DecoderClass();
         await decoder.ready;
-        console.log("[MP2-AUDIO] WASM解码器就绪, 解码MP2...");
+        console.log("[MP2-AUDIO] WASM就绪, 解码...");
         const decoded = await decoder.decode(allFrames);
-        console.log("[MP2-AUDIO] 解码成功!", decoded);
-        // 创建 AudioBuffer
+        console.log("[MP2-AUDIO] 解码成功!", decoded.channelData.length, "ch", decoded.sampleRate, "Hz");
         const ch = decoded.channelData.length;
         const sr = decoded.sampleRate;
         const len = decoded.channelData[0].length;
-        const audioBuf = this.ctx.createBuffer(ch, len, sr);
-        for(let c=0; c<ch; c++) audioBuf.copyToChannel(decoded.channelData[c], c);
-        this._playBuffer(audioBuf, this.video.currentTime);
-            for(let j=i-50; j<i; j++) {
-              if(j>=0 && buf[j]===0xD7) return buf[j+2];
-            }
-          }
-        }
+        this._buf = this.ctx.createBuffer(ch, len, sr);
+        for(let c=0; c<ch; c++) this._buf.copyToChannel(decoded.channelData[c], c);
+        this._play(this.video.currentTime);
+      } catch(e) {
+        console.warn("[MP2-AUDIO] 失败:", e);
       }
-      return 1;
     }
 
     _extractAudioFrames(buf) {
-      // 简单扫描找 SimpleBlock (0xA3) 里的音频数据
-      // MP2 帧头是 0xFF 0xFx 或 0xFF 0xEx
-      this._frames = [];
+      const frames = [];
       let i=0;
       while(i < buf.length-4) {
-        // 找 MP2 帧同步字 0xFFE 或 0xFFF
         if(buf[i]===0xFF && (buf[i+1]&0xE0)===0xE0) {
-          // 可能是 MP2 帧头
           const bitrateIdx = (buf[i+2]>>4)&0x0F;
           const samprateIdx = (buf[i+2]>>2)&0x03;
           const padding = (buf[i+2]>>1)&0x01;
-          // 估算帧长 (MP2 常见 bitrate)
           const bitrates = [0,32,48,56,64,80,96,112,128,160,192,224,256,320,384,0];
           const samprates = [44100,48000,32000,0];
           const br = bitrates[bitrateIdx]*1000;
@@ -1306,7 +1281,7 @@
           if(br>0 && sr>0) {
             const frameLen = Math.floor(144*br/sr) + padding;
             if(frameLen>0 && i+frameLen<=buf.length) {
-              this._frames.push(buf.slice(i, i+frameLen));
+              frames.push(buf.slice(i, i+frameLen));
               i += frameLen;
               continue;
             }
@@ -1314,33 +1289,30 @@
         }
         i++;
       }
+      return frames;
     }
 
-    _playBuffer(audioBuf, offset) {
+    _play(offset) {
+      if(this.source) try{this.source.stop();}catch(e){}
       this.source = this.ctx.createBufferSource();
-      this.source.buffer = audioBuf;
+      this.source.buffer = this._buf;
       this.source.connect(this.gain);
-      const startOffset = Math.min(offset, audioBuf.duration);
-      this.source.start(0, startOffset);
+      const o = Math.min(offset, this._buf.duration);
+      this.source.start(0, o);
       this._paused = false;
-      this._started = true;
-      console.log("[MP2-AUDIO] 开始播放, 偏移:", startOffset);
+      console.log("[MP2-AUDIO] 播放, 偏移:", o);
     }
 
     setPaused(p) {
       if(p && !this._paused && this.source) {
         try { this.source.stop(); } catch(e){}
         this._paused = true;
-      } else if(!p && this._paused && this.source) {
-        // 重新播放从当前位置
-        try { this.source.stop(); } catch(e){}
-        this._playBuffer(this.source.buffer, this.video.currentTime);
+      } else if(!p && this._paused && this._buf) {
+        this._play(this.video.currentTime);
       }
     }
 
-    setVolume(v) {
-      this.gain.gain.value = v;
-    }
+    setVolume(v) { this.gain.gain.value = v; }
 
     destroy() {
       try { if(this.source) this.source.stop(); } catch(e){}
