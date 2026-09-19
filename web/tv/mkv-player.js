@@ -1469,7 +1469,7 @@
               const tn = readVint();
               if(!tn) { pos = bEnd; continue; }
               const trackNum = tn.value;
-              pos += 3; // timecode + flags
+              pos += 4; // timecode(2) + flags(1) + extra(1)
               
               const dataLen = bEnd - pos;
               if(trackNum === 2 && dataLen > 0) {
