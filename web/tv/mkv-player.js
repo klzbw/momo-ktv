@@ -1332,14 +1332,12 @@
           track1Data = merge(result.track1 || result);
           track2Data = merge(result.track2 || []);
           console.log("[MP2-AUDIO] track1=", track1Data.length, "track2=", track2Data.length);
-          console.log("[MP2-AUDIO] first16 track1=", Array.from(track1Data.slice(0,16)).map(b=>b.toString(16).padStart(2,'0')).join(' '));
-        }
+                  }
         const DecoderClass = window["mpg123-decoder"].MPEGDecoder;
         const d1 = new DecoderClass();
         await d1.ready;
         const dec1 = await d1.decode(track1Data);
-        console.log('[MP2-AUDIO] track1 decoded:', dec1.channelData.length, 'ch', dec1.sampleRate, 'Hz', dec1.channelData[0].length, 'samples');
-        this._track1Buf = this._mkBuf(dec1);
+                this._track1Buf = this._mkBuf(dec1);
         this._buf = this._track1Buf;
         this._track2Buf = null;
         if(track2Data && track2Data.length > 0) {
@@ -1354,8 +1352,7 @@
       // 找峰值
       let peak = 0;
       for(let c=0; c<ch; c++) { const d = decoded.channelData[c]; for(let i=0; i<len; i++) { const a = Math.abs(d[i]); if(a>peak) peak=a; } }
-      console.log('[MP2-AUDIO] peak=', peak.toFixed(3));
-      const scale = peak > 0.9 ? 0.9 / peak : 1;
+            const scale = peak > 0.9 ? 0.9 / peak : 1;
       const buf = this.ctx.createBuffer(ch, len, sr);
       for(let c=0; c<ch; c++) {
         const src = decoded.channelData[c];
