@@ -490,6 +490,61 @@
       }
     }
 
+    /** MP2模式: 用已解析的RangeReader提取所有音频轨数据 */
+    async extractAudioData() {
+      const audioTrackNum = this._tracks.audios[0].trackNum;
+      console.log("[MSE-MKV] extractAudioData trackNum=", audioTrackNum);
+      const r = this._reader;
+      const chunks = [];
+      let totalLen = 0;
+      r.seek(this._firstClusterOffset || 0);
+      let clusterCount = 0;
+      while (true) {
+        const clusterId = await r.readVint();
+        if (clusterId.raw !== ID.CLUSTER) break;
+        const clusterSize = await r.readVint();
+        const clusterDataStart = r.tell();
+        const clusterDataEnd = clusterDataStart + clusterSize.value;
+        const subId = await r.readVint();
+        const subSize = await r.readVint();
+        if (subId.value === ID.TIMESTAMP) {
+          await r.readUint(Math.min(8, subSize.value));
+        } else {
+          r._pos += subSize.value;
+        }
+        while (r.tell() < clusterDataEnd) {
+          const bId = await r.readVint();
+          const bSize = await r.readVint();
+          const bStart = r.tell();
+          const bEnd = bStart + bSize.value;
+          if (bId.value === ID.SIMPLE_BLOCK || bId.value === ID.BLOCK) {
+            const tn = await r.readVint();
+            const trackNum = tn.value;
+            await r.readInt(2);
+            await r.readUint(1);
+            const dataLen = bEnd - r.tell();
+            if (trackNum === audioTrackNum && dataLen > 0) {
+              const data = await r.readBytes(dataLen);
+              chunks.push(data);
+              totalLen += dataLen;
+            } else {
+              r._pos = bEnd;
+            }
+          } else {
+            r._pos = bEnd;
+          }
+        }
+        r._pos = clusterDataEnd;
+        clusterCount++;
+        if (clusterCount % 200 === 0) console.log("[MSE-MKV] extractAudioData clusters=", clusterCount, "audioBytes=", totalLen);
+      }
+      const result = new Uint8Array(totalLen);
+      let off = 0;
+      for (const c of chunks) { result.set(c, off); off += c.length; }
+      console.log("[MSE-MKV] extractAudioData done clusters=", clusterCount, "totalBytes=", totalLen);
+      return result;
+    }
+
     /** 挂到 <video> 并起播 */
     attachMedia(videoEl) {
       if (!this._initVideoSeg) throw new Error('未 load 就 attach');
@@ -1241,14 +1296,20 @@
     async start() {
       console.log("[MP2-AUDIO] 开始...");
       try {
-        const resp = await fetch(this.url);
-        const fullBuf = new Uint8Array(await resp.arrayBuffer());
-        console.log("[MP2-AUDIO] 文件大小:", fullBuf.length);
-        const frames = this._extractFrames(fullBuf);
-        console.log("[MP2-AUDIO] 提取帧数:", frames.length);
-        const allFrames = new Uint8Array(frames.reduce((a,f)=>a+f.length,0));
-        let off=0; for(const f of frames){ allFrames.set(f,off); off+=f.length; }
-        console.log("[MP2-AUDIO] 总音频字节:", allFrames.length);
+        let allFrames;
+        if(window._mp2AudioData && window._mp2AudioData.length > 0) {
+          allFrames = window._mp2AudioData;
+          console.log('[MP2-AUDIO] 用MSE提取的音频数据:', allFrames.length, '字节');
+        } else {
+          const resp = await fetch(this.url);
+          const fullBuf = new Uint8Array(await resp.arrayBuffer());
+          console.log('[MP2-AUDIO] 文件大小:', fullBuf.length);
+          const frames = this._extractFrames(fullBuf);
+          console.log('[MP2-AUDIO] 提取帧数:', frames.length);
+          allFrames = new Uint8Array(frames.reduce((a,f)=>a+f.length,0));
+          let off=0; for(const f of frames){ allFrames.set(f,off); off+=f.length; }
+          console.log('[MP2-AUDIO] 总音频字节:', allFrames.length);
+        }
         const DecoderClass = window["mpg123-decoder"].MPEGDecoder;
         const decoder = new DecoderClass();
         await decoder.ready;
