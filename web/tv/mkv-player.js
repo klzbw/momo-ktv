@@ -494,7 +494,7 @@
     async extractAudioData() {
       const audioTrackNum = this._tracks.audios[0].trackNum;
       console.log("[MSE-MKV] extractAudioData trackNum=", audioTrackNum);
-      const r = this._reader;
+      const r = new RangeReader(this._url, null);
       const chunks = [];
       let totalLen = 0;
       r.seek(this._firstClusterOffset || 0);
@@ -690,7 +690,7 @@
     // 头部解析
     // ────────────────────────────────────────────────────────────────
     async _parseHeader() {
-      const r = this._reader;
+      const r = new RangeReader(this._url, null);
       // EBML 头（校验）
       const ebmlId = await r.readVint();
       if (ebmlId.raw !== ID.EBML) throw new Error('不是 EBML 文件');
@@ -885,7 +885,7 @@
     async _startStreaming(fromOffset, resumeTimeSec) {
       const token = ++this._streamToken;
       this._streaming = true;
-      const r = this._reader;
+      const r = new RangeReader(this._url, null);
       if (fromOffset != null) r.seek(fromOffset);
       else if (this._firstClusterOffset != null) r.seek(this._firstClusterOffset);
 
