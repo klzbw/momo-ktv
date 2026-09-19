@@ -3284,6 +3284,7 @@ select option{color:#000}
 
 
           <option value="flac">分离FLAC(人声+伴奏)</option>
+          <option value="music">听歌源(纯音乐)</option>
 
 
 
@@ -8787,7 +8788,7 @@ function renderSrcRootsList(){
 
 
 
-      ${r.cloud ? `<div class="cache-hint" style="margin:2px 0 4px">☁️ ${getCloudAccountLabel(r.cloud.accountId)}${r.cloud.mediaType==='flac'?' FLAC':' MKV'} · ${r.cloud.cloudPath}</div>` : ''}
+      ${r.cloud ? `<div class="cache-hint" style="margin:2px 0 4px">☁️ ${getCloudAccountLabel(r.cloud.accountId)}${r.cloud.mediaType==='flac'?' FLAC':(r.cloud.mediaType==='music'?' 听歌源':' MKV')} · ${r.cloud.cloudPath}</div>` : ''}
 
 
 

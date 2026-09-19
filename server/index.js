@@ -21169,12 +21169,18 @@ app.post('/api/admin/library-sources/roots/:idx/scan', requireAdminAuth, async (
     // 根据cloud.mediaType或dir判断扫描类型（支持所有网盘驱动）
     const mediaType = (cloud.mediaType || 'mkv').toLowerCase();
     const isFlac = mediaType === 'flac' || mediaType === 'separated' || root.dir === 'netktv';
+    const isMusic = mediaType === 'music' || root.dir === 'netktv-music';
     if (isFlac) {
       // FLAC/分离曲库：先通过 AList 列网盘目录、在本地生成 .strm(正文=AList DAV URL)，再入库。
       // 之前误调 scanSeparatedFiles（只读本地 strm），新云盘路径下没有本地 strm → 不生成 strm、tvOS 无法播放。
       const { syncStrmViaAlist } = require('./netktv-scan');
       syncStrmViaAlist(cd, accountId, cloudPath, db, path.join(process.env.DATA_DIR || '/data', 'netseparated-strm'), root.dir).catch(e => console.error('[ADMIN-SCAN-FLAC]', e.message));
       return res.json({ ok: true, message: '分离FLAC扫描已开始（AList 同步+生成strm+入库）', sourceRoot: root.dir, accountId, cloudPath });
+    } else if (isMusic) {
+      const { syncMusicViaAlist } = require('./netktv-scan');
+      const musicStrmDir = path.join(process.env.DATA_DIR || '/data', 'music-strm');
+      syncMusicViaAlist(cd, accountId, cloudPath, db, musicStrmDir, root.dir).catch(e => console.error('[ADMIN-SCAN-MUSIC]', e.message));
+      return res.json({ ok: true, message: '听歌源扫描已开始（纯音乐STRM生成）', sourceRoot: root.dir, accountId, cloudPath });
     } else {
       const { scanMkvFiles } = require('./netktv-mkv-scan');
       // 异步触发，立即返回状态(扫描可能很长，不阻塞 HTTP)
@@ -21220,19 +21226,23 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
       return res.status(400).json({ error: '网盘账号不存在或不可用，请先在网盘设置里登录' });
     }
     // mediaType -> source_root dir（允许多个网盘共用同一dir，入库时用 cloud_account_id 区分）
-    const dirForType = (String(mediaType || 'mkv').toLowerCase() === 'flac' || String(mediaType || '').toLowerCase() === 'separated')
-      ? 'netktv' : 'netktv-mkv';
+    const mt = String(mediaType || 'mkv').toLowerCase();
+    const dirForType = (mt === 'flac' || mt === 'separated') ? 'netktv' : (mt === 'music' ? 'netktv-music' : 'netktv-mkv');
     const roots = getLibraryRoots();
     // 检查是否已添加相同账号+相同路径（避免重复）
     const dup = roots.find(r => r.cloud && r.cloud.accountId === acct.id && r.cloud.cloudPath === String(cloudPath).trim());
     if (dup) {
       return res.status(409).json({ error: '该网盘账号的此路径已添加过了，可直接在列表里点"扫描"' });
     }
-    const cloud = { accountId: acct.id, cloudPath: String(cloudPath).trim(), mediaType: dirForType === 'netktv' ? 'flac' : 'mkv', driver: acct.driver };
+    const cloud = { accountId: acct.id, cloudPath: String(cloudPath).trim(), mediaType: mt, driver: acct.driver };
+    // 每个云盘来源用唯一 source_root，确保多路径删除互不影响
+    const crypto = require('crypto');
+    const pathHash = crypto.createHash('md5').update(acct.id + ':' + cloud.cloudPath).digest('hex').slice(0, 8);
+    const uniqueDir = dirForType + '-c' + pathHash;
     const driverNames = { pan115: '115网盘', quark: '夸克网盘', cmcc: '移动云盘', aliyun: '阿里云盘', baidu: '百度网盘', xunlei: '迅雷网盘' };
     const driverName = driverNames[acct.driver] || acct.driver;
     roots.push({
-      dir: dirForType,
+      dir: uniqueDir,
       label: (cloudLabel && String(cloudLabel).trim()) ? String(cloudLabel).trim() : (driverName + ' ' + cloudPath),
       isNetwork: true,
       enabled: true,
