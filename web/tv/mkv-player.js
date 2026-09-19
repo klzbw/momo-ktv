@@ -1301,7 +1301,11 @@
       this.url = mkvUrl;
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
       this.gain = this.ctx.createGain();
-      this.gain.connect(this.ctx.destination);
+      this.filter = this.ctx.createBiquadFilter();
+      this.filter.type = 'lowpass';
+      this.filter.frequency.value = 16000;
+      this.gain.connect(this.filter);
+      this.filter.connect(this.ctx.destination);
       this._paused = true;
       this._volume = 1;
       this._buf = null;
