@@ -336,14 +336,23 @@
         const need = Math.max(n - (this._buf.length - this._pos), 64 * 1024);
         const start = this._winStart + this._buf.length;
         const end = start + need - 1;
-        const resp = await fetch(this._url, {
-          headers: { Range: `bytes=${start}-${end}` },
-          signal: this._signal,
-        });
-        if (resp.status !== 206 && resp.status !== 200) {
-          throw new Error('Range 请求失败 HTTP ' + resp.status);
+        let resp;
+        for(let retry=0; retry<5; retry++){
+          try{
+            resp = await fetch(this._url, {
+              headers: { Range: `bytes=${start}-${end}` },
+              signal: this._signal,
+            });
+            if (resp.status === 206 || resp.status === 200) break;
+            throw new Error("HTTP " + resp.status);
+          }catch(e){
+            console.warn("[RangeReader] retry", retry+1, e.message);
+            await new Promise(r=>setTimeout(r, 500*(retry+1)));
+          }
         }
-        const data = new Uint8Array(await resp.arrayBuffer());
+        if (!resp || (resp.status !== 206 && resp.status !== 200)) {
+          throw new Error("Range fail after 5 retries");
+        }
         if (data.length === 0) { this._eof = true; break; }
         // 服务端可能忽略 Range 返回 200 全量：此时按起始偏移对齐
         let fileStart = start;
