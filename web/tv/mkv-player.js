@@ -1455,6 +1455,7 @@
               if(!tn) { pos = bEnd; continue; }
               const trackNum = tn.value;
               pos += 3; // timecode + flags
+              if(frames.length + frames2.length < 20) console.log('[MP2-AUDIO] block trackNum=',trackNum,'sz=',bSz.value);
               const dataLen = bEnd - pos;
               if(trackNum === 2 && dataLen > 0) {
                 frames.push(buf.slice(pos, bEnd));
