@@ -353,6 +353,7 @@
         if (!resp || (resp.status !== 206 && resp.status !== 200)) {
           throw new Error("Range fail after 5 retries");
         }
+        const data = new Uint8Array(await resp.arrayBuffer());
         if (data.length === 0) { this._eof = true; break; }
         // 服务端可能忽略 Range 返回 200 全量：此时按起始偏移对齐
         let fileStart = start;
