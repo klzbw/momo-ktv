@@ -1299,10 +1299,11 @@
     constructor(videoEl, mkvUrl) {
       this.video = videoEl;
       this.url = mkvUrl;
-      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)({sampleRate:48000});
       this.gain = this.ctx.createGain();
       this.gain.connect(this.ctx.destination);
       this._paused = true;
+      this._volume = 1;
       this._buf = null;
       this._src = null;
     }
@@ -1524,7 +1525,7 @@
       }
     }
 
-    setVolume(v) { this.gain.gain.value = v; }
+    setVolume(v) { this._volume = v; this.gain.gain.value = v; }
 
     destroy() {
       try { if(this._src) this._src.stop(); } catch(e){}
