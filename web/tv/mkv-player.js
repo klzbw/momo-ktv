@@ -1305,6 +1305,7 @@
       }
       // 找 Tracks, 找音频轨号
       let audioTrackNum = 0;
+      let dbgTracks=0;
       while(pos < buf.length - 8) {
         const id = readVint();
         if(!id) break;
