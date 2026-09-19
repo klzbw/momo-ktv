@@ -2797,7 +2797,7 @@ function getProxyRule(driverType, clientUA) {
   return { referer: '', userAgent: clientUA || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36' };
 }
 
-function proxyCdnToClient(cdnUrl, clientReq, clientRes, rule) {
+function proxyCdnToClient(cdnUrl, clientReq, clientRes, rule, cacheKey) {
   return new Promise((resolve, reject) => {
     let parsed;
     try { parsed = new URL(cdnUrl); } catch (e) { return reject(e); }
@@ -2817,16 +2817,15 @@ function proxyCdnToClient(cdnUrl, clientReq, clientRes, rule) {
     const upReq = lib.request(cdnUrl, { method: 'GET', headers, timeout: 30000 }, (upRes) => {
       if (upRes.statusCode === 403) {
         upRes.resume();
+        // 直链可能已过期, 清缓存让下次重新获取
+        const ck = cacheKey || '';
+        directUrlCache.delete(ck);
+        console.log("[115Direct] CDN返回" + upRes.statusCode + ", 已清缓存");
         if (!clientRes.headersSent) {
-          clientRes.status(502).json({ error: 'CDN returned 403 (Referer/UA check failed)' });
+          clientRes.status(502).json({ error: "CDN returned " + upRes.statusCode });
         }
         return resolve();
       }
-      const passHeaders = {};
-      for (const h of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control', 'etag', 'last-modified']) {
-        if (upRes.headers[h] !== undefined) passHeaders[h] = upRes.headers[h];
-      }
-      // 浏览器 fetch()/MSE 读取字节流时需要 CORS 响应头。
       // 同源访问本不需要，但从其它端口/域名（反代、大屏投屏地址）访问时必须开放，
       // 否则 fetch 跟随字节流会被浏览器拦截。Range/Content-Range 必须暴露。
       passHeaders['Access-Control-Allow-Origin'] = '*';
@@ -2887,7 +2886,7 @@ router.get('/115-direct/:accountId/*', requireManager, async (req, res) => {
       if (needsProxy) {
         const rule = getProxyRule(account.driver, clientUA);
         console.log('[115Direct] cache hit (byte-proxy ' + account.driver + ') account=' + accountId + ' path=' + filePath);
-        await proxyCdnToClient(cachedUrl, req, res, rule);
+        await proxyCdnToClient(cachedUrl, req, res, rule, accountId + ':' + filePath + ':' + clientUA);
         return;
       }
       console.log('[115Direct] cache hit account=' + accountId + ' path=' + filePath);
@@ -2906,7 +2905,7 @@ router.get('/115-direct/:accountId/*', requireManager, async (req, res) => {
       // pan115 等(?proxy=1): 同样走 NAS 同源字节管道，解决浏览器 fetch CORS 问题
       const rule = getProxyRule(account.driver, clientUA);
       console.log('[115Direct] byte-proxy (' + account.driver + ') account=' + accountId + ' path=' + filePath);
-      await proxyCdnToClient(url, req, res, rule);
+      await proxyCdnToClient(url, req, res, rule, accountId + ':' + filePath + ':' + clientUA);
       return;
     }
 
