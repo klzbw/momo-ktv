@@ -2631,6 +2631,10 @@ const VoiceManager = (() => {
   /** 统一应用当前状态 */
   function apply(v) {
     if (mode === MODE.DUAL) return; // 双轨连续滑块：人声增益由 setVocalLevel 实时控制，无需切档
+      if (mode === MODE.DIRECT_MKV) {
+        _trackIndex = _trackIndex === 0 ? 1 : 0;
+        try{ this.mp2SetTrack(_trackIndex+1); }catch(e){}
+      } else if (mode === MODE.MSE_MKV) {
     if (mode === MODE.UNKNOWN) mode = detect(v);
     if (mode === MODE.TRACKS)  { applyTracks(v); return; }
     if (mode === MODE.NATIVE)  { applyNative(v); return; }
@@ -2799,8 +2803,6 @@ const VoiceManager = (() => {
     },
     /** 在当前歌曲全部档位间循环（五档/三档/双档自适应）；声道型在两态间切换 */
     cycle(v) {
-      if (mode === MODE.DUAL) { setVocalLevel(dualLevel > 0.5 ? 0 : 1); return this.trackLabel; }
-      } else if (mode === MODE.MSE_MKV) {
         const total = realTrackCount();
         _trackIndex = _trackIndex === 0 ? Math.min(1, total - 1) : 0;
       } else if (mode === MODE.STEREO) {
