@@ -1910,23 +1910,38 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
 </div>
 <div class="pd-full" id="pf-online">
   <div class="pf-head"><h2>🎵 在线音乐</h2><div class="pf-back" data-f onclick="closePF('online')">返回</div></div>
-  <div class="pf-body">
+  <div class="pf-body" style="background:linear-gradient(180deg,#2d293a 0%,#14121b 100%)">
     <div class="pf-main">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <span id="online-count" style="color:var(--sub);font-size:14px">0首</span>
-        <button class="pf-pg-btn" data-f onclick="scanOnlineMusic()">扫描网盘音乐</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="online-count" style="color:#aaa;font-size:13px">0首</span>
+          <select id="online-source-sel" style="padding:6px 12px;border-radius:20px;border:1px solid #444;background:#2a2535;color:#eee;font-size:13px;outline:none">
+            <option value="">选择扫描源...</option>
+          </select>
+        </div>
+        <button class="pf-pg-btn" data-f onclick="scanOnlineMusic()" style="border-radius:20px;padding:6px 16px">🔄 扫描</button>
       </div>
-      <div class="song-list" id="pl-online"></div>
+      <div class="song-list" id="pl-online" style="padding-bottom:80px"></div>
     </div>
   </div>
-  <div class="pf-foot" id="online-player-bar" style="display:none;position:sticky;bottom:0;background:var(--ds-bg-secondary,rgba(0,0,0,.85));padding:12px;backdrop-filter:blur(10px)">
-    <div style="display:flex;align-items:center;gap:12px">
-      <button class="mvbtn" data-f id="online-play-btn" onclick="toggleOnlinePlay()"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg></button>
-      <div style="flex:1;min-width:0">
-        <div id="online-now-title" style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">未播放</div>
-        <div style="font-size:12px;color:var(--sub)" id="online-now-artist"></div>
+  <div id="online-player-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;background:rgba(20,18,27,.95);backdrop-filter:blur(20px);padding:16px 24px;border-top:1px solid #333;z-index:1000">
+    <div style="max-width:800px;margin:0 auto">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span id="online-time" style="font-size:11px;color:#888;min-width:35px">0:00</span>
+        <div id="online-progress" style="flex:1;height:4px;background:#333;border-radius:2px;cursor:pointer;position:relative">
+          <div id="online-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#f62c55,#ff6b9d);border-radius:2px"></div>
+        </div>
+        <span id="online-duration" style="font-size:11px;color:#888;min-width:35px;text-align:right">0:00</span>
       </div>
-      <span id="online-time" style="font-size:12px;color:var(--sub)">0:00</span>
+      <div style="display:flex;align-items:center;gap:16px">
+        <button class="mvbtn" data-f onclick="onlinePrev()" style="color:#ccc"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
+        <button class="mvbtn" data-f id="online-play-btn" onclick="toggleOnlinePlay()" style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#f62c55,#ff6b9d);display:flex;align-items:center;justify-content:center;color:#fff"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg></button>
+        <button class="mvbtn" data-f onclick="onlineNext()" style="color:#ccc"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+        <div style="flex:1;min-width:0;margin-left:10px">
+          <div id="online-now-title" style="font-size:15px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">未播放</div>
+          <div style="font-size:12px;color:#999" id="online-now-artist"></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
