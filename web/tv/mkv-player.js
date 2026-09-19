@@ -1300,7 +1300,7 @@
         const sz = readVint();
         if(!sz) break;
         if(dbgCount<20) console.log('[MP2-AUDIO] top ID=0x'+id.value.toString(16),'sz=0x'+sz.value.toString(16)); dbgCount++;
-        if(id.value === 0x18538067) { console.log('[MP2-AUDIO] 找到Segment'); break; }
+        if(id.raw === 0x18538067) { console.log('[MP2-AUDIO] 找到Segment'); break; }
         if(sz.value > 0 && sz.value < 0x1FFFFFFF) pos += sz.value;
       }
       // 找 Tracks, 找音频轨号
@@ -1310,15 +1310,15 @@
         if(!id) break;
         const sz = readVint();
         if(!sz) break;
-        if(id.value === 0x1F43B675) break; // CLUSTER
-        if(id.value === 0x1654AE6B) { // TRACKS
+        if(id.raw === 0x1F43B675) break; // CLUSTER
+        if(id.raw === 0x1654AE6B) { // TRACKS
           const end = pos + sz.value;
           while(pos < end) {
             const teId = readVint();
             if(!teId) break;
             const teSz = readVint();
             if(!teSz) break;
-            if(teId.value === 0xAE) { // TRACK_ENTRY
+            if(teId.raw === 0xAE) { // TRACK_ENTRY
               const teEnd = pos + teSz.value;
               let tn = 0, codec = "";
               while(pos < teEnd) {
@@ -1326,9 +1326,9 @@
                 if(!cId) break;
                 const cSz = readVint();
                 if(!cSz) break;
-                if(cId.value === 0xD7) { // TRACK_NUMBER
+                if(cId.raw === 0xD7) { // TRACK_NUMBER
                   tn = readUint(Math.min(8, cSz.value));
-                } else if(cId.value === 0x86) { // CODEC_ID
+                } else if(cId.raw === 0x86) { // CODEC_ID
                   const b = readBytes(cSz.value);
                   codec = String.fromCharCode.apply(null, b);
                 } else {
@@ -1358,7 +1358,7 @@
         if(!id) break;
         const sz = readVint();
         if(!sz) break;
-        if(id.value === 0x1F43B675) { // CLUSTER
+        if(id.raw === 0x1F43B675) { // CLUSTER
           const clusterEnd = pos + sz.value;
           while(pos < clusterEnd) {
             const bId = readVint();
@@ -1367,7 +1367,7 @@
             if(!bSz) break;
             const bStart = pos;
             const bEnd = bStart + bSz.value;
-            if(bId.value === 0xA3 || bId.value === 0xA1) { // SIMPLE_BLOCK or BLOCK
+            if(bId.raw === 0xA3 || bId.raw === 0xA1) { // SIMPLE_BLOCK or BLOCK
               const tn = readVint();
               if(!tn) { pos = bEnd; continue; }
               const trackNum = tn.value;
