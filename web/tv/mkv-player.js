@@ -1310,15 +1310,6 @@
 
     async start() {
       console.log("[MP2-AUDIO] 开始...");
-      // 先尝试: 直接从 video 元素取音频流 (浏览器原生解码)
-      try {
-        const src = this.ctx.createMediaElementSource(this.video);
-        src.connect(this.gain);
-        this._meSrc = src;
-        console.log("[MP2-AUDIO] 使用 MediaElementSource 原生音频");
-        this._paused = false;
-        return;
-      } catch(e) { console.log("[MP2-AUDIO] MediaElementSource 失败, 回退WASM", e.message); }
       try {
         let track1Data, track2Data;
         if(window._mp2AudioData && window._mp2AudioData.length > 0) {
