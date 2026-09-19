@@ -3484,8 +3484,8 @@ function startDirectMkvPlayback(v,songId,videoUrl){
     try{ VoiceManager.onDirectMkvReady(v); }catch(e){ console.warn('directMkv ready',e); }
     // MP2音频: 浏览器原生不支持MP2音轨, 用WASM/Web Audio解码
     try {
-      if(window.Mp2AudioPlayer && v.audioTracks && v.audioTracks.length===0) {
-        console.log("[MP2-AUDIO] 检测到MP2无音频轨道, 启动Web Audio解码");
+      console.log("[MP2-AUDIO] 检查:", "Mp2AudioPlayer=", !!window.Mp2AudioPlayer, "audioTracks=", v.audioTracks && v.audioTracks.length);
+      if(window.Mp2AudioPlayer) {
         if(window._mp2Audio) window._mp2Audio.destroy();
         window._mp2Audio = new Mp2AudioPlayer(v, proxyUrl);
         window._mp2Audio.start();
