@@ -1298,7 +1298,8 @@
         if(!id) break;
         const sz = readVint();
         if(!sz) break;
-        if(id.value === 0x18538067) break; // SEGMENT
+        if(dbgCount<20) console.log('[MP2-AUDIO] top ID=0x'+id.value.toString(16),'sz=0x'+sz.value.toString(16)); dbgCount++;
+        if(id.value === 0x18538067) { console.log('[MP2-AUDIO] 找到Segment'); break; }
         if(sz.value > 0 && sz.value < 0x1FFFFFFF) pos += sz.value;
       }
       // 找 Tracks, 找音频轨号
