@@ -2520,6 +2520,7 @@ const VoiceManager = (() => {
   }
   function dualStart(info,v){
     if(!info||!info.dual) return false;
+    try{ if(window._mp2Audio){ window._mp2Audio.destroy(); window._mp2Audio=null; } }catch(e){}
     dualStop(false);
     try{
       // 网盘 FLAC 直链(AList /d/ -> 302 115 CDN)不带 CORS，createMediaElementSource 走 Web Audio 必被跨域拦死。
@@ -3542,6 +3543,7 @@ async function loadSong(v,songId,needsDownload){
   document.getElementById('video-loading').classList.add('show');
   startCacheProgressPoll(needsDownload?songId:null);
   destroyHls();
+  try{ if(window._mp2Audio){ window._mp2Audio.destroy(); window._mp2Audio=null; } }catch(e){}
   try{ VoiceManager.dualReset(); }catch(e){} // 清掉上一首的双轨、恢复背景音轨出声（也会清掉 DIRECT_MKV 状态）
   try{ window.hideVocalPop&&window.hideVocalPop(); }catch(e){} // 同步收起人声垂直调音条
   // 切歌：停止上一首的人声分离轮询
