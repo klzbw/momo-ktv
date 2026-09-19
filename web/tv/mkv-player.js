@@ -1234,61 +1234,39 @@
       this.gain = this.ctx.createGain();
       this.gain.connect(this.ctx.destination);
       this._paused = true;
-      this._started = false;
-      this._nextTime = 0;
-      this._decoder = null;
+      this._buf = null;
+      this._src = null;
     }
 
     async start() {
-      console.log("[MP2-AUDIO] 流式开始...");
+      console.log("[MP2-AUDIO] 开始...");
       try {
-        const DecoderClass = window["mpg123-decoder"].MPEGDecoder;
-        this._decoder = new DecoderClass();
-        await this._decoder.ready;
-        console.log("[MP2-AUDIO] WASM就绪");
         const resp = await fetch(this.url);
-        const reader = resp.body.getReader();
-        const decoder = new TextDecoder();
-        let leftover = new Uint8Array(0);
-        let totalDecoded = 0;
-        let started = false;
-        while(true) {
-          const {done, value} = await reader.read();
-          if(done) break;
-          // 拼接 leftover
-          let chunk = new Uint8Array(leftover.length + value.length);
-          chunk.set(leftover, 0);
-          chunk.set(value, leftover.length);
-          // 提取MP2帧
-          const {frames, rest} = this._extractFrames(chunk);
-          leftover = rest;
-          if(frames.length === 0) continue;
-          const frameBytes = new Uint8Array(frames.reduce((a,f)=>a+f.length,0));
-          let off=0; for(const f of frames){ frameBytes.set(f,off); off+=f.length; }
-          // 解码
-          const decoded = await this._decoder.decode(frameBytes);
-          if(!decoded || !decoded.channelData || decoded.channelData.length===0) continue;
-          totalDecoded += decoded.channelData[0].length;
-          // 创建 AudioBuffer 并入队播放
-          const ch = decoded.channelData.length;
-          const sr = decoded.sampleRate;
-          const len = decoded.channelData[0].length;
-          const buf = this.ctx.createBuffer(ch, len, sr);
-          for(let c=0; c<ch; c++) buf.copyToChannel(decoded.channelData[c], c);
-          this._playBuffer(buf);
-          if(!started) {
-            started = true;
-            this._paused = false;
-            console.log("[MP2-AUDIO] 开始播放, 已解码样本:", totalDecoded);
-          }
-        }
-        console.log("[MP2-AUDIO] 流结束, 总解码样本:", totalDecoded);
+        const fullBuf = new Uint8Array(await resp.arrayBuffer());
+        console.log("[MP2-AUDIO] 文件大小:", fullBuf.length);
+        const frames = this._extractAudioFrames(fullBuf);
+        console.log("[MP2-AUDIO] 提取帧数:", frames.length);
+        const allFrames = new Uint8Array(frames.reduce((a,f)=>a+f.length,0));
+        let off=0; for(const f of frames){ allFrames.set(f,off); off+=f.length; }
+        console.log("[MP2-AUDIO] 总音频字节:", allFrames.length);
+        const DecoderClass = window["mpg123-decoder"].MPEGDecoder;
+        const decoder = new DecoderClass();
+        await decoder.ready;
+        console.log("[MP2-AUDIO] WASM就绪, 解码...");
+        const decoded = await decoder.decode(allFrames);
+        console.log("[MP2-AUDIO] 解码成功!", decoded.channelData.length, "ch", decoded.sampleRate, "Hz");
+        const ch = decoded.channelData.length;
+        const sr = decoded.sampleRate;
+        const len = decoded.channelData[0].length;
+        this._buf = this.ctx.createBuffer(ch, len, sr);
+        for(let c=0; c<ch; c++) this._buf.copyToChannel(decoded.channelData[c], c);
+        this._play(this.video.currentTime);
       } catch(e) {
         console.warn("[MP2-AUDIO] 失败:", e);
       }
     }
 
-    _extractFrames(buf) {
+    _extractAudioFrames(buf) {
       const frames = [];
       let i=0;
       while(i < buf.length-4) {
@@ -1311,33 +1289,33 @@
         }
         i++;
       }
-      return {frames, rest: buf.slice(i)};
+      return frames;
     }
 
-    _playBuffer(buf) {
-      const src = this.ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(this.gain);
-      if(this._nextTime < this.ctx.currentTime) {
-        this._nextTime = this.ctx.currentTime + 0.1;
-      }
-      src.start(this._nextTime);
-      this._nextTime += buf.duration;
+    _play(offset) {
+      if(this._src) try{this._src.stop();}catch(e){}
+      this._src = this.ctx.createBufferSource();
+      this._src.buffer = this._buf;
+      this._src.connect(this.gain);
+      const o = Math.min(offset, this._buf.duration);
+      this._src.start(0, o);
+      this._paused = false;
+      console.log("[MP2-AUDIO] 播放, 偏移:", o);
     }
 
     setPaused(p) {
-      if(p && !this._paused) {
-        this.ctx.suspend();
+      if(p && !this._paused && this._src) {
+        try { this._src.stop(); } catch(e){}
         this._paused = true;
-      } else if(!p && this._paused) {
-        this.ctx.resume();
-        this._paused = false;
+      } else if(!p && this._paused && this._buf) {
+        this._play(this.video.currentTime);
       }
     }
 
     setVolume(v) { this.gain.gain.value = v; }
 
     destroy() {
+      try { if(this._src) this._src.stop(); } catch(e){}
       try { this.ctx.close(); } catch(e){}
     }
   }
