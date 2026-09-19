@@ -1346,7 +1346,17 @@
     _mkBuf(decoded) {
       const ch = decoded.channelData.length, sr = decoded.sampleRate, len = decoded.channelData[0].length;
       const buf = this.ctx.createBuffer(ch, len, sr);
-      for(let c=0; c<ch; c++) buf.copyToChannel(decoded.channelData[c], c);
+      for(let c=0; c<ch; c++) {
+        const src = decoded.channelData[c];
+        const dst = buf.getChannelData(c);
+        for(let i=0; i<len; i++) {
+          let s = src[i];
+          // 软限幅: 防止削波产生嗒嗒声
+          const abs = Math.abs(s);
+          if(abs > 0.95) { s = Math.sign(s) * (0.95 + 0.05 * Math.tanh((abs - 0.95) * 10)); }
+          dst[i] = s;
+        }
+      }
       return buf;
     }
     setTrack(t) {
