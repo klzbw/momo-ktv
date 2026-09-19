@@ -2406,8 +2406,6 @@ const VoiceManager = (() => {
   function realTrackCount() {
     if (mode === MODE.NATIVE) return _nativeTracks || _trackCount || 1;
     if (mode === MODE.DIRECT_MKV) { const tl = directMkvTrackList(); return tl ? tl.length : 0; }
-        _trackIndex = _trackIndex === 0 ? 1 : 0;
-        try{ this.mp2SetTrack(_trackIndex+1); }catch(e){}
     if (mode === MODE.MSE_MKV) return _mseMkvTrackCount || 2;
     const n = hlsInstance && hlsInstance.audioTracks ? hlsInstance.audioTracks.length : 0;
     return n >= 1 ? n : _trackCount;
@@ -2631,15 +2629,10 @@ const VoiceManager = (() => {
   /** 统一应用当前状态 */
   function apply(v) {
     if (mode === MODE.DUAL) return; // 双轨连续滑块：人声增益由 setVocalLevel 实时控制，无需切档
-      if (mode === MODE.DIRECT_MKV) {
-        _trackIndex = _trackIndex === 0 ? 1 : 0;
-        try{ this.mp2SetTrack(_trackIndex+1); }catch(e){}
-      } else if (mode === MODE.MSE_MKV) {
     if (mode === MODE.UNKNOWN) mode = detect(v);
     if (mode === MODE.TRACKS)  { applyTracks(v); return; }
     if (mode === MODE.NATIVE)  { applyNative(v); return; }
     if (mode === MODE.DIRECT_MKV) { applyDirectMkv(v); return; }
-    if (mode === MODE.MSE_MKV)  { applyMseMkv(v); return; }
     if (mode === MODE.STEREO)  { applyStereo();  return; }
     // UNKNOWN/MONO：单音轨/无法判定声道类型，保持直通，不做声道选择，
     // 但一定要保证链路是通的（initWA 里已默认直通，这里换歌时兜底重连一次）
