@@ -500,9 +500,12 @@ async function syncMusicViaAlist(cloudDrive, accountId, basePath, db, strmDir, s
           const relPath = relDir ? relDir + '/' + item.name : item.name;
           try {
             const meta = parseFilename(item.name);
-            // 用相对路径生成安全文件名，避免重名冲突
-            const safeName = relPath.replace(/[\\/:*?"<>|]/g, '_');
-            const strmPath = path.join(strmDir, safeName + '.strm');
+            // 用相对路径生成STRM，保留多级子目录结构
+            const safeRelPath = relPath.replace(/[:*?"<>|]/g, '_');
+            const strmPath = path.join(strmDir, safeRelPath + '.strm');
+            // 确保父目录存在
+            const strmParent = path.dirname(strmPath);
+            if (!fs.existsSync(strmParent)) fs.mkdirSync(strmParent, { recursive: true });
             const strmContent = alistDavUrlForAccount(account, basePath, relDir || '', item.name);
 
             let changed = true;
@@ -513,14 +516,14 @@ async function syncMusicViaAlist(cloudDrive, accountId, basePath, db, strmDir, s
 
             const existing = db.prepare(
               'SELECT id FROM songs WHERE source_root = ? AND cloud_account_id = ? AND filename = ?'
-            ).get(sourceRoot, accountId, safeName + '.strm');
+            ).get(sourceRoot, accountId, safeRelPath + '.strm');
 
             if (!existing) {
               const now = new Date().toISOString();
               const result = db.prepare(
-                'INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, cloud_account_id, duration, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, 1, 1, "audio", 1, "done", ?, NULL, ?)'
+                `INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, cloud_account_id, duration, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, 1, 1, 'audio', 1, 'done', ?, NULL, ?)`
               ).run(
-                meta.title, meta.artist, safeName + '.strm', strmPath, strmPath,
+                meta.title, meta.artist, safeRelPath + '.strm', strmPath, strmPath,
                 sourceRoot, accountId, now
               );
               db.prepare('INSERT OR IGNORE INTO song_artists (song_id, artist) VALUES (?, ?)').run(result.lastInsertRowid, meta.artist);
