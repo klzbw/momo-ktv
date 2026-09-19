@@ -1288,7 +1288,7 @@
               const frameLen = Math.floor(144*br/sr) + padding;
               if(frameLen>0 && i+frameLen<=buf.length) {
                 // 验证下一帧同步字
-                if(goodRun>0 || (buf[i+frameLen]===0xFF && (buf[i+frameLen+1]&0xE0)===0xE0)) {
+                if(goodRun===0 || (buf[i+frameLen]===0xFF && (buf[i+frameLen+1]&0xE0)===0xE0)) {
                   frames.push(buf.slice(i, i+frameLen));
                   goodRun++;
                   i += frameLen;
