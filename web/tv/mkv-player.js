@@ -1304,53 +1304,43 @@
         if(sz.value > 0 && sz.value < 0x1FFFFFFF) pos += sz.value;
       }
       // 找 Tracks, 找音频轨号
-      let audioTrackNum = 0;
-      let dbgTracks=0;
-      while(pos < buf.length - 8) {
-        const id = readVint();
-        if(!id) break;
-        const sz = readVint();
-        if(!sz) break;
-        if(dbgTracks<10) console.log('[MP2-AUDIO] tracks ID=0x'+id.raw.toString(16),'sz=0x'+sz.value.toString(16)); dbgTracks++;
-        if(id.raw === 0x1F43B675) break; // CLUSTER
-        if(id.raw === 0x1654AE6B) { // TRACKS
-          const end = pos + sz.value;
-          while(pos < end) {
-            const teId = readVint();
-            if(!teId) break;
-            const teSz = readVint();
-            if(!teSz) break;
-            if(teId.raw === 0xAE) { // TRACK_ENTRY
-              const teEnd = pos + teSz.value;
-              let tn = 0, codec = "";
-              while(pos < teEnd) {
-                const cId = readVint();
-                if(!cId) break;
-                const cSz = readVint();
-                if(!cSz) break;
-                if(cId.raw === 0xD7) { // TRACK_NUMBER
-                  tn = readUint(Math.min(8, cSz.value));
-                } else if(cId.raw === 0x86) { // CODEC_ID
-                  const b = readBytes(cSz.value);
-                  codec = String.fromCharCode.apply(null, b);
-                } else {
-                  pos += cSz.value;
+      let audioTrackNum = window._mp2TrackNum || 0;
+      console.log('[MP2-AUDIO] 使用MSE保存的音轨号:', audioTrackNum);
+      if(!audioTrackNum){
+        // 回退: 自己解析
+        while(pos < buf.length - 8) {
+          const id = readVint();
+          if(!id) break;
+          const sz = readVint();
+          if(!sz) break;
+          if(id.raw === 0x1F43B675) break;
+          if(id.raw === 0x1654AE6B) {
+            const end = pos + sz.value;
+            while(pos < end) {
+              const teId = readVint();
+              if(!teId) break;
+              const teSz = readVint();
+              if(!teSz) break;
+              if(teId.raw === 0xAE) {
+                const teEnd = pos + teSz.value;
+                let tn = 0, codec = '';
+                while(pos < teEnd) {
+                  const cId = readVint();
+                  if(!cId) break;
+                  const cSz = readVint();
+                  if(!cSz) break;
+                  if(cId.raw === 0xD7) tn = readUint(Math.min(8, cSz.value));
+                  else if(cId.raw === 0x86) { const b = readBytes(cSz.value); codec = String.fromCharCode.apply(null, b); }
+                  else pos += cSz.value;
                 }
-              }
-              if(codec.indexOf("A_MPEG") >= 0) {
-                audioTrackNum = tn;
-                console.log("[MP2-AUDIO] 音频轨:", tn, codec);
-              }
-            } else {
-              pos += teSz.value;
+                if(codec.indexOf('A_MPEG') >= 0) { audioTrackNum = tn; console.log('[MP2-AUDIO] 音频轨:', tn, codec); }
+              } else pos += teSz.value;
             }
-          }
-          break;
-        } else {
-          pos += sz.value;
+            break;
+          } else pos += sz.value;
         }
       }
-      if(!audioTrackNum) {
+      if(!audioTrackNum){
         console.warn("[MP2-AUDIO] 未找到音频轨, 用全文件扫描");
         return this._scanAll(buf);
       }
