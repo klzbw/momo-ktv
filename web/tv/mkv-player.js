@@ -1466,6 +1466,7 @@
               pos = bEnd;
             }
           }
+          pos = clusterEnd;
         } else {
           if(sz.value < 0x1FFFFFFF) pos += sz.value;
           else break;
