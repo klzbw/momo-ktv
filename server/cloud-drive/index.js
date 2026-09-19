@@ -2827,6 +2827,10 @@ function proxyCdnToClient(cdnUrl, clientReq, clientRes, rule, cacheKey) {
         return resolve();
       }
       // 同源访问本不需要，但从其它端口/域名（反代、大屏投屏地址）访问时必须开放，
+      const passHeaders = {};
+      for (const h of ["content-type", "content-length", "content-range", "accept-ranges", "cache-control", "etag", "last-modified"]) {
+        if (upRes.headers[h] !== undefined) passHeaders[h] = upRes.headers[h];
+      }
       // 否则 fetch 跟随字节流会被浏览器拦截。Range/Content-Range 必须暴露。
       passHeaders['Access-Control-Allow-Origin'] = '*';
       passHeaders['Access-Control-Expose-Headers'] = 'Content-Range, Content-Length, Accept-Ranges';
