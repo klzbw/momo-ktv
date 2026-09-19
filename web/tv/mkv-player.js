@@ -1346,17 +1346,16 @@
     }
     _mkBuf(decoded) {
       const ch = decoded.channelData.length, sr = decoded.sampleRate, len = decoded.channelData[0].length;
+      // 找峰值
+      let peak = 0;
+      for(let c=0; c<ch; c++) { const d = decoded.channelData[c]; for(let i=0; i<len; i++) { const a = Math.abs(d[i]); if(a>peak) peak=a; } }
+      console.log('[MP2-AUDIO] peak=', peak.toFixed(3));
+      const scale = peak > 0.9 ? 0.9 / peak : 1;
       const buf = this.ctx.createBuffer(ch, len, sr);
       for(let c=0; c<ch; c++) {
         const src = decoded.channelData[c];
         const dst = buf.getChannelData(c);
-        for(let i=0; i<len; i++) {
-          let s = src[i];
-          // 软限幅: 防止削波产生嗒嗒声
-          const abs = Math.abs(s);
-          if(abs > 0.95) { s = Math.sign(s) * (0.95 + 0.05 * Math.tanh((abs - 0.95) * 10)); }
-          dst[i] = s;
-        }
+        for(let i=0; i<len; i++) { dst[i] = src[i] * scale; }
       }
       return buf;
     }
