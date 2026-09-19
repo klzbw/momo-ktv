@@ -521,10 +521,10 @@ async function syncMusicViaAlist(cloudDrive, accountId, basePath, db, strmDir, s
             if (!existing) {
               const now = new Date().toISOString();
               const result = db.prepare(
-                `INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, cloud_account_id, duration, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, 1, 1, 'audio', 1, 'done', ?, NULL, ?)`
+                `INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, cloud_account_id, duration, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
               ).run(
                 meta.title, meta.artist, safeRelPath + '.strm', strmPath, strmPath,
-                sourceRoot, accountId, now
+                sourceRoot, 1, 1, 'audio', 1, 'done', accountId, now
               );
               db.prepare('INSERT OR IGNORE INTO song_artists (song_id, artist) VALUES (?, ?)').run(result.lastInsertRowid, meta.artist);
               addedSongs++;
