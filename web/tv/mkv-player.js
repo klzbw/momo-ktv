@@ -1355,7 +1355,7 @@
 
     _extractFrames(buf) {
       // 同步 EBML 解析, 只提取音频轨数据
-      const frames = []; const frames2 = [];
+      const frames = []; const frames2 = []; let clusterCount = 0;
       let pos = 0;
       const readVint = () => {
         if(pos >= buf.length) return null;
@@ -1455,7 +1455,6 @@
               if(!tn) { pos = bEnd; continue; }
               const trackNum = tn.value;
               pos += 3; // timecode + flags
-              console.log('[MP2-AUDIO] block trackNum=',trackNum,'audioTrackNum=',audioTrackNum,'dataLen=',bEnd-pos);
               const dataLen = bEnd - pos;
               if(trackNum === 2 && dataLen > 0) {
                 frames.push(buf.slice(pos, bEnd));
@@ -1466,12 +1465,13 @@
               pos = bEnd;
             }
           }
-          pos = clusterEnd;
+          pos = clusterEnd; clusterCount++;
         } else {
           if(sz.value < 0x1FFFFFFF) pos += sz.value;
           else break;
         }
       }
+      console.log('[MP2-AUDIO] clusters=', clusterCount, 'track1 blocks=', frames.length, 'track2 blocks=', frames2.length);
       return { track1: frames, track2: frames2 };
     }
 
@@ -1503,6 +1503,7 @@
         }
         i++;
       }
+      console.log('[MP2-AUDIO] clusters=', clusterCount, 'track1 blocks=', frames.length, 'track2 blocks=', frames2.length);
       return { track1: frames, track2: frames2 };
     }
 
