@@ -1449,7 +1449,7 @@
             if(!bSz) break;
             const bStart = pos;
             const bEnd = bStart + bSz.value;
-            if(window._mp2DbgBlocks < 30) console.log('[MP2-AUDIO] block ID=0x'+bId.raw.toString(16),'sz=',bSz.value); window._mp2DbgBlocks++;
+            if(true) console.log('[MP2-AUDIO] block ID=0x'+bId.raw.toString(16),'sz=',bSz.value); window._mp2DbgBlocks++;
             if(bId.raw === 0xA3 || bId.raw === 0xA1) { // SIMPLE_BLOCK or BLOCK
               const tn = readVint();
               if(!tn) { pos = bEnd; continue; }
