@@ -2734,6 +2734,9 @@ const VoiceManager = (() => {
     dualMasterVol(v){ if(!dualActive) return; try{ if(dualVocalEl) dualVocalEl.volume=Math.max(0,Math.min(1,dualLevel*v)); if(dualAccEl) dualAccEl.volume=Math.max(0,Math.min(1,v)); }catch(e){} },
     dualIsActive(){ return !!dualActive; },
     dualIsPaused(){ return !!_dualUserPaused; },
+    mp2SetPaused(p){ if(window._mp2Audio){ try{ window._mp2Audio.setPaused(p); }catch(e){} } },
+    mp2Seek(t){ if(window._mp2Audio){ try{ if(window._mp2Audio._src){ window._mp2Audio._src.stop(); } window._mp2Audio._play(t); }catch(e){} } },
+    mp2SetVolume(v){ if(window._mp2Audio){ try{ window._mp2Audio.setVolume(v); }catch(e){} } },
     /** DIRECT_MKV：进入 115 MKV 直连模式（由 loadSong 在拿到 sep-info.isNetKtvMkv=true 后调用） */
     enterDirectMkv() {
       _directMkvActive = true;
@@ -3943,7 +3946,7 @@ video.addEventListener('pause',syncPauseUI);
 // 也顺便修掉了另一个隐患："切歌"广播以前是所有在线的 TV 标签页各自都会
 // 调用一次 cutSong()，同一浏览器再开一个控制标签页时，一次遥控端"下一首"
 // 会被多算一次，实际跳过不止一首歌。
-function localTogglePause(){VoiceManager.wake(video);try{ if(VoiceManager.dualIsActive&&VoiceManager.dualIsActive()){ const p=VoiceManager.dualIsPaused(); VoiceManager.dualSetPaused(!p); isPaused=!p; try{syncPauseUI();}catch(e){} return; } }catch(e){} if(video.paused){video.play().catch(()=>{});}else{video.pause();}}
+function localTogglePause(){VoiceManager.wake(video);try{ if(VoiceManager.dualIsActive&&VoiceManager.dualIsActive()){ const p=VoiceManager.dualIsPaused(); VoiceManager.dualSetPaused(!p); isPaused=!p; try{syncPauseUI();}catch(e){} return; } }catch(e){} if(window._mp2Audio){ const p=video.paused; if(video.paused){video.play().catch(()=>{});}else{video.pause();} VoiceManager.mp2SetPaused(!p); isPaused=!p; try{syncPauseUI();}catch(e){} return; } if(video.paused){video.play().catch(()=>{});}else{video.pause();}}
 function togglePause(){
   if(!isActivePlayer){sendWS({type:'control',action:'play_pause'});return;}
   localTogglePause();
@@ -3959,7 +3962,7 @@ function togglePause(){
 // 本机(不管是不是播放端)点这个按钮都直接调用——它本来就是一次性的 HTTP
 // 请求，全局只生效一次，不需要也不应该走"判断角色再转发"那一套。
 function cutSong(){isPaused=false;fetch('/api/queue/next',{method:'POST'});}
-function localRestartSong(){VoiceManager.wake(video);video.currentTime=0;isPaused=false;video.play().catch(()=>{});try{VoiceManager.dualSeek(0);VoiceManager.dualSetPaused(false);}catch(e){}showToast('重唱 🔄');}
+function localRestartSong(){VoiceManager.wake(video);video.currentTime=0;isPaused=false;video.play().catch(()=>{});try{VoiceManager.dualSeek(0);VoiceManager.dualSetPaused(false);}catch(e){} try{VoiceManager.mp2Seek(0);VoiceManager.mp2SetPaused(false);}catch(e){} showToast('重唱 🔄');}
 function restartSong(){
   if(!isActivePlayer){sendWS({type:'control',action:'repeat'});showToast('已发送「重唱」指令');return;}
   localRestartSong();
@@ -4079,7 +4082,7 @@ function setEQ(name){
 // 播放端调它自己的音量；是播放端就直接调本地音量，不用绕一次网络。
 function localAdjVolume(delta){
   video.volume=Math.max(0,Math.min(1,Math.round((video.volume+delta)*10)/10));
-  try{ if(typeof VoiceManager!=='undefined'&&VoiceManager.dualMasterVol) VoiceManager.dualMasterVol(video.volume); }catch(e){}
+  try{ if(typeof VoiceManager!=='undefined'&&VoiceManager.dualMasterVol) VoiceManager.dualMasterVol(video.volume); }catch(e){} try{ if(typeof VoiceManager!=='undefined'&&VoiceManager.mp2SetVolume) VoiceManager.mp2SetVolume(video.volume); }catch(e){}
   showToast('🔊 音量 '+Math.round(video.volume*100)+'%');
 }
 function adjVolume(delta){
