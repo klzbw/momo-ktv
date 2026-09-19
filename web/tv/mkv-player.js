@@ -1241,110 +1241,19 @@
     async start() {
       console.log("[MP2-AUDIO] 开始...");
       try {
-        // 用 RangeReader 解析 EBML
-        const reader = new RangeReader(this.url);
-        // 1. 找 Segment
-        while(true) {
-          const id = await reader.readVint();
-          const sz = await reader.readVint();
-          if(id.raw === ID.SEGMENT) break;
-          if(sz.unknown) { await reader.readVint(); break; }
-          await reader.readBytes(sz.value);
-        }
-        console.log("[MP2-AUDIO] 找到Segment");
-        // 2. 找 Tracks, 找音频轨
-        let audioTrackNum = 0;
-        while(true) {
-          const id = await reader.readVint();
-          const sz = await reader.readVint();
-          if(id.raw === ID.CLUSTER) break;
-          if(id.raw === ID.TRACKS) {
-            const end = reader.tell() + sz.value;
-            while(reader.tell() < end) {
-              const teId = await reader.readVint();
-              const teSz = await reader.readVint();
-              if(teId.raw === ID.TRACK_ENTRY) {
-                const teEnd = reader.tell() + teSz.value;
-                let tn = 0, codec = "";
-                while(reader.tell() < teEnd) {
-                  const cId = await reader.readVint();
-                  const cSz = await reader.readVint();
-                  if(cId.raw === ID.TRACK_NUMBER) {
-                    tn = await reader.readUint(Math.min(8, cSz.value));
-                  } else if(cId.raw === ID.CODEC_ID) {
-                    const b = await reader.readBytes(cSz.value);
-                    codec = String.fromCharCode.apply(null, b);
-                  } else {
-                    await reader.readBytes(cSz.value);
-                  }
-                }
-                if(codec.indexOf("A_MPEG") >= 0) {
-                  audioTrackNum = tn;
-                  console.log("[MP2-AUDIO] 音频轨号:", tn, codec);
-                }
-              } else {
-                await reader.readBytes(teSz.value);
-              }
-            }
-            break;
-          } else {
-            await reader.readBytes(sz.value);
-          }
-        }
-        if(!audioTrackNum) throw new Error("未找到音频轨");
-        console.log("[MP2-AUDIO] 开始解析Clusters, 音频轨:", audioTrackNum);
-        const audioChunks = [];
-        let totalLen = 0;
-        let clusterCount = 0;
-        while(clusterCount < 10000) {
-          try {
-            const id = await reader.readVint();
-            const sz = await reader.readVint();
-            if(id.raw === ID.CLUSTER) {
-              clusterCount++;
-              const clusterEnd = reader.tell() + sz.value;
-              while(reader.tell() < clusterEnd) {
-                const bId = await reader.readVint();
-                const bSz = await reader.readVint();
-                const bStart = reader.tell();
-                const bEnd = bStart + bSz.value;
-                if(bId.raw === ID.SIMPLE_BLOCK || bId.raw === ID.BLOCK) {
-                  const tn = await reader.readVint();
-                  const trackNum = tn.value;
-                  await reader.readBytes(3);
-                  const dataLen = bEnd - reader.tell();
-                  if(trackNum === audioTrackNum && dataLen > 0) {
-                    const data = await reader.readBytes(dataLen);
-                    audioChunks.push(data);
-                    totalLen += dataLen;
-                  } else {
-                    await reader.readBytes(dataLen);
-                  }
-                } else {
-                  await reader.readBytes(bSz.value);
-                }
-              }
-              if(clusterCount % 100 === 0) console.log("[MP2-AUDIO] cluster:", clusterCount, "音频字节:", totalLen);
-            } else {
-              if(sz.unknown) break;
-              await reader.readBytes(sz.value);
-            }
-          } catch(e) {
-            console.log("[MP2-AUDIO] 解析结束, cluster:", clusterCount, "错误:", e.message);
-            break;
-          }
-        }
-        console.log("[MP2-AUDIO] 收集音频块:", audioChunks.length, "总字节:", totalLen);
-        // 合并
-        const allAudio = new Uint8Array(totalLen);
-        let off = 0;
-        for(const c of audioChunks) { allAudio.set(c, off); off += c.length; }
-        // WASM 解码
+        const resp = await fetch(this.url);
+        const fullBuf = new Uint8Array(await resp.arrayBuffer());
+        console.log("[MP2-AUDIO] 文件大小:", fullBuf.length);
+        const frames = this._extractFrames(fullBuf);
+        console.log("[MP2-AUDIO] 提取帧数:", frames.length);
+        const allFrames = new Uint8Array(frames.reduce((a,f)=>a+f.length,0));
+        let off=0; for(const f of frames){ allFrames.set(f,off); off+=f.length; }
+        console.log("[MP2-AUDIO] 总音频字节:", allFrames.length);
         const DecoderClass = window["mpg123-decoder"].MPEGDecoder;
         const decoder = new DecoderClass();
         await decoder.ready;
         console.log("[MP2-AUDIO] WASM就绪, 解码...");
-        const decoded = await decoder.decode(allAudio);
+        const decoded = await decoder.decode(allFrames);
         console.log("[MP2-AUDIO] 解码成功!", decoded.channelData.length, "ch", decoded.sampleRate, "Hz");
         const ch = decoded.channelData.length;
         const sr = decoded.sampleRate;
@@ -1355,6 +1264,43 @@
       } catch(e) {
         console.warn("[MP2-AUDIO] 失败:", e);
       }
+    }
+
+    _extractFrames(buf) {
+      const frames = [];
+      let i=0;
+      let goodRun = 0;
+      while(i < buf.length-4) {
+        if(buf[i]===0xFF && (buf[i+1]&0xE0)===0xE0) {
+          const version = (buf[i+1]>>3)&0x03;
+          const layer = (buf[i+1]>>1)&0x03;
+          const bitrateIdx = (buf[i+2]>>4)&0x0F;
+          const samprateIdx = (buf[i+2]>>2)&0x03;
+          const padding = (buf[i+2]>>1)&0x01;
+          // 严格验证
+          if((version===1||version===2) && layer===2 && bitrateIdx>0 && bitrateIdx<15 && samprateIdx<3) {
+            const bitratesV1 = [0,32,48,56,64,80,96,112,128,160,192,224,256,320,384,0];
+            const bitratesV2 = [0,8,16,24,32,40,48,56,64,80,96,112,128,144,160,0];
+            const samprates = [44100,48000,32000,0];
+            const br = (version===1?bitratesV1:bitratesV2)[bitrateIdx]*1000;
+            const sr = samprates[samprateIdx];
+            if(br>0 && sr>0) {
+              const frameLen = Math.floor(144*br/sr) + padding;
+              if(frameLen>0 && i+frameLen<=buf.length) {
+                // 验证下一帧同步字
+                if(goodRun>0 || (buf[i+frameLen]===0xFF && (buf[i+frameLen+1]&0xE0)===0xE0)) {
+                  frames.push(buf.slice(i, i+frameLen));
+                  goodRun++;
+                  i += frameLen;
+                  continue;
+                }
+              }
+            }
+          }
+        }
+        i++;
+      }
+      return frames;
     }
 
     _play(offset) {
