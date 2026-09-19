@@ -1293,6 +1293,7 @@
         return b;
       };
       // 找 Segment
+      let dbgCount=0;
       while(pos < buf.length - 8) {
         const id = readVint();
         if(!id) break;
