@@ -350,8 +350,12 @@ router.get('/stream/:dir/:type', async (req, res) => {
       };
       const proxyReq = lib.request(proxyReqOpts, (proxyRes) => {
         const up = proxyRes.statusCode || 200;
+        // 根据目标URL扩展名动态设置Content-Type
+        const ext = (u.pathname.match(/\.(flac|wav|mp3|m4a|ape|ogg|aac|wma|opus|aif|aiff|alac)$/i)||[''])[0].toLowerCase();
+        const ctMap = {'.flac':'audio/flac','.wav':'audio/wav','.mp3':'audio/mpeg','.m4a':'audio/mp4','.ape':'audio/ape','.ogg':'audio/ogg','.aac':'audio/aac','.wma':'audio/x-ms-wma','.opus':'audio/opus','.aif':'audio/aiff','.aiff':'audio/aiff','.alac':'audio/alac'};
+        const ct = ctMap[ext] || 'audio/flac';
         const outHeaders = {
-          'Content-Type': 'audio/flac',
+          'Content-Type': ct,
           'Accept-Ranges': 'bytes',
           'Content-Disposition': 'inline',
         };

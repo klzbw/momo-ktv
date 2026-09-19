@@ -188,11 +188,11 @@ function parseFilename(filename) {
 }
 
 function isVocalFile(filename) {
-  return /(人声|vocal|vocals|原唱)/i.test(filename) && /\.(flac|wav|mp3|m4a)$/i.test(filename);
+  return /(人声|vocal|vocals|原唱)/i.test(filename) && /\.(flac|wav|mp3|m4a|ape|ogg|aac|wma|opus|aif|aiff|alac)$/i.test(filename);
 }
 
 function isAccompFile(filename) {
-  return /(伴奏|accomp|accompaniment|instrumental|纯音乐)/i.test(filename) && /\.(flac|wav|mp3|m4a)$/i.test(filename);
+  return /(伴奏|accomp|accompaniment|instrumental|纯音乐)/i.test(filename) && /\.(flac|wav|mp3|m4a|ape|ogg|aac|wma|opus|aif|aiff|alac)$/i.test(filename);
 }
 
 // ==================== AList 路径 / strm 内容 ====================

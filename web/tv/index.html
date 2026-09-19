@@ -1818,6 +1818,7 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
     <div class="mc-mini qm-recent" data-f onclick="openPF('history')"><span class="cn">最近唱过</span><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg></span></div>
     <div class="mc-mini qm-fav" data-f onclick="openPF('favorites')"><span class="cn">我的收藏</span><span class="ci"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21s-6.7-4.35-9.3-8.1C1 10.2 1.7 6.6 4.8 5.1 7 4 9.4 4.7 12 7.3 14.6 4.7 17 4 19.2 5.1c3.1 1.5 3.8 5.1 2.1 7.8C18.7 16.65 12 21 12 21z"/></svg></span></div>
     <div class="mc-mini qm-new" data-f onclick="openPF('newest')"><span class="cn">最新入库</span><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg></span></div>
+    <div class="mc-mini qm-online" data-f onclick="openPF('online')"><span class="cn">在线音乐</span><span class="ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16 8.5v7"/><path d="M8 8.5v7"/><path d="M8 12h8"/></svg></span></div>
   </div>
   <!-- ============ 风格三：3D轮播卡片 + 底部融合MV控制条（仅 data-theme=3 且横屏时显示） ============ -->
   <div id="s3-stage">
@@ -1830,7 +1831,8 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
         <div class="s3-card" data-f data-idx="4" onclick="s3CardClick(4)"><span class="s3-ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg></span><span class="s3-cn">最近唱过</span></div>
         <div class="s3-card" data-f data-idx="5" onclick="s3CardClick(5)"><span class="s3-ci"><svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21s-6.7-4.35-9.3-8.1C1 10.2 1.7 6.6 4.8 5.1 7 4 9.4 4.7 12 7.3 14.6 4.7 17 4 19.2 5.1c3.1 1.5 3.8 5.1 2.1 7.8C18.7 16.65 12 21 12 21z"/></svg></span><span class="s3-cn">我的收藏</span></div>
         <div class="s3-card" data-f data-idx="6" onclick="s3CardClick(6)"><span class="s3-ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg></span><span class="s3-cn">最新入库</span></div>
-        <div class="s3-card" data-f data-idx="7" onclick="s3CardClick(7)"><span class="s3-ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span><span class="s3-cn">搜索点歌</span></div>
+        <div class="s3-card" data-f data-idx="7" onclick="s3CardClick(7)"><span class="s3-ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16 8.5v7"/><path d="M8 8.5v7"/><path d="M8 12h8"/></svg></span><span class="s3-cn">在线音乐</span></div>
+        <div class="s3-card" data-f data-idx="8" onclick="s3CardClick(8)"><span class="s3-ci"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span><span class="s3-cn">搜索点歌</span></div>
       </div>
     </div>
     <div id="s3-bottombar">
@@ -1895,6 +1897,14 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
 </div>
 <div class="pd-full" id="pf-newest">
   <div class="pf-head"><h2>🆕 最新入库</h2><div class="pf-back" data-f onclick="closePF('newest')">返回</div></div>
+<div class="pd-full" id="pf-online-music">
+  <div class="pf-head"><h2>🎵 在线音乐</h2><div class="pf-back" data-f onclick="closePF('online')">返回</div></div>
+  <div class="pf-body">
+    <div class="pf-main">
+      <div style="color:var(--sub);font-size:18px;text-align:center;padding:40px">在线音乐模块开发中...</div>
+    </div>
+  </div>
+</div>
   <div class="pf-body">
     <div class="pf-main">
       <div class="song-list" id="pl-newest"></div>
@@ -4718,7 +4728,7 @@ function openPF(name){
   const el=document.getElementById(`pf-${name}`);
   el.classList.add('open');
   focIdx=0;
-  const inits={artists:initArtists,order:initOrder,history:initHistory,favorites:initFavorites,category:initCategory,charts:loadCharts,newest:loadNewest};
+  const inits={artists:initArtists,order:initOrder,history:initHistory,favorites:initFavorites,category:initCategory,charts:loadCharts,newest:loadNewest,online:function(){console.log('[在线音乐] 打开面板');}};
   if(inits[name])inits[name]();
   playOpenAnim(el);
   updateS3CarouselVisibility();
@@ -5858,7 +5868,7 @@ window.addEventListener('orientationchange',fitArtistGrid);
 // 保证不管从哪个方向切，走的都是最近的那条路，实现"循环"效果——比如从最后
 // 一项(idx 7)再往右切一格，直接算出 distance=-7+8=1，等价于"从头数第2项"
 // 往左移一格，视觉上自然衔接，不会跳一大圈。
-const S3_N=8;
+const S3_N=9;
 let s3Idx=0;
 const S3_ACTIONS=[
   ()=>openPF('order'),
@@ -5868,6 +5878,7 @@ const S3_ACTIONS=[
   ()=>openPF('history'),
   ()=>openPF('favorites'),
   ()=>openPF('newest'),
+  ()=>openPF('online'),
   ()=>openPanel('search')
 ];
 function s3ShortestDist(from,to){
