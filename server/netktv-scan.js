@@ -464,6 +464,77 @@ async function syncAllAccounts(cloudDrive, basePath, db, strmDir, sourceRoot = '
   return totals;
 }
 
+// ==================== 在线音乐扫描（单轨音乐文件，非KTV双轨） ====================
+
+const MUSIC_EXT_RE = /\.(flac|wav|mp3|m4a|ape|ogg|aac|wma|opus|aif|aiff|alac)$/i;
+
+async function syncMusicViaAlist(cloudDrive, accountId, basePath, db, strmDir, sourceRoot = 'netktv-music') {
+  const manager = cloudDrive.manager;
+  const account = manager.getAccount(accountId);
+  if (!account) throw new Error('账号不存在: ' + accountId);
+
+  const mountPath = _alistMountPath(account);
+  const alistRoot = mountPath.replace(/\/+$/, '') + (basePath || '');
+  console.log('[MUSIC-SYNC] 开始: ' + alistRoot + ' (账号=' + account.name + ', sourceRoot=' + sourceRoot + ')');
+
+  if (!fs.existsSync(strmDir)) fs.mkdirSync(strmDir, { recursive: true });
+  syncStatus.running = true;
+
+  try {
+    const r = await _alistListDir(alistRoot, { page: 1, perPage: 1000, refresh: true });
+    const files = (r.content || []).filter(f => !f.is_dir && MUSIC_EXT_RE.test(f.name));
+    console.log('[MUSIC-SYNC] 找到 ' + files.length + ' 个音乐文件');
+
+    let createdStrm = 0, addedSongs = 0, skipped = 0;
+    syncStatus.total = files.length;
+    syncStatus.processed = 0;
+
+    for (const file of files) {
+      syncStatus.processed++;
+      try {
+        const meta = parseFilename(file.name);
+        const safeName = file.name.replace(/[\/\\:*?"<>|]/g, '_');
+        const strmPath = path.join(strmDir, safeName + '.strm');
+        const strmContent = alistDavUrlForAccount(account, basePath, '', file.name);
+
+        let changed = true;
+        try {
+          if (fs.existsSync(strmPath) && fs.readFileSync(strmPath, 'utf-8') === strmContent) changed = false;
+        } catch (e) {}
+        if (changed) { fs.writeFileSync(strmPath, strmContent); createdStrm++; }
+
+        const existing = db.prepare(
+          'SELECT id FROM songs WHERE source_root = ? AND cloud_account_id = ? AND filename = ?'
+        ).get(sourceRoot, accountId, safeName + '.strm');
+
+        if (!existing) {
+          const now = new Date().toISOString();
+          const result = db.prepare(
+            'INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, cloud_account_id, duration, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, 1, 1, "audio", 1, "done", ?, NULL, ?)'
+          ).run(
+            meta.title, meta.artist, safeName + '.strm', strmPath, strmPath,
+            sourceRoot, accountId, now
+          );
+          db.prepare('INSERT OR IGNORE INTO song_artists (song_id, artist) VALUES (?, ?)').run(result.lastInsertRowid, meta.artist);
+          addedSongs++;
+          console.log('[MUSIC-SYNC] 新增: ' + meta.artist + ' - ' + meta.title + ' (id=' + result.lastInsertRowid + ')');
+        } else { skipped++; }
+      } catch (e) {
+        console.warn('[MUSIC-SYNC] 处理 ' + file.name + ' 失败:', e.message);
+        syncStatus.errors.push({ dir: file.name, error: e.message });
+      }
+    }
+
+    syncStatus.createdStrm = createdStrm;
+    syncStatus.addedSongs = addedSongs;
+    console.log('[MUSIC-SYNC] 完成: 文件=' + files.length + ' 新增strm=' + createdStrm + ' 入库=' + addedSongs + ' 跳过=' + skipped);
+    return { files: files.length, createdStrm, addedSongs, skipped };
+  } finally {
+    syncStatus.running = false;
+  }
+}
+
+
 // ==================== 阶段二：只读本地 strm 入库 ====================
 
 /**
