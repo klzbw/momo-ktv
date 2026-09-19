@@ -475,60 +475,73 @@ async function syncMusicViaAlist(cloudDrive, accountId, basePath, db, strmDir, s
 
   const mountPath = _alistMountPath(account);
   const alistRoot = mountPath.replace(/\/+$/, '') + (basePath || '');
-  console.log('[MUSIC-SYNC] 开始: ' + alistRoot + ' (账号=' + account.name + ', sourceRoot=' + sourceRoot + ')');
+  console.log('[MUSIC-SYNC] 开始递归扫描: ' + alistRoot + ' (账号=' + account.name + ', sourceRoot=' + sourceRoot + ')');
 
   if (!fs.existsSync(strmDir)) fs.mkdirSync(strmDir, { recursive: true });
   syncStatus.running = true;
 
+  let totalFiles = 0;
+  let createdStrm = 0;
+  let addedSongs = 0;
+  let skipped = 0;
+
   try {
-    const r = await _alistListDir(alistRoot, { page: 1, perPage: 1000, refresh: true });
-    const files = (r.content || []).filter(f => !f.is_dir && MUSIC_EXT_RE.test(f.name));
-    console.log('[MUSIC-SYNC] 找到 ' + files.length + ' 个音乐文件');
+    // 递归扫描子目录
+    async function walkDir(alistPath, relDir) {
+      const r = await _alistListDir(alistPath, { page: 1, perPage: 1000, refresh: true });
+      const items = r.content || [];
+      for (const item of items) {
+        if (item.is_dir) {
+          // 递归子目录
+          await walkDir(alistPath + '/' + item.name, relDir ? relDir + '/' + item.name : item.name);
+        } else if (MUSIC_EXT_RE.test(item.name)) {
+          totalFiles++;
+          syncStatus.processed = totalFiles;
+          try {
+            const meta = parseFilename(item.name);
+            // 用相对路径生成安全文件名，避免重名冲突
+            const relPath = relDir ? relDir + '/' + item.name : item.name;
+            const safeName = relPath.replace(/[\\/:*?"<>|]/g, '_');
+            const strmPath = path.join(strmDir, safeName + '.strm');
+            const strmContent = alistDavUrlForAccount(account, basePath, relDir || '', item.name);
 
-    let createdStrm = 0, addedSongs = 0, skipped = 0;
-    syncStatus.total = files.length;
-    syncStatus.processed = 0;
+            let changed = true;
+            try {
+              if (fs.existsSync(strmPath) && fs.readFileSync(strmPath, 'utf-8') === strmContent) changed = false;
+            } catch (e) {}
+            if (changed) { fs.writeFileSync(strmPath, strmContent); createdStrm++; }
 
-    for (const file of files) {
-      syncStatus.processed++;
-      try {
-        const meta = parseFilename(file.name);
-        const safeName = file.name.replace(/[\/\\:*?"<>|]/g, '_');
-        const strmPath = path.join(strmDir, safeName + '.strm');
-        const strmContent = alistDavUrlForAccount(account, basePath, '', file.name);
+            const existing = db.prepare(
+              'SELECT id FROM songs WHERE source_root = ? AND cloud_account_id = ? AND filename = ?'
+            ).get(sourceRoot, accountId, safeName + '.strm');
 
-        let changed = true;
-        try {
-          if (fs.existsSync(strmPath) && fs.readFileSync(strmPath, 'utf-8') === strmContent) changed = false;
-        } catch (e) {}
-        if (changed) { fs.writeFileSync(strmPath, strmContent); createdStrm++; }
-
-        const existing = db.prepare(
-          'SELECT id FROM songs WHERE source_root = ? AND cloud_account_id = ? AND filename = ?'
-        ).get(sourceRoot, accountId, safeName + '.strm');
-
-        if (!existing) {
-          const now = new Date().toISOString();
-          const result = db.prepare(
-            'INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, cloud_account_id, duration, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, 1, 1, "audio", 1, "done", ?, NULL, ?)'
-          ).run(
-            meta.title, meta.artist, safeName + '.strm', strmPath, strmPath,
-            sourceRoot, accountId, now
-          );
-          db.prepare('INSERT OR IGNORE INTO song_artists (song_id, artist) VALUES (?, ?)').run(result.lastInsertRowid, meta.artist);
-          addedSongs++;
-          console.log('[MUSIC-SYNC] 新增: ' + meta.artist + ' - ' + meta.title + ' (id=' + result.lastInsertRowid + ')');
-        } else { skipped++; }
-      } catch (e) {
-        console.warn('[MUSIC-SYNC] 处理 ' + file.name + ' 失败:', e.message);
-        syncStatus.errors.push({ dir: file.name, error: e.message });
+            if (!existing) {
+              const now = new Date().toISOString();
+              const result = db.prepare(
+                'INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, cloud_account_id, duration, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, 1, 1, "audio", 1, "done", ?, NULL, ?)'
+              ).run(
+                meta.title, meta.artist, safeName + '.strm', strmPath, strmPath,
+                sourceRoot, accountId, now
+              );
+              db.prepare('INSERT OR IGNORE INTO song_artists (song_id, artist) VALUES (?, ?)').run(result.lastInsertRowid, meta.artist);
+              addedSongs++;
+            } else {
+              skipped++;
+            }
+          } catch (e) {
+            console.warn('[MUSIC-SYNC] 处理 ' + relPath + ' 失败:', e.message);
+            syncStatus.errors.push({ dir: relPath, error: e.message });
+          }
+        }
       }
     }
 
+    await walkDir(alistRoot, '');
+
     syncStatus.createdStrm = createdStrm;
     syncStatus.addedSongs = addedSongs;
-    console.log('[MUSIC-SYNC] 完成: 文件=' + files.length + ' 新增strm=' + createdStrm + ' 入库=' + addedSongs + ' 跳过=' + skipped);
-    return { files: files.length, createdStrm, addedSongs, skipped };
+    console.log('[MUSIC-SYNC] 完成: 文件=' + totalFiles + ' 新增strm=' + createdStrm + ' 入库=' + addedSongs + ' 跳过=' + skipped);
+    return { files: totalFiles, createdStrm, addedSongs, skipped };
   } finally {
     syncStatus.running = false;
   }
