@@ -1352,9 +1352,10 @@
         for(let i=0; i<8; i++) { if(first & (0x80>>i)) { len=i+1; break; } }
         if(len===0 || pos+len>buf.length) return null;
         let val = first & (0xFF>>len);
-        for(let i=1; i<len; i++) val = (val<<8)|buf[pos+i];
+        let raw = first;
+        for(let i=1; i<len; i++){ val = (val<<8)|buf[pos+i]; raw = (raw<<8)|buf[pos+i]; }
         pos += len;
-        return { value: val, length: len };
+        return { value: val, raw: raw, length: len };
       };
       const readUint = (n) => {
         let v = 0;
