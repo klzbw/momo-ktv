@@ -269,7 +269,7 @@
 <title>墨墨爱K歌</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js" defer></script>
-<script src="mkv-player.js?v=20260919-3"></script>
+<script src="mkv-player.js?v=20260919-4"></script>
 <style>
 :root{
   --bg:#07071a;--navy:#0d0d2b;
@@ -3482,6 +3482,15 @@ function startDirectMkvPlayback(v,songId,videoUrl){
   v.addEventListener('loadedmetadata',function onMd(){
     if(!curSong||curSong.song_id!==songId) return;
     try{ VoiceManager.onDirectMkvReady(v); }catch(e){ console.warn('directMkv ready',e); }
+    // MP2音频: 浏览器原生不支持MP2音轨, 用WASM/Web Audio解码
+    try {
+      if(window.Mp2AudioPlayer && v.audioTracks && v.audioTracks.length===0) {
+        console.log("[MP2-AUDIO] 检测到MP2无音频轨道, 启动Web Audio解码");
+        if(window._mp2Audio) window._mp2Audio.destroy();
+        window._mp2Audio = new Mp2AudioPlayer(v, proxyUrl);
+        window._mp2Audio.start();
+      }
+    } catch(e){ console.warn("[MP2-AUDIO] 启动失败:",e); }
   },{once:true});
   v.addEventListener('error',function onErr(){
     if(!curSong||curSong.song_id!==songId) return;

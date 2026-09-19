@@ -484,6 +484,10 @@
 
       // 3) 构造 fMP4 init segment
       this._buildInitSegment();
+      // MP2模式: MSE init有问题, 直接回退DIRECT_MKV
+      if (this._tracks.audios[0] && this._tracks.audios[0].audioKind === "mpeg") {
+        throw new Error("MP2: 回退DIRECT_MKV");
+      }
     }
 
     /** 挂到 <video> 并起播 */
@@ -526,6 +530,7 @@
       }
 
       // 先 append init segment（ftyp+moov 同时包含视频/音频轨道；音频 init 已并入 moov）
+      console.log('[MSE-MKV] mimeVideo=', this._mimeVideo, 'initSegLen=', this._initVideoSeg.length, 'mp2Mode=', this._mp2Mode);
       this._appendQueue(this._initVideoSeg, videoSB)
         .then(() => {
           if (this._initAudioSeg && this._initAudioSeg.length > 0) {
@@ -538,7 +543,7 @@
           this._startStreaming(0);
         })
         .catch((e) => {
-          console.warn('[MSE-MKV] init segment append 失败，触发回退', e);
+          console.warn('[MSE-MKV] init segment append 失败', e && e.message, 'mimeVideo=', this._mimeVideo, 'initLen=', this._initVideoSeg.length);
           try { this._videoEl.dispatchEvent(new Event('error')); } catch (_) {}
         });
     }
@@ -1219,5 +1224,130 @@
   // 修复 _parseBlockAt 的调用：流式循环里直接用 _parseBlockAt
   // （上面 _parseBlock 占位不用，真正解析走 _parseBlockAt）
 
+
+  // ── MP2 音频播放器：从 MKV 提取 MP2 帧，用 Web Audio API 解码播放 ──
+  class Mp2AudioPlayer {
+    constructor(videoEl, mkvUrl) {
+      this.video = videoEl;
+      this.url = mkvUrl;
+      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      this.gain = this.ctx.createGain();
+      this.gain.connect(this.ctx.destination);
+      this.source = null;
+      this._paused = true;
+      this._started = false;
+      this._frames = [];
+      this._sampleRate = 44100;
+      this._channels = 2;
+      this._onEnded = null;
+    }
+
+    async start() {
+      console.log("[MP2-AUDIO] 开始提取MP2音频...");
+      try {
+        // 先拉前 64KB 找轨道信息
+        const resp = await fetch(this.url, { headers: { Range: "bytes=0-65535" } });
+        const buf = new Uint8Array(await resp.arrayBuffer());
+        // 简单查找音频轨道号
+        this._audioTrackNum = await this._findAudioTrack(buf);
+        console.log("[MP2-AUDIO] 音频轨道号:", this._audioTrackNum);
+        // 拉整个文件提取音频帧（先试拉全量，后续改流式）
+        const resp2 = await fetch(this.url);
+        const fullBuf = new Uint8Array(await resp2.arrayBuffer());
+        console.log("[MP2-AUDIO] 文件大小:", fullBuf.length);
+        this._extractAudioFrames(fullBuf);
+        console.log("[MP2-AUDIO] 提取帧数:", this._frames.length);
+        // 合并成一个 Blob 给 decodeAudioData
+        const allFrames = new Uint8Array(this._frames.reduce((a,f)=>a+f.length,0));
+        let off=0; for(const f of this._frames){ allFrames.set(f,off); off+=f.length; }
+        console.log("[MP2-AUDIO] 总音频字节:", allFrames.length);
+        const audioBuf = await this.ctx.decodeAudioData(allFrames.buffer);
+        console.log("[MP2-AUDIO] 解码成功! 时长:", audioBuf.duration, "采样率:", audioBuf.sampleRate);
+        this._playBuffer(audioBuf, this.video.currentTime);
+      } catch(e) {
+        console.warn("[MP2-AUDIO] 失败:", e);
+      }
+    }
+
+    _findAudioTrack(buf) {
+      // 简单扫描找 TrackEntry 里的 A_MPEG
+      for(let i=0; i<buf.length-10; i++) {
+        if(buf[i]===0x86 && buf[i+1]>=0x20) {
+          const len=buf[i+1];
+          const codec = String.fromCharCode.apply(null, buf.slice(i+2, i+2+len));
+          if(codec.indexOf("A_MPEG")>=0) {
+            // 往前找 TrackNumber (0xD7)
+            for(let j=i-50; j<i; j++) {
+              if(j>=0 && buf[j]===0xD7) return buf[j+2];
+            }
+          }
+        }
+      }
+      return 1;
+    }
+
+    _extractAudioFrames(buf) {
+      // 简单扫描找 SimpleBlock (0xA3) 里的音频数据
+      // MP2 帧头是 0xFF 0xFx 或 0xFF 0xEx
+      this._frames = [];
+      let i=0;
+      while(i < buf.length-4) {
+        // 找 MP2 帧同步字 0xFFE 或 0xFFF
+        if(buf[i]===0xFF && (buf[i+1]&0xE0)===0xE0) {
+          // 可能是 MP2 帧头
+          const bitrateIdx = (buf[i+2]>>4)&0x0F;
+          const samprateIdx = (buf[i+2]>>2)&0x03;
+          const padding = (buf[i+2]>>1)&0x01;
+          // 估算帧长 (MP2 常见 bitrate)
+          const bitrates = [0,32,48,56,64,80,96,112,128,160,192,224,256,320,384,0];
+          const samprates = [44100,48000,32000,0];
+          const br = bitrates[bitrateIdx]*1000;
+          const sr = samprates[samprateIdx];
+          if(br>0 && sr>0) {
+            const frameLen = Math.floor(144*br/sr) + padding;
+            if(frameLen>0 && i+frameLen<=buf.length) {
+              this._frames.push(buf.slice(i, i+frameLen));
+              i += frameLen;
+              continue;
+            }
+          }
+        }
+        i++;
+      }
+    }
+
+    _playBuffer(audioBuf, offset) {
+      this.source = this.ctx.createBufferSource();
+      this.source.buffer = audioBuf;
+      this.source.connect(this.gain);
+      const startOffset = Math.min(offset, audioBuf.duration);
+      this.source.start(0, startOffset);
+      this._paused = false;
+      this._started = true;
+      console.log("[MP2-AUDIO] 开始播放, 偏移:", startOffset);
+    }
+
+    setPaused(p) {
+      if(p && !this._paused && this.source) {
+        try { this.source.stop(); } catch(e){}
+        this._paused = true;
+      } else if(!p && this._paused && this.source) {
+        // 重新播放从当前位置
+        try { this.source.stop(); } catch(e){}
+        this._playBuffer(this.source.buffer, this.video.currentTime);
+      }
+    }
+
+    setVolume(v) {
+      this.gain.gain.value = v;
+    }
+
+    destroy() {
+      try { if(this.source) this.source.stop(); } catch(e){}
+      try { this.ctx.close(); } catch(e){}
+    }
+  }
+
+  global.Mp2AudioPlayer = Mp2AudioPlayer;
   global.MkvMsePlayer = MkvMsePlayer;
 })(window);
