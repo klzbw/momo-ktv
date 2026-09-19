@@ -667,6 +667,36 @@ function init(db, cloudDrive) {
     res.json(syncStatus);
   });
 
+  // POST /api/netktv/sync-music — 同步网盘音乐目录（单轨，在线音乐用）
+  router.post('/sync-music', async (req, res) => {
+    if (syncStatus.running) {
+      return res.status(409).json({ error: '同步正在进行中', status: syncStatus });
+    }
+    const { accountId = 0, basePath = '/music' } = req.body || {};
+    syncStatus = {
+      running: true, total: 0, processed: 0, createdStrm: 0, removedStrm: 0,
+      addedSongs: 0, removedSongs: 0, errors: [], currentDir: null,
+      startTime: new Date(), endTime: null, message: '正在通过 AList 同步音乐目录...',
+    };
+    const done = () => {
+      syncStatus.running = false;
+      syncStatus.currentDir = null;
+      syncStatus.endTime = new Date();
+    };
+    if (!accountId || accountId === 0) {
+      return res.status(400).json({ error: '需要指定 accountId' });
+    }
+    syncMusicViaAlist(cloudDrive, accountId, basePath, db, STRM_DIR).then(() => {
+      syncStatus.message = '音乐同步完成';
+      done();
+    }).catch(e => {
+      console.error('[MUSIC-SYNC] 异常:', e);
+      syncStatus.message = '失败: ' + e.message;
+      done();
+    });
+    res.json({ ok: true, message: '已开始同步音乐目录', status: syncStatus, accountId });
+  });
+
   return router;
 }
 
@@ -677,6 +707,7 @@ module.exports = {
   scanAllAccounts,
   syncStrmViaAlist,
   syncAllAccounts,
+  syncMusicViaAlist,
   importLocalStrm,
   parseFilename,
 };
