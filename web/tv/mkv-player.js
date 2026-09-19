@@ -1295,38 +1295,42 @@
         console.log("[MP2-AUDIO] 开始解析Clusters, 音频轨:", audioTrackNum);
         const audioChunks = [];
         let totalLen = 0;
-        while(true) {
+        let clusterCount = 0;
+        while(clusterCount < 10000) {
           try {
             const id = await reader.readVint();
             const sz = await reader.readVint();
-            if(id.raw !== ID.CLUSTER) {
+            if(id.raw === ID.CLUSTER) {
+              clusterCount++;
+              const clusterEnd = reader.tell() + sz.value;
+              while(reader.tell() < clusterEnd) {
+                const bId = await reader.readVint();
+                const bSz = await reader.readVint();
+                const bStart = reader.tell();
+                const bEnd = bStart + bSz.value;
+                if(bId.raw === ID.SIMPLE_BLOCK || bId.raw === ID.BLOCK) {
+                  const tn = await reader.readVint();
+                  const trackNum = tn.value;
+                  await reader.readBytes(3);
+                  const dataLen = bEnd - reader.tell();
+                  if(trackNum === audioTrackNum && dataLen > 0) {
+                    const data = await reader.readBytes(dataLen);
+                    audioChunks.push(data);
+                    totalLen += dataLen;
+                  } else {
+                    await reader.readBytes(dataLen);
+                  }
+                } else {
+                  await reader.readBytes(bSz.value);
+                }
+              }
+              if(clusterCount % 100 === 0) console.log("[MP2-AUDIO] cluster:", clusterCount, "音频字节:", totalLen);
+            } else {
               if(sz.unknown) break;
               await reader.readBytes(sz.value);
-              continue;
-            }
-            const clusterEnd = reader.tell() + sz.value;
-            while(reader.tell() < clusterEnd) {
-              const bId = await reader.readVint();
-              const bSz = await reader.readVint();
-              const bStart = reader.tell();
-              const bEnd = bStart + bSz.value;
-              if(bId.raw === ID.SIMPLE_BLOCK || bId.raw === ID.BLOCK) {
-                const tn = await reader.readVint();
-                const trackNum = tn.value;
-                await reader.readBytes(3); // timecode + flags
-                const dataLen = bEnd - reader.tell();
-                if(trackNum === audioTrackNum && dataLen > 0) {
-                  const data = await reader.readBytes(dataLen);
-                  audioChunks.push(data);
-                  totalLen += dataLen;
-                } else {
-                  await reader.readBytes(dataLen);
-                }
-              } else {
-                await reader.readBytes(bSz.value);
-              }
             }
           } catch(e) {
+            console.log("[MP2-AUDIO] 解析结束, cluster:", clusterCount, "错误:", e.message);
             break;
           }
         }
