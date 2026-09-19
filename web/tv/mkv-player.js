@@ -1292,7 +1292,7 @@
           }
         }
         if(!audioTrackNum) throw new Error("未找到音频轨");
-        // 3. 解析 Cluster, 收集音频数据
+        console.log("[MP2-AUDIO] 开始解析Clusters, 音频轨:", audioTrackNum);
         const audioChunks = [];
         let totalLen = 0;
         while(true) {
