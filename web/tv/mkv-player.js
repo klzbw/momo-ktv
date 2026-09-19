@@ -1267,9 +1267,129 @@
     }
 
     _extractFrames(buf) {
+      // 同步 EBML 解析, 只提取音频轨数据
+      const frames = [];
+      let pos = 0;
+      const readVint = () => {
+        if(pos >= buf.length) return null;
+        const first = buf[pos];
+        let len = 0;
+        for(let i=0; i<8; i++) { if(first & (0x80>>i)) { len=i+1; break; } }
+        if(len===0 || pos+len>buf.length) return null;
+        let val = first & (0xFF>>len);
+        for(let i=1; i<len; i++) val = (val<<8)|buf[pos+i];
+        pos += len;
+        return { value: val, length: len };
+      };
+      const readUint = (n) => {
+        let v = 0;
+        for(let i=0; i<n; i++) v = (v<<8)|buf[pos+i];
+        pos += n;
+        return v;
+      };
+      const readBytes = (n) => {
+        const b = buf.slice(pos, pos+n);
+        pos += n;
+        return b;
+      };
+      // 找 Segment
+      while(pos < buf.length - 8) {
+        const id = readVint();
+        if(!id) break;
+        const sz = readVint();
+        if(!sz) break;
+        if(id.value === 0x18538067) break; // SEGMENT
+        if(sz.value > 0 && sz.value < 0x1FFFFFFF) pos += sz.value;
+      }
+      // 找 Tracks, 找音频轨号
+      let audioTrackNum = 0;
+      while(pos < buf.length - 8) {
+        const id = readVint();
+        if(!id) break;
+        const sz = readVint();
+        if(!sz) break;
+        if(id.value === 0x1F43B675) break; // CLUSTER
+        if(id.value === 0x1654AE6B) { // TRACKS
+          const end = pos + sz.value;
+          while(pos < end) {
+            const teId = readVint();
+            if(!teId) break;
+            const teSz = readVint();
+            if(!teSz) break;
+            if(teId.value === 0xAE) { // TRACK_ENTRY
+              const teEnd = pos + teSz.value;
+              let tn = 0, codec = "";
+              while(pos < teEnd) {
+                const cId = readVint();
+                if(!cId) break;
+                const cSz = readVint();
+                if(!cSz) break;
+                if(cId.value === 0xD7) { // TRACK_NUMBER
+                  tn = readUint(Math.min(8, cSz.value));
+                } else if(cId.value === 0x86) { // CODEC_ID
+                  const b = readBytes(cSz.value);
+                  codec = String.fromCharCode.apply(null, b);
+                } else {
+                  pos += cSz.value;
+                }
+              }
+              if(codec.indexOf("A_MPEG") >= 0) {
+                audioTrackNum = tn;
+                console.log("[MP2-AUDIO] 音频轨:", tn, codec);
+              }
+            } else {
+              pos += teSz.value;
+            }
+          }
+          break;
+        } else {
+          pos += sz.value;
+        }
+      }
+      if(!audioTrackNum) {
+        console.warn("[MP2-AUDIO] 未找到音频轨, 用全文件扫描");
+        return this._scanAll(buf);
+      }
+      // 解析 Clusters, 提取音频块
+      while(pos < buf.length - 8) {
+        const id = readVint();
+        if(!id) break;
+        const sz = readVint();
+        if(!sz) break;
+        if(id.value === 0x1F43B675) { // CLUSTER
+          const clusterEnd = pos + sz.value;
+          while(pos < clusterEnd) {
+            const bId = readVint();
+            if(!bId) break;
+            const bSz = readVint();
+            if(!bSz) break;
+            const bStart = pos;
+            const bEnd = bStart + bSz.value;
+            if(bId.value === 0xA3 || bId.value === 0xA1) { // SIMPLE_BLOCK or BLOCK
+              const tn = readVint();
+              if(!tn) { pos = bEnd; continue; }
+              const trackNum = tn.value;
+              pos += 3; // timecode + flags
+              const dataLen = bEnd - pos;
+              if(trackNum === audioTrackNum && dataLen > 0) {
+                frames.push(buf.slice(pos, bEnd));
+              }
+              pos = bEnd;
+            } else {
+              pos = bEnd;
+            }
+          }
+        } else {
+          if(sz.value < 0x1FFFFFFF) pos += sz.value;
+          else break;
+        }
+      }
+      return frames;
+    }
+
+    _scanAll(buf) {
       const frames = [];
       let i=0;
-      let goodRun = 0;
       while(i < buf.length-4) {
         if(buf[i]===0xFF && (buf[i+1]&0xE0)===0xE0) {
           const version = (buf[i+1]>>3)&0x03;
@@ -1277,7 +1397,6 @@
           const bitrateIdx = (buf[i+2]>>4)&0x0F;
           const samprateIdx = (buf[i+2]>>2)&0x03;
           const padding = (buf[i+2]>>1)&0x01;
-          // 严格验证
           if((version===1||version===2) && layer===2 && bitrateIdx>0 && bitrateIdx<15 && samprateIdx<3) {
             const bitratesV1 = [0,32,48,56,64,80,96,112,128,160,192,224,256,320,384,0];
             const bitratesV2 = [0,8,16,24,32,40,48,56,64,80,96,112,128,144,160,0];
@@ -1287,13 +1406,9 @@
             if(br>0 && sr>0) {
               const frameLen = Math.floor(144*br/sr) + padding;
               if(frameLen>0 && i+frameLen<=buf.length) {
-                // 验证下一帧同步字
-                {
-                  frames.push(buf.slice(i, i+frameLen));
-                  goodRun++;
-                  i += frameLen;
-                  continue;
-                }
+                frames.push(buf.slice(i, i+frameLen));
+                i += frameLen;
+                continue;
               }
             }
           }
