@@ -1354,7 +1354,7 @@
 
     _extractFrames(buf) {
       // 同步 EBML 解析, 只提取音频轨数据
-      const frames = [];
+      const frames = []; const frames2 = [];
       let pos = 0;
       const readVint = () => {
         if(pos >= buf.length) return null;
@@ -1458,6 +1458,8 @@
               if(trackNum === audioTrackNum && dataLen > 0) {
                 frames.push(buf.slice(pos, bEnd));
               }
+              } else if(trackNum !== 1 && trackNum !== audioTrackNum && dataLen > 0) {
+                frames2.push(buf.slice(pos, bEnd));
               pos = bEnd;
             } else {
               pos = bEnd;
@@ -1468,7 +1470,7 @@
           else break;
         }
       }
-      return frames;
+      return { track1: frames, track2: frames2 };
     }
 
     _scanAll(buf) {
@@ -1499,7 +1501,7 @@
         }
         i++;
       }
-      return frames;
+      return { track1: frames, track2: frames2 };
     }
 
     _play(offset) {
