@@ -3606,15 +3606,6 @@ async function loadSong(v,songId,needsDownload){
             return; // 不继续走 HLS
           }catch(err){
             try{ msePlayer.destroy(); }catch(e){}
-            // MP2模式: 用MSE player的RangeReader提取音频数据
-            if(err && err.message && err.message.indexOf('MP2')>=0 && msePlayer.extractAudioData){
-              console.log('[MP2-AUDIO] 开始提取音频数据...');
-              try{
-                const audioData = await msePlayer.extractAudioData();
-                window._mp2AudioData = audioData;
-                console.log('[MP2-AUDIO] 音频数据提取完成:', audioData.length, '字节');
-              }catch(e){ console.warn('[MP2-AUDIO] 提取失败:', e); }
-            }
             try{ msePlayer.destroy(); }catch(e){}
             _mseMkvPlayer=null;
             try{ VoiceManager.exitMseMkv(); }catch(e){}
