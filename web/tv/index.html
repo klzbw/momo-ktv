@@ -3607,6 +3607,7 @@ async function loadSong(v,songId,needsDownload){
           }catch(err){
             try{ msePlayer.destroy(); }catch(e){}
             // 保存MP2音轨号供Mp2AudioPlayer用
+            console.log('[MP2-AUDIO] catch块:', JSON.stringify(msePlayer._tracks));
             if(msePlayer._tracks&&msePlayer._tracks.audios&&msePlayer._tracks.audios[0]){
               window._mp2TrackNum=msePlayer._tracks.audios[0].trackNum;
               window._mp2TrackCount=msePlayer._tracks.audios.length;
