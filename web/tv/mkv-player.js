@@ -1457,12 +1457,9 @@
               pos += 3; // timecode + flags
               
               const dataLen = bEnd - pos;
-              // MP2同步字校验: 前11位必须为1
-              const sync = (buf[pos] << 8) | buf[pos+1];
-              const validSync = (sync & 0xFFE0) === 0xFFE0;
-              if(trackNum === 2 && dataLen > 0 && validSync) {
+              if(trackNum === 2 && dataLen > 0) {
                 frames.push(buf.slice(pos, bEnd));
-              } else if(trackNum === 3 && dataLen > 0 && validSync) {
+              } else if(trackNum === 3 && dataLen > 0) {
                 frames2.push(buf.slice(pos, bEnd));
               }
               pos = bEnd; // 关键修复：跳到block末尾
