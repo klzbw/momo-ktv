@@ -1334,6 +1334,7 @@
         await d1.ready;
         const dec1 = await d1.decode(track1Data);
         this._track1Buf = this._mkBuf(dec1);
+        this._buf = this._track1Buf;
         this._track2Buf = null;
         if(track2Data && track2Data.length > 0) {
           try { const d2 = new DecoderClass(); await d2.ready; const dec2 = await d2.decode(track2Data); this._track2Buf = this._mkBuf(dec2); } catch(e) {}
