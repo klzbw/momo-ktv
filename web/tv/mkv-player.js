@@ -1270,13 +1270,22 @@
       const frames = [];
       let i=0;
       while(i < buf.length-4) {
+        // MP2 sync: 11 bits = 0xFFE or 0xFFF
         if(buf[i]===0xFF && (buf[i+1]&0xE0)===0xE0) {
+          const version = (buf[1]>>3)&0x03;  // 01=MPEG1, 10=MPEG2
+          const layer = (buf[1]>>1)&0x03;     // 10=Layer II
+          if(version!==1 && version!==2) { i++; continue; }
+          if(layer!==2) { i++; continue; }
           const bitrateIdx = (buf[i+2]>>4)&0x0F;
           const samprateIdx = (buf[i+2]>>2)&0x03;
           const padding = (buf[i+2]>>1)&0x01;
-          const bitrates = [0,32,48,56,64,80,96,112,128,160,192,224,256,320,384,0];
+          if(bitrateIdx===0 || bitrateIdx===15) { i++; continue; }
+          if(samprateIdx===3) { i++; continue; }
+          // MPEG1 Layer II bitrates
+          const bitratesV1 = [0,32,48,56,64,80,96,112,128,160,192,224,256,320,384,0];
+          const bitratesV2 = [0,8,16,24,32,40,48,56,64,80,96,112,128,144,160,0];
           const samprates = [44100,48000,32000,0];
-          const br = bitrates[bitrateIdx]*1000;
+          const br = (version===1?bitratesV1:bitratesV2)[bitrateIdx]*1000;
           const sr = samprates[samprateIdx];
           if(br>0 && sr>0) {
             const frameLen = Math.floor(144*br/sr) + padding;
