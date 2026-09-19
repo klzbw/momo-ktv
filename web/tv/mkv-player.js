@@ -1439,7 +1439,7 @@
         if(!id) break;
         const sz = readVint();
         if(!sz) break;
-        if(pos < 500000) console.log('[MP2-AUDIO] elem ID=0x'+id.raw.toString(16),'sz=0x'+sz.value.toString(16),'pos=',pos);
+        
         if(id.raw === 0x1F43B675) { // CLUSTER
           const clusterEnd = pos + sz.value;
           while(pos < clusterEnd) {
@@ -1449,19 +1449,20 @@
             if(!bSz) break;
             const bStart = pos;
             const bEnd = bStart + bSz.value;
-            if(true) console.log('[MP2-AUDIO] block ID=0x'+bId.raw.toString(16),'sz=',bSz.value); window._mp2DbgBlocks++;
+            
             if(bId.raw === 0xA3 || bId.raw === 0xA1) { // SIMPLE_BLOCK or BLOCK
               const tn = readVint();
               if(!tn) { pos = bEnd; continue; }
               const trackNum = tn.value;
               pos += 3; // timecode + flags
-              if(frames.length + frames2.length < 20) console.log('[MP2-AUDIO] block trackNum=',trackNum,'sz=',bSz.value);
+              
               const dataLen = bEnd - pos;
               if(trackNum === 2 && dataLen > 0) {
                 frames.push(buf.slice(pos, bEnd));
               } else if(trackNum === 3 && dataLen > 0) {
                 frames2.push(buf.slice(pos, bEnd));
               }
+              pos = bEnd; // 关键修复：跳到block末尾
             } else {
               pos = bEnd;
             }
