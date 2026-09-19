@@ -1310,35 +1310,46 @@
     async start() {
       console.log("[MP2-AUDIO] 开始...");
       try {
-        let allFrames;
+        let track1Data, track2Data;
         if(window._mp2AudioData && window._mp2AudioData.length > 0) {
-          allFrames = window._mp2AudioData;
-          console.log('[MP2-AUDIO] 用MSE提取的音频数据:', allFrames.length, '字节');
+          track1Data = window._mp2AudioData;
         } else {
           const resp = await fetch(this.url);
           const fullBuf = new Uint8Array(await resp.arrayBuffer());
-          console.log('[MP2-AUDIO] 文件大小:', fullBuf.length);
-          const frames = this._extractFrames(fullBuf);
-          console.log('[MP2-AUDIO] 提取帧数:', frames.length);
-          allFrames = new Uint8Array(frames.reduce((a,f)=>a+f.length,0));
-          let off=0; for(const f of frames){ allFrames.set(f,off); off+=f.length; }
-          console.log('[MP2-AUDIO] 总音频字节:', allFrames.length);
+          console.log("[MP2-AUDIO] 文件大小:", fullBuf.length);
+          const result = this._extractFrames(fullBuf);
+          const merge = (frames) => {
+            if(!frames || frames.length===0) return new Uint8Array(0);
+            const all = new Uint8Array(frames.reduce((a,f)=>a+f.length,0));
+            let off=0; for(const f of frames){ all.set(f,off); off+=f.length; }
+            return all;
+          };
+          track1Data = merge(result.track1 || result);
+          track2Data = merge(result.track2 || []);
+          console.log("[MP2-AUDIO] track1=", track1Data.length, "track2=", track2Data.length);
         }
         const DecoderClass = window["mpg123-decoder"].MPEGDecoder;
-        const decoder = new DecoderClass();
-        await decoder.ready;
-        console.log("[MP2-AUDIO] WASM就绪, 解码...");
-        const decoded = await decoder.decode(allFrames);
-        console.log("[MP2-AUDIO] 解码成功!", decoded.channelData.length, "ch", decoded.sampleRate, "Hz");
-        const ch = decoded.channelData.length;
-        const sr = decoded.sampleRate;
-        const len = decoded.channelData[0].length;
-        this._buf = this.ctx.createBuffer(ch, len, sr);
-        for(let c=0; c<ch; c++) this._buf.copyToChannel(decoded.channelData[c], c);
+        const d1 = new DecoderClass();
+        await d1.ready;
+        const dec1 = await d1.decode(track1Data);
+        this._track1Buf = this._mkBuf(dec1);
+        this._buf = this._track1Buf;
+        this._track2Buf = null;
+        if(track2Data && track2Data.length > 0) {
+          try { const d2 = new DecoderClass(); await d2.ready; const dec2 = await d2.decode(track2Data); this._track2Buf = this._mkBuf(dec2); } catch(e) {}
+        }
+        console.log("[MP2-AUDIO] 解码成功, 开始播放");
         this._play(this.video.currentTime);
-      } catch(e) {
-        console.warn("[MP2-AUDIO] 失败:", e);
-      }
+      } catch(e) { console.warn("[MP2-AUDIO] 失败:", e); }
+    }
+    _mkBuf(decoded) {
+      const ch = decoded.channelData.length, sr = decoded.sampleRate, len = decoded.channelData[0].length;
+      const buf = this.ctx.createBuffer(ch, len, sr);
+      for(let c=0; c<ch; c++) buf.copyToChannel(decoded.channelData[c], c);
+      return buf;
+    }
+    setTrack(t) {
+      try { const cur = this.video.currentTime; if(t===2 && this._track2Buf){ this._buf = this._track2Buf; this._play(cur); } else { this._buf = this._track1Buf; this._play(cur); } } catch(e) {}
     }
 
     _extractFrames(buf) {
