@@ -532,13 +532,13 @@
               chunks.push(data);
               totalLen += dataLen;
             } else {
-              r._pos = bEnd;
+              await r.seek(bEnd);
             }
           } else {
-            r._pos = bEnd;
+            await r.seek(bEnd);
           }
         }
-        r._pos = clusterDataEnd;
+        await r.seek(clusterDataEnd);
         clusterCount++;
         if (clusterCount % 200 === 0) console.log("[MSE-MKV] extractAudioData clusters=", clusterCount, "audioBytes=", totalLen);
       }
@@ -1109,7 +1109,7 @@
             }
           }
           // cluster 结束
-          r._pos = clusterDataEnd;
+          await r.seek(clusterDataEnd);
 
           // 音频补轨模式：读到视频缓冲末尾就切回双轨
           if (this._audioOnlyMode && this._videoEl) {
