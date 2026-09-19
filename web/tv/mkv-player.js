@@ -1310,6 +1310,7 @@
         if(!id) break;
         const sz = readVint();
         if(!sz) break;
+        if(dbgTracks<10) console.log('[MP2-AUDIO] tracks ID=0x'+id.raw.toString(16),'sz=0x'+sz.value.toString(16)); dbgTracks++;
         if(id.raw === 0x1F43B675) break; // CLUSTER
         if(id.raw === 0x1654AE6B) { // TRACKS
           const end = pos + sz.value;
