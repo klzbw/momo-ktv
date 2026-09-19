@@ -505,7 +505,7 @@
         const clusterSize = await r.readVint();
         const clusterDataStart = r.tell();
         const clusterDataEnd = clusterDataStart + clusterSize.value;
-        console.log("[MP2-DBG] cluster#"+clusterCount, "clusterSize=", clusterSize.value, "dataStart=", clusterDataStart, "dataEnd=", clusterDataEnd, "unknown=", clusterSize.unknown);
+        
         const subId = await r.readVint();
         const subSize = await r.readVint();
         if (subId.raw === ID.TIMESTAMP) {
@@ -514,17 +514,17 @@
           r._pos += subSize.value;
         }
         while (r.tell() < clusterDataEnd) {
-        let dbgBlocks = 0;
+        
           const bId = await r.readVint();
           const bSize = await r.readVint();
           const bStart = r.tell();
           const bEnd = bStart + bSize.value;
-          if (dbgBlocks < 10) console.log("[MP2-DBG] block id.raw=0x"+bId.raw.toString(16), "size=", bSize.value, "bStart=", bStart, "bEnd=", bEnd);
+          
           if (bId.raw === ID.SIMPLE_BLOCK || bId.raw === ID.BLOCK) {
             const tn = await r.readVint();
             const trackNum = tn.value;
             await r.readInt(2);
-            if (dbgBlocks < 10) console.log("[MP2-DBG] trackNum=", trackNum, "audioTrackNum=", audioTrackNum); dbgBlocks++;
+            
             await r.readUint(1);
             const dataLen = bEnd - r.tell();
             if (trackNum === audioTrackNum && dataLen > 0) {
@@ -532,13 +532,13 @@
               chunks.push(data);
               totalLen += dataLen;
             } else {
-              await r.seek(bEnd);
+              r._pos = bEnd - r._winStart;
             }
           } else {
-            await r.seek(bEnd);
+            r._pos = bEnd - r._winStart;
           }
         }
-        await r.seek(clusterDataEnd);
+        r._pos = clusterDataEnd - r._winStart;
         clusterCount++;
         if (clusterCount % 200 === 0) console.log("[MSE-MKV] extractAudioData clusters=", clusterCount, "audioBytes=", totalLen);
       }
@@ -1109,7 +1109,7 @@
             }
           }
           // cluster 结束
-          await r.seek(clusterDataEnd);
+          r._pos = clusterDataEnd - r._winStart;
 
           // 音频补轨模式：读到视频缓冲末尾就切回双轨
           if (this._audioOnlyMode && this._videoEl) {
