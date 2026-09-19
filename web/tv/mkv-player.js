@@ -333,7 +333,7 @@
     async ensure(n) {
       while (this._buf.length - this._pos < n) {
         if (this._eof) throw new Error('EBML 读取越界 EOF');
-        const need = Math.max(n - (this._buf.length - this._pos), 64 * 1024);
+        const need = Math.max(n - (this._buf.length - this._pos), 1024 * 1024);
         const start = this._winStart + this._buf.length;
         const end = start + need - 1;
         let resp;
