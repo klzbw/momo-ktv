@@ -1272,8 +1272,8 @@
       while(i < buf.length-4) {
         // MP2 sync: 11 bits = 0xFFE or 0xFFF
         if(buf[i]===0xFF && (buf[i+1]&0xE0)===0xE0) {
-          const version = (buf[1]>>3)&0x03;  // 01=MPEG1, 10=MPEG2
-          const layer = (buf[1]>>1)&0x03;     // 10=Layer II
+          const version = (buf[i+1]>>3)&0x03;  // 01=MPEG1, 10=MPEG2
+          const layer = (buf[i+1]>>1)&0x03;     // 10=Layer II
           if(version!==1 && version!==2) { i++; continue; }
           if(layer!==2) { i++; continue; }
           const bitrateIdx = (buf[i+2]>>4)&0x0F;
