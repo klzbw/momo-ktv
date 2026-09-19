@@ -1328,17 +1328,43 @@
           track1Data = merge(result.track1 || result);
           track2Data = merge(result.track2 || []);
           console.log("[MP2-AUDIO] track1=", track1Data.length, "track2=", track2Data.length);
-        }
         const DecoderClass = window["mpg123-decoder"].MPEGDecoder;
+        const cleanFrames = (data) => {
+          const frames = [];
+          let i=0;
+          while(i < data.length-4) {
+            if(data[i]===0xFF && (data[i+1]&0xE0)===0xE0) {
+              const version = (data[i+1]>>3)&0x03;
+              const layer = (data[i+1]>>1)&0x03;
+              const bitrateIdx = (data[i+2]>>4)&0x0F;
+              const samprateIdx = (data[i+2]>>2)&0x03;
+              const padding = (data[i+2]>>1)&0x01;
+              if((version===1||version===2) && layer===2 && bitrateIdx>0 && bitrateIdx<15 && samprateIdx<3) {
+                const br=[0,32,48,56,64,80,96,112,128,160,192,224,256,320,384,0][bitrateIdx]*1000;
+                const sr=[44100,48000,32000,0][samprateIdx];
+                if(br>0 && sr>0) {
+                  const frameLen=Math.floor(144*br/sr)+padding;
+                  if(frameLen>0 && i+frameLen<=data.length) { frames.push(data.slice(i,i+frameLen)); i+=frameLen; continue; }
+                }
+              }
+            }
+            i++;
+          }
+          const all=new Uint8Array(frames.reduce((a,b)=>a+b.length,0));
+          let off=0; for(const fr of frames){ all.set(fr,off); off+=fr.length; }
+          console.log("[MP2-AUDIO] clean:", frames.length, "frames,", all.length, "bytes");
+          return all;
+        };
         const d1 = new DecoderClass();
         await d1.ready;
-        const dec1 = await d1.decode(track1Data);
+        const dec1 = await d1.decode(cleanFrames(track1Data));
         this._track1Buf = this._mkBuf(dec1);
         this._track2Buf = null;
         if(track2Data && track2Data.length > 0) {
-          try { const d2 = new DecoderClass(); await d2.ready; const dec2 = await d2.decode(track2Data); this._track2Buf = this._mkBuf(dec2); } catch(e) {}
+          try { const d2 = new DecoderClass(); await d2.ready; const dec2 = await d2.decode(cleanFrames(track2Data)); this._track2Buf = this._mkBuf(dec2); } catch(e) {}
         }
-        if(this._track2Buf) this._buf = this._track2Buf;
+        }
+        const DecoderClass = window["mpg123-decoder"].MPEGDecoder;
         console.log("[MP2-AUDIO] 解码成功, 开始播放");
         this._play(this.video.currentTime);
       } catch(e) { console.warn("[MP2-AUDIO] 失败:", e); }
