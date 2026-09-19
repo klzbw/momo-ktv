@@ -1262,21 +1262,21 @@
         let off=0; for(const f of this._frames){ allFrames.set(f,off); off+=f.length; }
         console.log("[MP2-AUDIO] 总音频字节:", allFrames.length);
         const audioBuf = await this.ctx.decodeAudioData(allFrames.buffer);
-        console.log("[MP2-AUDIO] 解码成功! 时长:", audioBuf.duration, "采样率:", audioBuf.sampleRate);
+        // 用 WASM mpg123-decoder 解码 MP2
+        console.log("[MP2-AUDIO] 加载WASM解码器...");
+        const DecoderClass = window["mpg123-decoder"].MPEGDecoder;
+        const decoder = new DecoderClass();
+        await decoder.ready;
+        console.log("[MP2-AUDIO] WASM解码器就绪, 解码MP2...");
+        const decoded = await decoder.decode(allFrames);
+        console.log("[MP2-AUDIO] 解码成功!", decoded);
+        // 创建 AudioBuffer
+        const ch = decoded.channelData.length;
+        const sr = decoded.sampleRate;
+        const len = decoded.channelData[0].length;
+        const audioBuf = this.ctx.createBuffer(ch, len, sr);
+        for(let c=0; c<ch; c++) audioBuf.copyToChannel(decoded.channelData[c], c);
         this._playBuffer(audioBuf, this.video.currentTime);
-      } catch(e) {
-        console.warn("[MP2-AUDIO] 失败:", e);
-      }
-    }
-
-    _findAudioTrack(buf) {
-      // 简单扫描找 TrackEntry 里的 A_MPEG
-      for(let i=0; i<buf.length-10; i++) {
-        if(buf[i]===0x86 && buf[i+1]>=0x20) {
-          const len=buf[i+1];
-          const codec = String.fromCharCode.apply(null, buf.slice(i+2, i+2+len));
-          if(codec.indexOf("A_MPEG")>=0) {
-            // 往前找 TrackNumber (0xD7)
             for(let j=i-50; j<i; j++) {
               if(j>=0 && buf[j]===0xD7) return buf[j+2];
             }
