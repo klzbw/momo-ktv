@@ -1300,6 +1300,7 @@
         const sz = readVint();
         if(!sz) break;
         if(dbgCount<20) console.log('[MP2-AUDIO] top ID=0x'+id.value.toString(16),'sz=0x'+sz.value.toString(16)); dbgCount++;
+        console.log('[MP2-AUDIO] top raw=0x'+id.raw.toString(16),'val=0x'+id.value.toString(16));
         if(id.raw === 0x18538067) { console.log('[MP2-AUDIO] 找到Segment'); break; }
         if(sz.value > 0 && sz.value < 0x1FFFFFFF) pos += sz.value;
       }
