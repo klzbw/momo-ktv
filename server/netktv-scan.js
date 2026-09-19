@@ -497,10 +497,10 @@ async function syncMusicViaAlist(cloudDrive, accountId, basePath, db, strmDir, s
         } else if (MUSIC_EXT_RE.test(item.name)) {
           totalFiles++;
           syncStatus.processed = totalFiles;
+          const relPath = relDir ? relDir + '/' + item.name : item.name;
           try {
             const meta = parseFilename(item.name);
             // 用相对路径生成安全文件名，避免重名冲突
-            const relPath = relDir ? relDir + '/' + item.name : item.name;
             const safeName = relPath.replace(/[\\/:*?"<>|]/g, '_');
             const strmPath = path.join(strmDir, safeName + '.strm');
             const strmContent = alistDavUrlForAccount(account, basePath, relDir || '', item.name);
