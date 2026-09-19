@@ -1457,9 +1457,9 @@
               const dataLen = bEnd - pos;
               if(trackNum === audioTrackNum && dataLen > 0) {
                 frames.push(buf.slice(pos, bEnd));
-              }
               } else if(trackNum !== 1 && trackNum !== audioTrackNum && dataLen > 0) {
                 frames2.push(buf.slice(pos, bEnd));
+              }
               pos = bEnd;
             } else {
               pos = bEnd;
