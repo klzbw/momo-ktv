@@ -1567,6 +1567,8 @@
 
     destroy() {
       try { if(this._src) this._src.stop(); } catch(e){}
+      // 逻辑修复：断开gain节点并静音, 确保切歌时上一首声音立即停止不残留
+      try { this.gain.gain.value = 0; this.gain.disconnect(); this.filter.disconnect(); } catch(e){}
       // 逻辑修复：全局复用AudioContext, destroy时不close, 否则切歌后context is closed无声
     }
   }
