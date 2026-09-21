@@ -10275,7 +10275,7 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
     }
   }
 
-  if (song.cloud_account_id && song.filepath && (song.source_root === 'netktv-mkv' || song.source_root.startsWith('cloud-mkv-'))) {
+  if (song.cloud_account_id && song.filepath && (song.source_root === 'netktv-mkv' || song.source_root.startsWith('netktv-mkv-') || song.source_root.startsWith('cloud-mkv-'))) {
 
     // 使用 115-direct 端点（302重定向到网盘CDN直链，不占NAS带宽）
     // 根据 song.cloud_account_id 选择对应网盘驱动（115/夸克/移动等）
