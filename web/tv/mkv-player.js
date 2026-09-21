@@ -1360,6 +1360,8 @@
         if(track2Data && track2Data.length > 0) {
           try { const d2 = new DecoderClass(); await d2.ready; const dec2 = await d2.decode(track2Data); this._track2Buf = this._mkBuf(dec2); } catch(e) {}
         }
+        // 逻辑修复：浏览器自动播放策略要求AudioContext在用户手势后resume，否则无声
+        try { if(this.ctx.state === "suspended") await this.ctx.resume(); } catch(e) { console.warn("[MP2-AUDIO] ctx.resume失败:", e); }
         console.log("[MP2-AUDIO] 解码成功, 开始播放");
         this._play(this.video.currentTime);
       } catch(e) { console.warn("[MP2-AUDIO] 失败:", e); }
@@ -1539,6 +1541,7 @@
     }
 
     _play(offset) {
+      try { if(this.ctx.state === "suspended") this.ctx.resume(); } catch(e) {}
       if(this._src) try{this._src.stop();}catch(e){}
       this._src = this.ctx.createBufferSource();
       this._src.buffer = this._buf;
