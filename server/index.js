@@ -10275,7 +10275,12 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
     }
   }
 
-  if (song.cloud_account_id && song.filepath && (song.source_root === 'netktv-mkv' || song.source_root.startsWith('netktv-mkv-') || song.source_root.startsWith('cloud-mkv-'))) {
+  // 逻辑修复：netktv-mkv 歌曲多为 mp2 双音轨，浏览器 MSE/原生 video 不支持 mp2 会无声。
+  // 仅 tvOS 原生客户端(CFNetwork UA，用 VLC 播放支持 mp2)走 302 直连；
+  // 网页浏览器(Edge/Chrome/Safari)不返回 videoUrl，走下方 HLS 转码(mp2->AAC)保证有声+原唱伴唱切换。
+  const _uaForDirect = (req.headers['user-agent'] || '').toLowerCase();
+  const _isTvosNative = _uaForDirect.indexOf('cfnetwork') >= 0 || _uaForDirect.indexOf('darwin') >= 0 || _uaForDirect.indexOf('appletv') >= 0;
+  if (_isTvosNative && song.cloud_account_id && song.filepath && (song.source_root === 'netktv-mkv' || song.source_root.startsWith('netktv-mkv-') || song.source_root.startsWith('cloud-mkv-'))) {
 
     // 使用 115-direct 端点（302重定向到网盘CDN直链，不占NAS带宽）
     // 根据 song.cloud_account_id 选择对应网盘驱动（115/夸克/移动等）
