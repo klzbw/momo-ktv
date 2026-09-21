@@ -5955,26 +5955,22 @@ app.get('/stream/:id', async (req, res) => {
 
 
   if (song && !srcPath && song.is_strm) {
-
-
-
-
-
-
-
-
-
     try {
-
-
-
-
-
-
-
-
-
-      srcPath = await sourceCache.ensureCached(song.id, sourceCache.resolveSourceInput(song.filepath));
+      let sourceInput = sourceCache.resolveSourceInput(song.filepath);
+      // 逻辑修复：云盘STRM歌曲(filepath是云盘相对路径而非本地.strm文件)需先获取网盘直链，
+      // 否则 resolveSourceInput 直接返回云盘路径，ensureCached 当本地文件 stat 导致 ENOENT 播放失败
+      if (song.cloud_account_id && !String(song.filepath).toLowerCase().endsWith('.strm') && cloudDrive.manager) {
+        try {
+          const driver = cloudDrive.manager.getDriverById(song.cloud_account_id);
+          if (driver) {
+            const { url } = await driver.getDownloadUrlByPath(song.filepath, ua);
+            if (url) sourceInput = url;
+          }
+        } catch (e) {
+          log.warn('STREAM', `[硬解直连] ${songTag} 云盘直链获取失败，退回原路径: ${e.message}`);
+        }
+      }
+      srcPath = await sourceCache.ensureCached(song.id, sourceInput);
 
 
 
