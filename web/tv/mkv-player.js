@@ -1567,7 +1567,7 @@
 
     destroy() {
       try { if(this._src) this._src.stop(); } catch(e){}
-      try { this.ctx.close(); } catch(e){}
+      // 逻辑修复：全局复用AudioContext, destroy时不close, 否则切歌后context is closed无声
     }
   }
 
