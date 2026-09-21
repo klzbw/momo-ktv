@@ -1306,7 +1306,9 @@
     constructor(videoEl, mkvUrl) {
       this.video = videoEl;
       this.url = mkvUrl;
-      this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // 逻辑修复：复用全局AudioContext, 避免每次切歌新建导致suspended; 在用户手势中resume
+      if(!window._mp2AudioCtx) window._mp2AudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      this.ctx = window._mp2AudioCtx;
       this.gain = this.ctx.createGain();
       this.filter = this.ctx.createBiquadFilter();
       this.filter.type = 'lowpass';

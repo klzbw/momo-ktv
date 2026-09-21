@@ -3493,6 +3493,8 @@ function startCacheProgressPoll(songId){
   cacheProgressTimer=setInterval(()=>pollCacheProgressOnce(songId),1200);
 }
 function tryAutoplay(v,songId){
+  // 逻辑修复：用户手势中resume全局AudioContext
+  try{ if(window._mp2AudioCtx && window._mp2AudioCtx.state === "suspended") window._mp2AudioCtx.resume(); }catch(e){}
   const p=v.play();
   if(!p||!p.catch)return;
   p.then(()=>{pendingAutoplaySongId=null;}).catch(err=>{
@@ -3504,6 +3506,8 @@ function tryAutoplay(v,songId){
   });
 }
 function resumePendingAutoplay(){
+  // 逻辑修复：用户手势中resume全局AudioContext, 解决切歌后需暂停再播放才有声音
+  try{ if(window._mp2AudioCtx && window._mp2AudioCtx.state === "suspended") window._mp2AudioCtx.resume(); }catch(e){}
   if(pendingAutoplaySongId&&curSong&&curSong.song_id===pendingAutoplaySongId){
     video.play().then(()=>{pendingAutoplaySongId=null;}).catch(()=>{});
   }
