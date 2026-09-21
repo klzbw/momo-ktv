@@ -1324,7 +1324,17 @@
       try {
         let track1Data, track2Data;
         if(window._mp2AudioData && window._mp2AudioData.length > 0) {
-          track1Data = window._mp2AudioData;
+          // 逻辑修复：预提取的SimpleBlock数据可能含lacing头(多帧打包)，
+          // 直接解码会产生爆音/杂音。用_scanAll扫描MP2同步字提取纯帧后再合并。
+          const _scanned = this._scanAll(window._mp2AudioData);
+          const _merge = (frames) => {
+            if(!frames || frames.length===0) return new Uint8Array(0);
+            const all = new Uint8Array(frames.reduce((a,f)=>a+f.length,0));
+            let off=0; for(const f of frames){ all.set(f,off); off+=f.length; }
+            return all;
+          };
+          track1Data = _merge(_scanned.track1);
+          console.log("[MP2-AUDIO] 预提取数据扫描纯MP2帧:", _scanned.track1.length, "帧,", track1Data.length, "字节");
         } else {
           const resp = await fetch(this.url);
           const fullBuf = new Uint8Array(await resp.arrayBuffer());
@@ -1473,7 +1483,7 @@
               const tn = readVint();
               if(!tn) { pos = bEnd; continue; }
               const trackNum = tn.value;
-              pos += 4; // timecode(2) + flags(1) + extra(1)
+              pos += 3; // timecode(2) + flags(1) — SimpleBlock头共3字节, 原pos+=4多跳1字节导致帧偏移爆音
               
               const dataLen = bEnd - pos;
               if(trackNum === 2 && dataLen > 0) {
