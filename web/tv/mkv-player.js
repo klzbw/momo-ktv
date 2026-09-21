@@ -495,14 +495,10 @@
       // 3) 构造 fMP4 init segment
       this._buildInitSegment();
       // MP2模式: MSE init有问题, 直接回退DIRECT_MKV
-      // 逻辑修复：throw前先提取MP2音频数据保存到 window._mp2AudioData，
-      // 避免 DIRECT_MKV 回退后 Mp2AudioPlayer 重新 fetch 整个 59MB MKV 导致超时无声
+      // 逻辑修复：不预提取音频(需下载整个59MB阻塞video播放导致音画不同步延迟7-8秒),
+      // 直接throw让video立即播放画面, Mp2AudioPlayer后台下载解码
       if (this._tracks.audios[0] && this._tracks.audios[0].audioKind === "mpeg") {
-        try {
-          window._mp2AudioData = await this.extractAudioData();
-          window._mp2TrackNum = this._tracks.audios[0].trackNum;
-          console.log("[MSE-MKV] MP2音频已预提取, bytes=", window._mp2AudioData.length);
-        } catch(e) { console.warn("[MSE-MKV] MP2预提取失败(回退后将重新下载):", e.message); }
+        window._mp2AudioData = null; // 清除旧缓存, 强制Mp2AudioPlayer重新下载
         throw new Error("MP2: 回退DIRECT_MKV");
       }
     }
@@ -1490,9 +1486,9 @@
               pos += 3; // timecode(2) + flags(1) — SimpleBlock头共3字节, 原pos+=4多跳1字节导致帧偏移爆音
               
               const dataLen = bEnd - pos;
-              if(trackNum === 2 && dataLen > 0) {
+              if(audioTrackNum && trackNum === audioTrackNum && dataLen > 0) {
                 frames.push(buf.slice(pos, bEnd));
-              } else if(trackNum === 3 && dataLen > 0) {
+              } else if(audioTrackNum && trackNum === audioTrackNum + 1 && dataLen > 0) {
                 frames2.push(buf.slice(pos, bEnd));
               }
               pos = bEnd; // 关键修复：跳到block末尾

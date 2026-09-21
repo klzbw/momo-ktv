@@ -3494,7 +3494,9 @@ function startCacheProgressPoll(songId){
 }
 function tryAutoplay(v,songId){
   // 逻辑修复：用户手势中提前创建并resume全局AudioContext, 解决起播无声
-  try{ if(!window._mp2AudioCtx) window._mp2AudioCtx = new (window.AudioContext || window.webkitAudioContext)(); if(window._mp2AudioCtx.state === "suspended") window._mp2AudioCtx.resume(); }catch(e){}
+  try{ if(!window._mp2AudioCtx){ window._mp2AudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const _kb=window._mp2AudioCtx.createBuffer(1,1,22050); const _ks=window._mp2AudioCtx.createBufferSource(); _ks.buffer=_kb; _ks.loop=true; _ks.connect(window._mp2AudioCtx.destination); _ks.start(0); window._mp2KeepAlive=_ks; }
+  if(window._mp2AudioCtx.state==="suspended") window._mp2AudioCtx.resume(); }catch(e){}
   const p=v.play();
   if(!p||!p.catch)return;
   p.then(()=>{pendingAutoplaySongId=null;}).catch(err=>{
@@ -3507,7 +3509,9 @@ function tryAutoplay(v,songId){
 }
 function resumePendingAutoplay(){
   // 逻辑修复：用户手势中resume全局AudioContext, 解决切歌后需暂停再播放才有声音
-  try{ if(!window._mp2AudioCtx) window._mp2AudioCtx = new (window.AudioContext || window.webkitAudioContext)(); if(window._mp2AudioCtx.state === "suspended") window._mp2AudioCtx.resume(); }catch(e){}
+  try{ if(!window._mp2AudioCtx){ window._mp2AudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const _kb=window._mp2AudioCtx.createBuffer(1,1,22050); const _ks=window._mp2AudioCtx.createBufferSource(); _ks.buffer=_kb; _ks.loop=true; _ks.connect(window._mp2AudioCtx.destination); _ks.start(0); window._mp2KeepAlive=_ks; }
+  if(window._mp2AudioCtx.state==="suspended") window._mp2AudioCtx.resume(); }catch(e){}
   if(pendingAutoplaySongId&&curSong&&curSong.song_id===pendingAutoplaySongId){
     video.play().then(()=>{pendingAutoplaySongId=null;}).catch(()=>{});
   }
