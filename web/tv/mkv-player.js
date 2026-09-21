@@ -1522,10 +1522,10 @@
             const bitratesV1 = [0,32,48,56,64,80,96,112,128,160,192,224,256,320,384,0];
             const bitratesV2 = [0,8,16,24,32,40,48,56,64,80,96,112,128,144,160,0];
             const samprates = [44100,48000,32000,0];
-            const br = (version===1?bitratesV1:bitratesV2)[bitrateIdx]*1000;
+            const br = (version===3?bitratesV1:bitratesV2)[bitrateIdx]*1000;
             const sr = samprates[samprateIdx];
             if(br>0 && sr>0) {
-              const frameLen = Math.floor(144*br/sr) + padding;
+              const _coef = version===3 ? 144 : 72; const frameLen = Math.floor(_coef*br/sr) + padding;
               if(frameLen>0 && i+frameLen<=buf.length) {
                 frames.push(buf.slice(i, i+frameLen));
                 i += frameLen;
