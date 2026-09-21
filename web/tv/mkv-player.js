@@ -1507,7 +1507,7 @@
     }
 
     _scanAll(buf) {
-      const frames = [];
+      const frames = []; const frames2 = [];
       let i=0;
       while(i < buf.length-4) {
         if(buf[i]===0xFF && (buf[i+1]&0xE0)===0xE0) {
@@ -1516,7 +1516,7 @@
           const bitrateIdx = (buf[i+2]>>4)&0x0F;
           const samprateIdx = (buf[i+2]>>2)&0x03;
           const padding = (buf[i+2]>>1)&0x01;
-          if((version===1||version===2) && layer===2 && bitrateIdx>0 && bitrateIdx<15 && samprateIdx<3) {
+          if((version===3||version===2) && layer===2 && bitrateIdx>0 && bitrateIdx<15 && samprateIdx<3) {
             const bitratesV1 = [0,32,48,56,64,80,96,112,128,160,192,224,256,320,384,0];
             const bitratesV2 = [0,8,16,24,32,40,48,56,64,80,96,112,128,144,160,0];
             const samprates = [44100,48000,32000,0];
