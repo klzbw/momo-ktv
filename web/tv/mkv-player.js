@@ -1542,8 +1542,8 @@
       return { track1: frames, track2: frames2 };
     }
 
-    _play(offset) {
-      try { if(this.ctx.state === "suspended") this.ctx.resume(); } catch(e) {}
+    async _play(offset) {
+      try { if(this.ctx.state === "suspended") await this.ctx.resume(); } catch(e) {}
       if(this._src) try{this._src.stop();}catch(e){}
       this._src = this.ctx.createBufferSource();
       this._src.buffer = this._buf;
@@ -1557,9 +1557,9 @@
     setPaused(p) {
       if(p && !this._paused && this._src) {
         try { this._src.stop(); } catch(e){}
-        this._paused = true;
+      try { this.gain.gain.value = 0; } catch(e){} this._paused = true;
       } else if(!p && this._paused && this._buf) {
-        this._play(this.video.currentTime);
+        try { this.gain.gain.value = this._volume; } catch(e){} this._play(this.video.currentTime);
       }
     }
 
