@@ -175,11 +175,16 @@ function getActivePan115AccountId() {
 // 启动时调用一次：把两个内置115网络来源补进 library_roots(如果还没有)。
 // 幂等——已存在就不动(保留管理员改过的 label/启用状态)。accountId 在运行
 // 时动态取(不写死，避免账号重建后 id 变了还指向旧 id)。
+//
+// 逻辑修复：未登录115网盘时不自动登记内置网络来源，避免"已配置的曲库来源"
+// 里出现用户根本没登录过的网盘条目(accountId=0 的空壳来源)。已存在的来源
+// 不删除(可能是之前登录时添加的，账号暂时失效不应清掉用户已扫描的数据)。
 function ensureDefaultCloudRoots() {
   try {
     const roots = getLibraryRoots();
-    let changed = false;
     const accountId = getActivePan115AccountId();
+    if (!accountId) return roots;
+    let changed = false;
     for (const [dir, meta] of Object.entries(BUILTIN_CLOUD_ROOTS)) {
       const existing = roots.find(r => r.dir === dir);
       if (existing) {
