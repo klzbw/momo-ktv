@@ -3,7 +3,6 @@ services:
     image: ghcr.io/klzbw/momo-ktv:latest
     container_name: momo-ktv
     restart: unless-stopped
-    network_mode: momo-ktv_default
     ports:
       - "8083:8080"    # Web 主界面
       - "5345:5345"    # 内置 AList
@@ -35,5 +34,4 @@ services:
     devices:
       - /dev/dri:/dev/dri   # 核显硬解（VAAPI）
 
-volumes:
-  momo-ktv-mv:
+
