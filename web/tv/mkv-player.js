@@ -1534,7 +1534,7 @@
         }
         i++;
       }
-      console.log('[MP2-AUDIO] clusters=', clusterCount, 'track1 blocks=', frames.length, 'track2 blocks=', frames2.length);
+      console.log('[MP2-AUDIO] _scanAll 纯MP2帧=', frames.length, '帧');
       return { track1: frames, track2: frames2 };
     }
 
