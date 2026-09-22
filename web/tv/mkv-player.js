@@ -495,10 +495,14 @@
       // 3) 构造 fMP4 init segment
       this._buildInitSegment();
       // MP2模式: MSE init有问题, 直接回退DIRECT_MKV
-      // 逻辑修复：不预提取音频(需下载整个59MB阻塞video播放导致音画不同步延迟7-8秒),
-      // 直接throw让video立即播放画面, Mp2AudioPlayer后台下载解码
+      // 逻辑修复：throw前先提取MP2音频数据保存到 window._mp2AudioData，
+      // Mp2AudioPlayer直接用缓存数据解码播放, 无需fetch(代理URL fetch会失败)
       if (this._tracks.audios[0] && this._tracks.audios[0].audioKind === "mpeg") {
-        window._mp2AudioData = null; // 清除旧缓存, 强制Mp2AudioPlayer重新下载
+        try {
+          window._mp2AudioData = await this.extractAudioData();
+          window._mp2TrackNum = this._tracks.audios[0].trackNum;
+          console.log("[MSE-MKV] MP2音频已预提取, bytes=", window._mp2AudioData.length);
+        } catch(e) { console.warn("[MSE-MKV] MP2预提取失败:", e.message); }
         throw new Error("MP2: 回退DIRECT_MKV");
       }
     }
