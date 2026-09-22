@@ -501,7 +501,7 @@
         try {
           window._mp2AudioData = await this.extractAudioData();
           window._mp2TrackNum = this._tracks.audios[0].trackNum;
-          console.log("[MSE-MKV] MP2音频已预提取, bytes=", window._mp2AudioData.length);
+          console.log("[MSE-MKV] MP2音频已预提取, track1=", window._mp2AudioData.track1.length, "track2=", window._mp2AudioData.track2.length);
         } catch(e) { console.warn("[MSE-MKV] MP2预提取失败:", e.message); }
         throw new Error("MP2: 回退DIRECT_MKV");
       }
@@ -512,8 +512,8 @@
       const audioTrackNum = this._tracks.audios[0].trackNum;
       console.log("[MSE-MKV] extractAudioData trackNum=", audioTrackNum);
       const r = new RangeReader(this._url, null);
-      const chunks = [];
-      let totalLen = 0;
+      const chunks1 = []; const chunks2 = [];
+      let totalLen1 = 0; let totalLen2 = 0;
       r.seek(this._firstClusterOffset || 0);
       let clusterCount = 0;
       while (true) {
@@ -544,10 +544,13 @@
             
             await r.readUint(1);
             const dataLen = bEnd - r.tell();
+            // 原唱/伴唱修复: 同时提取两个音轨(trackNum和trackNum+1), 之前只提取第一个导致伴唱无声
             if (trackNum === audioTrackNum && dataLen > 0) {
               const data = await r.readBytes(dataLen);
-              chunks.push(data);
-              totalLen += dataLen;
+              chunks1.push(data); totalLen1 += dataLen;
+            } else if (trackNum === audioTrackNum + 1 && dataLen > 0) {
+              const data = await r.readBytes(dataLen);
+              chunks2.push(data); totalLen2 += dataLen;
             } else {
               r._pos = bEnd - r._winStart;
             }
@@ -557,13 +560,14 @@
         }
         r._pos = clusterDataEnd - r._winStart;
         clusterCount++;
-        if (clusterCount % 200 === 0) console.log("[MSE-MKV] extractAudioData clusters=", clusterCount, "audioBytes=", totalLen);
+        if (clusterCount % 200 === 0) console.log("[MSE-MKV] extractAudioData clusters=", clusterCount, "track1=", totalLen1, "track2=", totalLen2);
       }
-      const result = new Uint8Array(totalLen);
-      let off = 0;
-      for (const c of chunks) { result.set(c, off); off += c.length; }
-      console.log("[MSE-MKV] extractAudioData done clusters=", clusterCount, "totalBytes=", totalLen);
-      return result;
+      const result1 = new Uint8Array(totalLen1);
+      let off1 = 0; for (const c of chunks1) { result1.set(c, off1); off1 += c.length; }
+      const result2 = new Uint8Array(totalLen2);
+      let off2 = 0; for (const c of chunks2) { result2.set(c, off2); off2 += c.length; }
+      console.log("[MSE-MKV] extractAudioData done clusters=", clusterCount, "track1Bytes=", totalLen1, "track2Bytes=", totalLen2);
+      return { track1: result1, track2: result2 };
     }
 
     /** 挂到 <video> 并起播 */
@@ -1319,24 +1323,29 @@
       this._volume = 1;
       this._buf = null;
       this._src = null;
+      this._pendingPlay = false; // 起播音画同步修复: ctx suspended时标记待播放, 等用户手势resume后用当前video.currentTime重播
     }
 
     async start() {
       console.log("[MP2-AUDIO] 开始...");
       try {
         let track1Data, track2Data;
-        if(window._mp2AudioData && window._mp2AudioData.length > 0) {
-          // 逻辑修复：预提取的SimpleBlock数据可能含lacing头(多帧打包)，
-          // 直接解码会产生爆音/杂音。用_scanAll扫描MP2同步字提取纯帧后再合并。
-          const _scanned = this._scanAll(window._mp2AudioData);
+        if(window._mp2AudioData && window._mp2AudioData.track1) {
+          // 原唱/伴唱修复: 预提取数据已区分两个音轨{track1,track2}, 分别扫描MP2同步字提取纯帧
           const _merge = (frames) => {
             if(!frames || frames.length===0) return new Uint8Array(0);
             const all = new Uint8Array(frames.reduce((a,f)=>a+f.length,0));
             let off=0; for(const f of frames){ all.set(f,off); off+=f.length; }
             return all;
           };
-          track1Data = _merge(_scanned.track1);
-          console.log("[MP2-AUDIO] 预提取数据扫描纯MP2帧:", _scanned.track1.length, "帧,", track1Data.length, "字节");
+          const _s1 = this._scanAll(window._mp2AudioData.track1);
+          track1Data = _merge(_s1.track1);
+          console.log("[MP2-AUDIO] 原唱扫描纯MP2帧:", _s1.track1.length, "帧,", track1Data.length, "字节");
+          if(window._mp2AudioData.track2 && window._mp2AudioData.track2.length > 0) {
+            const _s2 = this._scanAll(window._mp2AudioData.track2);
+            track2Data = _merge(_s2.track1);
+            console.log("[MP2-AUDIO] 伴唱扫描纯MP2帧:", _s2.track1.length, "帧,", track2Data.length, "字节");
+          }
         } else {
           const resp = await fetch(this.url);
           const fullBuf = new Uint8Array(await resp.arrayBuffer());
@@ -1363,7 +1372,8 @@
           try { const d2 = new DecoderClass(); await d2.ready; const dec2 = await d2.decode(track2Data); this._track2Buf = this._mkBuf(dec2); } catch(e) {}
         }
         // 逻辑修复：浏览器自动播放策略要求AudioContext在用户手势后resume，否则无声
-        try { if(this.ctx.state === "suspended") await this.ctx.resume(); } catch(e) { console.warn("[MP2-AUDIO] ctx.resume失败:", e); }
+        // 起播音画同步修复: 非阻塞resume, 避免某些WebView中promise永远pending阻塞后续_play
+        try { if(this.ctx.state === "suspended") { this.ctx.resume().catch(e=>console.warn("[MP2-AUDIO] ctx.resume失败:",e)); } } catch(e) {}
         console.log("[MP2-AUDIO] 解码成功, 开始播放");
         this._paused = false; // 起播前重置暂停标志, 否则_play()中_paused检查会直接return导致无声
         this._play(this.video.currentTime);
@@ -1384,7 +1394,7 @@
       return buf;
     }
     setTrack(t) {
-      try { const cur = this.video.currentTime; if(t===1 && this._track2Buf){ this._buf = this._track2Buf; this._play(cur); } else { this._buf = this._track1Buf; this._play(cur); } } catch(e) {}
+      try { const cur = this.video.currentTime; if(t===2 && this._track2Buf){ this._buf = this._track2Buf; this._play(cur); } else { this._buf = this._track1Buf; this._play(cur); } } catch(e) {}
     }
 
     _extractFrames(buf) {
@@ -1544,21 +1554,36 @@
     }
 
     async _play(offset) {
-      try { if(this.ctx.state === "suspended") await this.ctx.resume(); } catch(e) {}
-      if(this._paused) return; // resume完成后如已暂停(用户点了暂停), 不创建source避免背景出声
+      // 核心修复: ctx suspended时不创建/start source, 标记pendingPlay,
+      // 等用户手势resume ctx后由checkPendingPlay()用当前video.currentTime重播, 保证音画同步
+      if (this.ctx.state === "suspended") {
+        this._pendingPlay = true;
+        console.log("[MP2-AUDIO] ctx suspended, 标记pendingPlay等待用户手势");
+        return;
+      }
+      this._pendingPlay = false;
+      if(this._paused) return;
       if(this._src) try{this._src.stop();}catch(e){}
       this._src = this.ctx.createBufferSource();
       this._src.buffer = this._buf;
       this._src.connect(this.gain);
-      const o = Math.min(offset, this._buf.duration);
-      this.gain.gain.value = this._volume; // 恢复音量, 避免之前setPaused静音后无声
+      let o = offset; if(!isFinite(o) || o < 0) o = 0; o = Math.min(o, this._buf.duration);
+      this.gain.gain.value = this._volume;
       this._src.start(0, o);
       this._paused = false;
       console.log("[MP2-AUDIO] 播放, 偏移:", o);
     }
 
+    checkPendingPlay() {
+      if (this._pendingPlay && this.ctx.state === "running" && !this._paused && this._buf) {
+        this._pendingPlay = false;
+        this._play(this.video.currentTime);
+      }
+    }
+
     setPaused(p) {
       if(p && !this._paused) {
+        this._pendingPlay = false;
         try { this._src.stop(); } catch(e){}
         this._src = null;
       try { this.gain.gain.value = 0; } catch(e){} this._paused = true;
@@ -1571,6 +1596,7 @@
     setVolume(v) { this._volume = v; this.gain.gain.value = v; }
 
     destroy() {
+      this._pendingPlay = false;
       try { if(this._src) this._src.stop(); } catch(e){}
       // 逻辑修复：断开gain节点并静音, 确保切歌时上一首声音立即停止不残留
       try { this.gain.gain.value = 0; this.gain.disconnect(); this.filter.disconnect(); } catch(e){}

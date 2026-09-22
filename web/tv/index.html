@@ -3494,9 +3494,9 @@ function startCacheProgressPoll(songId){
 }
 function tryAutoplay(v,songId){
   // 逻辑修复：用户手势中提前创建并resume全局AudioContext, 解决起播无声
-  try{ if(!window._mp2AudioCtx){ window._mp2AudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const _kb=window._mp2AudioCtx.createBuffer(1,22050,22050); const _ks=window._mp2AudioCtx.createBufferSource(); _ks.buffer=_kb; _ks.loop=true; _ks.connect(window._mp2AudioCtx.destination); _ks.start(0); window._mp2KeepAlive=_ks; }
-  if(window._mp2AudioCtx.state==="suspended") window._mp2AudioCtx.resume(); }catch(e){}
+  try{ if(!window._mp2AudioCtx){ window._mp2AudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+  if(window._mp2AudioCtx.state==="suspended"){window._mp2AudioCtx.resume().then(()=>{if(window._mp2Audio&&window._mp2Audio.checkPendingPlay)window._mp2Audio.checkPendingPlay();}).catch(()=>{});}else{if(window._mp2Audio&&window._mp2Audio.checkPendingPlay)window._mp2Audio.checkPendingPlay();}
+  if(!window._mp2KeepAlive){ const _kb=window._mp2AudioCtx.createBuffer(1,22050,22050); const _kd=_kb.getChannelData(0); for(let _i=0;_i<22050;_i++) _kd[_i]=(Math.random()*2-1)*0.0001; const _ks=window._mp2AudioCtx.createBufferSource(); _ks.buffer=_kb; _ks.loop=true; _ks.connect(window._mp2AudioCtx.destination); _ks.start(0); window._mp2KeepAlive=_ks; } }catch(e){}
   const p=v.play();
   if(!p||!p.catch)return;
   p.then(()=>{pendingAutoplaySongId=null;}).catch(err=>{
@@ -3509,9 +3509,9 @@ function tryAutoplay(v,songId){
 }
 function resumePendingAutoplay(){
   // 逻辑修复：用户手势中resume全局AudioContext, 解决切歌后需暂停再播放才有声音
-  try{ if(!window._mp2AudioCtx){ window._mp2AudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const _kb=window._mp2AudioCtx.createBuffer(1,22050,22050); const _ks=window._mp2AudioCtx.createBufferSource(); _ks.buffer=_kb; _ks.loop=true; _ks.connect(window._mp2AudioCtx.destination); _ks.start(0); window._mp2KeepAlive=_ks; }
-  if(window._mp2AudioCtx.state==="suspended") window._mp2AudioCtx.resume(); }catch(e){}
+  try{ if(!window._mp2AudioCtx){ window._mp2AudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+  if(window._mp2AudioCtx.state==="suspended"){window._mp2AudioCtx.resume().then(()=>{if(window._mp2Audio&&window._mp2Audio.checkPendingPlay)window._mp2Audio.checkPendingPlay();}).catch(()=>{});}else{if(window._mp2Audio&&window._mp2Audio.checkPendingPlay)window._mp2Audio.checkPendingPlay();}
+  if(!window._mp2KeepAlive){ const _kb=window._mp2AudioCtx.createBuffer(1,22050,22050); const _kd=_kb.getChannelData(0); for(let _i=0;_i<22050;_i++) _kd[_i]=(Math.random()*2-1)*0.0001; const _ks=window._mp2AudioCtx.createBufferSource(); _ks.buffer=_kb; _ks.loop=true; _ks.connect(window._mp2AudioCtx.destination); _ks.start(0); window._mp2KeepAlive=_ks; } }catch(e){}
   if(pendingAutoplaySongId&&curSong&&curSong.song_id===pendingAutoplaySongId){
     video.play().then(()=>{pendingAutoplaySongId=null;}).catch(()=>{});
   }
@@ -3530,19 +3530,18 @@ function startDirectMkvPlayback(v,songId,videoUrl){
   const proxyUrl=fullUrl+(fullUrl.indexOf('?')>=0?'&':'?')+'proxy=1';
   try{ v.removeAttribute('crossorigin'); }catch(e){}
   v.removeAttribute('src');
+  // 音画同步修复: 音频数据已预提取, 不等loadedmetadata, 立即创建Mp2AudioPlayer开始解码,
+  // 解码与video加载并行, 避免loadedmetadata后才解码导致音频比画面晚2-4秒
+  try {
+    console.log("[MP2-AUDIO] 预解码启动(不等loadedmetadata)");
+    if(window._mp2Audio) window._mp2Audio.destroy();
+    window._mp2Audio = new Mp2AudioPlayer(v, proxyUrl);
+    window._mp2Audio.start();
+  } catch(e){ console.warn("[MP2-AUDIO] 启动失败:",e); }
   v.src=proxyUrl;
   v.addEventListener('loadedmetadata',function onMd(){
     if(!curSong||curSong.song_id!==songId) return;
     try{ VoiceManager.onDirectMkvReady(v); }catch(e){ console.warn('directMkv ready',e); }
-    // MP2音频: 浏览器原生不支持MP2音轨, 用WASM/Web Audio解码
-    try {
-      console.log("[MP2-AUDIO] 检查:", "Mp2AudioPlayer=", !!window.Mp2AudioPlayer, "audioTracks=", v.audioTracks && v.audioTracks.length);
-      if(window.Mp2AudioPlayer) {
-        if(window._mp2Audio) window._mp2Audio.destroy();
-        window._mp2Audio = new Mp2AudioPlayer(v, proxyUrl);
-        window._mp2Audio.start();
-      }
-    } catch(e){ console.warn("[MP2-AUDIO] 启动失败:",e); }
   },{once:true});
   v.addEventListener('error',function onErr(){
     if(!curSong||curSong.song_id!==songId) return;
