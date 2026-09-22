@@ -1555,8 +1555,9 @@
     }
 
     setPaused(p) {
-      if(p && !this._paused && this._src) {
+      if(p && !this._paused) {
         try { this._src.stop(); } catch(e){}
+        this._src = null;
       try { this.gain.gain.value = 0; } catch(e){} this._paused = true;
       } else if(!p && this._paused && this._buf) {
         try { this.gain.gain.value = this._volume; } catch(e){} this._play(this.video.currentTime);
