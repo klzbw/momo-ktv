@@ -4009,7 +4009,9 @@ function togglePause(){
 // 先把 isPaused 重置为 false，跟"自然播完自动切下一首"保持同一套预期行为。
 // 本机(不管是不是播放端)点这个按钮都直接调用——它本来就是一次性的 HTTP
 // 请求，全局只生效一次，不需要也不应该走"判断角色再转发"那一套。
-function cutSong(){isPaused=false;fetch('/api/queue/next',{method:'POST'});}
+// 修改目的：用户主动点切歌是明确"要听下一首"的意图，带 force_random=1
+// 让后端即使 autoplay 开关关闭也随机选一首，避免队列为空时切歌没反应。
+function cutSong(){isPaused=false;fetch('/api/queue/next?force_random=1',{method:'POST'});}
 function localRestartSong(){VoiceManager.wake(video);video.currentTime=0;isPaused=false;video.play().catch(()=>{});try{VoiceManager.dualSeek(0);VoiceManager.dualSetPaused(false);}catch(e){} try{VoiceManager.mp2Seek(0);VoiceManager.mp2SetPaused(false);}catch(e){} showToast('重唱 🔄');}
 function restartSong(){
   if(!isActivePlayer){sendWS({type:'control',action:'repeat'});showToast('已发送「重唱」指令');return;}

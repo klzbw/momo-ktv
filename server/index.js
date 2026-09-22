@@ -23779,7 +23779,9 @@ function triggerStrmProbeIfNeeded(song) {
 
 
 
-function promoteNextWaitingOrAutoplay(justFinishedSongId) {
+// 修改目的：forceRandom=true 表示用户主动点"切歌"，明确要听下一首，
+// 即使 autoplay 开关关闭也要随机选一首，不再受 settings.enabled 限制。
+function promoteNextWaitingOrAutoplay(justFinishedSongId, forceRandom = false) {
 
 
 
@@ -23879,7 +23881,7 @@ function promoteNextWaitingOrAutoplay(justFinishedSongId) {
 
 
 
-  if (!settings.enabled) return null;
+  if (!settings.enabled && !forceRandom) return null;
 
 
 
@@ -25129,7 +25131,9 @@ app.post('/api/queue/next', (req, res) => {
 
 
 
-  const autoSong = promoteNextWaitingOrAutoplay(cur ? cur.song_id : null);
+  // 修改目的：用户主动点切歌时前端带 ?force_random=1，这里读出来传给 promoteNextWaitingOrAutoplay
+  const forceRandom = req.query.force_random === '1' || req.query.force_random === 'true';
+  const autoSong = promoteNextWaitingOrAutoplay(cur ? cur.song_id : null, forceRandom);
 
 
 
