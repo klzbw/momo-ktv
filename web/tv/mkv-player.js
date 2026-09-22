@@ -1365,6 +1365,7 @@
         // 逻辑修复：浏览器自动播放策略要求AudioContext在用户手势后resume，否则无声
         try { if(this.ctx.state === "suspended") await this.ctx.resume(); } catch(e) { console.warn("[MP2-AUDIO] ctx.resume失败:", e); }
         console.log("[MP2-AUDIO] 解码成功, 开始播放");
+        this._paused = false; // 起播前重置暂停标志, 否则_play()中_paused检查会直接return导致无声
         this._play(this.video.currentTime);
       } catch(e) { console.warn("[MP2-AUDIO] 失败:", e); }
     }
@@ -1544,11 +1545,13 @@
 
     async _play(offset) {
       try { if(this.ctx.state === "suspended") await this.ctx.resume(); } catch(e) {}
+      if(this._paused) return; // resume完成后如已暂停(用户点了暂停), 不创建source避免背景出声
       if(this._src) try{this._src.stop();}catch(e){}
       this._src = this.ctx.createBufferSource();
       this._src.buffer = this._buf;
       this._src.connect(this.gain);
       const o = Math.min(offset, this._buf.duration);
+      this.gain.gain.value = this._volume; // 恢复音量, 避免之前setPaused静音后无声
       this._src.start(0, o);
       this._paused = false;
       console.log("[MP2-AUDIO] 播放, 偏移:", o);
@@ -1560,6 +1563,7 @@
         this._src = null;
       try { this.gain.gain.value = 0; } catch(e){} this._paused = true;
       } else if(!p && this._paused && this._buf) {
+        this._paused = false; // 先重置暂停标志, 避免_play()中_paused检查直接return
         try { this.gain.gain.value = this._volume; } catch(e){} this._play(this.video.currentTime);
       }
     }
