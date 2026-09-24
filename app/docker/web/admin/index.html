@@ -662,6 +662,18 @@ select option{color:#000}
 
 }
 
+.lyrics-badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;display:inline-block}
+
+.lyrics-yes{background:rgba(52,211,153,.15);color:#34d399}
+
+.lyrics-no{background:rgba(136,146,168,.15);color:#8892a8}
+
+.lyrics-word{background:rgba(192,132,252,.15);color:#c084fc}
+
+.lyrics-net{background:rgba(56,189,248,.15);color:#38bdf8}
+
+.lyrics-none{background:rgba(136,146,168,.1);color:#6b7280}
+
 .src-badge-none{color:#555;font-style:italic}
 
 
@@ -1130,7 +1142,7 @@ select option{color:#000}
 
         <th><input type="checkbox" id="select-all-page" onchange="toggleSelectAllPage(this.checked)" title="全选本页"></th>
 
-        <th>#</th><th>歌名</th><th>歌手</th><th style="width:126px">语种</th><th style="width:126px">风格</th><th>音轨</th><th style="text-align:right">播放</th><th style="text-align:right;width:190px">操作</th><th style="width:110px">来源</th>
+        <th>#</th><th>歌名</th><th>歌手</th><th style="width:126px">语种</th><th style="width:126px">风格</th><th>音轨</th><th style="text-align:right">播放</th><th style="text-align:right;width:190px">操作</th><th style="width:70px">歌词</th><th style="width:90px">类型</th><th style="width:110px">来源</th>
 
       </tr>
 
@@ -2916,6 +2928,37 @@ function sourceBadgeHtml(song){
 
 }
 
+function lyricsBadgeHtml(song){
+
+  // 有歌词：绿色标签"有"；无歌词：灰色标签"无"
+
+  const has = !!(song.lyrics && song.lyrics.trim().length > 0);
+
+  if(has) return '<span class="lyrics-badge lyrics-yes">有</span>';
+
+  return '<span class="lyrics-badge lyrics-no">无</span>';
+
+}
+
+function lyricsTypeBadgeHtml(song){
+
+  // 逐字逐句：紫色标签（lyrics_word 存在且非空）
+
+  // 网络歌词：蓝色标签（仅 lyrics 存在）
+
+  // 无：灰色
+
+  if(song.lyrics_word && song.lyrics_word.trim().length > 0)
+
+    return '<span class="lyrics-badge lyrics-word">逐字逐句</span>';
+
+  if(song.lyrics && song.lyrics.trim().length > 0)
+
+    return '<span class="lyrics-badge lyrics-net">网络歌词</span>';
+
+  return '<span class="lyrics-badge lyrics-none">无</span>';
+
+}
 
 
 function render(list){
@@ -2971,6 +3014,10 @@ function render(list){
         </div>
 
       </td>
+
+      <td>${lyricsBadgeHtml(s)}</td>
+
+      <td>${lyricsTypeBadgeHtml(s)}</td>
 
       <td>${sourceBadgeHtml(s)}</td>`;
 

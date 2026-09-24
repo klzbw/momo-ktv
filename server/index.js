@@ -8814,6 +8814,115 @@ app.post('/api/separate/enqueue-missing', (req, res) => {
 
 
 
+// ============ 网盘歌词批量同步（cloud-lyrics）============
+// 设计说明：
+//  - obtainLyrics()（播放时）已经在每次播放前兜底查网盘歌词并回写 DB，这里是管理员侧的批量入口；
+//  - 两个端点都只做"受理"，真正的网盘 IO 放到 setImmediate 里后台跑，不阻塞 HTTP 响应；
+//  - 只改 index.js，cloud-lyrics.js / scanner.js 不动（scanner 风险高，扫描钩子见 /api/scan 末尾）。
+
+// 后台批量从网盘拉歌词并回写 DB：传入 song 行数组，循环 fetchCloudLyrics + UPDATE songs。
+// 供 POST /api/cloud-lyrics/batch-fetch 与 /api/scan 完成后的自动兜底共用。
+async function runCloudLyricsFetch(rows) {
+  let fetched = 0, skipped = 0, failed = 0;
+  const update = db.prepare('UPDATE songs SET lyrics=?, lyrics_source=? WHERE id=?');
+  for (const song of rows) {
+    try {
+      const cloud = await cloudLyrics.fetchCloudLyrics(song);
+      if (cloud && cloud.lrc) {
+        update.run(cloud.lrc, 'cloud', song.id);
+        fetched++;
+      } else {
+        skipped++;
+      }
+    } catch (e) {
+      failed++;
+      console.error('[CloudLyrics] batch-fetch error, song id=' + song.id + ': ' + e.message);
+    }
+  }
+  console.log('[CloudLyrics] batch fetch done: ' + JSON.stringify({ fetched, skipped, failed }));
+  return { fetched, skipped, failed };
+}
+
+// POST /api/cloud-lyrics/upload  body {song_ids:[1,2,3,...]}
+// 遍历 song_ids，对 media_type='audio' 且已有 lyrics_word 的歌，把库内逐字歌词上传到网盘同级目录。
+// 异步执行不阻塞，响应只回"已受理数量"，最终结果打在日志里（[CloudLyrics] batch upload done）。
+app.post('/api/cloud-lyrics/upload', (req, res) => {
+  try {
+    const song_ids = (req.body && Array.isArray(req.body.song_ids)) ? req.body.song_ids : [];
+    const ids = song_ids.map(x => parseInt(x, 10)).filter(Number.isInteger);
+
+    let rows = [];
+    if (ids.length > 0) {
+      const placeholders = ids.map(() => '?').join(',');
+      rows = db.prepare(
+        `SELECT id, title, artist, media_type, filepath, lyrics_word, cloud_account_id
+         FROM songs WHERE id IN (${placeholders})`
+      ).all(...ids);
+    }
+
+    res.json({ ok: true, accepted: rows.length, background: true, message: '已受理，后台上传中，结果见日志 [CloudLyrics]' });
+
+    setImmediate(() => {
+      (async () => {
+        let uploaded = 0, skipped = 0;
+        const failed = [];
+        for (const song of rows) {
+          try {
+            // 只处理 audio 且库内已有逐字歌词的歌；其余一律跳过
+            if (song.media_type !== 'audio' || !song.lyrics_word) {
+              skipped++;
+              continue;
+            }
+            const ok = await cloudLyrics.uploadLyricsToCloud(song, song.lyrics_word);
+            if (ok) {
+              uploaded++;
+            } else {
+              skipped++;
+              failed.push({ id: song.id, reason: 'uploadLyricsToCloud returned false' });
+            }
+          } catch (e) {
+            skipped++;
+            failed.push({ id: song.id, reason: e.message });
+            console.error('[CloudLyrics] upload endpoint error, song id=' + song.id + ': ' + e.message);
+          }
+        }
+        console.log('[CloudLyrics] batch upload done: ' + JSON.stringify({ uploaded, skipped, failed: failed.length }));
+      })();
+    });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+
+// POST /api/cloud-lyrics/batch-fetch  body {song_ids:[...]}（不传 song_ids 则默认查所有 audio 且 lyrics 为空的歌，limit 200）
+// 遍历歌曲调 cloudLyrics.fetchCloudLyrics(song)，拿到歌词就 UPDATE songs SET lyrics=?, lyrics_source='cloud'。
+// 同样异步执行，响应只回"已受理数量"，最终统计打在日志里。
+app.post('/api/cloud-lyrics/batch-fetch', (req, res) => {
+  try {
+    const song_ids = (req.body && Array.isArray(req.body.song_ids)) ? req.body.song_ids : null;
+
+    let rows;
+    if (song_ids && song_ids.length > 0) {
+      const ids = song_ids.map(x => parseInt(x, 10)).filter(Number.isInteger);
+      const placeholders = ids.map(() => '?').join(',');
+      rows = db.prepare(
+        `SELECT id, title, artist, media_type, filepath, cloud_account_id
+         FROM songs WHERE media_type='audio' AND id IN (${placeholders})`
+      ).all(...ids);
+    } else {
+      // 默认：所有缺歌词的 audio 歌，最多 200 条
+      rows = db.prepare(
+        `SELECT id, title, artist, media_type, filepath, cloud_account_id
+         FROM songs WHERE media_type='audio' AND (lyrics IS NULL OR lyrics='') ORDER BY id LIMIT 200`
+      ).all();
+    }
+
+    res.json({ ok: true, accepted: rows.length, background: true, message: '已受理，后台拉取中，结果见日志 [CloudLyrics]' });
+
+    setImmediate(() => {
+      runCloudLyricsFetch(rows).catch(e =>
+        console.error('[CloudLyrics] batch-fetch background error: ' + e.message));
+    });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
 // GET /api/separate/jobs/claim?worker=pc-51&type=separate&capability=gpu —— worker 领取任务（无任务返回 204）
 
 
@@ -22265,7 +22374,29 @@ app.post('/api/scan', async (req, res) => {
 
 
 
-    res.json({ ok: true, ...(await scanLibrary(mode)) });
+    const scanResult = await scanLibrary(mode);
+    res.json({ ok: true, ...scanResult });
+
+    // 扫描完成自动兜底：本次有新入库(added>0)时，后台对缺歌词的 audio 歌拉一次网盘歌词
+    // （复用 runCloudLyricsFetch / batch-fetch 同一逻辑；setImmediate 不阻塞 /api/scan 响应，不改 scanner.js）
+    if (scanResult && scanResult.added > 0) {
+      setImmediate(() => {
+        (async () => {
+          try {
+            const rows = db.prepare(
+              `SELECT id, title, artist, media_type, filepath, cloud_account_id
+               FROM songs WHERE media_type='audio' AND (lyrics IS NULL OR lyrics='') ORDER BY id DESC LIMIT 50`
+            ).all();
+            if (rows.length) {
+              console.log('[CloudLyrics] scan added=' + scanResult.added + ', auto fetch cloud lyrics for ' + rows.length + ' audio songs');
+              await runCloudLyricsFetch(rows);
+            }
+          } catch (e) {
+            console.error('[CloudLyrics] post-scan auto fetch error: ' + e.message);
+          }
+        })();
+      });
+    }
 
 
 
