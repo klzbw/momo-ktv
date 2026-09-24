@@ -2218,7 +2218,7 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
       <div class="opb-cover" id="opb-cover">♪</div>
       <div class="opb-info">
         <div class="opb-title" id="online-now-title">未播放</div>
-        <div class="opb-artist" id="online-now-artist"></div>
+        <div class="opb-artist"><span id="online-now-artist"></span><span id="online-play-mode" style="font-size:10px;padding:1px 6px;border-radius:8px;background:#2a2a2a;color:#4caf50;margin-left:6px;display:none;vertical-align:middle">直连</span></div>
       </div>
     </div>
     <div class="opb-center">
@@ -5697,6 +5697,7 @@ function renderNewest(){
 function newestPage(d){const t=Math.ceil(newestSorted.length/NEWEST_PG)||1;newestPg=Math.max(0,Math.min(t-1,newestPg+d));renderNewest();}
 // ============ 在线音乐播放器（UI升级版） ============
 let _onlineAudio=null,_onlineSongList=[],_onlineIdx=0;
+let _omCurrentSong=null,_omPlayMode='direct',_omFallbackTried=false,_ffmpegInstance=null,_ffmpegLoading=false;
 let _onlineLrcLines=[],_onlineLastLrc="";
 let _omMode='seq'; // seq | shuffle | one
 let _omRecent=[]; // 最近播放记录
@@ -5840,6 +5841,118 @@ function removeFromQueue(idx){
   renderOnlineList(1);
   renderOmQueue();
 }
+
+// ===== 在线音乐 NAS零开销架构：格式检测 & 客户端解码 =====
+// 从.strm文件名提取真实音频扩展名（如 "song.flac.strm" → "flac"）
+function _omGetExt(filename){
+  if(!filename) return '';
+  let n=filename;
+  if(n.toLowerCase().endsWith('.strm')) n=n.slice(0,-5);
+  const m=n.match(/\.([a-zA-Z0-9]+)$/);
+  return m?m[1].toLowerCase():'';
+}
+// 路径启发式检测DTS-WAV（文件夹名含"DTS"且扩展名为wav）
+function _omIsLikelyDtsWav(song){
+  const fn=(song.filename||'').toLowerCase();
+  return fn.endsWith('.wav.strm')&&fn.indexOf('dts')>=0;
+}
+// 更新播放模式UI徽章
+function _omSetPlayMode(mode){
+  _omPlayMode=mode;
+  const el=document.getElementById('online-play-mode');
+  if(!el)return;
+  const map={
+    'direct':{text:'直连',color:'#4caf50'},
+    'client':{text:'客户端解码',color:'#2196f3'},
+    'proxy':{text:'NAS转码',color:'#ff9800'}
+  };
+  const m=map[mode]||map['direct'];
+  el.textContent=m.text;
+  el.style.color=m.color;
+  el.style.display='inline-block';
+}
+// 动态加载ffmpeg.wasm（单线程版，无需COOP/COEP headers）
+async function _omLoadFfmpeg(){
+  if(_ffmpegInstance) return _ffmpegInstance;
+  if(_ffmpegLoading){
+    while(_ffmpegLoading){ await new Promise(function(r){setTimeout(r,100);}); }
+    return _ffmpegInstance;
+  }
+  _ffmpegLoading=true;
+  try{
+    if(!window.FFmpegWASM){
+      await new Promise(function(resolve,reject){
+        const s=document.createElement('script');
+        s.src='https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js';
+        s.onload=resolve;
+        s.onerror=function(){reject(new Error('ffmpeg.js加载失败'));};
+        document.head.appendChild(s);
+      });
+    }
+    const FFmpeg=window.FFmpegWASM.FFmpeg;
+    const ffmpeg=new FFmpeg();
+    await ffmpeg.load({
+      coreURL:'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js'
+    });
+    _ffmpegInstance=ffmpeg;
+    console.log('[在线音乐] ffmpeg.wasm 加载完成');
+    return ffmpeg;
+  }finally{
+    _ffmpegLoading=false;
+  }
+}
+// 客户端解码：fetch音频文件 → ffmpeg转PCM WAV → 返回Blob URL
+async function _omClientDecode(song){
+  const ext=_omGetExt(song.filename);
+  const url='/api/netktv/music/stream/'+song.id;
+  // fetch跟随302重定向链（NAS→AList→CDN），CORS失败则抛异常走fallback
+  const resp=await fetch(url);
+  if(!resp.ok) throw new Error('fetch失败 status='+resp.status);
+  const buf=await resp.arrayBuffer();
+  const ffmpeg=await _omLoadFfmpeg();
+  const inputName='input.'+ext;
+  const outputName='output.wav';
+  await ffmpeg.writeFile(inputName,new Uint8Array(buf));
+  await ffmpeg.exec([
+    '-hide_banner','-loglevel','error',
+    '-i',inputName,
+    '-vn','-f','wav','-c:a','pcm_s16le','-ar','44100','-ac','2',
+    outputName
+  ]);
+  const data=await ffmpeg.readFile(outputName);
+  try{ await ffmpeg.deleteFile(inputName); }catch(e){}
+  try{ await ffmpeg.deleteFile(outputName); }catch(e){}
+  const blob=new Blob([data],{type:'audio/wav'});
+  return URL.createObjectURL(blob);
+}
+// 根据歌曲格式选择播放模式并设置audio.src
+async function _omStartPlayback(s){
+  _omCurrentSong=s;
+  _omFallbackTried=false;
+  // 释放上一首客户端解码的blob URL，避免内存泄漏
+  if(_onlineAudio&&_onlineAudio.src&&_onlineAudio.src.startsWith('blob:')){
+    URL.revokeObjectURL(_onlineAudio.src);
+  }
+  const ext=_omGetExt(s.filename);
+  const isDtsWav=_omIsLikelyDtsWav(s);
+  const needsClientDecode=['ape','wma','dsf','dff','wv'].indexOf(ext)>=0||isDtsWav;
+  if(needsClientDecode){
+    try{
+      _omSetPlayMode('client');
+      console.log('[在线音乐] 客户端解码播放:',s.title,'('+ext+')');
+      const objUrl=await _omClientDecode(s);
+      _onlineAudio.src=objUrl;
+    }catch(e){
+      console.warn('[在线音乐] 客户端解码失败，fallback NAS转码:',e.message||e);
+      _omSetPlayMode('proxy');
+      _onlineAudio.src='/api/netktv/music/proxy/'+s.id;
+    }
+  }else{
+    _omSetPlayMode('direct');
+    console.log('[在线音乐] 302直连播放:',s.title,'('+ext+')');
+    _onlineAudio.src='/api/netktv/music/stream/'+s.id;
+  }
+}
 // 播放歌曲
 async function playOnlineSong(idx){
   _onlineIdx=idx;
@@ -5896,10 +6009,18 @@ async function playOnlineSong(idx){
     _onlineAudio.addEventListener('play',updateOnlinePlayIcon);
     _onlineAudio.addEventListener('pause',updateOnlinePlayIcon);
     // 解码/加载错误处理：打印详细错误码，便于排查雪花声等问题
-    _onlineAudio.addEventListener('error',()=>{
+    _onlineAudio.addEventListener('error',async ()=>{
       const err=_onlineAudio.error;
       const codeMap={1:'MEDIA_ERR_ABORTED',2:'MEDIA_ERR_NETWORK',3:'MEDIA_ERR_DECODE',4:'MEDIA_ERR_SRC_NOT_SUPPORTED'};
-      console.error('[在线音乐] 播放错误:',err?codeMap[err.code]||'code='+err.code:'未知',err?('message='+err.message):'','src=',_onlineAudio.src);
+      console.error('[在线音乐] 播放错误:',err?codeMap[err.code]||'code='+err.code:'未知',err?('message='+err.message):'','src=',_onlineAudio.src,'mode=',_omPlayMode);
+      // 直连模式失败时自动fallback到NAS转码（仅一次，防止循环）
+      if(_omCurrentSong&&_omPlayMode==='direct'&&!_omFallbackTried){
+        _omFallbackTried=true;
+        _omSetPlayMode('proxy');
+        console.warn('[在线音乐] 直连失败，自动fallback到NAS转码:',_omCurrentSong.title);
+        _onlineAudio.src='/api/netktv/music/proxy/'+_omCurrentSong.id;
+        try{ await _onlineAudio.play(); }catch(e){}
+      }
     });
     // 全屏进度条点击
     const ofProg=document.getElementById('of-progress');
@@ -5946,7 +6067,7 @@ async function playOnlineSong(idx){
       }
     });
   }
-  _onlineAudio.src='/api/netktv/music/proxy/'+s.id;
+  await _omStartPlayback(s);
   // 在线音乐起播时自动暂停K哥，两系统互斥
   if(video && !video.paused){ video.pause(); }
   // 加载歌词
