@@ -1285,6 +1285,49 @@ html[data-layout="mobile"] .ak-toggle{padding:5px 12px;font-size:13px}
 .ak-clr{background:rgba(255,79,155,.15);border-color:rgba(255,79,155,.3);color:#fff;grid-column:span 2;font-size:17px;font-weight:600}
 @media(hover:hover){.ak-clr:hover{background:rgba(255,79,155,.4);border-color:var(--pink);color:#fff;transform:scale(1.08)}}
 .ak-clr[data-f].focused{background:rgba(255,79,155,.4);border-color:var(--pink);color:#fff;transform:scale(1.08)}
+/* 在线音乐：歌名/歌手 模式切换 tab */
+.on-mode-tabs{display:flex;gap:8px;margin-bottom:12px}
+.on-mode-tab{flex:1;padding:8px 0;border-radius:999px;border:1.5px solid rgba(255,255,255,.15);
+  background:rgba(255,255,255,.06);color:#aaa;font-size:15px;font-weight:700;cursor:pointer;
+  outline:none;-webkit-tap-highlight-color:transparent;transition:.15s}
+.on-mode-tab.sel{background:linear-gradient(135deg,#f62c55,#ff6b9d);border-color:transparent;color:#fff}
+.on-mode-tab[data-f].focused{border-color:var(--ac);transform:scale(1.05)}
+/* 在线音乐全屏播放器 */
+#online-fullscreen{position:fixed;inset:0;z-index:2000;display:none;flex-direction:column;
+  background:#0d0b14;opacity:0;transition:opacity .35s ease}
+#online-fullscreen.open{display:flex;opacity:1}
+#of-bg{position:absolute;inset:0;background:linear-gradient(135deg,#3a2a5a 0%,#5a2440 50%,#1a1024 100%);
+  background-size:cover;background-position:center;filter:blur(50px) brightness(.5) scale(1.1);z-index:0}
+#of-top{position:relative;z-index:1;display:flex;align-items:center;gap:14px;padding:22px 30px}
+#of-title{flex:1;font-size:24px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#of-artist{font-size:16px;color:#bbb;min-width:80px}
+#of-close{width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.3);
+  background:rgba(0,0,0,.3);color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  outline:none;-webkit-tap-highlight-color:transparent;flex-shrink:0}
+#of-close:hover,#of-close[data-f].focused{background:rgba(246,44,85,.4);border-color:#f62c55}
+#of-center{position:relative;z-index:1;flex:1;display:flex;align-items:center;gap:50px;padding:0 60px;overflow:hidden}
+#of-cover-wrap{flex-shrink:0}
+#of-cover{width:280px;height:280px;border-radius:24px;box-shadow:0 20px 60px rgba(0,0,0,.6);
+  background-size:cover;background-position:center;background-color:#2a2535;
+  animation:of-spin 18s linear infinite}
+@keyframes of-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+#of-cover.nospin{animation:none}
+#of-lyrics{flex:1;height:60vh;overflow:hidden;mask-image:linear-gradient(180deg,transparent,#000 25%,#000 75%,transparent);
+  -webkit-mask-image:linear-gradient(180deg,transparent,#000 25%,#000 75%,transparent)}
+#of-lyrics .of-lr{font-size:30px;line-height:1.9;text-align:center;color:rgba(255,255,255,.35);
+  transition:.35s;padding:6px 0;font-weight:500}
+#of-lyrics .of-lr.cur{color:#fff;font-size:36px;font-weight:700;text-shadow:0 0 20px rgba(255,107,157,.6)}
+#of-bottom{position:relative;z-index:1;padding:16px 60px 34px}
+#of-progress{height:6px;background:rgba(255,255,255,.15);border-radius:3px;cursor:pointer;margin-bottom:10px}
+#of-progress-bar{height:100%;width:0;background:linear-gradient(90deg,#f62c55,#ff6b9d);border-radius:3px}
+#of-time-row{display:flex;justify-content:space-between;font-size:13px;color:#aaa;margin-bottom:140px}
+#of-ctrl{display:flex;align-items:center;justify-content:center;gap:40px}
+.of-btn{width:64px;height:64px;border-radius:50%;border:none;background:rgba(255,255,255,.12);
+  color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  outline:none;-webkit-tap-highlight-color:transparent;transition:.15s}
+.of-btn:hover,.of-btn[data-f].focused{background:rgba(246,44,85,.4)}
+.of-play{width:84px;height:84px;background:linear-gradient(135deg,#f62c55,#ff6b9d)}
+#of-volume{width:140px;accent-color:#f62c55}
 /* 分类点歌：语种/风格 chip 列表，跟字母键盘(.ak)用同一套视觉语言 */
 .cat-panel{overflow-y:auto}
 .cat-group-title{font-size:14px;color:var(--sub);font-weight:700;margin:14px 0 8px;letter-spacing:1px}
@@ -1911,6 +1954,51 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
 <div class="pd-full" id="pf-online">
   <div class="pf-head"><h2>🎵 在线音乐</h2><div class="pf-back" data-f onclick="closePF('online')">返回</div></div>
   <div class="pf-body" style="background:linear-gradient(180deg,#2d293a 0%,#14121b 100%)">
+    <div class="alpha-panel">
+      <div class="on-mode-tabs">
+        <button class="on-mode-tab sel" data-f id="on-mode-title" onclick="toggleOnMode('title')">歌名</button>
+        <button class="on-mode-tab" data-f id="on-mode-artist" onclick="toggleOnMode('artist')">歌手</button>
+      </div>
+      <div class="alpha-disp"><span class="di">🔍</span><span class="ad-txt" id="on-keys-txt">歌名搜索</span><button class="ak-toggle" data-f id="on-toggle" onclick="toggleAlphaMode('on')">123</button></div>
+      <div class="alpha-keys" id="on-keys"><div class="ak" data-f onclick="handleAlpha('on','A')">A</div>
+<div class="ak" data-f onclick="handleAlpha('on','B')">B</div>
+<div class="ak" data-f onclick="handleAlpha('on','C')">C</div>
+<div class="ak" data-f onclick="handleAlpha('on','D')">D</div>
+<div class="ak" data-f onclick="handleAlpha('on','E')">E</div>
+<div class="ak" data-f onclick="handleAlpha('on','F')">F</div>
+<div class="ak" data-f onclick="handleAlpha('on','G')">G</div>
+<div class="ak" data-f onclick="handleAlpha('on','H')">H</div>
+<div class="ak" data-f onclick="handleAlpha('on','I')">I</div>
+<div class="ak" data-f onclick="handleAlpha('on','J')">J</div>
+<div class="ak" data-f onclick="handleAlpha('on','K')">K</div>
+<div class="ak" data-f onclick="handleAlpha('on','L')">L</div>
+<div class="ak" data-f onclick="handleAlpha('on','M')">M</div>
+<div class="ak" data-f onclick="handleAlpha('on','N')">N</div>
+<div class="ak" data-f onclick="handleAlpha('on','O')">O</div>
+<div class="ak" data-f onclick="handleAlpha('on','P')">P</div>
+<div class="ak" data-f onclick="handleAlpha('on','Q')">Q</div>
+<div class="ak" data-f onclick="handleAlpha('on','R')">R</div>
+<div class="ak" data-f onclick="handleAlpha('on','S')">S</div>
+<div class="ak" data-f onclick="handleAlpha('on','T')">T</div>
+<div class="ak" data-f onclick="handleAlpha('on','U')">U</div>
+<div class="ak" data-f onclick="handleAlpha('on','V')">V</div>
+<div class="ak" data-f onclick="handleAlpha('on','W')">W</div>
+<div class="ak" data-f onclick="handleAlpha('on','X')">X</div>
+<div class="ak" data-f onclick="handleAlpha('on','Y')">Y</div>
+<div class="ak" data-f onclick="handleAlpha('on','Z')">Z</div>
+<div class="ak ak-clr" data-f onclick="handleAlpha('on','DEL')">删除</div></div>
+      <div class="alpha-keys" id="on-keys-num" style="display:none"><div class="ak" data-f onclick="handleAlpha('on','0')">0</div>
+<div class="ak" data-f onclick="handleAlpha('on','1')">1</div>
+<div class="ak" data-f onclick="handleAlpha('on','2')">2</div>
+<div class="ak" data-f onclick="handleAlpha('on','3')">3</div>
+<div class="ak" data-f onclick="handleAlpha('on','4')">4</div>
+<div class="ak" data-f onclick="handleAlpha('on','5')">5</div>
+<div class="ak" data-f onclick="handleAlpha('on','6')">6</div>
+<div class="ak" data-f onclick="handleAlpha('on','7')">7</div>
+<div class="ak" data-f onclick="handleAlpha('on','8')">8</div>
+<div class="ak" data-f onclick="handleAlpha('on','9')">9</div>
+<div class="ak ak-clr" data-f onclick="handleAlpha('on','DEL')">删除</div></div>
+    </div>
     <div class="pf-main">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:10px">
         <div style="display:flex;align-items:center;gap:10px">
@@ -1922,6 +2010,11 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
         <button class="pf-pg-btn" data-f onclick="scanOnlineMusic()" style="border-radius:20px;padding:6px 16px">🔄 扫描</button>
       </div>
       <div class="song-list" id="pl-online" style="padding-bottom:80px"></div>
+      <div class="pf-foot" id="online-pg-foot">
+        <button class="pf-pg-btn" data-f onclick="onlinePage(-1)">上一页</button>
+        <span class="pf-pg-info" id="online-pg-info">1/1</span>
+        <button class="pf-pg-btn" data-f onclick="onlinePage(1)">下一页</button>
+      </div>
     </div>
   </div>
   <div id="online-player-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;background:rgba(20,18,27,.95);backdrop-filter:blur(20px);padding:16px 24px;border-top:1px solid #333;z-index:1000">
@@ -1950,6 +2043,28 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
     </div>
   </div>
 </div>
+</div>
+<div id="online-fullscreen">
+  <div id="of-bg"></div>
+  <div id="of-top">
+    <div id="of-title">未播放</div>
+    <div id="of-artist"></div>
+    <div id="of-close" data-f onclick="closeOnlineFullscreen()">✕</div>
+  </div>
+  <div id="of-center">
+    <div id="of-cover-wrap"><div id="of-cover"></div></div>
+    <div id="of-lyrics"></div>
+  </div>
+  <div id="of-bottom">
+    <div id="of-progress"><div id="of-progress-bar"></div></div>
+    <div id="of-time-row"><span id="of-time">0:00</span><span id="of-duration">0:00</span></div>
+    <div id="of-ctrl">
+      <button class="of-btn" data-f onclick="onlinePrev()"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
+      <button class="of-btn of-play" data-f id="of-play-btn" onclick="toggleOnlinePlay()"><svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg></button>
+      <button class="of-btn" data-f onclick="onlineNext()"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+      <input type="range" id="of-volume" min="0" max="1" step="0.05" value="0.8">
+    </div>
+  </div>
 </div>
 <!-- 需求：风格三"扫码"不再弹出二级菜单浮窗(原来的 #pd-qr，跟风格一/二共用
      一个弹层，现在两边都已经各自换成别的形式，这个共用弹层不再需要，删掉)，
@@ -5359,26 +5474,75 @@ function newestPage(d){const t=Math.ceil(newestSorted.length/NEWEST_PG)||1;newes
 // ============ 在线音乐播放器 ============
 let _onlineAudio=null,_onlineSongList=[],_onlineIdx=0;
 let _onlineLrcLines=[],_onlineLastLrc="";
+// 全量加载 + 本地分页 + 虚拟键盘过滤
+const ONLINE_PG=50; let _onFiltered=[],_onPg=0; let _onMode='title';
+alphaState['on']='';
+ALPHA_PLACEHOLDER['on']='歌名搜索';
 async function loadOnline(){
   const el=document.getElementById('pl-online');
   el.innerHTML='<div style="color:var(--sub);text-align:center;padding:30px">加载中...</div>';
   try{
+    // 不传 limit：后端 limit=0 表示全量返回，客户端再做分页/字母过滤
     const j=await fetch('/api/netktv/music/list').then(r=>r.json());
     _onlineSongList=j.songs||[];
-    document.getElementById('online-count').textContent=_onlineSongList.length+'首';
+    // 左上角显示接口返回的真实总数，而不是当前已渲染条数
+    document.getElementById('online-count').textContent=(j.total!=null?j.total:_onlineSongList.length)+'首';
+    const foot=document.getElementById('online-pg-foot');
     if(!_onlineSongList.length){
       el.innerHTML='<div style="color:var(--sub);text-align:center;padding:40px">还没有在线音乐<br><br>点击右上角"扫描网盘音乐"按钮扫描网盘音乐目录</div>';
+      if(foot)foot.style.display='none';
       return;
     }
-    el.innerHTML='';
-    _onlineSongList.forEach((s,i)=>{
-      const d=document.createElement('div');d.className='so-row';
-      d.innerHTML='<div class="so-num">'+(i+1)+'</div>'+
-        '<div class="so-info"><div class="so-t">'+s.title+'</div><div class="so-a">'+(s.artist||'')+'</div></div>'+
-        '<div class="so-acts"><button class="btn-add" data-f onclick="playOnlineSong('+i+')">播放</button></div>';
-      el.appendChild(d);
-    });
+    // 进入在线面板：复位虚拟键盘（清空已输入字母、切回字母键盘），再按当前过滤条件渲染
+    resetAlphaKeyboard('on');
+    _onFiltered=getOnFiltered(); _onPg=0;
+    renderOnlineList(1);
+    if(foot)foot.style.display='flex';
   }catch(e){el.innerHTML='<div style="color:var(--sub);text-align:center;padding:30px">加载失败: '+e.message+'</div>';}
+}
+// 客户端分页渲染：每页 ONLINE_PG 首，避免一次性创建上万 DOM
+function renderOnlineList(page){
+  const el=document.getElementById('pl-online');
+  const total=_onFiltered.length;
+  const t=Math.ceil(total/ONLINE_PG)||1;
+  _onPg=Math.max(0,Math.min(t-1,page-1));
+  el.innerHTML='';
+  document.getElementById('online-pg-info').textContent=(_onPg+1)+'/'+t+' (共'+total+'首)';
+  if(!total){el.innerHTML='<div style="color:var(--sub);text-align:center;padding:40px">没有匹配的歌曲</div>';return;}
+  const start=_onPg*ONLINE_PG;
+  const pageItems=_onFiltered.slice(start,start+ONLINE_PG);
+  const frag=document.createDocumentFragment();
+  pageItems.forEach((s,i)=>{
+    const gi=start+i;
+    const d=document.createElement('div');d.className='so-row';
+    d.innerHTML='<div class="so-num">'+(gi+1)+'</div>'+
+      '<div class="so-info"><div class="so-t">'+s.title+'</div><div class="so-a">'+(s.artist||'')+'</div></div>'+
+      '<div class="so-acts"><button class="btn-add" data-f onclick="playOnlineSong('+gi+')">播放</button></div>';
+    frag.appendChild(d);
+  });
+  el.appendChild(frag);
+}
+function onlinePage(d){renderOnlineList(_onPg+1+d);}
+// 虚拟键盘过滤：歌名/歌手双模式，按拼音首字母前缀匹配
+function getOnFiltered(){
+  const q=alphaState['on']||'';
+  if(!q)return _onlineSongList.slice();
+  const f=_onMode==='artist'
+    ? s=>getInitials(s.artist||'').startsWith(q)
+    : s=>getInitials(s.title||'').startsWith(q);
+  return _onlineSongList.filter(f);
+}
+alphaFilter['on']=()=>{_onFiltered=getOnFiltered();renderOnlineList(1);};
+// 歌名/歌手 切换：清空已输入字母、更新 placeholder、重新过滤
+function toggleOnMode(mode){
+  if(_onMode===mode)return;
+  _onMode=mode;
+  document.getElementById('on-mode-title').classList.toggle('sel',mode==='title');
+  document.getElementById('on-mode-artist').classList.toggle('sel',mode==='artist');
+  ALPHA_PLACEHOLDER['on']=mode==='artist'?'歌手搜索':'歌名搜索';
+  alphaState['on']='';
+  const txt=document.getElementById('on-keys-txt');if(txt)txt.textContent=ALPHA_PLACEHOLDER['on'];
+  alphaFilter['on']();
 }
 async function playOnlineSong(idx){
   _onlineIdx=idx;
@@ -5386,6 +5550,7 @@ async function playOnlineSong(idx){
   document.getElementById('online-now-title').textContent=s.title;
   document.getElementById('online-now-artist').textContent=s.artist||'';
   document.getElementById('online-player-bar').style.display='block';
+  updateOnlineFsMeta();
   if(!_onlineAudio){
     _onlineAudio=new Audio();
     _onlineAudio.volume=0.8;
@@ -5402,22 +5567,55 @@ async function playOnlineSong(idx){
     _onlineAudio.addEventListener('loadedmetadata',()=>{
       const d=_onlineAudio.duration||0;const mm=Math.floor(d/60);const ss=Math.floor(d%60);
       document.getElementById('online-duration').textContent=mm+':'+(ss<10?'0':'')+ss;
+      const od=document.getElementById('of-duration');if(od)od.textContent=mm+':'+(ss<10?'0':'')+ss;
     });
     _onlineAudio.addEventListener('ended',()=>{if(_onlineIdx<_onlineSongList.length-1)playOnlineSong(_onlineIdx+1);});
+    _onlineAudio.addEventListener('play',updateOnlinePlayIcon);
+    _onlineAudio.addEventListener('pause',updateOnlinePlayIcon);
+    // 全屏进度条点击跳转
+    const ofProg=document.getElementById('of-progress');
+    if(ofProg)ofProg.onclick=function(e){
+      if(!_onlineAudio||!_onlineAudio.duration)return;
+      const rect=this.getBoundingClientRect();
+      _onlineAudio.currentTime=((e.clientX-rect.left)/rect.width)*_onlineAudio.duration;
+    };
+    // 全屏音量滑块
+    const ofVol=document.getElementById('of-volume');
+    if(ofVol)ofVol.oninput=()=>{if(_onlineAudio)_onlineAudio.volume=parseFloat(ofVol.value);};
+    // 点底部播放栏空白处展开全屏（按钮/进度条/滑块本身不触发）
+    document.getElementById('online-player-bar').onclick=function(e){
+      if(e.target.closest('button')||e.target.closest('input')||e.target.closest('#online-progress'))return;
+      openOnlineFullscreen();
+    };
     _onlineAudio.addEventListener('timeupdate',()=>{
       const t=_onlineAudio.currentTime||0;const m=Math.floor(t/60);const sec=Math.floor(t%60);
       document.getElementById('online-time').textContent=m+':'+(sec<10?'0':'')+sec;
       // 更新进度条宽度
       if(_onlineAudio.duration){
         document.getElementById('online-progress-bar').style.width=((t/_onlineAudio.duration)*100)+'%';
+        const opb=document.getElementById('of-progress-bar');
+        if(opb)opb.style.width=((t/_onlineAudio.duration)*100)+'%';
+        const ot=document.getElementById('of-time');if(ot)ot.textContent=m+':'+(sec<10?'0':'')+sec;
       }
-      // 同步歌词高亮
+      // 同步歌词高亮（底部单行）
       if(_onlineLrcLines&&_onlineLrcLines.length){
         const cur=t;let active=_onlineLrcLines[0];
         for(const l of _onlineLrcLines){if(l.t<=cur)active=l;else break;}
         if(active&&active.text!==_onlineLastLrc){
           document.getElementById('online-lyrics').textContent=active.text;
           _onlineLastLrc=active.text;
+        }
+        // 全屏歌词：高亮当前行并滚动居中
+        const fs=document.getElementById('online-fullscreen');
+        if(fs&&fs.classList.contains('open')){
+          let ai=-1;
+          for(let i=0;i<_onlineLrcLines.length;i++){if(_onlineLrcLines[i].t<=t)ai=i;else break;}
+          if(ai>=0){
+            const lines=fs.querySelectorAll('#of-lyrics .of-lr');
+            lines.forEach((ln,i)=>ln.classList.toggle('cur',i===ai));
+            const cl=lines[ai];
+            if(cl)cl.scrollIntoView({block:'center',behavior:'smooth'});
+          }
         }
       }
     });
@@ -5436,6 +5634,7 @@ async function playOnlineSong(idx){
     }).filter(x=>x&&x.text);
     _onlineLrcLines=lines;
     document.getElementById('online-lyrics').textContent=lines.length?lines[0].text:'\u6682\u65e0\u6b4c\u8bcd';
+    renderFsLyrics();
   }).catch(()=>{document.getElementById('online-lyrics').textContent='\u266a';});
   try{await _onlineAudio.play();}catch(e){console.warn('[在线音乐] 播放失败:',e);}
 }
@@ -5445,6 +5644,50 @@ function toggleOnlinePlay(){
 }
 function onlinePrev(){ if(_onlineSongList.length){ _onlineIdx=(_onlineIdx-1+_onlineSongList.length)%_onlineSongList.length; playOnlineSong(_onlineIdx);} }
 function onlineNext(){ if(_onlineSongList.length){ _onlineIdx=(_onlineIdx+1)%_onlineSongList.length; playOnlineSong(_onlineIdx);} }
+// ===== 在线音乐全屏播放器 =====
+const ICO_ON_PLAY='<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>';
+const ICO_ON_PAUSE='<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+function updateOnlinePlayIcon(){
+  const playing=_onlineAudio&&!_onlineAudio.paused;
+  const big=document.getElementById('online-play-btn');if(big)big.innerHTML=playing?ICO_ON_PAUSE:ICO_ON_PLAY;
+  const fs=document.getElementById('of-play-btn');if(fs)fs.innerHTML=playing?ICO_ON_PAUSE:ICO_ON_PLAY;
+}
+function updateOnlineFsMeta(){
+  const s=_onlineSongList[_onlineIdx];if(!s)return;
+  document.getElementById('of-title').textContent=s.title||'';
+  document.getElementById('of-artist').textContent=s.artist||'';
+  const bg=document.getElementById('of-bg');const cover=document.getElementById('of-cover');
+  if(s.cover){
+    const url='/cover/'+encodeURIComponent(s.cover);
+    bg.style.backgroundImage="url('"+url+"')";
+    cover.style.backgroundImage="url('"+url+"')";
+    cover.classList.remove('nospin');
+  }else{
+    bg.style.backgroundImage='';cover.style.backgroundImage='';cover.classList.add('nospin');
+  }
+}
+function renderFsLyrics(){
+  const box=document.getElementById('of-lyrics');if(!box)return;
+  box.innerHTML='';
+  if(!_onlineLrcLines||!_onlineLrcLines.length){box.innerHTML='<div class="of-lr">\u266a \u6682\u65e0\u6b4c\u8bcd</div>';return;}
+  const frag=document.createDocumentFragment();
+  _onlineLrcLines.forEach(l=>{
+    const d=document.createElement('div');d.className='of-lr';d.textContent=l.text;frag.appendChild(d);
+  });
+  box.appendChild(frag);
+}
+function openOnlineFullscreen(){
+  const fs=document.getElementById('online-fullscreen');
+  if(!fs||!_onlineAudio)return;
+  updateOnlineFsMeta();
+  updateOnlinePlayIcon();
+  fs.classList.add('open');
+  renderFsLyrics();
+}
+function closeOnlineFullscreen(){
+  const fs=document.getElementById('online-fullscreen');if(fs)fs.classList.remove('open');
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOnlineFullscreen();});
 async function scanOnlineMusic(){
   showToast('开始扫描网盘音乐目录...');
   try{

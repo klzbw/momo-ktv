@@ -757,11 +757,12 @@ function init(db, cloudDrive) {
   // GET /api/netktv/music/list — 列出在线音乐（source_root=netktv-music）
   router.get('/music/list', (req, res) => {
     try {
-      const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+      const limit = parseInt(req.query.limit) || 0;
       const offset = parseInt(req.query.offset) || 0;
-      const songs = db.prepare(
-        "SELECT id, title, artist, filename, cloud_account_id, duration FROM songs WHERE source_root='netktv-music' ORDER BY id DESC LIMIT ? OFFSET ?"
-      ).all(limit, offset);
+      let sql = "SELECT id, title, artist, filename, cloud_account_id, duration, cover FROM songs WHERE source_root='netktv-music' ORDER BY id DESC";
+      const params = [];
+      if (limit > 0) { sql += " LIMIT ? OFFSET ?"; params.push(limit, offset); }
+      const songs = db.prepare(sql).all(...params);
       const total = db.prepare("SELECT COUNT(*) as cnt FROM songs WHERE source_root='netktv-music'").get();
       res.json({ songs, total: total.cnt });
     } catch (e) {
