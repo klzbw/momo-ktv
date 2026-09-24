@@ -47,8 +47,8 @@ body{
 }
 
 .nav-grid{
-  display:grid;grid-template-columns:repeat(3,1fr);gap:24px;
-  width:100%;max-width:920px;
+  display:grid;grid-template-columns:repeat(4,1fr);gap:20px;
+  width:100%;max-width:1200px;
 }
 @media (max-width:760px){
   .nav-grid{grid-template-columns:1fr;max-width:360px}
@@ -324,7 +324,24 @@ body{
 .cloud-add-root-btn{flex:1;padding:9px;border-radius:10px;font-size:12px;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--cyan));border:none;color:#07071a;cursor:pointer;transition:.2s;white-space:nowrap}
 .cloud-add-root-btn:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(199,54,247,.3)}
 .cloud-add-root-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
-.cloud-roots-list{display:flex;flex-direction:column;gap:8px}
+.cloud-roots-list{display:flex;flex-direction:column;gap:14px}
+/* 按网盘分组 */
+.cloud-root-group{background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:12px 14px 10px}
+.cloud-root-group-title{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.06)}
+.cloud-root-group-icon{font-size:15px}
+.cloud-root-group-name{background:linear-gradient(90deg,var(--cyan),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
+.cloud-root-group-count{font-size:10px;padding:1px 7px;border-radius:999px;background:rgba(255,255,255,.08);color:var(--sub)}
+.cloud-root-group-items{display:flex;flex-direction:column;gap:8px}
+/* 类型颜色：MKV视频=紫蓝，FLAC分离=绿橙 */
+.cloud-root-item.type-mkv{border-left:3px solid #a855f7}
+.cloud-root-item.type-mkv .cloud-root-driver-tag{background:rgba(168,85,247,.15);color:#c084fc;border-color:rgba(168,85,247,.3)}
+.cloud-root-item.type-flac{border-left:3px solid #22c55e}
+.cloud-root-item.type-flac .cloud-root-driver-tag{background:rgba(34,197,94,.15);color:#4ade80;border-color:rgba(34,197,94,.3)}
+.cloud-root-item.type-local{border-left:3px solid #64748b}
+.cloud-root-type-badge{font-size:10px;padding:1px 6px;border-radius:5px;font-weight:600;flex-shrink:0}
+.cloud-root-type-badge.mkv{background:rgba(168,85,247,.15);color:#c084fc}
+.cloud-root-type-badge.flac{background:rgba(34,197,94,.15);color:#4ade80}
+.cloud-root-type-badge.local{background:rgba(100,116,139,.15);color:#94a3b8}
 .cloud-root-item{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px 14px;transition:.15s}
 .cloud-root-item:hover{border-color:rgba(199,54,247,.3);background:rgba(199,54,247,.06)}
 .cloud-root-item.scanning{border-color:rgba(54,217,247,.5);background:rgba(54,217,247,.06)}
@@ -1125,38 +1142,67 @@ function renderHomeSrcRoots(){
     listEl.innerHTML = '<div class="cloud-roots-empty"><div class="cloud-roots-empty-icon">📭</div>还没有曲库来源<br><span style="font-size:11px;opacity:.7">选择网盘路径后点"添加为曲库来源"</span></div>';
     return;
   }
-  listEl.innerHTML = allRoots.map((r) => {
-    const globalIdx = homeSrcRootsCache.indexOf(r);
-    const isScanning = homeScanningRootIdx === globalIdx;
-    const songCount = r.songCount || 0;
-    let tagHtml, pathHtml, metaHtml;
+  // 按网盘账号分组
+  const groups = {};
+  allRoots.forEach((r, idx) => {
+    let groupKey, groupName, groupIcon;
     if(r.cloud){
       const acct = cloudAccountsCache.find(a => String(a.id) === String(r.cloud.accountId));
       const driverName = acct ? (HOME_DRIVER_NAMES[acct.driver]||acct.driver) : '网盘';
-      tagHtml = '<span class="cloud-root-driver-tag">☁️ ' + driverName + '</span>';
-      pathHtml = '<div class="cloud-root-path">' + escHtml(r.cloud.cloudPath || r.dir) + '</div>';
-      metaHtml = '<span>类型: ' + (r.cloud.mediaType==='flac' ? 'FLAC分离' : 'MKV视频') + '</span>';
+      groupKey = 'cloud_' + (r.cloud.accountId || 'unknown');
+      groupName = driverName + (acct && acct.name ? ' · ' + acct.name : '');
+      groupIcon = '☁️';
     } else {
-      tagHtml = '<span class="cloud-root-driver-tag">📁 本地</span>';
-      pathHtml = '<div class="cloud-root-path">' + escHtml(r.dir) + '</div>';
-      metaHtml = '<span>本地目录</span>';
+      groupKey = 'local';
+      groupName = '本地目录';
+      groupIcon = '📁';
     }
-    return '<div class="cloud-root-item' + (isScanning ? ' scanning' : '') + '">' +
-      '<div class="cloud-root-top">' +
-        '<div class="cloud-root-label">' + escHtml(r.label || r.dir) + '</div>' +
-        tagHtml +
+    if(!groups[groupKey]) groups[groupKey] = { name: groupName, icon: groupIcon, items: [] };
+    groups[groupKey].items.push({ root: r, idx });
+  });
+  // 渲染分组
+  listEl.innerHTML = Object.values(groups).map(g => {
+    const itemsHtml = g.items.map(({ root: r, idx: globalIdx }) => {
+      const isScanning = homeScanningRootIdx === globalIdx;
+      const songCount = r.songCount || 0;
+      let typeClass = 'type-local', typeBadge = '<span class="cloud-root-type-badge local">本地</span>';
+      let tagHtml, pathHtml;
+      if(r.cloud){
+        const acct = cloudAccountsCache.find(a => String(a.id) === String(r.cloud.accountId));
+        const driverName = acct ? (HOME_DRIVER_NAMES[acct.driver]||acct.driver) : '网盘';
+        const isFlac = r.cloud.mediaType === 'flac';
+        typeClass = isFlac ? 'type-flac' : 'type-mkv';
+        typeBadge = '<span class="cloud-root-type-badge ' + (isFlac ? 'flac' : 'mkv') + '">' + (isFlac ? 'FLAC分离' : 'MKV视频') + '</span>';
+        tagHtml = '<span class="cloud-root-driver-tag">☁️ ' + driverName + '</span>';
+        pathHtml = '<div class="cloud-root-path">' + escHtml(r.cloud.cloudPath || r.dir) + '</div>';
+      } else {
+        tagHtml = '<span class="cloud-root-driver-tag">📁 本地</span>';
+        pathHtml = '<div class="cloud-root-path">' + escHtml(r.dir) + '</div>';
+      }
+      return '<div class="cloud-root-item ' + typeClass + (isScanning ? ' scanning' : '') + '">' +
+        '<div class="cloud-root-top">' +
+          '<div class="cloud-root-label">' + escHtml(r.label || r.dir) + '</div>' +
+          typeBadge + tagHtml +
+        '</div>' +
+        pathHtml +
+        '<div class="cloud-root-meta">' +
+          '<span class="cloud-root-song-count">' + songCount + ' 首歌曲</span>' +
+          (r.enabled === false ? '<span style="color:var(--pink)">已禁用</span>' : '') +
+        '</div>' +
+        '<div class="cloud-root-actions">' +
+          '<button class="cloud-root-scan-btn' + (isScanning ? ' disabled' : '') + '" onclick="scanHomeCloudRoot(' + globalIdx + ')">' + (isScanning ? '⏳ 扫描中...' : '▶ 扫描入库') + '</button>' +
+          '<button class="cloud-root-del-btn" onclick="deleteHomeCloudRoot(' + globalIdx + ',\' + escJs(r.label||r.dir) + "')">🗑️ 移除</button>' +
+        '</div>' +
+        (isScanning ? '<div class="cloud-scan-progress show" id="home-scan-progress-' + globalIdx + '"><div class="cloud-scan-bar-bg"><div class="cloud-scan-bar-fill" id="home-scan-fill-' + globalIdx + '"></div></div><div class="cloud-scan-info"><span class="cloud-scan-status-text" id="home-scan-status-' + globalIdx + '">正在扫描...</span><span id="home-scan-count-' + globalIdx + '">0 首</span></div></div>' : '') +
+      '</div>';
+    }).join('');
+    return '<div class="cloud-root-group">' +
+      '<div class="cloud-root-group-title">' +
+        '<span class="cloud-root-group-icon">' + g.icon + '</span>' +
+        '<span class="cloud-root-group-name">' + escHtml(g.name) + '</span>' +
+        '<span class="cloud-root-group-count">' + g.items.length + ' 个目录</span>' +
       '</div>' +
-      pathHtml +
-      '<div class="cloud-root-meta">' +
-        metaHtml +
-        '<span class="cloud-root-song-count">' + songCount + ' 首歌曲</span>' +
-        (r.enabled === false ? '<span style="color:var(--pink)">已禁用</span>' : '') +
-      '</div>' +
-      '<div class="cloud-root-actions">' +
-        '<button class="cloud-root-scan-btn' + (isScanning ? ' disabled' : '') + '" onclick="scanHomeCloudRoot(' + globalIdx + ')">' + (isScanning ? '⏳ 扫描中...' : '▶ 扫描入库') + '</button>' +
-        '<button class="cloud-root-del-btn" onclick="deleteHomeCloudRoot(' + globalIdx + ',\'' + escJs(r.label||r.dir) + '\')">🗑️ 移除</button>' +
-      '</div>' +
-      (isScanning ? '<div class="cloud-scan-progress show" id="home-scan-progress-' + globalIdx + '"><div class="cloud-scan-bar-bg"><div class="cloud-scan-bar-fill" id="home-scan-fill-' + globalIdx + '"></div></div><div class="cloud-scan-info"><span class="cloud-scan-status-text" id="home-scan-status-' + globalIdx + '">正在扫描...</span><span id="home-scan-count-' + globalIdx + '">0 首</span></div></div>' : '') +
+      '<div class="cloud-root-group-items">' + itemsHtml + '</div>' +
     '</div>';
   }).join('');
 }
