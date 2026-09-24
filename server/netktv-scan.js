@@ -30,10 +30,11 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const https = require('https');
+const { spawn } = require('child_process');
 const lrcFileMod = require('./lrcFile');
 
 // 浏览器原生支持的音频格式（直接流式转发，零CPU占用）
-const BROWSER_NATIVE_FORMATS = new Set(['wav', 'flac', 'mp3', 'm4a', 'aac', 'ogg', 'opus']);
+const BROWSER_NATIVE_FORMATS = new Set(['flac', 'mp3', 'm4a', 'aac', 'ogg', 'opus']); // wav移除: 可能是DTS-WAV伪装(扩展名wav但实际DTS编码), 必须转码
 
 // 从URL提取扩展名（忽略query参数）
 function _extFromUrl(url) {
@@ -897,8 +898,8 @@ function init(db, cloudDrive) {
           else res.end();
         });
       } else {
-        // ===== 浏览器不支持的格式（APE/WMA/DSF等）：ffmpeg实时转码为FLAC流式输出 =====
-        res.setHeader('Content-Type', 'audio/flac');
+        // ===== 浏览器不支持的格式（DTS-WAV/APE/WMA/DSF等）：ffmpeg实时转码为标准PCM WAV =====
+        res.setHeader('Content-Type', 'audio/wav');
         res.setHeader('Accept-Ranges', 'none');
         res.setHeader('Cache-Control', 'no-cache');
 
@@ -906,8 +907,10 @@ function init(db, cloudDrive) {
           '-hide_banner', '-loglevel', 'error',
           '-i', strmContent,
           '-vn',
-          '-f', 'flac',
-          '-acodec', 'flac',
+          '-f', 'wav',
+          '-c:a', 'pcm_s16le',
+          '-ar', '44100',
+          '-ac', '2',
           '-compression_level', '0',
           '-'
         ], { stdio: ['ignore', 'pipe', 'pipe'] });
