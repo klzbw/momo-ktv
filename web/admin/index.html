@@ -2299,7 +2299,7 @@ select option{color:#000}
 
 
 
-        <th>#</th><th>歌名</th><th>歌手</th><th style="width:126px">语种</th><th style="width:126px">风格</th><th>音轨</th><th style="text-align:right">播放</th><th style="text-align:right;width:190px">操作</th><th style="width:110px">来源</th>
+        <th>#</th><th>歌名</th><th>歌手</th><th style="width:126px">语种</th><th style="width:126px">风格</th><th>音轨</th><th style="text-align:right">播放</th><th style="text-align:right;width:190px">操作</th><th style="width:56px">歌词</th><th style="width:80px">类型</th><th style="width:110px">来源</th>
 
 
 
@@ -5888,6 +5888,22 @@ function trackIconHtml(song){
 
 
 
+// 歌词状态列：显示是否有歌词 + 类型（逐字逐句/网络歌词/无）
+function lyricBadgeHtml(s){
+  const hasWord = s.lyrics_word && s.lyrics_word.trim().length > 0;
+  const hasLyric = s.lyrics && s.lyrics.trim().length > 0;
+  if(hasWord) return '<span style="display:inline-block;width:100%;text-align:center;color:#c084fc;font-weight:700" title="已有逐字逐句歌词">🟢</span>';
+  if(hasLyric) return '<span style="display:inline-block;width:100%;text-align:center;color:#38bdf8;font-weight:700" title="已有网络标准歌词">🔵</span>';
+  return '<span style="display:inline-block;width:100%;text-align:center;color:#64748b;opacity:.5" title="无歌词">⚪</span>';
+}
+function lyricTypeHtml(s){
+  const hasWord = s.lyrics_word && s.lyrics_word.trim().length > 0;
+  const hasLyric = s.lyrics && s.lyrics.trim().length > 0;
+  if(hasWord) return '<span style="font-size:10px;padding:2px 6px;border-radius:5px;background:rgba(168,85,247,.15);color:#c084fc;border:1px solid rgba(168,85,247,.3)">逐字逐句</span>';
+  if(hasLyric) return '<span style="font-size:10px;padding:2px 6px;border-radius:5px;background:rgba(56,189,248,.15);color:#38bdf8;border:1px solid rgba(56,189,248,.3)">网络歌词</span>';
+  return '<span style="font-size:10px;color:#64748b;opacity:.6">无</span>';
+}
+
 // 需求(曲库来源备注)：主列表最后一列标注这首歌来自哪个曲库来源——本地曲库
 
 
@@ -6049,6 +6065,14 @@ function render(list){
 
 
       </td>
+
+
+
+      <td>${lyricBadgeHtml(s)}</td>
+
+
+
+      <td>${lyricTypeHtml(s)}</td>
 
 
 
