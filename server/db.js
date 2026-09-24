@@ -243,6 +243,10 @@ try {
   addCol('vocal_path', "vocal_path TEXT");
   addCol('accomp_path', "accomp_path TEXT");
   addCol('align_status', "align_status TEXT DEFAULT 'none'");
+  // 纯音乐标记：扫描时根据歌名/歌手关键词判定为1，separate/align任务领取时过滤掉纯音乐
+  // 修复：此前遗漏迁移导致 separate.js claimNext 报 SqliteError: no such column: s.instrumental，
+  // 所有 align 任务无法被领取，逐字歌词生成完全停滞
+  addCol('instrumental', "instrumental INTEGER DEFAULT 0");
 } catch (e) { console.error('音轨/语种/风格字段迁移失败:', e.message); }
 
 // Bug修复(置顶后再置顶另一首，原先置顶的歌会被打回原始排序位置)：老的
