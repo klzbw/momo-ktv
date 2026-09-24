@@ -1321,7 +1321,7 @@ html[data-layout="mobile"] .ak-toggle{padding:5px 12px;font-size:13px}
 .om-kb-body .alpha-keys{gap:5px;padding:2px}
 .om-kb-body .ak{height:44px;font-size:18px;border-radius:8px}
 /* 中间主区域 */
-.om-main{flex:1;display:flex;flex-direction:column;padding:16px 20px;overflow:hidden;min-width:0}
+.om-main{width:340px;flex-shrink:0;display:flex;flex-direction:column;padding:16px 20px;overflow:hidden;min-width:0}
 .om-main-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0}
 .om-count{font-size:14px;color:#aaa;font-weight:600}
 .om-scan-btn{padding:7px 16px;border-radius:999px;border:1px solid rgba(199,54,247,.4);
@@ -1359,10 +1359,10 @@ html[data-layout="mobile"] .ak-toggle{padding:5px 12px;font-size:13px}
 .om-row.playing:hover .om-eq{display:none}
 .om-row.playing .om-eq{display:flex}
 /* 右侧栏 */
-.om-right{width:280px;flex-shrink:0;background:rgba(0,0,0,.3);border-left:1px solid rgba(255,255,255,.06);
+.om-right{flex:1;min-width:0;background:rgba(0,0,0,.3);border-left:1px solid rgba(255,255,255,255,.06);
   display:flex;flex-direction:column;overflow:hidden}
 .om-right-inner{flex:1;display:flex;flex-direction:column;padding:24px 18px;overflow:hidden}
-.om-mini-cover{width:120px;height:120px;border-radius:16px;margin:0 auto 16px;
+.om-mini-cover{width:160px;height:160px;border-radius:20px;margin:0 auto 20px;
   background:linear-gradient(135deg,#3a2a5a,#5a2440);display:flex;align-items:center;justify-content:center;
   font-size:48px;color:rgba(255,255,255,.3);background-size:cover;background-position:center;
   box-shadow:0 12px 30px rgba(0,0,0,.4)}
@@ -1477,7 +1477,7 @@ html[data-layout="mobile"] .ak-toggle{padding:5px 12px;font-size:13px}
 .of-play{width:76px;height:76px;background:linear-gradient(135deg,#c736f7,#7b2cf7)}
 #of-volume{width:120px;accent-color:#c736f7}
 /* 小屏适配：隐藏右侧栏 */
-@media(max-width:1100px){.om-right{display:none}}
+@media(max-width:1100px){.om-right{display:none}.om-main{flex:1;width:auto}}
 @media(max-width:800px){.om-sidebar{width:180px}.om-right{display:none}}
 
 /* 分类点歌：语种/风格 chip 列表，跟字母键盘(.ak)用同一套视觉语言 */
@@ -5995,6 +5995,14 @@ async function playOnlineSong(idx){
       const d=_onlineAudio.duration||0;const mm=Math.floor(d/60);const ss=Math.floor(d%60);
       document.getElementById('online-duration').textContent=mm+':'+(ss<10?'0':'')+ss;
       const od=document.getElementById('of-duration');if(od)od.textContent=mm+':'+(ss<10?'0':'')+ss;
+      // 缓存时长到歌曲对象，列表即可显示（云音乐入库时duration为null）
+      if(_omCurrentSong&&d>0&&!_omCurrentSong.duration){
+        _omCurrentSong.duration=d;
+        // 同步更新 _onlineSongList 和 _onFiltered 中的引用
+        const s1=_onlineSongList.find(x=>x.id===_omCurrentSong.id);if(s1)s1.duration=d;
+        const s2=_onFiltered.find(x=>x.id===_omCurrentSong.id);if(s2)s2.duration=d;
+        renderOnlineList(_onPg+1);
+      }
     });
     // ended：根据播放模式
     _onlineAudio.addEventListener('ended',()=>{
