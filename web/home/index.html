@@ -332,15 +332,18 @@ body{
 .cloud-root-group-name{background:linear-gradient(90deg,var(--cyan),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
 .cloud-root-group-count{font-size:10px;padding:1px 7px;border-radius:999px;background:rgba(255,255,255,.08);color:var(--sub)}
 .cloud-root-group-items{display:flex;flex-direction:column;gap:8px}
-/* 类型颜色：MKV视频=紫蓝，FLAC分离=绿橙 */
+/* 类型颜色：MKV视频=紫蓝，FLAC分离=绿橙，云音乐=青蓝 */
 .cloud-root-item.type-mkv{border-left:3px solid #a855f7}
 .cloud-root-item.type-mkv .cloud-root-driver-tag{background:rgba(168,85,247,.15);color:#c084fc;border-color:rgba(168,85,247,.3)}
 .cloud-root-item.type-flac{border-left:3px solid #22c55e}
 .cloud-root-item.type-flac .cloud-root-driver-tag{background:rgba(34,197,94,.15);color:#4ade80;border-color:rgba(34,197,94,.3)}
+.cloud-root-item.type-music{border-left:3px solid #0ea5e9}
+.cloud-root-item.type-music .cloud-root-driver-tag{background:rgba(14,165,233,.15);color:#38bdf8;border-color:rgba(14,165,233,.3)}
 .cloud-root-item.type-local{border-left:3px solid #64748b}
 .cloud-root-type-badge{font-size:10px;padding:1px 6px;border-radius:5px;font-weight:600;flex-shrink:0}
 .cloud-root-type-badge.mkv{background:rgba(168,85,247,.15);color:#c084fc}
 .cloud-root-type-badge.flac{background:rgba(34,197,94,.15);color:#4ade80}
+.cloud-root-type-badge.music{background:rgba(14,165,233,.15);color:#38bdf8}
 .cloud-root-type-badge.local{background:rgba(100,116,139,.15);color:#94a3b8}
 .cloud-root-item{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px 14px;transition:.15s}
 .cloud-root-item:hover{border-color:rgba(199,54,247,.3);background:rgba(199,54,247,.06)}
@@ -534,6 +537,7 @@ body{
           <select id="home-root-media-type">
             <option value="mkv">MKV视频(多音轨)</option>
             <option value="flac">分离FLAC(人声+伴奏)</option>
+            <option value="music">云音乐媒体(在线听歌)</option>
           </select>
           <button class="cloud-add-root-btn" onclick="addHomeCloudRoot()">+ 添加为曲库来源</button>
         </div>
@@ -1170,9 +1174,18 @@ function renderHomeSrcRoots(){
       if(r.cloud){
         const acct = cloudAccountsCache.find(a => String(a.id) === String(r.cloud.accountId));
         const driverName = acct ? (HOME_DRIVER_NAMES[acct.driver]||acct.driver) : '网盘';
-        const isFlac = r.cloud.mediaType === 'flac';
-        typeClass = isFlac ? 'type-flac' : 'type-mkv';
-        typeBadge = '<span class="cloud-root-type-badge ' + (isFlac ? 'flac' : 'mkv') + '">' + (isFlac ? 'FLAC分离' : 'MKV视频') + '</span>';
+        const mediaType = r.cloud.mediaType || 'mkv';
+        // 三态：flac=FLAC分离(绿)，music=云音乐(青蓝)，其余=MKV视频(紫)
+        if(mediaType === 'flac'){
+          typeClass = 'type-flac';
+          typeBadge = '<span class="cloud-root-type-badge flac">FLAC分离</span>';
+        } else if(mediaType === 'music'){
+          typeClass = 'type-music';
+          typeBadge = '<span class="cloud-root-type-badge music">云音乐</span>';
+        } else {
+          typeClass = 'type-mkv';
+          typeBadge = '<span class="cloud-root-type-badge mkv">MKV视频</span>';
+        }
         tagHtml = '<span class="cloud-root-driver-tag">☁️ ' + driverName + '</span>';
         pathHtml = '<div class="cloud-root-path">' + escHtml(r.cloud.cloudPath || r.dir) + '</div>';
       } else {

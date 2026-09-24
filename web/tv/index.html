@@ -3056,6 +3056,7 @@ const Lyrics = (()=>{
     render(video.currentTime||0); syncModeBtn(); }
   function toggleMode(){ setMode(mode==='dual'?'scroll':'dual'); }
   var _lyricsAbort=null, _lyricsGen=0;
+  var _cmFetchPending=null; // 云音乐歌标记：本地无词时异步走 online=1 在线抓取（见 maybeOnlineFetchCloud）
   function load(songId,force){
     if(songId===loadedId&&!force)return;
     const wasAlreadyLoaded = loadedId !== null;
@@ -3073,8 +3074,30 @@ const Lyrics = (()=>{
       if(isVideoSong(d)){ lines=[]; lastIdx=-9; const l=layer(); if(l)l.innerHTML=''; return; }
       lines=parse(d.word||d.lyrics); scrollBuilt=false; lastIdx=-9; render(video.currentTime||0);
       if(force || wasAlreadyLoaded){ try{ showToast('歌词已刷新'); }catch(e){} }
+      // 云音乐：本地无词 → 异步 online=1 在线抓取(QQ/酷我/酷狗/网易)，不阻塞播放
+      maybeOnlineFetchCloud(myGen,songId,lines.length);
     }).catch(()=>{ clearTimeout(timer); });
   }
+  // 云音乐在线抓词：仅当 load() 本地歌词为空且调用方通过 autoOnlineIfEmpty() 标记了这首歌时触发。
+  // 抓词可能耗时数秒~十几秒，全程异步不卡播放；切歌(myGen/loadedId 不匹配)自动作废。
+  function maybeOnlineFetchCloud(myGen,songId,lineCount){
+    if(_cmFetchPending!==songId || lineCount>0)return;
+    _cmFetchPending=null;
+    try{ showToast('正在在线搜索歌词…'); }catch(e){}
+    fetch(BASE+'/api/songs/'+songId+'/lyrics?online=1')
+      .then(r=>r.json())
+      .then(dd=>{
+        if(loadedId!==songId||myGen!==_lyricsGen)return; // 已切歌，丢弃
+        if(dd&&(dd.word||dd.lyrics)){
+          try{ showToast('歌词已在线获取'); }catch(e){}
+          load(songId,true); // 服务端已把在线歌词落库，force 重载走 online=0 读本地
+        }else{
+          try{ showToast('未找到该歌曲在线歌词'); }catch(e){}
+        }
+      })
+      .catch(()=>{}); // 在线抓取失败静默：不影响正常播放
+  }
+  function autoOnlineIfEmpty(songId){ _cmFetchPending=songId; }
   function reset(){ loadedId=null; lines=[]; lastIdx=-9; scrollBuilt=false; const l=layer(); if(l)l.innerHTML=''; }
   function idxAt(t){ let idx=-1; for(let i=0;i<lines.length;i++){ if(lines[i].start<=t+0.01)idx=i; else break; } return idx; }
   // 卡拉OK k 标签逐字渐变：双层文字叠加——底层未唱(白) + 上层已唱(金)按宽度裁剪，从左到右横向扫过
@@ -3147,7 +3170,7 @@ const Lyrics = (()=>{
   }
   window.addEventListener('resize',()=>{ if(mode==='scroll'){ lastIdx=-9; render(video.currentTime||0); } });
   try{ const l0=layer(); if(l0&&mode==='scroll')l0.classList.add('is-scroll'); syncModeBtn(); }catch(e){}
-  return {load,reset,render,setMode,toggleMode,setOffset};
+  return {load,reset,render,setMode,toggleMode,setOffset,autoOnlineIfEmpty};
 })();
 // ═══════════ 动态背景舞台 BgStage：纯音频歌的实时背景，14 种效果随音乐频谱波动，B键/按钮切换 ═══════════
 const BG_VIDEO_RE=/\.(mkv|mp4|m4v|mov|ts|m2ts|webm|avi|rmvb|rm|wmv|flv|mpg|mpeg|mts)$/i; // 视频歌不显示动态背景
@@ -3874,6 +3897,19 @@ setInterval(()=>{
   if(!isActivePlayer||!curSong)return;
   sendWS({type:'progress',deviceId:myDeviceId,queueId:curSong.queue_id,currentTime:playbackPos(),duration:(isFinite(realMediaDuration())?realMediaDuration():0),paused:video.paused,voice:VoiceManager.isOriginal?'original':'accompaniment'});
 },1000);
+// 云音乐(netktv-music)歌曲识别：纯音频单轨 STRM(AList直链)，无原/伴唱切换，
+// 歌词需在线抓取。source_root 由 /api/queue 及 WS queue 广播随队列行下发。
+function isCloudMusicSong(song){
+  return !!(song && song.source_root && String(song.source_root).indexOf('netktv-music')===0);
+}
+// 云音乐是纯音频单轨(audio_tracks=1)，原/伴唱切换无意义——隐藏主页与风格三两处「原/伴唱」按钮；
+// 播普通 MKV/FLAC 歌(playing 为空或非云音乐)时恢复显示。
+function applyCloudMusicUI(playing){
+  var cm = isCloudMusicSong(playing);
+  ['btn-voice','s3-voice-btn'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.style.display = cm ? 'none' : '';
+  });
+}
 function renderAll(){
   const playing=queueData.find(q=>q.status==='playing');
   // 需求(随机播放曲目不进已点队列)：is_autoplay=1 的行是"已点队列播完后自动
@@ -3892,6 +3928,7 @@ function renderAll(){
   if(isFS&&document.getElementById('fsq').classList.contains('open'))renderFsQueue();
   if(document.getElementById('pd-queue').classList.contains('open'))loadQueue();
   if(playing){
+    applyCloudMusicUI(playing); // 云音乐隐藏「原/伴唱」按钮
     if(singSessionStart===null)singSessionStart=Date.now(); // 需求(横幅"已欢唱xx分钟")：从空闲变成有歌在播的这一刻起记为本场开始计时
     document.getElementById('now-info').classList.add('show');
     document.getElementById('ni-title').textContent=playing.title;
@@ -3904,7 +3941,7 @@ function renderAll(){
       // 才真正加载媒体流解码播放，其余分支(下面 else)保持 MV 框在品牌
       // slogan 画面，从源头避免建立第二路视频流。
       document.getElementById('now-idle').style.display='none';video.style.display='block';
-      if(!curSong||curSong.queue_id!==playing.queue_id){curSong=playing;loadSong(video,playing.song_id,!!(playing.is_network||playing.is_strm));try{Lyrics.load(playing.song_id);}catch(e){console.warn('lyrics load',e);}try{BgStage.show(!BG_VIDEO_RE.test(playing.filename||''));}catch(e){}
+      if(!curSong||curSong.queue_id!==playing.queue_id){curSong=playing;loadSong(video,playing.song_id,!!(playing.is_network||playing.is_strm));try{if(isCloudMusicSong(playing))Lyrics.autoOnlineIfEmpty(playing.song_id);Lyrics.load(playing.song_id);}catch(e){console.warn('lyrics load',e);}try{BgStage.show(!BG_VIDEO_RE.test(playing.filename||''));}catch(e){}
         showSongIntro(playing.title,`${playing.artist||''} · ${playing.nickname}`);
         curSongStartTime=Date.now();armFsBannerTimer();} // 需求(全屏横幅改为每首歌开始2分钟后展示一次)：换了新歌就重新起计时
       else if(curSong.audio_tracks!==playing.audio_tracks){
@@ -3927,7 +3964,7 @@ function renderAll(){
       document.getElementById('now-idle').style.display='flex';video.style.display='none';
       if(curSong){curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();if(_mseMkvPlayer){try{_mseMkvPlayer.destroy();}catch(e){}_mseMkvPlayer=null;}try{VoiceManager.dualReset();}catch(e){}try{window.hideVocalPop&&window.hideVocalPop();}catch(x){}video.removeAttribute('src');video.load();document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();}
     }
-  }else{document.getElementById('now-idle').style.display='flex';video.style.display='none';document.getElementById('now-info').classList.remove('show');document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();hideToast();curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();if(_mseMkvPlayer){try{_mseMkvPlayer.destroy();}catch(e){}_mseMkvPlayer=null;}try{VoiceManager.dualReset();}catch(e){}try{window.hideVocalPop&&window.hideVocalPop();}catch(x){}video.removeAttribute('src');video.load();
+  }else{document.getElementById('now-idle').style.display='flex';video.style.display='none';document.getElementById('now-info').classList.remove('show');document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();hideToast();applyCloudMusicUI(null);curSong=null;try{Lyrics.reset();}catch(e){}try{BgStage.show(false);}catch(e){}destroyHls();if(_mseMkvPlayer){try{_mseMkvPlayer.destroy();}catch(e){}_mseMkvPlayer=null;}try{VoiceManager.dualReset();}catch(e){}try{window.hideVocalPop&&window.hideVocalPop();}catch(x){}video.removeAttribute('src');video.load();
     if(!queueData.length)singSessionStart=null; // 队列彻底清空，视为这一场欢唱结束，下次开唱重新计时
     curSongStartTime=null;clearTimeout(fsBannerTimer); // 没歌在播，全屏"每首歌2分钟后展示一次"的计时器也一并作废
     hideSongIntro();

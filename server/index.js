@@ -12312,6 +12312,8 @@ app.get('/api/songs', (req, res) => {
 
     : mediaType === 'audio' ? "media_type IN ('audio','cue')"
 
+    : mediaType === 'cloud-music' ? "source_root LIKE 'netktv-music%'"
+
 
 
 
@@ -22857,6 +22859,7 @@ app.get('/api/stats', (req, res) => {
 
 
   const songCountAudio = db.prepare("SELECT COUNT(*) c FROM songs WHERE media_type IN ('audio','cue')").get().c;
+  const songCountCloudMusic = db.prepare("SELECT COUNT(*) c FROM songs WHERE source_root LIKE 'netktv-music%'").get().c;
 
 
 
@@ -22936,7 +22939,7 @@ app.get('/api/stats', (req, res) => {
 
 
 
-    songCountVideo, songCountAudio,
+    songCountVideo, songCountAudio, songCountCloudMusic,
 
 
 
@@ -23186,7 +23189,7 @@ function getQueueWithSongs() {
 
 
 
-           s.audio_tracks, s.audio_needs_soft, s.video_needs_soft, s.is_network, s.is_strm, s.cloud_account_id
+           s.audio_tracks, s.audio_needs_soft, s.video_needs_soft, s.is_network, s.is_strm, s.cloud_account_id, s.source_root
 
 
 
