@@ -1969,6 +1969,17 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
 <link rel="stylesheet" href="/cartoon-theme.css">
 </head>
 <body>
+<!-- 调试日志面板 -->
+<button id="debug-toggle" title="调试日志">🐞<span class="dot"></span></button>
+<div id="debug-panel">
+  <div class="dbg-header">
+    <span class="dbg-title">调试日志</span>
+    <span class="dbg-count" id="dbg-count">0</span>
+    <button class="dbg-btn" id="dbg-clear">清空</button>
+    <button class="dbg-btn danger" id="dbg-close">关闭</button>
+  </div>
+  <div class="dbg-body" id="dbg-body"></div>
+</div>
 <div id="bg"></div>
 <div id="home">
   <nav id="topbar">
@@ -6999,6 +7010,7 @@ fetch('/api/queue').then(r=>r.json()).then(d=>{queueData=d;renderAll();});
   var body=document.getElementById('dbg-body');
   var countEl=document.getElementById('dbg-count');
   var toggle=document.getElementById('debug-toggle');
+  if(!panel||!body||!toggle){console.warn('[DebugPanel] DOM not found');return;}
   var autoScroll=true;
 
   function fmtTime(){var d=new Date();return d.toTimeString().slice(0,8)+'.'+String(d.getMilliseconds()).padStart(3,'0');}
@@ -7040,15 +7052,5 @@ fetch('/api/queue').then(r=>r.json()).then(d=>{queueData=d;renderAll();});
   addLog('info',['调试日志面板已启动，拦截 console.log/warn/error/info + 全局错误']);
 })();
 </script>
-<!-- 调试日志面板 -->
-<button id="debug-toggle" title="调试日志">🐞<span class="dot"></span></button>
-<div id="debug-panel">
-  <div class="dbg-header">
-    <span class="dbg-title">调试日志</span>
-    <span class="dbg-count" id="dbg-count">0</span>
-    <button class="dbg-btn" id="dbg-clear">清空</button>
-    <button class="dbg-btn danger" id="dbg-close">关闭</button>
-  </div>
-  <div class="dbg-body" id="dbg-body"></div>
-</div></body>
+</body>
 </html>
