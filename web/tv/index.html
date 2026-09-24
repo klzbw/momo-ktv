@@ -1933,6 +1933,7 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
         </div>
         <span id="online-duration" style="font-size:11px;color:#888;min-width:35px;text-align:right">0:00</span>
       </div>
+      <div id="online-lyrics" style="font-size:13px;color:#aaa;text-align:center;margin:4px 0;min-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">&#9834;</div>
       <div style="display:flex;align-items:center;gap:16px">
         <button class="mvbtn" data-f onclick="onlinePrev()" style="color:#ccc"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
         <button class="mvbtn" data-f id="online-play-btn" onclick="toggleOnlinePlay()" style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#f62c55,#ff6b9d);display:flex;align-items:center;justify-content:center;color:#fff"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg></button>
@@ -1940,6 +1941,10 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
         <div style="flex:1;min-width:0;margin-left:10px">
           <div id="online-now-title" style="font-size:15px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">未播放</div>
           <div style="font-size:12px;color:#999" id="online-now-artist"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-left:12px">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="#999"><path d="M3 9v6h4l5 5V4L7 9H3z"/><path d="M16 8c1.5 1 2.5 2.5 2.5 4s-1 3-2.5 4" stroke="#999" stroke-width="1.5" fill="none"/></svg>
+          <input type="range" id="online-volume" min="0" max="1" step="0.05" value="0.8" style="width:80px;accent-color:#f62c55">
         </div>
       </div>
     </div>
@@ -4001,6 +4006,7 @@ function syncPauseUI(){
   reportPlaybackState();
 }
 video.addEventListener('play',syncPauseUI);
+video.addEventListener('play',()=>{if(_onlineAudio&&!_onlineAudio.paused)_onlineAudio.pause();}); // K歌起播时自动暂停在线音乐，两系统互斥
 video.addEventListener('playing',()=>{document.getElementById('video-loading').classList.remove('show');stopCacheProgressPoll();});
 video.addEventListener('pause',syncPauseUI);
 // Bug修复(同一浏览器开两个/多个 TV 标签页时，非播放端那个标签页上的"播放/
@@ -5352,6 +5358,7 @@ function renderNewest(){
 function newestPage(d){const t=Math.ceil(newestSorted.length/NEWEST_PG)||1;newestPg=Math.max(0,Math.min(t-1,newestPg+d));renderNewest();}
 // ============ 在线音乐播放器 ============
 let _onlineAudio=null,_onlineSongList=[],_onlineIdx=0;
+let _onlineLrcLines=[],_onlineLastLrc="";
 async function loadOnline(){
   const el=document.getElementById('pl-online');
   el.innerHTML='<div style="color:var(--sub);text-align:center;padding:30px">加载中...</div>';
@@ -5381,19 +5388,63 @@ async function playOnlineSong(idx){
   document.getElementById('online-player-bar').style.display='block';
   if(!_onlineAudio){
     _onlineAudio=new Audio();
+    _onlineAudio.volume=0.8;
+    // 进度条点击跳转
+    document.getElementById('online-progress').onclick=function(e){
+      if(!_onlineAudio||!_onlineAudio.duration)return;
+      const rect=this.getBoundingClientRect();
+      const pct=(e.clientX-rect.left)/rect.width;
+      _onlineAudio.currentTime=pct*_onlineAudio.duration;
+    };
+    // 音量滑块绑定
+    const volEl=document.getElementById('online-volume');
+    if(volEl){volEl.oninput=()=>{if(_onlineAudio)_onlineAudio.volume=parseFloat(volEl.value);};}
+    _onlineAudio.addEventListener('loadedmetadata',()=>{
+      const d=_onlineAudio.duration||0;const mm=Math.floor(d/60);const ss=Math.floor(d%60);
+      document.getElementById('online-duration').textContent=mm+':'+(ss<10?'0':'')+ss;
+    });
     _onlineAudio.addEventListener('ended',()=>{if(_onlineIdx<_onlineSongList.length-1)playOnlineSong(_onlineIdx+1);});
     _onlineAudio.addEventListener('timeupdate',()=>{
       const t=_onlineAudio.currentTime||0;const m=Math.floor(t/60);const sec=Math.floor(t%60);
       document.getElementById('online-time').textContent=m+':'+(sec<10?'0':'')+sec;
+      // 更新进度条宽度
+      if(_onlineAudio.duration){
+        document.getElementById('online-progress-bar').style.width=((t/_onlineAudio.duration)*100)+'%';
+      }
+      // 同步歌词高亮
+      if(_onlineLrcLines&&_onlineLrcLines.length){
+        const cur=t;let active=_onlineLrcLines[0];
+        for(const l of _onlineLrcLines){if(l.t<=cur)active=l;else break;}
+        if(active&&active.text!==_onlineLastLrc){
+          document.getElementById('online-lyrics').textContent=active.text;
+          _onlineLastLrc=active.text;
+        }
+      }
     });
   }
   _onlineAudio.src='/api/netktv/music/stream/'+s.id;
+  // 加载歌词
+  _onlineLrcLines=[];_onlineLastLrc='';
+  document.getElementById('online-lyrics').textContent='\u266a \u6b4c\u8bcd\u52a0\u8f7d\u4e2d...';
+  fetch('/api/songs/'+s.id+'/lyrics?online=1').then(r=>r.json()).then(d=>{
+    const lrc=d.lyrics||d.lyrics_word||'';
+    if(!lrc){document.getElementById('online-lyrics').textContent='\u6682\u65e0\u6b4c\u8bcd';return;}
+    const lines=lrc.split('\n').map(line=>{
+      const mm=line.match(/\[(\d+):(\d+\.?\d*)\](.*)/);
+      if(mm){return{t:parseInt(mm[1])*60+parseFloat(mm[2]),text:mm[3].trim()};}
+      return null;
+    }).filter(x=>x&&x.text);
+    _onlineLrcLines=lines;
+    document.getElementById('online-lyrics').textContent=lines.length?lines[0].text:'\u6682\u65e0\u6b4c\u8bcd';
+  }).catch(()=>{document.getElementById('online-lyrics').textContent='\u266a';});
   try{await _onlineAudio.play();}catch(e){console.warn('[在线音乐] 播放失败:',e);}
 }
 function toggleOnlinePlay(){
   if(!_onlineAudio)return;
   if(_onlineAudio.paused){_onlineAudio.play();}else{_onlineAudio.pause();}
 }
+function onlinePrev(){ if(_onlineSongList.length){ _onlineIdx=(_onlineIdx-1+_onlineSongList.length)%_onlineSongList.length; playOnlineSong(_onlineIdx);} }
+function onlineNext(){ if(_onlineSongList.length){ _onlineIdx=(_onlineIdx+1)%_onlineSongList.length; playOnlineSong(_onlineIdx);} }
 async function scanOnlineMusic(){
   showToast('开始扫描网盘音乐目录...');
   try{

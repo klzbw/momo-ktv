@@ -12313,16 +12313,8 @@ app.get('/api/songs', (req, res) => {
     : mediaType === 'audio' ? "media_type IN ('audio','cue')"
 
     : mediaType === 'cloud-music' ? "source_root LIKE 'netktv-music%'"
-
-
-
-
-
-
-
-
-
-    : '';
+    : mediaType === 'all' ? ''
+    : "NOT (source_root LIKE 'netktv-music%')";
 
 
 
@@ -12622,7 +12614,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    if (typeClause) where += ` AND s.${typeClause}`;
+    if (typeClause) where += typeClause.startsWith('NOT ') ? ` AND ${typeClause}` : ` AND s.${typeClause}`;
 
 
 
@@ -13345,7 +13337,7 @@ app.get('/api/songs/newest', (req, res) => {
 
 
 
-    const rows = db.prepare('SELECT * FROM songs ORDER BY id DESC LIMIT ?').all(limit);
+    const rows = db.prepare("SELECT * FROM songs WHERE NOT (source_root LIKE 'netktv-music%') ORDER BY id DESC LIMIT ?").all(limit);
     attachCloudDriver(rows);
 
 
@@ -13456,7 +13448,7 @@ app.get('/api/songs/letter/:letter', (req, res) => {
 
 
 
-  const rows = db.prepare('SELECT * FROM songs WHERE UPPER(SUBSTR(title,1,1)) = ? ORDER BY title LIMIT 100').all(letter);
+  const rows = db.prepare("SELECT * FROM songs WHERE UPPER(SUBSTR(title,1,1)) = ? AND NOT (source_root LIKE 'netktv-music%') ORDER BY title LIMIT 100").all(letter);
   attachCloudDriver(rows);
 
 
