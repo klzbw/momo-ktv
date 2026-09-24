@@ -7707,6 +7707,14 @@ app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
                         align_status: song.align_status || 'none' });
     }
 
+    // [修复] 云音乐歌曲跳过AI逐字对齐入队，直接走在线四源(网易/QQ/酷我/酷狗)抓歌词
+    if (song.source_root && song.source_root.startsWith('netktv-music')) {
+      const rOnline = await obtainLyrics(song, { forceOnline: true });
+      if (!rOnline) return res.status(404).json({ id, lyrics: null, message: '在线四源均未命中' });
+      return res.json({ id, lyrics: rOnline.lrc, word: song.lyrics_word || null, source: rOnline.source,
+                         align_status: song.align_status || 'none' });
+    }
+
     // 2) 检测在线 ai-worker（WhisperX 逐字对齐）
     const workers = sepMod.onlineWorkers();
     if (workers && workers.length > 0) {
@@ -12310,7 +12318,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    : mediaType === 'audio' ? "media_type IN ('audio','cue')"
+    : mediaType === 'audio' ? "media_type IN ('audio','cue') AND NOT (source_root LIKE 'netktv-music%')"
 
     : mediaType === 'cloud-music' ? "source_root LIKE 'netktv-music%'"
     : mediaType === 'all' ? ''
@@ -22850,7 +22858,7 @@ app.get('/api/stats', (req, res) => {
 
 
 
-  const songCountAudio = db.prepare("SELECT COUNT(*) c FROM songs WHERE media_type IN ('audio','cue')").get().c;
+  const songCountAudio = db.prepare("SELECT COUNT(*) c FROM songs WHERE media_type IN ('audio','cue') AND NOT (source_root LIKE 'netktv-music%')").get().c;
   const songCountCloudMusic = db.prepare("SELECT COUNT(*) c FROM songs WHERE source_root LIKE 'netktv-music%'").get().c;
 
 

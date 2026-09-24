@@ -2367,6 +2367,8 @@ select option{color:#000}
 
     <button class="hbtn" id="batch-align-btn" onclick="batchEnqueueAlign()" disabled title="对已选中的音频歌曲批量入队逐字歌词对齐（AI Worker自动处理）">🎤 批量逐字歌词</button>
 
+    <button class="hbtn" id="batch-cloud-lyrics-btn" onclick="batchFetchCloudLyrics()" style="display:none" title="对云音乐Tab下缺失歌词的歌曲批量在线抓取">📥 批量抓歌词</button>
+
 
 
     <button class="hbtn primary" id="batch-open-btn" onclick="openBatchModal()" disabled>🏷️ 批量设置语种/风格</button>
@@ -5398,6 +5400,9 @@ function doMediaTypeChange(value){
 
   currentMediaType = value;
 
+  var cloudLrcBtn = document.getElementById('batch-cloud-lyrics-btn');
+  if(cloudLrcBtn) cloudLrcBtn.style.display = (value === 'cloud-music') ? '' : 'none';
+
 
 
   currentPage = 1;
@@ -6272,7 +6277,8 @@ function render(list){
 
 
 
-          ${(s.media_type === 'audio' || s.media_type === 'cue') ? `<button class="act-btn" onclick="enqueueAlign(${s.id},this)" style="background:rgba(168,85,247,.15);color:#c084fc;border:1px solid rgba(168,85,247,.3)" title="入队AI逐字歌词对齐，由AI工作站自动处理生成可逐字变色的歌词">🎤 逐字歌词</button>` : ''}
+          ${((s.media_type === 'audio' || s.media_type === 'cue') && !(s.source_root && s.source_root.startsWith('netktv-music')) ? `<button class="act-btn" onclick="enqueueAlign(${s.id},this)" style="background:rgba(168,85,247,.15);color:#c084fc;border:1px solid rgba(168,85,247,.3)" title="入队AI逐字歌词对齐，由AI工作站自动处理生成可逐字变色的歌词">🎤 逐字歌词</button>` : '')}
+          ${(s.source_root && s.source_root.startsWith('netktv-music') ? `<button class="act-btn" onclick="fetchOnlineLyrics(${s.id},this)" style="background:rgba(56,189,248,.15);color:#38bdf8;border:1px solid rgba(56,189,248,.3)" title="从在线四源(网易/QQ/酷我/酷狗)抓取歌词">📥 抓歌词</button>` : '')}
 
 
 
@@ -6512,6 +6518,20 @@ async function aiEnqueueMissing(type, label){
 
 
 
+async function fetchOnlineLyrics(songId, btn){
+  if(btn){ btn.disabled = true; btn.textContent = '抓取中…'; }
+  try{
+    const res = await fetch('/api/songs/' + songId + '/lyrics/fetch', { method:'POST' });
+    if(res.status === 401){ showLogin(); return; }
+    const d = await res.json().catch(()=>({}));
+    if(!res.ok){ toast(d.error || '抓取歌词失败'); return; }
+    const srcName = { netease:'网易云音乐', qq:'QQ音乐', kuwo:'酷我音乐', kugou:'酷狗音乐' }[d.source] || d.source || '在线源';
+    toast('已从' + srcName + '抓取歌词');
+    refreshList();
+  }catch(e){ toast('请求失败：'+e.message); }
+  finally{ if(btn){ btn.disabled = false; btn.textContent = '📥 抓歌词'; } }
+}
+
 async function enqueueAlign(songId, btn){
 
 
@@ -6580,11 +6600,24 @@ async function enqueueAlign(songId, btn){
 
 
 
+async function batchFetchCloudLyrics(){
+  const btn = document.getElementById('batch-cloud-lyrics-btn');
+  if(btn){ btn.disabled = true; btn.textContent = '提交中…'; }
+  try{
+    const res = await fetch('/api/lyrics/batch-missing?limit=500', { method:'POST' });
+    if(res.status === 401){ showLogin(); return; }
+    const d = await res.json().catch(()=>({}));
+    if(!res.ok){ toast(d.error || '批量抓歌词失败'); return; }
+    toast('已开始后台批量抓取歌词');
+  }catch(e){ toast('请求失败：'+e.message); }
+  finally{ if(btn){ btn.disabled = false; btn.textContent = '📥 批量抓歌词'; } }
+}
+
 async function batchEnqueueAlign(){
 
 
 
-  const audioIds = allSongs.filter(s=>selectedIds.has(s.id) && (s.media_type==='audio'||s.media_type==='cue')).map(s=>s.id);
+  const audioIds = allSongs.filter(s=>selectedIds.has(s.id) && (s.media_type==='audio'||s.media_type==='cue') && !(s.source_root && s.source_root.startsWith('netktv-music'))).map(s=>s.id);
 
 
 
