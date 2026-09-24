@@ -31,6 +31,40 @@ const path = require('path');
 const http = require('http');
 const lrcFileMod = require('./lrcFile');
 
+// 浏览器原生支持的音频格式（直接流式转发，零CPU占用）
+const BROWSER_NATIVE_FORMATS = new Set(['wav', 'flac', 'mp3', 'm4a', 'aac', 'ogg', 'opus']);
+
+// 从URL提取扩展名（忽略query参数）
+function _extFromUrl(url) {
+  try {
+    const u = new URL(url);
+    const m = u.pathname.match(/\.([a-zA-Z0-9]+)$/);
+    return m ? m[1].toLowerCase() : '';
+  } catch { return ''; }
+}
+
+// 跟随重定向的HTTP/HTTPS GET（最多5跳，用于 AList→CDN 链）
+function _fetchFollowRedirect(url, headers, redirectCount) {
+  redirectCount = redirectCount || 0;
+  return new Promise((resolve, reject) => {
+    if (redirectCount > 5) return reject(new Error('Too many redirects'));
+    const lib = url.startsWith('https') ? https : http;
+    const req = lib.get(url, { headers, timeout: 20000 }, (resp) => {
+      if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+        let next = resp.headers.location;
+        if (next.startsWith('//')) next = (url.startsWith('https') ? 'https:' : 'http:') + next;
+        else if (next.startsWith('/')) { try { next = new URL(url).origin + next; } catch {} }
+        resp.resume();
+        resolve(_fetchFollowRedirect(next, headers, redirectCount + 1));
+      } else {
+        resolve(resp);
+      }
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(new Error('Upstream timeout')); });
+  });
+}
+
 const router = express.Router();
 
 // 入库状态（扫本地 strm）
@@ -784,6 +818,99 @@ function init(db, cloudDrive) {
       res.redirect(302, strmContent);
     } catch (e) {
       res.status(500).json({ error: e.message });
+    }
+  });
+
+    // GET /api/netktv/music/proxy/:id — 服务端音频代理：浏览器支持格式直传，不支持格式ffmpeg实时转FLAC
+  // 解决302重定向链(服务端→AList→CDN)导致浏览器解码失败产生雪花声的问题
+  router.get('/music/proxy/:id', async (req, res) => {
+    let upstream = null;
+    let ffmpeg = null;
+    try {
+      const song = db.prepare("SELECT * FROM songs WHERE id=? AND source_root LIKE 'netktv-music%'").get(parseInt(req.params.id, 10));
+      if (!song) return res.status(404).json({ error: '歌曲不存在' });
+      if (!song.vocal_path || !fs.existsSync(song.vocal_path)) {
+        return res.status(404).json({ error: 'STRM文件不存在' });
+      }
+      const strmContent = fs.readFileSync(song.vocal_path, 'utf-8').trim();
+      if (!strmContent.startsWith('http')) return res.status(500).json({ error: 'STRM内容无效' });
+
+      const ext = _extFromUrl(strmContent);
+      const isNative = BROWSER_NATIVE_FORMATS.has(ext);
+
+      // 客户端断开时清理资源
+      req.on('close', () => {
+        if (upstream) { try { upstream.destroy(); } catch {} }
+        if (ffmpeg) { try { ffmpeg.kill('SIGKILL'); } catch {} }
+      });
+
+      if (isNative) {
+        // ===== 浏览器原生支持：直接流式转发（跟随AList→CDN重定向，支持Range/seek）=====
+        const headers = { 'User-Agent': 'Mozilla/5.0 (compatible; MomoKTV/1.0)' };
+        if (req.headers.range) headers['Range'] = req.headers.range;
+
+        upstream = await _fetchFollowRedirect(strmContent, headers);
+
+        if (upstream.statusCode >= 400) {
+          upstream.resume();
+          return res.status(upstream.statusCode).json({ error: '上游返回错误: ' + upstream.statusCode });
+        }
+
+        res.status(upstream.statusCode === 206 ? 206 : 200);
+        // 优先用上游Content-Type，缺失时按扩展名兜底
+        const ct = upstream.headers['content-type'] || ({
+          wav: 'audio/wav', flac: 'audio/flac', mp3: 'audio/mpeg',
+          m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg', opus: 'audio/ogg',
+        }[ext] || 'application/octet-stream');
+        res.setHeader('Content-Type', ct);
+        if (upstream.headers['content-length']) res.setHeader('Content-Length', upstream.headers['content-length']);
+        if (upstream.headers['content-range']) res.setHeader('Content-Range', upstream.headers['content-range']);
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Cache-Control', 'no-cache');
+
+        upstream.pipe(res);
+        upstream.on('error', (err) => {
+          console.error('[MUSIC-PROXY] 上游流错误:', err.message);
+          if (!res.headersSent) res.status(502).json({ error: '上游流错误' });
+          else res.end();
+        });
+      } else {
+        // ===== 浏览器不支持的格式（APE/WMA/DSF等）：ffmpeg实时转码为FLAC流式输出 =====
+        res.setHeader('Content-Type', 'audio/flac');
+        res.setHeader('Accept-Ranges', 'none');
+        res.setHeader('Cache-Control', 'no-cache');
+
+        ffmpeg = spawn('ffmpeg', [
+          '-hide_banner', '-loglevel', 'error',
+          '-i', strmContent,
+          '-vn',
+          '-f', 'flac',
+          '-acodec', 'flac',
+          '-compression_level', '0',
+          '-'
+        ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+        ffmpeg.stdout.pipe(res);
+        ffmpeg.stderr.on('data', (data) => {
+          const msg = data.toString().trim();
+          if (msg) console.warn('[MUSIC-PROXY] ffmpeg:', msg.slice(0, 300));
+        });
+        ffmpeg.on('error', (err) => {
+          console.error('[MUSIC-PROXY] ffmpeg启动失败:', err.message);
+          if (!res.headersSent) res.status(500).json({ error: '转码启动失败' });
+          else res.end();
+        });
+        ffmpeg.on('close', (code) => {
+          if (code !== 0 && code !== null) console.error('[MUSIC-PROXY] ffmpeg退出码:', code);
+          res.end();
+        });
+      }
+    } catch (e) {
+      console.error('[MUSIC-PROXY] 异常:', e.message);
+      if (upstream) { try { upstream.destroy(); } catch {} }
+      if (ffmpeg) { try { ffmpeg.kill('SIGKILL'); } catch {} }
+      if (!res.headersSent) res.status(500).json({ error: e.message });
+      else res.end();
     }
   });
 

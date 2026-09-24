@@ -5871,6 +5871,12 @@ async function playOnlineSong(idx){
     });
     _onlineAudio.addEventListener('play',updateOnlinePlayIcon);
     _onlineAudio.addEventListener('pause',updateOnlinePlayIcon);
+    // 解码/加载错误处理：打印详细错误码，便于排查雪花声等问题
+    _onlineAudio.addEventListener('error',()=>{
+      const err=_onlineAudio.error;
+      const codeMap={1:'MEDIA_ERR_ABORTED',2:'MEDIA_ERR_NETWORK',3:'MEDIA_ERR_DECODE',4:'MEDIA_ERR_SRC_NOT_SUPPORTED'};
+      console.error('[在线音乐] 播放错误:',err?codeMap[err.code]||'code='+err.code:'未知',err?('message='+err.message):'','src=',_onlineAudio.src);
+    });
     // 全屏进度条点击
     const ofProg=document.getElementById('of-progress');
     if(ofProg)ofProg.onclick=function(e){
@@ -5916,7 +5922,7 @@ async function playOnlineSong(idx){
       }
     });
   }
-  _onlineAudio.src='/api/netktv/music/stream/'+s.id;
+  _onlineAudio.src='/api/netktv/music/proxy/'+s.id;
   // 加载歌词
   _onlineLrcLines=[];_onlineLastLrc='';
   const rb=document.getElementById('om-lrc-box');
