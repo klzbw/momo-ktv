@@ -12190,6 +12190,66 @@ app.get('/api/songs', (req, res) => {
 
 
 
+  // 媒体格式筛选：video/audio，不传或传其它值视为"全部"
+
+
+
+
+
+
+
+
+
+  const mediaType = (req.query.type || '').trim();
+
+
+
+
+
+
+
+
+
+  // 排序方式：play(默认播放量)/title(歌名A-Z)/artist(歌手A-Z)/newest(最新添加)/oldest(最少播放)
+
+
+
+
+
+
+
+
+
+  const sortBy = (req.query.sort || 'play').trim();
+
+
+
+
+
+
+
+
+
+  // 歌词状态筛选：all(全部)/word(有逐字歌词)/network(有网络歌词无逐字)/none(无歌词)
+
+
+
+
+
+
+
+
+
+  const lyricsFilter = (req.query.lyrics || 'all').trim();
+
+
+
+
+
+
+
+
+
   // 默认(不传scope)返回全部本地+网络；scope=local/network 才分别限制
 
 
@@ -12221,6 +12281,176 @@ app.get('/api/songs', (req, res) => {
 
 
     : '';
+
+
+
+
+
+
+
+
+
+  // 媒体类型条件：音频包含 audio 和 cue（CUE分轨也是音频）
+
+
+
+
+
+
+
+
+
+  const typeClause = mediaType === 'video' ? "media_type = 'video'"
+
+
+
+
+
+
+
+
+
+    : mediaType === 'audio' ? "media_type IN ('audio','cue')"
+
+
+
+
+
+
+
+
+
+    : '';
+
+
+
+
+
+
+
+
+
+  // 歌词状态条件
+
+
+
+
+
+
+
+
+
+  const lyricsClause = lyricsFilter === 'word' ? "(lyrics_word IS NOT NULL AND lyrics_word != '')"
+
+
+
+
+
+
+
+
+
+    : lyricsFilter === 'network' ? "((lyrics_word IS NULL OR lyrics_word = '') AND lyrics IS NOT NULL AND lyrics != '')"
+
+
+
+
+
+
+
+
+
+    : lyricsFilter === 'none' ? "(lyrics IS NULL OR lyrics = '')"
+
+
+
+
+
+
+
+
+
+    : '';
+
+
+
+
+
+
+
+
+
+  // 排序子句（无JOIN分支用；artist分支需加 s. 前缀）
+
+
+
+
+
+
+
+
+
+  const orderBy = sortBy === 'title' ? 'title ASC'
+
+
+
+
+
+
+
+
+
+    : sortBy === 'artist' ? 'artist ASC'
+
+
+
+
+
+
+
+
+
+    : sortBy === 'newest' ? 'id DESC'
+
+
+
+
+
+
+
+
+
+    : sortBy === 'oldest' ? 'play_count ASC, id ASC'
+
+
+
+
+
+
+
+
+
+    : 'play_count DESC, id DESC';
+
+
+
+
+
+
+
+
+
+  // artist(JOIN)分支用：给字段名加 s. 前缀
+
+
+
+
+
+
+
+
+
+  const orderByS = orderBy.replace(/(^|, )(title|artist|play_count|id)/g, '$1s.$2');
 
 
 
@@ -12390,7 +12620,27 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    baseSql = `SELECT s.* FROM songs s JOIN song_artists sa ON sa.song_id = s.id WHERE ${where} ORDER BY s.title`;
+    if (typeClause) where += ` AND s.${typeClause}`;
+
+
+
+
+
+
+
+
+
+    if (lyricsClause) where += ` AND s.${lyricsClause}`;
+
+
+
+
+
+
+
+
+
+    baseSql = `SELECT s.* FROM songs s JOIN song_artists sa ON sa.song_id = s.id WHERE ${where} ORDER BY ${orderByS}`;
 
 
 
@@ -12640,7 +12890,27 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    baseSql = `SELECT * FROM songs WHERE ${where} ORDER BY id DESC`;
+    if (typeClause) where += ` AND ${typeClause}`;
+
+
+
+
+
+
+
+
+
+    if (lyricsClause) where += ` AND ${lyricsClause}`;
+
+
+
+
+
+
+
+
+
+    baseSql = `SELECT * FROM songs WHERE ${where} ORDER BY ${orderBy}`;
 
 
 
@@ -12770,7 +13040,27 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    baseSql = `SELECT * FROM songs WHERE ${where} ORDER BY play_count DESC, id DESC`;
+    if (typeClause) where += ` AND ${typeClause}`;
+
+
+
+
+
+
+
+
+
+    if (lyricsClause) where += ` AND ${lyricsClause}`;
+
+
+
+
+
+
+
+
+
+    baseSql = `SELECT * FROM songs WHERE ${where} ORDER BY ${orderBy}`;
 
 
 
@@ -12830,7 +13120,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    baseSql = `SELECT * FROM songs ORDER BY play_count DESC, id DESC`;
+    let where = '1=1';
 
 
 
@@ -12840,7 +13130,37 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    countSql = `SELECT COUNT(*) c FROM songs`;
+    if (typeClause) where += ` AND ${typeClause}`;
+
+
+
+
+
+
+
+
+
+    if (lyricsClause) where += ` AND ${lyricsClause}`;
+
+
+
+
+
+
+
+
+
+    baseSql = `SELECT * FROM songs WHERE ${where} ORDER BY ${orderBy}`;
+
+
+
+
+
+
+
+
+
+    countSql = `SELECT COUNT(*) c FROM songs WHERE ${where}`;
 
 
 
@@ -22526,6 +22846,26 @@ app.get('/api/stats', (req, res) => {
 
 
 
+  const songCountVideo = db.prepare("SELECT COUNT(*) c FROM songs WHERE media_type = 'video'").get().c;
+
+
+
+
+
+
+
+
+
+  const songCountAudio = db.prepare("SELECT COUNT(*) c FROM songs WHERE media_type IN ('audio','cue')").get().c;
+
+
+
+
+
+
+
+
+
   const queueCount = db.prepare("SELECT COUNT(*) c FROM queue WHERE status!='done'").get().c;
 
 
@@ -22587,6 +22927,16 @@ app.get('/api/stats', (req, res) => {
 
 
     songCount, songCountLocal, songCountNetwork,
+
+
+
+
+
+
+
+
+
+    songCountVideo, songCountAudio,
 
 
 
