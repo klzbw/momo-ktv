@@ -64,6 +64,8 @@ async function enqueueMissingAlign(db, { limit = 100 } = {}) {
       // best-effort 补抓在线歌词作为 ref（DB 已有歌词则不重复抓）
       if (!song.lyrics || !String(song.lyrics).trim()) {
         try {
+          // 注意：网络歌词抓取已由 lyrics.js 的 ENABLE_WEB_LYRICS 总开关禁用（自动歌词已生效）
+          // 此处 resolveLyrics 仍会读取本地同名 .lrc 作为 ref，但不会发起网络请求
           const r = await lyricsMod.resolveLyrics(song, { allowOnline: true });
           if (r && r.lrc) {
             updateLyrics.run(r.lrc, r.source, song.id);

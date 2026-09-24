@@ -11,6 +11,9 @@ const log = require('./logger');
 
 const FETCH_TIMEOUT_MS = 8000;
 
+// 网络歌词抓取总开关：自动歌词已生效后禁用网络抓取，仅保留本地同名lrc
+const ENABLE_WEB_LYRICS = false;
+
 // 带超时的 fetch（Node 20 全局 fetch + AbortController）
 async function fetchText(url, { headers = {}, timeout = FETCH_TIMEOUT_MS } = {}) {
   const ctrl = new AbortController();
@@ -209,6 +212,7 @@ const SOURCES = [
 
 // 在线抓取：按顺序尝试四源，成功且能规范化出非空歌词即返回；全部失败返回 null
 async function fetchLyricsOnline(title, artist) {
+  if (!ENABLE_WEB_LYRICS) return null; // 自动歌词已生效，禁用网络抓取
   for (const [name, fn] of SOURCES) {
     try {
       const r = await fn(title, artist);
@@ -233,7 +237,7 @@ async function resolveLyrics(song, { allowOnline = true } = {}) {
     const norm = normalizeLrc(local);
     if (norm && norm.includes('[')) return { lrc: norm, source: 'local' };
   }
-  if (allowOnline) return fetchLyricsOnline(song.title, song.artist);
+  if (allowOnline && ENABLE_WEB_LYRICS) return fetchLyricsOnline(song.title, song.artist);
   return null;
 }
 

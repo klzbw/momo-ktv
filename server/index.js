@@ -7410,7 +7410,9 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
 
-  const r = await lyricsMod.resolveLyrics(song, { allowOnline: true });
+  // 网络歌词抓取已由 lyrics.js 的 ENABLE_WEB_LYRICS 总开关禁用（自动歌词已生效，47首逐字歌词已生成）
+  // 此处显式传 allowOnline:false 明确意图；本地同名 .lrc 仍由 resolveLyrics 内部 findLocalLrc 正常读取
+  const r = await lyricsMod.resolveLyrics(song, { allowOnline: false });
 
 
 
@@ -7712,6 +7714,8 @@ app.get('/api/songs/:id/lyrics', async (req, res) => {
 
 app.post('/api/songs/:id/lyrics/fetch', async (req, res) => {
   try {
+    // 网络歌词抓取已禁用（自动歌词生效后）
+    return res.status(403).json({ error: '网络歌词抓取已禁用，自动歌词已生效' });
     const id = parseInt(req.params.id, 10);
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
     const song = db.prepare('SELECT * FROM songs WHERE id=?').get(id);
@@ -8319,7 +8323,9 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
-        const r = await lyricsMod.resolveLyrics(song, { allowOnline: true });
+        // 网络歌词抓取已由 lyrics.js 的 ENABLE_WEB_LYRICS 总开关禁用（自动歌词已生效，47首逐字歌词已生成）
+  // 此处显式传 allowOnline:false 明确意图；本地同名 .lrc 仍由 resolveLyrics 内部 findLocalLrc 正常读取
+  const r = await lyricsMod.resolveLyrics(song, { allowOnline: false });
 
 
 

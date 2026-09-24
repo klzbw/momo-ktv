@@ -5126,6 +5126,19 @@ function openPF(name){
   document.querySelectorAll('.pd').forEach(p=>{p.classList.remove('open');p.classList.remove('show');});
   const el=document.getElementById(`pf-${name}`);
   el.classList.add('open');
+  if(name==='online'){
+    // 进入在线音乐：全面停止K歌播放（保留队列和curSong，返回后可继续）
+    try{ if(!video.paused) video.pause(); }catch(e){}
+    try{ destroyHls(); }catch(e){}
+    try{ if(_mseMkvPlayer){_mseMkvPlayer.destroy();_mseMkvPlayer=null;} }catch(e){}
+    try{ video.removeAttribute('src'); video.load(); }catch(e){}
+    try{ Lyrics.reset(); }catch(e){}
+    try{ BgStage.show(false); }catch(e){}
+    try{ VoiceManager.dualReset(); }catch(e){}
+    try{ window.hideVocalPop&&window.hideVocalPop(); }catch(e){}
+    try{ stopCacheProgressPoll(); }catch(e){}
+    try{ document.getElementById('video-loading').classList.remove('show'); }catch(e){}
+  }
   focIdx=0;
   const inits={artists:initArtists,order:initOrder,history:initHistory,favorites:initFavorites,category:initCategory,charts:loadCharts,newest:loadNewest,online:loadOnline};
   if(inits[name])inits[name]();
@@ -5168,6 +5181,15 @@ function closePF(name){
   const el=document.getElementById(`pf-${name}`);
   if(!el.classList.contains('open'))return; // 已经是关着的，避免重复触发popFocus打乱焦点栈
   el.classList.remove('open');
+  if(name==='online'){
+    // 返回主界面：全面停止在线音乐播放
+    try{ if(_onlineAudio&&!_onlineAudio.paused) _onlineAudio.pause(); }catch(e){}
+    try{ _onlineLrcLines=[]; }catch(e){}
+    // 关闭在线音乐全屏
+    try{ const ofs=document.getElementById('online-fullscreen'); if(ofs) ofs.classList.remove('open'); }catch(e){}
+    // 更新播放图标为暂停状态
+    try{ updateOnlinePlayIcon(); }catch(e){}
+  }
   playCloseAnim(el);
   // 关子面板后若父面板存在则保持
   const map={'artist-songs':'artists'};
