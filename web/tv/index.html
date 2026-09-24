@@ -5895,7 +5895,7 @@ async function _omLoadFfmpeg(){
       coreURL:'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js'
     });
     _ffmpegInstance=ffmpeg;
-    console.log('[在线音乐] ffmpeg.wasm 加载完成');
+    // console.log('[在线音乐] ffmpeg.wasm 加载完成');
     return ffmpeg;
   }finally{
     _ffmpegLoading=false;
@@ -5943,14 +5943,14 @@ async function _omStartPlayback(s){
       if(probe.ok){
         const info=await probe.json();
         needClientDecode=info.needClientDecode===true;
-        if(info.isDtsWav) console.log('[在线音乐] 服务端检测到DTS-WAV:',s.title);
+        // if(info.isDtsWav) console.log('[在线音乐] 服务端检测到DTS-WAV:',s.title);
       }
     }catch(e){ console.warn('[在线音乐] 格式探测失败，按扩展名判断:',e.message); }
   }
   if(needClientDecode){
     try{
       _omSetPlayMode('client');
-      console.log('[在线音乐] 客户端解码播放:',s.title,'('+ext+')');
+      // console.log('[在线音乐] 客户端解码播放:',s.title,'('+ext+')');
       const objUrl=await _omClientDecode(s);
       _onlineAudio.src=objUrl;
     }catch(e){
@@ -5960,7 +5960,7 @@ async function _omStartPlayback(s){
     }
   }else{
     _omSetPlayMode('direct');
-    console.log('[在线音乐] 302直连播放:',s.title,'('+ext+')');
+    // console.log('[在线音乐] 302直连播放:',s.title,'('+ext+')');
     _onlineAudio.src='/api/netktv/music/stream/'+s.id;
   }
 }

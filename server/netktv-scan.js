@@ -998,7 +998,7 @@ function init(db, cloudDrive) {
 
         ffmpeg = spawn('ffmpeg', [
           '-hide_banner', '-loglevel', 'error',
-          '-analyzeduration', '0', '-probesize', '32',
+          '-analyzeduration', '5000000', '-probesize', '5000000',
           '-fflags', '+nobuffer',
           '-i', strmContent,
           '-vn',
