@@ -1342,6 +1342,22 @@ html[data-layout="mobile"] .ak-toggle{padding:5px 12px;font-size:13px}
 .om-row-t{font-size:16px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .om-row-a{font-size:13px;color:rgba(255,255,255,.5);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .om-row-dur{font-size:13px;color:rgba(255,255,255,.4);flex-shrink:0;font-variant-numeric:tabular-nums}
+/* hover序号变播放图标 + 当前播放EQ动画 */
+.om-num{position:relative}
+.om-num-txt{display:inline}
+.om-num-ic{display:none;align-items:center;justify-content:center;color:var(--ac)}
+.om-row:hover .om-num-txt{display:none}
+.om-row:hover .om-num-ic{display:flex}
+.om-eq{display:none;align-items:flex-end;gap:2px;height:14px}
+.om-eq i{width:3px;background:var(--ac);border-radius:1px;animation:om-eq .8s ease-in-out infinite}
+.om-eq i:nth-child(2){animation-delay:.2s}
+.om-eq i:nth-child(3){animation-delay:.4s}
+@keyframes om-eq{0%,100%{height:4px}50%{height:14px}}
+.om-row.playing .om-num-txt{display:none}
+.om-row.playing .om-num-ic{display:none}
+.om-row.playing:hover .om-num-ic{display:flex}
+.om-row.playing:hover .om-eq{display:none}
+.om-row.playing .om-eq{display:flex}
 /* 右侧栏 */
 .om-right{width:280px;flex-shrink:0;background:rgba(0,0,0,.3);border-left:1px solid rgba(255,255,255,.06);
   display:flex;flex-direction:column;overflow:hidden}
@@ -5713,10 +5729,10 @@ function renderOnlineList(page){
     const dur=s.duration?fmtDur(s.duration):'--:--';
     d.innerHTML=
       '<div class="om-thumb" style="'+coverStyle+'">'+(s.cover?'':_omInitial(s.title))+'</div>'+
-      '<div class="om-num">'+(gi+1)+'</div>'+
+      '<div class="om-num"><span class="om-num-txt">'+(gi+1)+'</span>'+'<svg class="om-num-ic" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>'+'<span class="om-eq"><i></i><i></i><i></i></span></div>'+
       '<div class="om-row-txt"><div class="om-row-t">'+s.title+'</div><div class="om-row-a">'+(s.artist||'')+'</div></div>'+
       '<div class="om-row-dur">'+dur+'</div>';
-    d.onclick=()=>playOnlineSong(gi);
+    d._songId=s.id;d.onclick=()=>playOnlineSong(gi);
     frag.appendChild(d);
   });
   el.appendChild(frag);
@@ -5950,6 +5966,14 @@ function updateOnlinePlayIcon(){
   const playing=_onlineAudio&&!_onlineAudio.paused;
   const big=document.getElementById('online-play-btn');if(big)big.innerHTML=playing?ICO_ON_PAUSE:ICO_ON_PLAY;
   const fs=document.getElementById('of-play-btn');if(fs)fs.innerHTML=playing?ICO_ON_PAUSE:ICO_ON_PLAY;
+  // 同步列表当前行playing类（EQ动画）
+  document.querySelectorAll('#pl-online .om-row.playing').forEach(r=>r.classList.remove('playing'));
+  if(playing&&_onlineSongList[_onlineIdx]){
+    const rows=document.querySelectorAll('#pl-online .om-row');
+    rows.forEach(r=>{
+      if(r._songId===_onlineSongList[_onlineIdx].id)r.classList.add('playing');
+    });
+  }
 }
 function updateOnlineFsMeta(){
   const s=_onlineSongList[_onlineIdx];if(!s)return;
