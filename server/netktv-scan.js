@@ -67,42 +67,63 @@ function _fetchFollowRedirect(url, headers, redirectCount) {
   });
 }
 
-// 检测WAV是否为DTS-WAV伪装（扩展名.wav但实际编码是DTS）
-// 读取前4KB解析WAV头，检查data chunk后前4字节是否为DTS sync word
-function _detectDtsWav(url) {
+// 探测WAV详细格式：解析fmt chunk返回audio_format/bits/channels，检测DTS/AC3-WAV伪装
+// 读取前128KB覆盖有大LIST/INFO元数据chunk的情况；找不到data chunk时保守判定需客户端解码
+function _probeWavFormat(url) {
   return new Promise(async (resolve) => {
     try {
-      // 使用 _fetchFollowRedirect 跟随 AList->CDN 重定向链，否则拿到的是302响应体
-      const resp = await _fetchFollowRedirect(url, { 'User-Agent': 'Mozilla/5.0', 'Range': 'bytes=0-4095' });
-      if (resp.statusCode >= 400) { resp.resume(); return resolve(false); }
+      const resp = await _fetchFollowRedirect(url, { 'User-Agent': 'Mozilla/5.0', 'Range': 'bytes=0-131071' });
+      if (resp.statusCode >= 400) { resp.resume(); return resolve({ needClientDecode: false }); }
       const chunks = [];
       resp.on('data', (c) => chunks.push(c));
       resp.on('end', () => {
         try {
           const buf = Buffer.concat(chunks);
           if (buf.length < 44 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') {
-            return resolve(false);
+            return resolve({ needClientDecode: false });
           }
-          let offset = 12;
-          while (offset + 8 <= buf.length) {
-            const chunkId = buf.toString('ascii', offset, offset + 4);
-            const chunkSize = buf.readUInt32LE(offset + 4);
-            if (chunkId === 'data') {
-              const ds = offset + 8;
-              if (ds + 4 <= buf.length) {
-                const isDts = (buf[ds]===0x7F && buf[ds+1]===0xFE && buf[ds+2]===0x80 && buf[ds+3]===0x01) ||
-                              (buf[ds]===0x01 && buf[ds+1]===0x80 && buf[ds+2]===0xFE && buf[ds+3]===0x7F);
-                return resolve(isDts);
-              }
-              return resolve(false);
+          const result = { audioFormat: 1, bitsPerSample: 16, channels: 2, sampleRate: 44100, isDtsWav: false, isAc3Wav: false, hasDataChunk: false, needClientDecode: false };
+          const findSync = (start, end, pattern) => {
+            const limit = Math.min(end, buf.length - pattern.length);
+            for (let i = start; i < limit; i++) {
+              let match = true;
+              for (let j = 0; j < pattern.length; j++) { if (buf[i+j] !== pattern[j]) { match = false; break; } }
+              if (match) return true;
             }
-            offset += 8 + chunkSize + (chunkSize % 2);
+            return false;
+          };
+          const DTS_BE = [0x7F,0xFE,0x80,0x01], DTS_LE = [0x01,0x80,0xFE,0x7F], AC3 = [0x0B,0x77];
+          let offset = 12, dataStart = -1, extensibleSub = null;
+          while (offset + 8 <= buf.length) {
+            const cid = buf.toString('ascii', offset, offset + 4);
+            const cs = buf.readUInt32LE(offset + 4);
+            if (cid === 'fmt ' && offset + 8 + 16 <= buf.length) {
+              result.audioFormat = buf.readUInt16LE(offset + 8);
+              result.channels = buf.readUInt16LE(offset + 10);
+              result.sampleRate = buf.readUInt32LE(offset + 12);
+              result.bitsPerSample = buf.readUInt16LE(offset + 22);
+              if (result.audioFormat === 0xFFFE && offset + 8 + 24 + 16 <= buf.length) {
+                extensibleSub = buf.slice(offset + 8 + 24, offset + 8 + 24 + 16).toString('hex');
+              }
+            }
+            if (cid === 'data') { dataStart = offset + 8; result.hasDataChunk = true; break; }
+            if (cs <= 0 || cs > buf.length * 2) break;
+            offset += 8 + cs + (cs % 2);
           }
-          resolve(false);
-        } catch { resolve(false); }
+          if (dataStart > 0 && dataStart + 4 <= buf.length) {
+            if (findSync(dataStart, dataStart + 512, DTS_BE) || findSync(dataStart, dataStart + 512, DTS_LE)) result.isDtsWav = true;
+            if (findSync(dataStart, dataStart + 512, AC3)) result.isAc3Wav = true;
+          }
+          if (result.isDtsWav || result.isAc3Wav) result.needClientDecode = true;
+          else if (result.audioFormat !== 1 && result.audioFormat !== 0xFFFE) result.needClientDecode = true;
+          else if (result.audioFormat === 0xFFFE && extensibleSub && !extensibleSub.startsWith('0100000000001000800000aa00389b71')) result.needClientDecode = true;
+          else if (result.bitsPerSample > 16) result.needClientDecode = true;
+          else if (!result.hasDataChunk) result.needClientDecode = true;
+          resolve(result);
+        } catch { resolve({ needClientDecode: false }); }
       });
-      resp.on('error', () => resolve(false));
-    } catch { resolve(false); }
+      resp.on('error', () => resolve({ needClientDecode: false }));
+    } catch { resolve({ needClientDecode: false }); }
   });
 }
 
@@ -866,8 +887,8 @@ function init(db, cloudDrive) {
     }
   });
 
-  // GET /api/netktv/music/format/:id — 轻量格式探测（仅读前4KB，不下载完整文件）
-  // 返回歌曲实际格式信息，前端据此决定直连/客户端解码，避免DTS-WAV误判产生雪花声
+  // GET /api/netktv/music/format/:id — 轻量格式探测（仅读前128KB，不下载完整文件）
+  // 返回歌曲实际格式信息，前端据此决定直连/客户端解码，避免DTS-WAV/AC3-WAV误判产生雪花声
   router.get('/music/format/:id', async (req, res) => {
     try {
       const song = db.prepare("SELECT * FROM songs WHERE id=? AND source_root LIKE 'netktv-music%'").get(parseInt(req.params.id, 10));
@@ -878,12 +899,16 @@ function init(db, cloudDrive) {
       const strmContent = fs.readFileSync(song.vocal_path, 'utf-8').trim();
       if (!strmContent.startsWith('http')) return res.status(500).json({ error: 'STRM内容无效' });
       const ext = _extFromUrl(strmContent);
+      let wavInfo = { needClientDecode: false };
       let isDtsWav = false;
       if (ext === 'wav') {
-        isDtsWav = await _detectDtsWav(strmContent);
+        wavInfo = await _probeWavFormat(strmContent);
+        isDtsWav = wavInfo.isDtsWav === true;
       }
-      const needClientDecode = isDtsWav || ['ape','wma','dsf','dff','wv'].indexOf(ext) >= 0;
-      res.json({ ext, isDtsWav, needClientDecode, native: !needClientDecode });
+      // needClientDecode由_probeWavFormat内部完整判断（DTS/AC3/非PCM/24bit+/无data chunk），非WAV格式按扩展名判断
+      const needClientDecode = (ext === 'wav' ? wavInfo.needClientDecode === true : false)
+        || ['ape','wma','dsf','dff','wv'].indexOf(ext) >= 0;
+      res.json({ ext, isDtsWav, needClientDecode, native: !needClientDecode, wav: wavInfo });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -925,8 +950,8 @@ function init(db, cloudDrive) {
       // WAV优化: 先检测是否DTS-WAV伪装, 真正PCM WAV直接转发零延迟, 只有DTS才转码
       let isDtsWav = false;
       if (ext === 'wav') {
-        isDtsWav = await _detectDtsWav(strmContent);
-        if (isDtsWav) { isNative = false; console.log('[MUSIC-PROXY] 检测到DTS-WAV, 转码:', song.title); }
+        isDtsWav = (await _probeWavFormat(strmContent)).isDtsWav;
+        if (isDtsWav) { isNative = false; }
       }
 
       // 客户端断开时清理资源
