@@ -759,11 +759,11 @@ function init(db, cloudDrive) {
     try {
       const limit = parseInt(req.query.limit) || 0;
       const offset = parseInt(req.query.offset) || 0;
-      let sql = "SELECT id, title, artist, filename, cloud_account_id, duration, cover FROM songs WHERE source_root='netktv-music' ORDER BY id DESC";
+      let sql = "SELECT id, title, artist, filename, cloud_account_id, duration, cover FROM songs WHERE source_root LIKE 'netktv-music%' ORDER BY id DESC";
       const params = [];
       if (limit > 0) { sql += " LIMIT ? OFFSET ?"; params.push(limit, offset); }
       const songs = db.prepare(sql).all(...params);
-      const total = db.prepare("SELECT COUNT(*) as cnt FROM songs WHERE source_root='netktv-music'").get();
+      const total = db.prepare("SELECT COUNT(*) as cnt FROM songs WHERE source_root LIKE 'netktv-music%'").get();
       res.json({ songs, total: total.cnt });
     } catch (e) {
       res.status(500).json({ error: e.message });
@@ -773,7 +773,7 @@ function init(db, cloudDrive) {
   // GET /api/netktv/music/stream/:id — 302到AList直链播放
   router.get('/music/stream/:id', (req, res) => {
     try {
-      const song = db.prepare("SELECT * FROM songs WHERE id=? AND source_root='netktv-music'").get(parseInt(req.params.id, 10));
+      const song = db.prepare("SELECT * FROM songs WHERE id=? AND source_root LIKE 'netktv-music%'").get(parseInt(req.params.id, 10));
       if (!song) return res.status(404).json({ error: '歌曲不存在' });
       if (!song.vocal_path || !fs.existsSync(song.vocal_path)) {
         return res.status(404).json({ error: 'STRM文件不存在' });

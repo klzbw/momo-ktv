@@ -1285,49 +1285,185 @@ html[data-layout="mobile"] .ak-toggle{padding:5px 12px;font-size:13px}
 .ak-clr{background:rgba(255,79,155,.15);border-color:rgba(255,79,155,.3);color:#fff;grid-column:span 2;font-size:17px;font-weight:600}
 @media(hover:hover){.ak-clr:hover{background:rgba(255,79,155,.4);border-color:var(--pink);color:#fff;transform:scale(1.08)}}
 .ak-clr[data-f].focused{background:rgba(255,79,155,.4);border-color:var(--pink);color:#fff;transform:scale(1.08)}
-/* 在线音乐：歌名/歌手 模式切换 tab */
-.on-mode-tabs{display:flex;gap:8px;margin-bottom:12px}
-.on-mode-tab{flex:1;padding:8px 0;border-radius:999px;border:1.5px solid rgba(255,255,255,.15);
-  background:rgba(255,255,255,.06);color:#aaa;font-size:15px;font-weight:700;cursor:pointer;
+/* ===== 在线音乐 UI 升级（三栏布局 + 播放栏 + 全屏 + 队列） ===== */
+/* 三栏布局容器 */
+.om-body{flex:1;display:flex;overflow:hidden;background:linear-gradient(180deg,#1a1528 0%,#0d0b14 100%)}
+/* 左侧栏 */
+.om-sidebar{width:220px;flex-shrink:0;background:rgba(0,0,0,.35);border-right:1px solid rgba(255,255,255,.06);
+  padding:18px 14px;display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
+.om-side-logo{font-size:18px;font-weight:800;margin-bottom:16px;
+  background:linear-gradient(90deg,#c736f7,#ff4f9b);-webkit-background-clip:text;background-clip:text;color:transparent}
+.om-nav{display:flex;flex-direction:column;gap:4px;margin-bottom:18px}
+.om-nav-item{padding:11px 14px;border-radius:10px;background:transparent;border:none;color:rgba(255,255,255,.6);
+  font-size:15px;font-weight:600;cursor:pointer;text-align:left;transition:.15s;outline:none;-webkit-tap-highlight-color:transparent}
+.om-nav-item:hover{background:rgba(255,255,255,.06);color:#fff}
+.om-nav-item.sel{background:linear-gradient(135deg,rgba(199,54,247,.25),rgba(255,79,155,.2));color:#fff}
+.om-nav-item.sel::before{content:'';display:inline-block;width:3px;height:16px;background:linear-gradient(180deg,#c736f7,#ff4f9b);border-radius:2px;margin-right:8px;vertical-align:middle}
+/* 键盘折叠 */
+.om-kb-wrap{background:rgba(255,255,255,.04);border-radius:12px;padding:10px}
+.om-kb-head{display:flex;justify-content:space-between;align-items:center;cursor:pointer;
+  padding:6px 4px;font-size:14px;font-weight:600;color:#ccc}
+.om-kb-arrow{transition:.2s;font-size:12px}
+.om-kb-wrap.collapsed .om-kb-arrow{transform:rotate(-90deg)}
+.om-kb-body{margin-top:8px;overflow:hidden;max-height:600px;transition:max-height .3s ease}
+.om-kb-wrap.collapsed .om-kb-body{max-height:0;overflow:hidden;margin-top:0}
+/* 歌名/歌手 tab（保留原有样式，微调） */
+.on-mode-tabs{display:flex;gap:6px;margin-bottom:10px}
+.on-mode-tab{flex:1;padding:7px 0;border-radius:999px;border:1.5px solid rgba(255,255,255,.15);
+  background:rgba(255,255,255,.06);color:#aaa;font-size:14px;font-weight:700;cursor:pointer;
   outline:none;-webkit-tap-highlight-color:transparent;transition:.15s}
-.on-mode-tab.sel{background:linear-gradient(135deg,#f62c55,#ff6b9d);border-color:transparent;color:#fff}
+.on-mode-tab.sel{background:linear-gradient(135deg,#c736f7,#7b2cf7);border-color:transparent;color:#fff}
 .on-mode-tab[data-f].focused{border-color:var(--ac);transform:scale(1.05)}
-/* 在线音乐全屏播放器 */
-#online-fullscreen{position:fixed;inset:0;z-index:2000;display:none;flex-direction:column;
-  background:#0d0b14;opacity:0;transition:opacity .35s ease}
+/* alpha-disp 缩小适配侧栏 */
+.om-kb-body .alpha-disp{padding:8px 10px;margin-bottom:10px;border-radius:10px}
+.om-kb-body .ad-txt{font-size:16px;letter-spacing:1px}
+.om-kb-body .alpha-disp .di{font-size:18px}
+.om-kb-body .alpha-keys{gap:5px;padding:2px}
+.om-kb-body .ak{height:44px;font-size:18px;border-radius:8px}
+/* 中间主区域 */
+.om-main{flex:1;display:flex;flex-direction:column;padding:16px 20px;overflow:hidden;min-width:0}
+.om-main-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0}
+.om-count{font-size:14px;color:#aaa;font-weight:600}
+.om-scan-btn{padding:7px 16px;border-radius:999px;border:1px solid rgba(199,54,247,.4);
+  background:rgba(199,54,247,.15);color:#fff;font-size:14px;cursor:pointer;transition:.2s;outline:none}
+.om-scan-btn:hover,.om-scan-btn[data-f].focused{background:rgba(199,54,247,.35);border-color:var(--ac);transform:scale(1.05)}
+.om-songlist{padding-bottom:80px}
+/* 歌曲行：封面缩略图 + 序号 + 歌名歌手 + 时长 */
+.om-row{display:flex;align-items:center;padding:10px 12px;border-radius:10px;
+  background:transparent;transition:background .3s cubic-bezier(0.25,0.46,0.45,0.94);cursor:pointer;gap:12px}
+.om-row:hover{background:rgba(255,255,255,.06)}
+.om-row.cur{background:rgba(199,54,247,.15)}
+.om-thumb{width:40px;height:40px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  font-size:16px;font-weight:700;color:#fff;background:linear-gradient(135deg,#c736f7,#7b2cf7);
+  background-size:cover;background-position:center}
+.om-num{width:28px;text-align:center;font-size:14px;color:rgba(255,255,255,.4);flex-shrink:0;font-variant-numeric:tabular-nums}
+.om-row.cur .om-num{color:var(--ac)}
+.om-row-txt{flex:1;min-width:0}
+.om-row-t{font-size:16px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.om-row-a{font-size:13px;color:rgba(255,255,255,.5);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.om-row-dur{font-size:13px;color:rgba(255,255,255,.4);flex-shrink:0;font-variant-numeric:tabular-nums}
+/* 右侧栏 */
+.om-right{width:280px;flex-shrink:0;background:rgba(0,0,0,.3);border-left:1px solid rgba(255,255,255,.06);
+  display:flex;flex-direction:column;overflow:hidden}
+.om-right-inner{flex:1;display:flex;flex-direction:column;padding:24px 18px;overflow:hidden}
+.om-mini-cover{width:120px;height:120px;border-radius:16px;margin:0 auto 16px;
+  background:linear-gradient(135deg,#3a2a5a,#5a2440);display:flex;align-items:center;justify-content:center;
+  font-size:48px;color:rgba(255,255,255,.3);background-size:cover;background-position:center;
+  box-shadow:0 12px 30px rgba(0,0,0,.4)}
+.om-now-info{text-align:center;margin-bottom:20px}
+.om-now-title{font-size:18px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.om-now-artist{font-size:14px;color:rgba(255,255,255,.5);margin-top:4px}
+.om-lrc-box{flex:1;overflow-y:auto;overflow-x:hidden;
+  mask-image:linear-gradient(180deg,transparent,#000 15%,#000 85%,transparent);
+  -webkit-mask-image:linear-gradient(180deg,transparent,#000 15%,#000 85%,transparent)}
+.om-lrc-empty{text-align:center;color:rgba(255,255,255,.3);font-size:14px;padding:40px 0}
+.om-lrc-line{font-size:15px;line-height:1.9;text-align:center;color:rgba(255,255,255,.3);
+  transition:.3s;padding:3px 0;cursor:default}
+.om-lrc-line.cur{color:#fff;font-size:17px;font-weight:600;text-shadow:0 0 12px rgba(255,107,157,.5)}
+.om-lrc-box::-webkit-scrollbar{width:3px}.om-lrc-box::-webkit-scrollbar-thumb{background:rgba(199,54,247,.3);border-radius:2px}
+
+/* 播放队列面板 */
+.om-queue{position:fixed;top:0;right:-340px;bottom:0;width:320px;z-index:1100;
+  background:rgba(18,15,28,.97);backdrop-filter:blur(20px);border-left:1px solid rgba(255,255,255,.08);
+  display:flex;flex-direction:column;transition:right .3s ease}
+.om-queue.open{right:0}
+.om-queue-mask{position:fixed;top:0;right:0;bottom:0;left:0;z-index:1099;background:rgba(0,0,0,.4);
+  opacity:0;pointer-events:none;transition:opacity .3s}
+.om-queue-mask.show{opacity:1;pointer-events:auto}
+.om-queue-head{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;
+  border-bottom:1px solid rgba(255,255,255,.08);font-size:16px;font-weight:700}
+.om-queue-close{width:32px;height:32px;border-radius:50%;border:none;background:rgba(255,255,255,.1);
+  color:#fff;font-size:16px;cursor:pointer}
+.om-queue-mode{display:flex;gap:8px;padding:12px 18px;border-bottom:1px solid rgba(255,255,255,.06)}
+.om-mode-btn{width:38px;height:38px;border-radius:50%;border:1.5px solid rgba(255,255,255,.15);
+  background:transparent;color:#aaa;font-size:16px;cursor:pointer;transition:.15s;outline:none}
+.om-mode-btn.sel{background:linear-gradient(135deg,#c736f7,#7b2cf7);border-color:transparent;color:#fff}
+.om-queue-list{flex:1;overflow-y:auto;padding:8px 0}
+.om-queue-item{display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;transition:.15s}
+.om-queue-item:hover{background:rgba(255,255,255,.05)}
+.om-queue-item.cur{background:rgba(199,54,247,.15)}
+.om-queue-item-cur{width:4px;height:16px;border-radius:2px;background:linear-gradient(180deg,#c736f7,#ff4f9b);flex-shrink:0;display:none}
+.om-queue-item.cur .om-queue-item-cur{display:block}
+.om-queue-item-txt{flex:1;min-width:0}
+.om-queue-item-t{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.om-queue-item-a{font-size:12px;color:rgba(255,255,255,.5)}
+.om-queue-item-del{width:28px;height:28px;border-radius:50%;border:none;background:transparent;
+  color:#888;font-size:14px;cursor:pointer;flex-shrink:0}
+.om-queue-item-del:hover{background:rgba(255,79,155,.2);color:#ff4f9b}
+.om-queue-list::-webkit-scrollbar{width:3px}.om-queue-list::-webkit-scrollbar-thumb{background:rgba(199,54,247,.3);border-radius:2px}
+
+/* 底部播放栏 */
+#online-player-bar{position:fixed;bottom:0;left:0;right:0;height:70px;z-index:1000;
+  background:rgba(18,15,28,.88);backdrop-filter:blur(24px) saturate(180%);
+  border-top:1px solid rgba(255,255,255,.08);
+  display:flex;align-items:stretch;padding:0 24px;gap:20px}
+.opb-left{display:flex;align-items:center;gap:12px;min-width:0;width:280px;flex-shrink:0}
+.opb-cover{width:48px;height:48px;border-radius:10px;flex-shrink:0;
+  background:linear-gradient(135deg,#3a2a5a,#5a2440);display:flex;align-items:center;justify-content:center;
+  font-size:22px;color:rgba(255,255,255,.3);background-size:cover;background-position:center}
+.opb-info{flex:1;min-width:0}
+.opb-title{font-size:15px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.opb-artist{font-size:12px;color:rgba(255,255,255,.5);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.opb-center{flex:1;display:flex;flex-direction:column;justify-content:center;gap:6px;min-width:0}
+.opb-ctrl-row{display:flex;align-items:center;justify-content:center;gap:20px}
+.opb-btn{width:36px;height:36px;border-radius:50%;border:none;background:transparent;
+  color:#ccc;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  transition:.15s;outline:none;-webkit-tap-highlight-color:transparent}
+.opb-btn:hover{color:#fff;background:rgba(255,255,255,.1)}
+.opb-play{width:44px;height:44px;background:linear-gradient(135deg,#c736f7,#7b2cf7);color:#fff}
+.opb-play:hover{background:linear-gradient(135deg,#a028d4,#6a25d4);transform:scale(1.05)}
+.opb-progress-row{display:flex;align-items:center;gap:10px}
+.opb-time{font-size:11px;color:#888;min-width:32px;font-variant-numeric:tabular-nums}
+.opb-progress{flex:1;height:3px;background:rgba(128,128,128,.18);border-radius:2px;cursor:pointer;position:relative}
+.opb-progress-bar{height:100%;width:0;background:linear-gradient(90deg,#c736f7,#ff4f9b);border-radius:2px;transition:width .1s linear}
+.opb-right{display:flex;align-items:center;gap:8px;width:200px;flex-shrink:0;justify-content:flex-end}
+.opb-vol-wrap{display:flex;align-items:center;gap:6px}
+.opb-vol-wrap input[type=range]{width:70px;accent-color:#c736f7;height:4px}
+
+/* 全屏播放器（优化版） */
+#online-fullscreen{position:fixed;top:0;right:0;bottom:0;left:0;z-index:2000;display:none;flex-direction:column;
+  background:#0a0812;opacity:0;transition:opacity .35s ease}
 #online-fullscreen.open{display:flex;opacity:1}
-#of-bg{position:absolute;inset:0;background:linear-gradient(135deg,#3a2a5a 0%,#5a2440 50%,#1a1024 100%);
-  background-size:cover;background-position:center;filter:blur(50px) brightness(.5) scale(1.1);z-index:0}
-#of-top{position:relative;z-index:1;display:flex;align-items:center;gap:14px;padding:22px 30px}
-#of-title{flex:1;font-size:24px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#of-artist{font-size:16px;color:#bbb;min-width:80px}
-#of-close{width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.3);
-  background:rgba(0,0,0,.3);color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;
-  outline:none;-webkit-tap-highlight-color:transparent;flex-shrink:0}
-#of-close:hover,#of-close[data-f].focused{background:rgba(246,44,85,.4);border-color:#f62c55}
-#of-center{position:relative;z-index:1;flex:1;display:flex;align-items:center;gap:50px;padding:0 60px;overflow:hidden}
+#of-bg{position:absolute;top:0;right:0;bottom:0;left:0;
+  background:linear-gradient(135deg,#3a2a5a 0%,#5a2440 50%,#1a1024 100%);
+  background-size:cover;background-position:center;filter:blur(60px) brightness(.45) scale(1.1);z-index:0}
+#of-top{position:relative;z-index:1;display:flex;align-items:center;gap:14px;padding:22px 36px}
+#of-title{flex:1;font-size:22px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#of-artist{font-size:15px;color:rgba(255,255,255,.6)}
+#of-close{width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.25);
+  background:rgba(0,0,0,.3);color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  outline:none;flex-shrink:0;transition:.15s}
+#of-close:hover,#of-close[data-f].focused{background:rgba(199,54,247,.4);border-color:var(--ac)}
+#of-center{position:relative;z-index:1;flex:1;display:flex;align-items:center;gap:60px;padding:0 80px;overflow:hidden}
 #of-cover-wrap{flex-shrink:0}
-#of-cover{width:280px;height:280px;border-radius:24px;box-shadow:0 20px 60px rgba(0,0,0,.6);
+#of-cover{width:260px;height:260px;border-radius:50%;box-shadow:0 20px 60px rgba(0,0,0,.6);
   background-size:cover;background-position:center;background-color:#2a2535;
-  animation:of-spin 18s linear infinite}
+  display:flex;align-items:center;justify-content:center;font-size:80px;color:rgba(255,255,255,.2);
+  border:8px solid rgba(255,255,255,.06);
+  animation:of-spin 20s linear infinite}
 @keyframes of-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 #of-cover.nospin{animation:none}
-#of-lyrics{flex:1;height:60vh;overflow:hidden;mask-image:linear-gradient(180deg,transparent,#000 25%,#000 75%,transparent);
-  -webkit-mask-image:linear-gradient(180deg,transparent,#000 25%,#000 75%,transparent)}
-#of-lyrics .of-lr{font-size:30px;line-height:1.9;text-align:center;color:rgba(255,255,255,.35);
-  transition:.35s;padding:6px 0;font-weight:500}
-#of-lyrics .of-lr.cur{color:#fff;font-size:36px;font-weight:700;text-shadow:0 0 20px rgba(255,107,157,.6)}
-#of-bottom{position:relative;z-index:1;padding:16px 60px 34px}
-#of-progress{height:6px;background:rgba(255,255,255,.15);border-radius:3px;cursor:pointer;margin-bottom:10px}
-#of-progress-bar{height:100%;width:0;background:linear-gradient(90deg,#f62c55,#ff6b9d);border-radius:3px}
-#of-time-row{display:flex;justify-content:space-between;font-size:13px;color:#aaa;margin-bottom:140px}
-#of-ctrl{display:flex;align-items:center;justify-content:center;gap:40px}
-.of-btn{width:64px;height:64px;border-radius:50%;border:none;background:rgba(255,255,255,.12);
+#of-lyrics{flex:1;height:60vh;overflow:hidden;
+  mask-image:linear-gradient(180deg,transparent,#000 20%,#000 80%,transparent);
+  -webkit-mask-image:linear-gradient(180deg,transparent,#000 20%,#000 80%,transparent)}
+#of-lyrics .of-lr{font-size:26px;line-height:1.9;text-align:center;color:rgba(255,255,255,.3);
+  transition:.35s;padding:6px 0;font-weight:500;cursor:default}
+#of-lyrics .of-lr.cur{color:#fff;font-size:32px;font-weight:700;text-shadow:0 0 20px rgba(199,54,247,.6)}
+#of-bottom{position:relative;z-index:1;padding:16px 80px 36px}
+#of-progress{height:5px;background:rgba(255,255,255,.15);border-radius:3px;cursor:pointer;margin-bottom:8px}
+#of-progress-bar{height:100%;width:0;background:linear-gradient(90deg,#c736f7,#ff4f9b);border-radius:3px}
+#of-time-row{display:flex;justify-content:space-between;font-size:13px;color:#aaa;margin-bottom:30px}
+#of-ctrl{display:flex;align-items:center;justify-content:center;gap:36px}
+.of-btn{width:56px;height:56px;border-radius:50%;border:none;background:rgba(255,255,255,.1);
   color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;
-  outline:none;-webkit-tap-highlight-color:transparent;transition:.15s}
-.of-btn:hover,.of-btn[data-f].focused{background:rgba(246,44,85,.4)}
-.of-play{width:84px;height:84px;background:linear-gradient(135deg,#f62c55,#ff6b9d)}
-#of-volume{width:140px;accent-color:#f62c55}
+  outline:none;transition:.15s;font-size:20px}
+.of-btn:hover,.of-btn[data-f].focused{background:rgba(199,54,247,.4)}
+.of-play{width:76px;height:76px;background:linear-gradient(135deg,#c736f7,#7b2cf7)}
+#of-volume{width:120px;accent-color:#c736f7}
+/* 小屏适配：隐藏右侧栏 */
+@media(max-width:1100px){.om-right{display:none}}
+@media(max-width:800px){.om-sidebar{width:180px}.om-right{display:none}}
+
 /* 分类点歌：语种/风格 chip 列表，跟字母键盘(.ak)用同一套视觉语言 */
 .cat-panel{overflow-y:auto}
 .cat-group-title{font-size:14px;color:var(--sub);font-weight:700;margin:14px 0 8px;letter-spacing:1px}
@@ -1953,14 +2089,26 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
 </div>
 <div class="pd-full" id="pf-online">
   <div class="pf-head"><h2>🎵 在线音乐</h2><div class="pf-back" data-f onclick="closePF('online')">返回</div></div>
-  <div class="pf-body" style="background:linear-gradient(180deg,#2d293a 0%,#14121b 100%)">
-    <div class="alpha-panel">
-      <div class="on-mode-tabs">
-        <button class="on-mode-tab sel" data-f id="on-mode-title" onclick="toggleOnMode('title')">歌名</button>
-        <button class="on-mode-tab" data-f id="on-mode-artist" onclick="toggleOnMode('artist')">歌手</button>
-      </div>
-      <div class="alpha-disp"><span class="di">🔍</span><span class="ad-txt" id="on-keys-txt">歌名搜索</span><button class="ak-toggle" data-f id="on-toggle" onclick="toggleAlphaMode('on')">123</button></div>
-      <div class="alpha-keys" id="on-keys"><div class="ak" data-f onclick="handleAlpha('on','A')">A</div>
+  <div class="om-body">
+    <!-- 左侧栏：标题 + 分类导航 + 虚拟键盘 -->
+    <aside class="om-sidebar">
+      <div class="om-side-logo">🎵 在线音乐</div>
+      <nav class="om-nav">
+        <button class="om-nav-item sel" data-f onclick="omFilter('all')">🎶 全部歌曲</button>
+        <button class="om-nav-item" data-f onclick="omFilter('artist')">🎤 歌手列表</button>
+        <button class="om-nav-item" data-f onclick="omFilter('recent')">🕐 最近播放</button>
+      </nav>
+      <div class="om-kb-wrap" id="om-kb-wrap">
+        <div class="om-kb-head" onclick="toggleOmKeyboard()">
+          <span>⌨️ 搜索键盘</span><span id="om-kb-arrow">▾</span>
+        </div>
+        <div class="om-kb-body" id="om-kb-body">
+          <div class="on-mode-tabs">
+            <button class="on-mode-tab sel" data-f id="on-mode-title" onclick="toggleOnMode('title')">歌名</button>
+            <button class="on-mode-tab" data-f id="on-mode-artist" onclick="toggleOnMode('artist')">歌手</button>
+          </div>
+          <div class="alpha-disp"><span class="di">🔍</span><span class="ad-txt" id="on-keys-txt">歌名搜索</span><button class="ak-toggle" data-f id="on-toggle" onclick="toggleAlphaMode('on')">123</button></div>
+          <div class="alpha-keys" id="on-keys"><div class="ak" data-f onclick="handleAlpha('on','A')">A</div>
 <div class="ak" data-f onclick="handleAlpha('on','B')">B</div>
 <div class="ak" data-f onclick="handleAlpha('on','C')">C</div>
 <div class="ak" data-f onclick="handleAlpha('on','D')">D</div>
@@ -1987,7 +2135,7 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
 <div class="ak" data-f onclick="handleAlpha('on','Y')">Y</div>
 <div class="ak" data-f onclick="handleAlpha('on','Z')">Z</div>
 <div class="ak ak-clr" data-f onclick="handleAlpha('on','DEL')">删除</div></div>
-      <div class="alpha-keys" id="on-keys-num" style="display:none"><div class="ak" data-f onclick="handleAlpha('on','0')">0</div>
+          <div class="alpha-keys" id="on-keys-num" style="display:none"><div class="ak" data-f onclick="handleAlpha('on','0')">0</div>
 <div class="ak" data-f onclick="handleAlpha('on','1')">1</div>
 <div class="ak" data-f onclick="handleAlpha('on','2')">2</div>
 <div class="ak" data-f onclick="handleAlpha('on','3')">3</div>
@@ -1998,51 +2146,88 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
 <div class="ak" data-f onclick="handleAlpha('on','8')">8</div>
 <div class="ak" data-f onclick="handleAlpha('on','9')">9</div>
 <div class="ak ak-clr" data-f onclick="handleAlpha('on','DEL')">删除</div></div>
-    </div>
-    <div class="pf-main">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:10px">
-        <div style="display:flex;align-items:center;gap:10px">
-          <span id="online-count" style="color:#aaa;font-size:13px">0首</span>
-          <select id="online-source-sel" style="padding:6px 12px;border-radius:20px;border:1px solid #444;background:#2a2535;color:#eee;font-size:13px;outline:none">
-            <option value="">选择扫描源...</option>
-          </select>
         </div>
-        <button class="pf-pg-btn" data-f onclick="scanOnlineMusic()" style="border-radius:20px;padding:6px 16px">🔄 扫描</button>
       </div>
-      <div class="song-list" id="pl-online" style="padding-bottom:80px"></div>
+    </aside>
+
+    <!-- 中间主区域：歌曲列表 -->
+    <main class="om-main">
+      <div class="om-main-header">
+        <div class="om-count-wrap">
+          <span id="online-count" class="om-count">0首</span>
+        </div>
+        <button class="om-scan-btn" data-f onclick="scanOnlineMusic()">🔄 扫描</button>
+      </div>
+      <div class="song-list om-songlist" id="pl-online"></div>
       <div class="pf-foot" id="online-pg-foot">
         <button class="pf-pg-btn" data-f onclick="onlinePage(-1)">上一页</button>
         <span class="pf-pg-info" id="online-pg-info">1/1</span>
         <button class="pf-pg-btn" data-f onclick="onlinePage(1)">下一页</button>
       </div>
-    </div>
-  </div>
-  <div id="online-player-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;background:rgba(20,18,27,.95);backdrop-filter:blur(20px);padding:16px 24px;border-top:1px solid #333;z-index:1000">
-    <div style="max-width:800px;margin:0 auto">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-        <span id="online-time" style="font-size:11px;color:#888;min-width:35px">0:00</span>
-        <div id="online-progress" style="flex:1;height:4px;background:#333;border-radius:2px;cursor:pointer;position:relative">
-          <div id="online-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#f62c55,#ff6b9d);border-radius:2px"></div>
+    </main>
+
+    <!-- 右侧栏：当前播放信息 + 歌词 -->
+    <aside class="om-right" id="om-right">
+      <div class="om-right-inner">
+        <div class="om-mini-cover" id="om-mini-cover">♪</div>
+        <div class="om-now-info">
+          <div class="om-now-title" id="om-now-title">未播放</div>
+          <div class="om-now-artist" id="om-now-artist"></div>
         </div>
-        <span id="online-duration" style="font-size:11px;color:#888;min-width:35px;text-align:right">0:00</span>
-      </div>
-      <div id="online-lyrics" style="font-size:13px;color:#aaa;text-align:center;margin:4px 0;min-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">&#9834;</div>
-      <div style="display:flex;align-items:center;gap:16px">
-        <button class="mvbtn" data-f onclick="onlinePrev()" style="color:#ccc"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
-        <button class="mvbtn" data-f id="online-play-btn" onclick="toggleOnlinePlay()" style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#f62c55,#ff6b9d);display:flex;align-items:center;justify-content:center;color:#fff"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg></button>
-        <button class="mvbtn" data-f onclick="onlineNext()" style="color:#ccc"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
-        <div style="flex:1;min-width:0;margin-left:10px">
-          <div id="online-now-title" style="font-size:15px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">未播放</div>
-          <div style="font-size:12px;color:#999" id="online-now-artist"></div>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px;margin-left:12px">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="#999"><path d="M3 9v6h4l5 5V4L7 9H3z"/><path d="M16 8c1.5 1 2.5 2.5 2.5 4s-1 3-2.5 4" stroke="#999" stroke-width="1.5" fill="none"/></svg>
-          <input type="range" id="online-volume" min="0" max="1" step="0.05" value="0.8" style="width:80px;accent-color:#f62c55">
+        <div class="om-lrc-box" id="om-lrc-box">
+          <div class="om-lrc-empty">♪ 暂无歌词</div>
         </div>
       </div>
+    </aside>
+  </div>
+
+  <!-- 播放队列侧滑面板 -->
+  <div class="om-queue" id="om-queue">
+    <div class="om-queue-head">
+      <span>📋 播放队列</span>
+      <button class="om-queue-close" data-f onclick="toggleOmQueue(false)">✕</button>
+    </div>
+    <div class="om-queue-mode">
+      <button class="om-mode-btn" data-f id="om-mode-seq" onclick="setOmMode('seq')" title="顺序播放">🔁</button>
+      <button class="om-mode-btn" data-f id="om-mode-shuffle" onclick="setOmMode('shuffle')" title="随机播放">🔀</button>
+      <button class="om-mode-btn" data-f id="om-mode-one" onclick="setOmMode('one')" title="单曲循环">🔂</button>
+    </div>
+    <div class="om-queue-list" id="om-queue-list"></div>
+  </div>
+  <div class="om-queue-mask" id="om-queue-mask" onclick="toggleOmQueue(false)"></div>
+
+  <!-- 底部播放栏 -->
+  <div id="online-player-bar" style="display:none">
+    <div class="opb-left">
+      <div class="opb-cover" id="opb-cover">♪</div>
+      <div class="opb-info">
+        <div class="opb-title" id="online-now-title">未播放</div>
+        <div class="opb-artist" id="online-now-artist"></div>
+      </div>
+    </div>
+    <div class="opb-center">
+      <div class="opb-ctrl-row">
+        <button class="opb-btn" data-f onclick="onlinePrev()" title="上一首"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
+        <button class="opb-btn opb-play" data-f id="online-play-btn" onclick="toggleOnlinePlay()"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg></button>
+        <button class="opb-btn" data-f onclick="onlineNext()" title="下一首"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+      </div>
+      <div class="opb-progress-row">
+        <span class="opb-time" id="online-time">0:00</span>
+        <div class="opb-progress" id="online-progress">
+          <div class="opb-progress-bar" id="online-progress-bar"></div>
+        </div>
+        <span class="opb-time" id="online-duration">0:00</span>
+      </div>
+    </div>
+    <div class="opb-right">
+      <div class="opb-vol-wrap">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="#999"><path d="M3 9v6h4l5 5V4L7 9H3z"/></svg>
+        <input type="range" id="online-volume" min="0" max="1" step="0.05" value="0.8">
+      </div>
+      <button class="opb-btn" data-f onclick="toggleOmQueue(true)" title="播放队列"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M3 10h11v2H3zm0-4h11v2H3zm0 8h7v2H3zm13-4v6l5-3z"/></svg></button>
+      <button class="opb-btn" data-f onclick="openOnlineFullscreen()" title="全屏"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></button>
     </div>
   </div>
-</div>
 </div>
 <div id="online-fullscreen">
   <div id="of-bg"></div>
@@ -2052,13 +2237,14 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
     <div id="of-close" data-f onclick="closeOnlineFullscreen()">✕</div>
   </div>
   <div id="of-center">
-    <div id="of-cover-wrap"><div id="of-cover"></div></div>
+    <div id="of-cover-wrap"><div id="of-cover">♪</div></div>
     <div id="of-lyrics"></div>
   </div>
   <div id="of-bottom">
     <div id="of-progress"><div id="of-progress-bar"></div></div>
     <div id="of-time-row"><span id="of-time">0:00</span><span id="of-duration">0:00</span></div>
     <div id="of-ctrl">
+      <button class="of-btn" data-f onclick="setOmModeCycle()" id="of-mode-btn" title="播放模式">🔁</button>
       <button class="of-btn" data-f onclick="onlinePrev()"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
       <button class="of-btn of-play" data-f id="of-play-btn" onclick="toggleOnlinePlay()"><svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg></button>
       <button class="of-btn" data-f onclick="onlineNext()"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
@@ -5471,36 +5657,43 @@ function renderNewest(){
   if(pgEl)pgEl.textContent=`${newestPg+1}/${t} (共${newestSorted.length}首)`;
 }
 function newestPage(d){const t=Math.ceil(newestSorted.length/NEWEST_PG)||1;newestPg=Math.max(0,Math.min(t-1,newestPg+d));renderNewest();}
-// ============ 在线音乐播放器 ============
+// ============ 在线音乐播放器（UI升级版） ============
 let _onlineAudio=null,_onlineSongList=[],_onlineIdx=0;
 let _onlineLrcLines=[],_onlineLastLrc="";
+let _omMode='seq'; // seq | shuffle | one
+let _omRecent=[]; // 最近播放记录
 // 全量加载 + 本地分页 + 虚拟键盘过滤
 const ONLINE_PG=50; let _onFiltered=[],_onPg=0; let _onMode='title';
 alphaState['on']='';
 ALPHA_PLACEHOLDER['on']='歌名搜索';
+// 渐变占位色（无封面时用首字母+渐变）
+const OM_GRADIENTS=[
+  'linear-gradient(135deg,#c736f7,#7b2cf7)','linear-gradient(135deg,#ff4f9b,#ff2255)',
+  'linear-gradient(135deg,#36d9f7,#1a7bff)','linear-gradient(135deg,#ff8c42,#ffd000)',
+  'linear-gradient(135deg,#22c1c3,#1a7bff)','linear-gradient(135deg,#f73669,#ff4f9b)'
+];
+function _omGrad(seed){let h=0;for(let i=0;i<seed.length;i++)h=(h*31+seed.charCodeAt(i))&0xffff;return OM_GRADIENTS[h%OM_GRADIENTS.length];}
+function _omInitial(name){return(name||'?').trim().charAt(0).toUpperCase();}
 async function loadOnline(){
   const el=document.getElementById('pl-online');
   el.innerHTML='<div style="color:var(--sub);text-align:center;padding:30px">加载中...</div>';
   try{
-    // 不传 limit：后端 limit=0 表示全量返回，客户端再做分页/字母过滤
     const j=await fetch('/api/netktv/music/list').then(r=>r.json());
     _onlineSongList=j.songs||[];
-    // 左上角显示接口返回的真实总数，而不是当前已渲染条数
     document.getElementById('online-count').textContent=(j.total!=null?j.total:_onlineSongList.length)+'首';
     const foot=document.getElementById('online-pg-foot');
     if(!_onlineSongList.length){
-      el.innerHTML='<div style="color:var(--sub);text-align:center;padding:40px">还没有在线音乐<br><br>点击右上角"扫描网盘音乐"按钮扫描网盘音乐目录</div>';
+      el.innerHTML='<div style="color:var(--sub);text-align:center;padding:40px">还没有在线音乐<br><br>点击右上角"扫描"按钮扫描网盘音乐目录</div>';
       if(foot)foot.style.display='none';
       return;
     }
-    // 进入在线面板：复位虚拟键盘（清空已输入字母、切回字母键盘），再按当前过滤条件渲染
     resetAlphaKeyboard('on');
     _onFiltered=getOnFiltered(); _onPg=0;
     renderOnlineList(1);
     if(foot)foot.style.display='flex';
   }catch(e){el.innerHTML='<div style="color:var(--sub);text-align:center;padding:30px">加载失败: '+e.message+'</div>';}
 }
-// 客户端分页渲染：每页 ONLINE_PG 首，避免一次性创建上万 DOM
+// 客户端分页渲染
 function renderOnlineList(page){
   const el=document.getElementById('pl-online');
   const total=_onFiltered.length;
@@ -5514,16 +5707,37 @@ function renderOnlineList(page){
   const frag=document.createDocumentFragment();
   pageItems.forEach((s,i)=>{
     const gi=start+i;
-    const d=document.createElement('div');d.className='so-row';
-    d.innerHTML='<div class="so-num">'+(gi+1)+'</div>'+
-      '<div class="so-info"><div class="so-t">'+s.title+'</div><div class="so-a">'+(s.artist||'')+'</div></div>'+
-      '<div class="so-acts"><button class="btn-add" data-f onclick="playOnlineSong('+gi+')">播放</button></div>';
+    const d=document.createElement('div');
+    d.className='om-row'+(gi===_onlineIdx&&_onlineSongList[_onlineIdx]&&_onlineSongList[_onlineIdx].id===s.id?' cur':'');
+    const coverStyle=s.cover?'background-image:url(\'/cover/'+encodeURIComponent(s.cover)+'\')':'';
+    const dur=s.duration?fmtDur(s.duration):'--:--';
+    d.innerHTML=
+      '<div class="om-thumb" style="'+coverStyle+'">'+(s.cover?'':_omInitial(s.title))+'</div>'+
+      '<div class="om-num">'+(gi+1)+'</div>'+
+      '<div class="om-row-txt"><div class="om-row-t">'+s.title+'</div><div class="om-row-a">'+(s.artist||'')+'</div></div>'+
+      '<div class="om-row-dur">'+dur+'</div>';
+    d.onclick=()=>playOnlineSong(gi);
     frag.appendChild(d);
   });
   el.appendChild(frag);
 }
+function fmtDur(sec){if(!sec||isNaN(sec))return'--:--';const m=Math.floor(sec/60),s=Math.floor(sec%60);return m+':'+(s<10?'0':'')+s;}
 function onlinePage(d){renderOnlineList(_onPg+1+d);}
-// 虚拟键盘过滤：歌名/歌手双模式，按拼音首字母前缀匹配
+// 分类过滤：all / artist / recent
+function omFilter(which){
+  document.querySelectorAll('.om-nav-item').forEach(b=>b.classList.remove('sel'));
+  event.currentTarget.classList.add('sel');
+  if(which==='recent'){
+    _onFiltered=_omRecent.slice();
+  }else if(which==='artist'){
+    // 按歌手分组：这里简化为保留全部，由虚拟键盘按歌手过滤
+    _onFiltered=_onlineSongList.slice();
+  }else{
+    _onFiltered=getOnFiltered();
+  }
+  _onPg=0;renderOnlineList(1);
+}
+// 虚拟键盘过滤
 function getOnFiltered(){
   const q=alphaState['on']||'';
   if(!q)return _onlineSongList.slice();
@@ -5533,7 +5747,6 @@ function getOnFiltered(){
   return _onlineSongList.filter(f);
 }
 alphaFilter['on']=()=>{_onFiltered=getOnFiltered();renderOnlineList(1);};
-// 歌名/歌手 切换：清空已输入字母、更新 placeholder、重新过滤
 function toggleOnMode(mode){
   if(_onMode===mode)return;
   _onMode=mode;
@@ -5544,24 +5757,85 @@ function toggleOnMode(mode){
   const txt=document.getElementById('on-keys-txt');if(txt)txt.textContent=ALPHA_PLACEHOLDER['on'];
   alphaFilter['on']();
 }
+// 键盘折叠
+function toggleOmKeyboard(){
+  const w=document.getElementById('om-kb-wrap');
+  if(w)w.classList.toggle('collapsed');
+}
+// 播放模式
+function setOmMode(m){_omMode=m;updateOmModeBtns();}
+function setOmModeCycle(){const order=['seq','shuffle','one'];const i=order.indexOf(_omMode);_omMode=order[(i+1)%3];updateOmModeBtns();}
+function updateOmModeBtns(){
+  ['seq','shuffle','one'].forEach(m=>{
+    const el=document.getElementById('om-mode-'+m);if(el)el.classList.toggle('sel',_omMode===m);
+  });
+  const ofm=document.getElementById('of-mode-btn');
+  if(ofm)ofm.textContent=_omMode==='shuffle'?'🔀':(_omMode==='one'?'🔂':'🔁');
+}
+// 队列面板
+function toggleOmQueue(show){
+  const q=document.getElementById('om-queue');
+  const m=document.getElementById('om-queue-mask');
+  if(show){renderOmQueue();q.classList.add('open');m.classList.add('show');}
+  else{q.classList.remove('open');m.classList.remove('show');}
+}
+function renderOmQueue(){
+  const box=document.getElementById('om-queue-list');if(!box)return;
+  box.innerHTML='';
+  if(!_onlineSongList.length){box.innerHTML='<div style="text-align:center;color:#666;padding:30px">队列为空</div>';return;}
+  const frag=document.createDocumentFragment();
+  _onlineSongList.forEach((s,i)=>{
+    const d=document.createElement('div');
+    d.className='om-queue-item'+(i===_onlineIdx?' cur':'');
+    d.innerHTML='<div class="om-queue-item-cur"></div>'+
+      '<div class="om-queue-item-txt"><div class="om-queue-item-t">'+s.title+'</div><div class="om-queue-item-a">'+(s.artist||'')+'</div></div>'+
+      '<button class="om-queue-item-del" data-f onclick="event.stopPropagation();removeFromQueue('+i+')">✕</button>';
+    d.onclick=()=>{playOnlineSong(i);};
+    frag.appendChild(d);
+  });
+  box.appendChild(frag);
+}
+function removeFromQueue(idx){
+  if(idx===_onlineIdx){_onlineIdx=Math.max(0,idx-1);}
+  _onlineSongList.splice(idx,1);
+  _onFiltered=getOnFiltered();
+  renderOnlineList(1);
+  renderOmQueue();
+}
+// 播放歌曲
 async function playOnlineSong(idx){
   _onlineIdx=idx;
   const s=_onlineSongList[idx];if(!s)return;
+  // 记录最近播放
+  _omRecent.unshift(s);
+  _omRecent=_omRecent.slice(0,50);
+  // 更新播放栏信息
   document.getElementById('online-now-title').textContent=s.title;
   document.getElementById('online-now-artist').textContent=s.artist||'';
-  document.getElementById('online-player-bar').style.display='block';
+  document.getElementById('online-player-bar').style.display='flex';
+  // 更新右侧栏
+  const rt=document.getElementById('om-now-title');if(rt)rt.textContent=s.title;
+  const ra=document.getElementById('om-now-artist');if(ra)ra.textContent=s.artist||'';
+  const mc=document.getElementById('om-mini-cover');
+  if(mc){
+    if(s.cover){mc.style.backgroundImage="url('/cover/"+encodeURIComponent(s.cover)+"')";mc.textContent='';}
+    else{mc.style.backgroundImage='';mc.textContent=_omInitial(s.title);mc.style.background=_omGrad(s.title);}
+  }
   updateOnlineFsMeta();
+  // 高亮当前播放行
+  renderOnlineList(_onPg+1);
+  renderOmQueue();
   if(!_onlineAudio){
     _onlineAudio=new Audio();
     _onlineAudio.volume=0.8;
-    // 进度条点击跳转
+    // 进度条点击跳转（底部栏）
     document.getElementById('online-progress').onclick=function(e){
       if(!_onlineAudio||!_onlineAudio.duration)return;
       const rect=this.getBoundingClientRect();
       const pct=(e.clientX-rect.left)/rect.width;
       _onlineAudio.currentTime=pct*_onlineAudio.duration;
     };
-    // 音量滑块绑定
+    // 音量滑块
     const volEl=document.getElementById('online-volume');
     if(volEl){volEl.oninput=()=>{if(_onlineAudio)_onlineAudio.volume=parseFloat(volEl.value);};}
     _onlineAudio.addEventListener('loadedmetadata',()=>{
@@ -5569,43 +5843,49 @@ async function playOnlineSong(idx){
       document.getElementById('online-duration').textContent=mm+':'+(ss<10?'0':'')+ss;
       const od=document.getElementById('of-duration');if(od)od.textContent=mm+':'+(ss<10?'0':'')+ss;
     });
-    _onlineAudio.addEventListener('ended',()=>{if(_onlineIdx<_onlineSongList.length-1)playOnlineSong(_onlineIdx+1);});
+    // ended：根据播放模式
+    _onlineAudio.addEventListener('ended',()=>{
+      if(_omMode==='one'){playOnlineSong(_onlineIdx);return;}
+      if(_omMode==='shuffle'){
+        const ni=Math.floor(Math.random()*_onlineSongList.length);
+        playOnlineSong(ni);return;
+      }
+      // seq
+      if(_onlineIdx<_onlineSongList.length-1)playOnlineSong(_onlineIdx+1);
+    });
     _onlineAudio.addEventListener('play',updateOnlinePlayIcon);
     _onlineAudio.addEventListener('pause',updateOnlinePlayIcon);
-    // 全屏进度条点击跳转
+    // 全屏进度条点击
     const ofProg=document.getElementById('of-progress');
     if(ofProg)ofProg.onclick=function(e){
       if(!_onlineAudio||!_onlineAudio.duration)return;
       const rect=this.getBoundingClientRect();
       _onlineAudio.currentTime=((e.clientX-rect.left)/rect.width)*_onlineAudio.duration;
     };
-    // 全屏音量滑块
     const ofVol=document.getElementById('of-volume');
     if(ofVol)ofVol.oninput=()=>{if(_onlineAudio)_onlineAudio.volume=parseFloat(ofVol.value);};
-    // 点底部播放栏空白处展开全屏（按钮/进度条/滑块本身不触发）
-    document.getElementById('online-player-bar').onclick=function(e){
-      if(e.target.closest('button')||e.target.closest('input')||e.target.closest('#online-progress'))return;
-      openOnlineFullscreen();
-    };
+    // timeupdate
     _onlineAudio.addEventListener('timeupdate',()=>{
       const t=_onlineAudio.currentTime||0;const m=Math.floor(t/60);const sec=Math.floor(t%60);
       document.getElementById('online-time').textContent=m+':'+(sec<10?'0':'')+sec;
-      // 更新进度条宽度
       if(_onlineAudio.duration){
         document.getElementById('online-progress-bar').style.width=((t/_onlineAudio.duration)*100)+'%';
         const opb=document.getElementById('of-progress-bar');
         if(opb)opb.style.width=((t/_onlineAudio.duration)*100)+'%';
         const ot=document.getElementById('of-time');if(ot)ot.textContent=m+':'+(sec<10?'0':'')+sec;
       }
-      // 同步歌词高亮（底部单行）
+      // 右侧歌词同步
       if(_onlineLrcLines&&_onlineLrcLines.length){
-        const cur=t;let active=_onlineLrcLines[0];
-        for(const l of _onlineLrcLines){if(l.t<=cur)active=l;else break;}
-        if(active&&active.text!==_onlineLastLrc){
-          document.getElementById('online-lyrics').textContent=active.text;
-          _onlineLastLrc=active.text;
+        const rb=document.getElementById('om-lrc-box');
+        if(rb){
+          let ai=0;
+          for(let i=0;i<_onlineLrcLines.length;i++){if(_onlineLrcLines[i].t<=t)ai=i;else break;}
+          const lines=rb.querySelectorAll('.om-lrc-line');
+          lines.forEach((ln,i)=>ln.classList.toggle('cur',i===ai));
+          const cl=lines[ai];
+          if(cl)cl.scrollIntoView({block:'center',behavior:'smooth'});
         }
-        // 全屏歌词：高亮当前行并滚动居中
+        // 全屏歌词
         const fs=document.getElementById('online-fullscreen');
         if(fs&&fs.classList.contains('open')){
           let ai=-1;
@@ -5623,28 +5903,47 @@ async function playOnlineSong(idx){
   _onlineAudio.src='/api/netktv/music/stream/'+s.id;
   // 加载歌词
   _onlineLrcLines=[];_onlineLastLrc='';
-  document.getElementById('online-lyrics').textContent='\u266a \u6b4c\u8bcd\u52a0\u8f7d\u4e2d...';
+  const rb=document.getElementById('om-lrc-box');
+  if(rb)rb.innerHTML='<div class="om-lrc-empty">♪ 歌词加载中...</div>';
   fetch('/api/songs/'+s.id+'/lyrics?online=1').then(r=>r.json()).then(d=>{
     const lrc=d.lyrics||d.lyrics_word||'';
-    if(!lrc){document.getElementById('online-lyrics').textContent='\u6682\u65e0\u6b4c\u8bcd';return;}
+    if(!lrc){if(rb)rb.innerHTML='<div class="om-lrc-empty">♪ 暂无歌词</div>';renderFsLyrics();return;}
     const lines=lrc.split('\n').map(line=>{
       const mm=line.match(/\[(\d+):(\d+\.?\d*)\](.*)/);
       if(mm){return{t:parseInt(mm[1])*60+parseFloat(mm[2]),text:mm[3].trim()};}
       return null;
     }).filter(x=>x&&x.text);
     _onlineLrcLines=lines;
-    document.getElementById('online-lyrics').textContent=lines.length?lines[0].text:'\u6682\u65e0\u6b4c\u8bcd';
+    renderSideLyrics();
     renderFsLyrics();
-  }).catch(()=>{document.getElementById('online-lyrics').textContent='\u266a';});
+  }).catch(()=>{if(rb)rb.innerHTML='<div class="om-lrc-empty">♪</div>';});
   try{await _onlineAudio.play();}catch(e){console.warn('[在线音乐] 播放失败:',e);}
+}
+function renderSideLyrics(){
+  const box=document.getElementById('om-lrc-box');if(!box)return;
+  box.innerHTML='';
+  if(!_onlineLrcLines||!_onlineLrcLines.length){box.innerHTML='<div class="om-lrc-empty">♪ 暂无歌词</div>';return;}
+  const frag=document.createDocumentFragment();
+  _onlineLrcLines.forEach(l=>{
+    const d=document.createElement('div');d.className='om-lrc-line';d.textContent=l.text;frag.appendChild(d);
+  });
+  box.appendChild(frag);
 }
 function toggleOnlinePlay(){
   if(!_onlineAudio)return;
   if(_onlineAudio.paused){_onlineAudio.play();}else{_onlineAudio.pause();}
 }
-function onlinePrev(){ if(_onlineSongList.length){ _onlineIdx=(_onlineIdx-1+_onlineSongList.length)%_onlineSongList.length; playOnlineSong(_onlineIdx);} }
-function onlineNext(){ if(_onlineSongList.length){ _onlineIdx=(_onlineIdx+1)%_onlineSongList.length; playOnlineSong(_onlineIdx);} }
-// ===== 在线音乐全屏播放器 =====
+function onlinePrev(){
+  if(!_onlineSongList.length)return;
+  if(_omMode==='shuffle'){playOnlineSong(Math.floor(Math.random()*_onlineSongList.length));return;}
+  _onlineIdx=(_onlineIdx-1+_onlineSongList.length)%_onlineSongList.length;playOnlineSong(_onlineIdx);
+}
+function onlineNext(){
+  if(!_onlineSongList.length)return;
+  if(_omMode==='shuffle'){playOnlineSong(Math.floor(Math.random()*_onlineSongList.length));return;}
+  _onlineIdx=(_onlineIdx+1)%_onlineSongList.length;playOnlineSong(_onlineIdx);
+}
+// ===== 全屏播放器 =====
 const ICO_ON_PLAY='<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>';
 const ICO_ON_PAUSE='<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
 function updateOnlinePlayIcon(){
@@ -5661,15 +5960,18 @@ function updateOnlineFsMeta(){
     const url='/cover/'+encodeURIComponent(s.cover);
     bg.style.backgroundImage="url('"+url+"')";
     cover.style.backgroundImage="url('"+url+"')";
+    cover.textContent='';
     cover.classList.remove('nospin');
   }else{
-    bg.style.backgroundImage='';cover.style.backgroundImage='';cover.classList.add('nospin');
+    bg.style.backgroundImage='';cover.style.backgroundImage='';
+    cover.textContent='♪';cover.style.background=_omGrad(s.title||'');
+    cover.classList.add('nospin');
   }
 }
 function renderFsLyrics(){
   const box=document.getElementById('of-lyrics');if(!box)return;
   box.innerHTML='';
-  if(!_onlineLrcLines||!_onlineLrcLines.length){box.innerHTML='<div class="of-lr">\u266a \u6682\u65e0\u6b4c\u8bcd</div>';return;}
+  if(!_onlineLrcLines||!_onlineLrcLines.length){box.innerHTML='<div class="of-lr">♪ 暂无歌词</div>';return;}
   const frag=document.createDocumentFragment();
   _onlineLrcLines.forEach(l=>{
     const d=document.createElement('div');d.className='of-lr';d.textContent=l.text;frag.appendChild(d);
@@ -5693,7 +5995,6 @@ async function scanOnlineMusic(){
   try{
     const j=await fetch('/api/netktv/sync-music',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accountId:1,basePath:'/music'})}).then(r=>r.json());
     showToast(j.message||'扫描已开始');
-    // 轮询状态
     const poll=setInterval(async()=>{
       try{const s=await fetch('/api/netktv/sync/status').then(r=>r.json());
         if(!s.running){clearInterval(poll);showToast('扫描完成，入库'+(s.addedSongs||0)+'首');loadOnline();}
@@ -5701,7 +6002,6 @@ async function scanOnlineMusic(){
     },2000);
   }catch(e){showToast('扫描失败: '+e.message);}
 }
-let st2;
 // 搜歌点歌：之前不管有没有输入关键字，都会一次性把匹配到的全部歌曲(空
 // 关键字=整个曲库)拉回来直接渲染成一整屏 DOM，曲库大了以后明显卡顿。
 // 改成用服务端已经支持的 page/pageSize 分页参数，每页只要10首，翻页时
