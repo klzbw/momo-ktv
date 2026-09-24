@@ -18,9 +18,76 @@ const lyricsMod = require('./lyrics');
 const sepMod = require('./separate');
 const cloudLyrics = require('./cloud-lyrics');
 
+// ===== LDDC 逐字歌词搜索服务配置（两级歌词管线）=====
+// 两级管线：LDDC 直查优先命中在线逐字歌词库，命中则直接回写 DB 不入队 AI Worker；
+// LDDC 失败/未命中时自动降级回原逻辑（补抓 ref + 入队 AI Worker）。
+// ENABLE_LDDC 设为 'false' 可整体关闭 LDDC，回退纯 AI Worker 管线。
+const ENABLE_LDDC = process.env.ENABLE_LDDC !== 'false'; // 默认开启
+const LDDC_URL = process.env.LDDC_URL || 'http://127.0.0.1:8766';
+const LDDC_TIMEOUT_MS = 15000;
+
 // 限速 sleep 工具
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
+}
+
+// 从增强型 LRC 中剥离逐字标签 <mm:ss.xx>，得到普通逐行 LRC
+function stripWordTags(enhancedLrc) {
+  if (!enhancedLrc) return '';
+  return String(enhancedLrc).replace(/<\d{1,2}:\d{1,2}[.:]\d{1,3}>/g, '');
+}
+
+/**
+ * 向 LDDC 逐字歌词搜索服务查询逐字歌词（两级管线第一级）。
+ *
+ * 契约：
+ *   POST ${LDDC_URL}/lddc/lyrics
+ *   body: {title, artist, duration}（duration 单位秒）
+ *   成功: {found:true, lrc, source, score, type}
+ *   失败: {found:false, error}
+ *   GET  /health: {status:'ok'}
+ *
+ * 任何失败（网络错误、超时、HTTP 非 2xx、found=false、lrc 为空）都返回 null，
+ * 调用方据此自动降级为 AI Worker 入队。绝不抛出异常。
+ *
+ * @param {object} song 歌曲记录，至少含 id/title/artist/duration
+ * @returns {Promise<{lrc:string, source:string, score:number, type:string}|null>}
+ */
+async function _fetchFromLDDC(song) {
+  if (!ENABLE_LDDC) return null;
+  let timer = null;
+  try {
+    const ctrl = new AbortController();
+    timer = setTimeout(() => ctrl.abort(), LDDC_TIMEOUT_MS);
+    // duration 兼容毫秒/秒：>= 100000 视为毫秒，除以 1000 取整
+    let duration = Number(song.duration) || 0;
+    if (duration >= 100000) duration = Math.round(duration / 1000);
+    const resp = await fetch(LDDC_URL + '/lddc/lyrics', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: song.title || '', artist: song.artist || '', duration }),
+      signal: ctrl.signal
+    });
+    clearTimeout(timer);
+    if (!resp.ok) {
+      console.warn('[AutoLyrics] LDDC HTTP ' + resp.status + ', id=' + song.id);
+      return null;
+    }
+    const data = await resp.json();
+    if (data && data.found === true && data.lrc && String(data.lrc).trim()) {
+      return {
+        lrc: String(data.lrc),
+        source: data.source || 'unknown',
+        score: typeof data.score === 'number' ? data.score : 0,
+        type: data.type || 'verbatim'
+      };
+    }
+    return null;
+  } catch (e) {
+    if (timer) clearTimeout(timer);
+    console.warn('[AutoLyrics] LDDC fetch failed, id=' + song.id + ': ' + e.message);
+    return null;
+  }
 }
 
 /**
@@ -33,16 +100,19 @@ function sleep(ms) {
  *   AND (instrumental IS NULL OR instrumental=0)
  * 按 id DESC 取 limit 首。
  *
- * 入队前对每首歌 best-effort 补抓在线歌词作为 ref（调 lyricsMod.resolveLyrics），
- * 有则 UPDATE songs SET lyrics=?, lyrics_source=?。补抓失败不阻塞入队。
- * 调 sepMod.enqueue(db, {songIds, type:'align'}) 实际入队。
+ * 两级管线：
+ *   1. 先尝试 LDDC 直查逐字歌词（_fetchFromLDDC），命中则直接回写
+ *      lyrics_word/lyrics/lyrics_source 并置 align_status='done'，不入队 AI Worker；
+ *   2. LDDC 未命中/失败时，best-effort 补抓在线歌词作为 ref（调 lyricsMod.resolveLyrics），
+ *      有则 UPDATE songs SET lyrics=?, lyrics_source=?。补抓失败不阻塞入队。
+ *      再调 sepMod.enqueue(db, {songIds, type:'align'}) 实际入队。
  *
- * @returns {{checked:number, enqueued:number, refFetched:number, skipped:number}}
+ * @returns {{checked:number, enqueued:number, refFetched:number, skipped:number, lddcHit:number}}
  */
 async function enqueueMissingAlign(db, { limit = 100 } = {}) {
-  // 查询缺逐字歌词、未在排队/处理/完成中的人声歌曲
+  // 查询缺逐字歌词、未在排队/处理/完成中的人声歌曲（含 duration 供 LDDC 查询）
   const rows = db.prepare(
-    `SELECT id, title, artist, filepath, media_type, lyrics
+    `SELECT id, title, artist, filepath, media_type, lyrics, duration
      FROM songs
      WHERE media_type='audio'
        AND (lyrics_word IS NULL OR lyrics_word='')
@@ -55,12 +125,31 @@ async function enqueueMissingAlign(db, { limit = 100 } = {}) {
   let checked = rows.length;
   let refFetched = 0;
   let skipped = 0;
+  let lddcHit = 0;
   const songIds = [];
 
   const updateLyrics = db.prepare('UPDATE songs SET lyrics=?, lyrics_source=? WHERE id=?');
+  // LDDC 命中回写：增强型逐字 LRC 同时写入 lyrics_word（逐字）和 lyrics（兼容旧字段）
+  const updateLddcLyrics = db.prepare(
+    "UPDATE songs SET lyrics_word=?, lyrics=?, lyrics_source=?, align_status='done' WHERE id=?"
+  );
 
   for (const song of rows) {
     try {
+      // ===== 两级管线第一级：LDDC 直查优先 =====
+      // 命中则直接回写 DB 并 continue，不入队 AI Worker；失败/null 自动降级到下方原逻辑
+      if (ENABLE_LDDC) {
+        const lddc = await _fetchFromLDDC(song);
+        if (lddc) {
+          // lyrics_word 存增强型逐字 LRC（含 <mm:ss.xx> 标签），lyrics 存剥离标签后的普通 LRC
+          const plainLrc = stripWordTags(lddc.lrc);
+          updateLddcLyrics.run(lddc.lrc, plainLrc, 'lddc:' + lddc.source, song.id);
+          lddcHit++;
+          console.log('[AutoLyrics] LDDC hit: id=' + song.id + ' source=' + lddc.source + ' score=' + lddc.score + ' type=' + lddc.type);
+          continue; // 不再补抓 ref、不入队 AI Worker
+        }
+      }
+
       // best-effort 补抓在线歌词作为 ref（DB 已有歌词则不重复抓）
       if (!song.lyrics || !String(song.lyrics).trim()) {
         try {
@@ -93,8 +182,8 @@ async function enqueueMissingAlign(db, { limit = 100 } = {}) {
     enqueued = (result && result.queued) ? result.queued.length : 0;
   }
 
-  console.log('[AutoLyrics] enqueueMissingAlign done: ' + JSON.stringify({ checked, enqueued, refFetched, skipped }));
-  return { checked, enqueued, refFetched, skipped };
+  console.log('[AutoLyrics] enqueueMissingAlign done: ' + JSON.stringify({ checked, enqueued, refFetched, skipped, lddcHit }));
+  return { checked, enqueued, refFetched, skipped, lddcHit };
 }
 
 /**

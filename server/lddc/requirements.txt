@@ -1,0 +1,3 @@
+httpx[brotli,http2]
+charset-normalizer
+pyaes

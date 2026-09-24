@@ -16,7 +16,7 @@ FROM node:20-bookworm-slim
 # 失败——不过这属于代码里已经处理的"VAAPI 不可用"情形，会自动回退到
 # libx264 软件编码，不会导致转码彻底失败。
 RUN apt-get update && apt-get install -y \
-      python3 make g++ ffmpeg \
+      python3 python3-pip make g++ ffmpeg \
       libva2 libva-drm2 va-driver-all vainfo \
       curl ca-certificates sqlite3 \
     && rm -rf /var/lib/apt/lists/*
@@ -43,6 +43,11 @@ RUN npm install --omit=dev
 
 COPY server ./server
 COPY web ./web
+
+# 安装 LDDC Python 依赖（逐字歌词搜索服务）
+# COPY server ./server 已把 server/lddc/ 全部文件（含 requirements.txt）复制进容器，
+# 这里直接 pip install 即可，无需单独 COPY requirements.txt。
+RUN pip3 install --no-cache-dir --break-system-packages -r /app/server/lddc/requirements.txt
 
 # 复制 alist 基础配置（首次启动时使用，用户可在管理界面修改）
 COPY app/docker/alist-config.json /opt/alist/data/config.json

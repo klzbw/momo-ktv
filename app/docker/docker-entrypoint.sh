@@ -1,6 +1,14 @@
 #!/bin/bash
 set -e
 
+# 容器退出/停止时清理后台子进程（LDDC、alist），避免残留孤儿进程
+cleanup() {
+  echo "[entrypoint] Shutting down..."
+  [ -n "$LDDC_PID" ] && kill $LDDC_PID 2>/dev/null
+  [ -n "$ALIST_PID" ] && kill $ALIST_PID 2>/dev/null
+}
+trap cleanup EXIT TERM INT
+
 # Alist 管理员密码（可通过环境变量覆盖）
 export ALIST_ADMIN_PASSWORD="${ALIST_ADMIN_PASSWORD:-admin123}"
 
@@ -30,6 +38,22 @@ echo "[entrypoint] Setting Alist admin password..."
 cd /opt/alist
 LD_LIBRARY_PATH=/opt/alist/lib /opt/alist/alist admin set "${ALIST_ADMIN_PASSWORD}" --data ${ALIST_DATA_DIR:-/opt/alist/data} 2>/dev/null || true
 echo "[entrypoint] Alist admin password set"
+
+# 启动 LDDC 逐字歌词搜索服务（后台）
+# 两级歌词管线第一级：命中 LDDC 在线逐字歌词库则直接回写，免去 AI Worker 转写
+if [ -f /app/server/lddc/lddc_server.py ]; then
+  echo "[entrypoint] Starting LDDC lyrics service on port 8766..."
+  python3 /app/server/lddc/lddc_server.py &
+  LDDC_PID=$!
+  # 等待最多5秒确保服务就绪（健康检查通过即继续，不阻塞 node 启动）
+  for i in $(seq 1 5); do
+    if curl -s http://127.0.0.1:8766/health > /dev/null 2>&1; then
+      echo "[entrypoint] LDDC service ready after ${i}s"
+      break
+    fi
+    sleep 1
+  done
+fi
 
 # 启动 momo-ktv 服务端（主进程，容器生命周期绑定到此进程）
 echo "[entrypoint] Starting momo-ktv server on port ${PORT:-8080}..."
