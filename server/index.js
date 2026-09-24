@@ -11676,13 +11676,15 @@ app.get('/api/songs/:id/source', (req, res) => {
 
   let src = song.media_type === 'cue' && song.cue_path ? song.cue_path : (cached || song.filepath);
 
-
-
-
-
-
-
-
+  // 云盘歌曲：filepath 是网盘虚拟路径(如 /KTV/music/xxx.mkv)，本地 fs.existsSync 必为 false。
+  // 重定向到 /api/cloud/115-direct 获取 CDN 直链，worker requests 自动跟随 302 下载真实音频。
+  // 修复：此前云盘歌曲一律 404，导致所有 align 任务下载源音频失败。
+  if (song.cloud_account_id && song.filepath &&
+      (song.source_root === 'netktv-mkv' || song.source_root.startsWith('netktv-mkv-') || song.source_root.startsWith('cloud-mkv-'))) {
+    const cleanPath = song.filepath.startsWith('/') ? song.filepath.substring(1) : song.filepath;
+    const directUrl = '/api/cloud/115-direct/' + song.cloud_account_id + '/' + encodeURIComponent(cleanPath).replace(/%2F/g, '/');
+    return res.redirect(302, directUrl);
+  }
 
   if (!src || !fs.existsSync(src)) return res.status(404).json({ error: '源文件在服务端不可达', path: src });
 
