@@ -1191,7 +1191,7 @@ function renderHomeSrcRoots(){
         '</div>' +
         '<div class="cloud-root-actions">' +
           '<button class="cloud-root-scan-btn' + (isScanning ? ' disabled' : '') + '" onclick="scanHomeCloudRoot(' + globalIdx + ')">' + (isScanning ? '⏳ 扫描中...' : '▶ 扫描入库') + '</button>' +
-          '<button class="cloud-root-del-btn" onclick="deleteHomeCloudRoot(' + globalIdx + ',\' + escJs(r.label||r.dir) + "')">🗑️ 移除</button>' +
+          '<button class="cloud-root-del-btn" onclick="deleteHomeCloudRoot(' + globalIdx + ',\'' + escJs(r.label||r.dir) + '\')">🗑️ 移除</button>' +
         '</div>' +
         (isScanning ? '<div class="cloud-scan-progress show" id="home-scan-progress-' + globalIdx + '"><div class="cloud-scan-bar-bg"><div class="cloud-scan-bar-fill" id="home-scan-fill-' + globalIdx + '"></div></div><div class="cloud-scan-info"><span class="cloud-scan-status-text" id="home-scan-status-' + globalIdx + '">正在扫描...</span><span id="home-scan-count-' + globalIdx + '">0 首</span></div></div>' : '') +
       '</div>';
