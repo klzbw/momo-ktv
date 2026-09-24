@@ -469,6 +469,13 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
   syncStatus.removedSongs = removedSongs;
   console.log(`[NETKTV-SYNC] 完成: 目录=${songDirs.length} 新增strm=${createdStrm} 删除strm=${removedStrm} 入库=${addedSongs} 删库=${removedSongs}`);
 
+  // 同步完成后异步触发逐字歌词自动入队
+  if (addedSongs > 0) {
+    setImmediate(() => {
+      try { require('./auto-lyrics').afterScanAutoLyrics(db, { limit: 50 }); }
+      catch (e) { console.error('[AutoLyrics] netktv-sync enqueue error:', e.message); }
+    });
+  }
   return { songDirs: songDirs.length, createdStrm, removedStrm, addedSongs, removedSongs };
   } finally {
     syncStatus.running = false;
@@ -495,6 +502,13 @@ async function syncAllAccounts(cloudDrive, basePath, db, strmDir, sourceRoot = '
     }
   }
   console.log(`\n[NETKTV-SYNC] ===== 全部完成:`, totals, '=====');
+  // 同步完成后异步触发逐字歌词自动入队
+  if (totals.addedSongs > 0) {
+    setImmediate(() => {
+      try { require('./auto-lyrics').afterScanAutoLyrics(db, { limit: 50 }); }
+      catch (e) { console.error('[AutoLyrics] netktv-sync enqueue error:', e.message); }
+    });
+  }
   return totals;
 }
 
@@ -578,6 +592,13 @@ async function syncMusicViaAlist(cloudDrive, accountId, basePath, db, strmDir, s
     syncStatus.createdStrm = createdStrm;
     syncStatus.addedSongs = addedSongs;
     console.log('[MUSIC-SYNC] 完成: 文件=' + totalFiles + ' 新增strm=' + createdStrm + ' 入库=' + addedSongs + ' 跳过=' + skipped);
+    // 同步完成后异步触发逐字歌词自动入队
+    if (addedSongs > 0) {
+      setImmediate(() => {
+        try { require('./auto-lyrics').afterScanAutoLyrics(db, { limit: 50 }); }
+        catch (e) { console.error('[AutoLyrics] netktv-sync enqueue error:', e.message); }
+      });
+    }
     return { files: totalFiles, createdStrm, addedSongs, skipped };
   } finally {
     syncStatus.running = false;

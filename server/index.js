@@ -7331,6 +7331,18 @@ function isLyricsMojibake(text) {
 
 
 
+// 逐字LRC工具：把 <mm:ss.xx> 逐字标签去掉，只保留 [mm:ss.xx]行文本，
+// 供只需要逐行歌词的场景（如前端逐行滚动）使用。
+function stripWordTags(lrc) {
+  if (!lrc) return '';
+  return String(lrc).replace(/<\d{1,2}:\d{1,2}[.:]\d{1,3}>/g, '');
+}
+// 统计逐字LRC中 [mm:ss 开头的行数（即有时间标签的歌词行数）
+function countLines(lrc) {
+  if (!lrc) return 0;
+  return String(lrc).split(/\r?\n/).filter(line => /^\[\d{1,2}:\d{1,2}/.test(line)).length;
+}
+
 async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
@@ -7340,6 +7352,11 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
 
+
+  // 优先：已有逐字歌词(lyrics_word)时直接返回，不再去网盘/在线抓取覆盖
+  if (song.lyrics_word && song.lyrics_word.includes('<') && !forceOnline) {
+    return { lrc: song.lyrics || stripWordTags(song.lyrics_word), source: 'word-auto', lines: countLines(song.lyrics_word) };
+  }
 
   // DB 已有歌词且不是乱码 → 直接返回(最快)；是乱码则忽略，重新走本地/在线获取
 
@@ -22713,6 +22730,12 @@ app.post('/api/scan', async (req, res) => {
               console.log('[CloudLyrics] scan added=' + scanResult.added + ', auto fetch cloud lyrics for ' + rows.length + ' audio songs');
               await runCloudLyricsFetch(rows);
             }
+
+            // 自动入队逐字歌词对齐任务（AI Worker 异步处理，不阻塞）
+            try {
+              const autoLyrics = require('./auto-lyrics');
+              autoLyrics.afterScanAutoLyrics(db, { limit: 100 });
+            } catch (e) { console.error('[AutoLyrics] post-scan enqueue error:', e.message); }
           } catch (e) {
             console.error('[CloudLyrics] post-scan auto fetch error: ' + e.message);
           }
