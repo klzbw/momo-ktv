@@ -70,9 +70,10 @@ function _fetchFollowRedirect(url, headers, redirectCount) {
 // 检测WAV是否为DTS-WAV伪装（扩展名.wav但实际编码是DTS）
 // 读取前4KB解析WAV头，检查data chunk后前4字节是否为DTS sync word
 function _detectDtsWav(url) {
-  return new Promise((resolve) => {
-    const lib = url.startsWith('https') ? https : http;
-    const req = lib.get(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Range': 'bytes=0-4095' }, timeout: 8000 }, (resp) => {
+  return new Promise(async (resolve) => {
+    try {
+      // 使用 _fetchFollowRedirect 跟随 AList->CDN 重定向链，否则拿到的是302响应体
+      const resp = await _fetchFollowRedirect(url, { 'User-Agent': 'Mozilla/5.0', 'Range': 'bytes=0-4095' });
       if (resp.statusCode >= 400) { resp.resume(); return resolve(false); }
       const chunks = [];
       resp.on('data', (c) => chunks.push(c));
@@ -100,9 +101,8 @@ function _detectDtsWav(url) {
           resolve(false);
         } catch { resolve(false); }
       });
-    });
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => { req.destroy(); resolve(false); });
+      resp.on('error', () => resolve(false));
+    } catch { resolve(false); }
   });
 }
 
@@ -861,6 +861,29 @@ function init(db, cloudDrive) {
       const songs = db.prepare(sql).all(...params);
       const total = db.prepare("SELECT COUNT(*) as cnt FROM songs WHERE source_root LIKE 'netktv-music%'").get();
       res.json({ songs, total: total.cnt });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // GET /api/netktv/music/format/:id — 轻量格式探测（仅读前4KB，不下载完整文件）
+  // 返回歌曲实际格式信息，前端据此决定直连/客户端解码，避免DTS-WAV误判产生雪花声
+  router.get('/music/format/:id', async (req, res) => {
+    try {
+      const song = db.prepare("SELECT * FROM songs WHERE id=? AND source_root LIKE 'netktv-music%'").get(parseInt(req.params.id, 10));
+      if (!song) return res.status(404).json({ error: '歌曲不存在' });
+      if (!song.vocal_path || !fs.existsSync(song.vocal_path)) {
+        return res.status(404).json({ error: 'STRM文件不存在' });
+      }
+      const strmContent = fs.readFileSync(song.vocal_path, 'utf-8').trim();
+      if (!strmContent.startsWith('http')) return res.status(500).json({ error: 'STRM内容无效' });
+      const ext = _extFromUrl(strmContent);
+      let isDtsWav = false;
+      if (ext === 'wav') {
+        isDtsWav = await _detectDtsWav(strmContent);
+      }
+      const needClientDecode = isDtsWav || ['ape','wma','dsf','dff','wv'].indexOf(ext) >= 0;
+      res.json({ ext, isDtsWav, needClientDecode, native: !needClientDecode });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }

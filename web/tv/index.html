@@ -5934,9 +5934,20 @@ async function _omStartPlayback(s){
     URL.revokeObjectURL(_onlineAudio.src);
   }
   const ext=_omGetExt(s.filename);
-  const isDtsWav=_omIsLikelyDtsWav(s);
-  const needsClientDecode=['ape','wma','dsf','dff','wv'].indexOf(ext)>=0||isDtsWav;
-  if(needsClientDecode){
+  // 先调用服务端格式探测API（仅读前4KB），准确判断是否DTS-WAV等需解码格式
+  // 避免前端仅靠文件名启发式误判，导致DTS-WAV直连后浏览器解码出雪花声
+  let needClientDecode=['ape','wma','dsf','dff','wv'].indexOf(ext)>=0;
+  if(ext==='wav'||!needClientDecode){
+    try{
+      const probe=await fetch('/api/netktv/music/format/'+s.id,{cache:'no-store'});
+      if(probe.ok){
+        const info=await probe.json();
+        needClientDecode=info.needClientDecode===true;
+        if(info.isDtsWav) console.log('[在线音乐] 服务端检测到DTS-WAV:',s.title);
+      }
+    }catch(e){ console.warn('[在线音乐] 格式探测失败，按扩展名判断:',e.message); }
+  }
+  if(needClientDecode){
     try{
       _omSetPlayMode('client');
       console.log('[在线音乐] 客户端解码播放:',s.title,'('+ext+')');
