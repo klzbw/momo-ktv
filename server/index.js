@@ -149,6 +149,7 @@ const cacheCleaner = require('./cacheCleaner');
 
 
 const lyricsMod = require('./lyrics');
+const cloudLyrics = require('./cloud-lyrics');
 
 
 
@@ -7361,6 +7362,18 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
 
 
     return { lrc: song.lyrics, source: song.lyrics_source || 'stored', lines: lyricsMod.parseLrc(song.lyrics).length };
+  }
+
+  // 网盘同级目录优先读取逐字歌词（仅 audio 类型，MKV 不处理）
+  if (song.media_type === 'audio') {
+    try {
+      const cloudLrc = await cloudLyrics.fetchCloudLyrics(song);
+      if (cloudLrc && cloudLrc.lrc) {
+        // 网盘歌词作为权威来源，更新到 DB
+        db.prepare('UPDATE songs SET lyrics=?, lyrics_source=? WHERE id=?').run(cloudLrc.lrc, 'cloud', song.id);
+        return cloudLrc;
+      }
+    } catch (e) { console.error('[obtainLyrics] cloud fetch error:', e.message); }
 
 
 
@@ -9374,6 +9387,18 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
 
     try { removeHLS(job.song_id); } catch (e) { /* 旧产物不存在无妨 */ }
+
+    // 逐字歌词生成完成：异步上传到网盘同级目录（仅 audio 类型，MKV 不处理）
+    if (lyricsWord && job.job_type === 'align') {
+      (async () => {
+        try {
+          const s = db.prepare('SELECT * FROM songs WHERE id=?').get(job.song_id);
+          if (s && s.media_type === 'audio') {
+            await cloudLyrics.uploadLyricsToCloud(s, lyricsWord);
+          }
+        } catch (e) { console.error('[Complete] cloud upload error:', e.message); }
+      })();
+    }
 
 
 
