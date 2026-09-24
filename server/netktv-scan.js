@@ -34,7 +34,7 @@ const { spawn } = require('child_process');
 const lrcFileMod = require('./lrcFile');
 
 // 浏览器原生支持的音频格式（直接流式转发，零CPU占用）
-const BROWSER_NATIVE_FORMATS = new Set(['flac', 'mp3', 'm4a', 'aac', 'ogg', 'opus']); // wav移除: 可能是DTS-WAV伪装(扩展名wav但实际DTS编码), 必须转码
+const BROWSER_NATIVE_FORMATS = new Set(['wav', 'flac', 'mp3', 'm4a', 'aac', 'ogg', 'opus']); // wav需先检测是否DTS-WAV伪装, PCM直接转发零延迟
 
 // 从URL提取扩展名（忽略query参数）
 function _extFromUrl(url) {
@@ -64,6 +64,45 @@ function _fetchFollowRedirect(url, headers, redirectCount) {
     });
     req.on('error', reject);
     req.on('timeout', () => { req.destroy(new Error('Upstream timeout')); });
+  });
+}
+
+// 检测WAV是否为DTS-WAV伪装（扩展名.wav但实际编码是DTS）
+// 读取前4KB解析WAV头，检查data chunk后前4字节是否为DTS sync word
+function _detectDtsWav(url) {
+  return new Promise((resolve) => {
+    const lib = url.startsWith('https') ? https : http;
+    const req = lib.get(url, { headers: { 'User-Agent': 'Mozilla/5.0', 'Range': 'bytes=0-4095' }, timeout: 8000 }, (resp) => {
+      if (resp.statusCode >= 400) { resp.resume(); return resolve(false); }
+      const chunks = [];
+      resp.on('data', (c) => chunks.push(c));
+      resp.on('end', () => {
+        try {
+          const buf = Buffer.concat(chunks);
+          if (buf.length < 44 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') {
+            return resolve(false);
+          }
+          let offset = 12;
+          while (offset + 8 <= buf.length) {
+            const chunkId = buf.toString('ascii', offset, offset + 4);
+            const chunkSize = buf.readUInt32LE(offset + 4);
+            if (chunkId === 'data') {
+              const ds = offset + 8;
+              if (ds + 4 <= buf.length) {
+                const isDts = (buf[ds]===0x7F && buf[ds+1]===0xFE && buf[ds+2]===0x80 && buf[ds+3]===0x01) ||
+                              (buf[ds]===0x01 && buf[ds+1]===0x80 && buf[ds+2]===0xFE && buf[ds+3]===0x7F);
+                return resolve(isDts);
+              }
+              return resolve(false);
+            }
+            offset += 8 + chunkSize + (chunkSize % 2);
+          }
+          resolve(false);
+        } catch { resolve(false); }
+      });
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
   });
 }
 
@@ -859,7 +898,13 @@ function init(db, cloudDrive) {
       if (!strmContent.startsWith('http')) return res.status(500).json({ error: 'STRM内容无效' });
 
       const ext = _extFromUrl(strmContent);
-      const isNative = BROWSER_NATIVE_FORMATS.has(ext);
+      let isNative = BROWSER_NATIVE_FORMATS.has(ext);
+      // WAV优化: 先检测是否DTS-WAV伪装, 真正PCM WAV直接转发零延迟, 只有DTS才转码
+      let isDtsWav = false;
+      if (ext === 'wav') {
+        isDtsWav = await _detectDtsWav(strmContent);
+        if (isDtsWav) { isNative = false; console.log('[MUSIC-PROXY] 检测到DTS-WAV, 转码:', song.title); }
+      }
 
       // 客户端断开时清理资源
       req.on('close', () => {
@@ -905,13 +950,14 @@ function init(db, cloudDrive) {
 
         ffmpeg = spawn('ffmpeg', [
           '-hide_banner', '-loglevel', 'error',
+          '-analyzeduration', '0', '-probesize', '32',
+          '-fflags', '+nobuffer',
           '-i', strmContent,
           '-vn',
           '-f', 'wav',
           '-c:a', 'pcm_s16le',
           '-ar', '44100',
           '-ac', '2',
-          '-compression_level', '0',
           '-'
         ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
