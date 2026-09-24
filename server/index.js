@@ -8221,7 +8221,7 @@ app.post('/api/lyrics/batch-missing', (req, res) => {
 
 
 
-  const rows = db.prepare("SELECT * FROM songs WHERE (lyrics IS NULL OR lyrics='') ORDER BY id LIMIT ?").all(limit);
+  const rows = db.prepare("SELECT * FROM songs WHERE (lyrics IS NULL OR lyrics='') AND media_type='audio' ORDER BY id LIMIT ?").all(limit);
 
 
 
