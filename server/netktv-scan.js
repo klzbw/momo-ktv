@@ -29,6 +29,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const https = require('https');
 const lrcFileMod = require('./lrcFile');
 
 // 浏览器原生支持的音频格式（直接流式转发，零CPU占用）
