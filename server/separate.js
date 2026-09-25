@@ -146,37 +146,81 @@ function isUsableRefLyrics(lrc) {
   return good / chars.length > 0.3;
 }
 
-// 入队。type: 'separate' | 'align' | 'both'。force=true 时连已完成的也重新排队。
-// 返回 {added, skipped, queued:[songId...]}；幂等：pending/processing 不重复入队，
-// failed 自动重置重试，done 仅在 force 时重排。
+// 入队。type: 'separate' | 'align' | 'both'。
+// type='both' 现为"自动判断"模式（修复已分离歌曲重复分离问题）：
+//   - 未分离(sep_status!='done') → 入队 separate（complete() 完成后自动创建 align）
+//   - 已分离但未对齐 → 直接入队 align，跳过分离（不再浪费 GPU 重分离）
+//   - 两者均 done → 自动跳过（auto_skipped），除非 force=true
+// force=true：不做状态跳过判断，按原逻辑把已完成的也重置重排队。
+// 返回 {added, skipped, queued, separate_added, align_added, auto_skipped}；幂等：
+// pending/processing 不重复入队，failed 自动重置重试，done 仅在 force 时重排。
 function enqueue(db, { songIds = [], type = 'separate', force = false } = {}) {
-  // 修复问题4：both模式下只入队separate，align任务在separate完成后由complete()自动创建，
-  // 避免对齐在分离未完成时就开始（对齐需要分离出的纯人声音频）。
-  const types = type === 'both' ? ['separate'] : (TYPES.includes(type) ? [type] : ['separate']);
   const findJob = db.prepare('SELECT * FROM separation_jobs WHERE song_id=? AND job_type=?');
   const insert = db.prepare("INSERT INTO separation_jobs (song_id, job_type, status) VALUES (?,?,'pending')");
   const reset = db.prepare("UPDATE separation_jobs SET status='pending', error=NULL, progress=0 WHERE id=?");
-  let added = 0, skipped = 0; const queued = [];
+  let added = 0, skipped = 0, separateAdded = 0, alignAdded = 0, autoSkipped = 0;
+  const queued = [];
+
+  // 幂等入队单个任务类型（复用原有去重规则）：
+  // 无记录→插入；failed→重置；done+force→重置；其余(pending/processing/done)→跳过。
+  // 返回 true 表示实际入队/重置了一条任务，用于上层同步歌曲主状态。
+  function enqueueOne(songId, t) {
+    const exist = findJob.get(songId, t);
+    if (!exist || exist.status === 'failed' || (exist.status === 'done' && force)) {
+      if (!exist) insert.run(songId, t); else reset.run(exist.id);
+      added++;
+      if (t === 'separate') separateAdded++; else alignAdded++;
+      queued.push(songId);
+      return true;
+    }
+    skipped++;
+    return false;
+  }
+
   const tx = db.transaction((ids) => {
     for (const rawId of ids) {
       const songId = parseInt(rawId, 10);
       if (!Number.isInteger(songId)) continue;
-      const song = db.prepare('SELECT id FROM songs WHERE id=?').get(songId);
-      if (!song) { skipped++; continue; }
-      for (const t of types) {
-        const exist = findJob.get(songId, t);
-        if (!exist) { insert.run(songId, t); added++; queued.push(songId); }
-        else if (exist.status === 'failed') { reset.run(exist.id); added++; queued.push(songId); }
-        else if (exist.status === 'done' && force) { reset.run(exist.id); added++; queued.push(songId); }
-        else skipped++;
+      // 修复：先查歌曲 sep_status/align_status，据此自动判断该入队哪种任务，
+      // 避免对已分离歌曲重复创建 separate 任务浪费 GPU。
+      const row = db.prepare('SELECT id, sep_status, align_status FROM songs WHERE id=?').get(songId);
+      if (!row) { skipped++; continue; }
+
+      let enqSep = false, enqAlign = false;
+
+      if (force) {
+        // force=true：忽略歌曲状态，按原类型展开重置重排（both 仍只入 separate，
+        // align 由 complete() 分离完成后自动创建，避免对齐抢在分离前跑）
+        const forceTypes = type === 'both' ? ['separate'] : (TYPES.includes(type) ? [type] : ['separate']);
+        for (const t of forceTypes) {
+          if (enqueueOne(songId, t)) { if (t === 'separate') enqSep = true; else enqAlign = true; }
+        }
+      } else if (type === 'both') {
+        // 自动判断：未分离 → 入队 separate；已分离未对齐 → 直接入队 align；都完成 → 跳过
+        if (row.sep_status !== 'done') {
+          if (enqueueOne(songId, 'separate')) enqSep = true;
+        } else if (row.align_status !== 'done') {
+          if (enqueueOne(songId, 'align')) enqAlign = true;
+        } else {
+          autoSkipped++;
+        }
+      } else if (type === 'separate') {
+        if (row.sep_status === 'done') { autoSkipped++; continue; }
+        if (enqueueOne(songId, 'separate')) enqSep = true;
+      } else if (type === 'align') {
+        if (row.align_status === 'done') { autoSkipped++; continue; }
+        if (enqueueOne(songId, 'align')) enqAlign = true;
+      } else {
+        if (enqueueOne(songId, 'separate')) enqSep = true;
       }
-      // 歌曲主状态同步为"排队中"
-      if (types.includes('separate')) db.prepare("UPDATE songs SET sep_status='pending' WHERE id=? AND sep_status!='done'").run(songId);
-      if (types.includes('align')) db.prepare("UPDATE songs SET align_status='pending' WHERE id=? AND align_status!='done'").run(songId);
+
+      // 歌曲主状态同步为"排队中"（仅对本次实际入队的类型；已是 done 的不改）
+      if (enqSep) db.prepare("UPDATE songs SET sep_status='pending' WHERE id=? AND sep_status!='done'").run(songId);
+      if (enqAlign) db.prepare("UPDATE songs SET align_status='pending' WHERE id=? AND align_status!='done'").run(songId);
     }
   });
   tx(songIds);
-  return { added, skipped, queued: [...new Set(queued)] };
+  return { added, skipped, queued: [...new Set(queued)], separate_added: separateAdded, align_added: alignAdded, auto_skipped: autoSkipped };
 }
 
 // worker 领取一个任务（事务 + 条件更新，多 worker 并发也不会领到同一个）
