@@ -6667,9 +6667,15 @@ async function batchFetchCloudLyrics(){
   try{
     const res = await fetch('/api/lyrics/batch-missing?limit=500', { method:'POST' });
     if(res.status === 401){ showLogin(); return; }
+    // 409: 已有批量任务在跑，不报错，直接展示已有进度
+    if(res.status === 409){
+      toast('已有补抓任务正在运行，正在显示进度…');
+      startLyricsBatchPolling();
+      return;
+    }
     const d = await res.json().catch(()=>({}));
-    if(!res.ok){ toast(d.error || '批量抓歌词失败'); return; }
-    toast('已开始后台批量抓取歌词（LDDC管线）');
+    if(!res.ok){ toast(d.message || d.error || '批量抓歌词失败'); return; }
+    toast(d.message || '已开始后台批量抓取歌词（LDDC管线）');
     startLyricsBatchPolling();
   }catch(e){ toast('请求失败：'+e.message); }
   finally{ if(btn){ btn.disabled = false; btn.textContent = '📥 批量抓歌词'; } }
