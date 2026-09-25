@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -1337,7 +1337,9 @@ html[data-layout="mobile"] .ak-toggle{padding:5px 12px;font-size:13px}
 .om-songlist{padding-bottom:80px}
 /* 歌曲行：封面缩略图 + 序号 + 歌名歌手 + 时长 */
 .om-row{display:flex;align-items:center;padding:10px 12px;border-radius:10px;
-  background:transparent;transition:background .3s cubic-bezier(0.25,0.46,0.45,0.94);cursor:pointer;gap:12px}
+  background:transparent;transition:background .3s cubic-bezier(0.25,0.46,0.45,0.94);cursor:pointer;gap:12px;
+  /* 问题1：视口外的行跳过布局/绘制，低端TV浏览器滚动列表更流畅。约50行/页，行高约60px */
+  content-visibility:auto;contain-intrinsic-size:auto 60px}
 .om-row:hover{background:rgba(255,255,255,.06)}
 .om-row.cur{background:rgba(199,54,247,.15)}
 .om-thumb{width:40px;height:40px;border-radius:8px;flex-shrink:0;display:flex;align-items:center;justify-content:center;
@@ -2267,7 +2269,7 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
       <div class="opb-cover" id="opb-cover">♪</div>
       <div class="opb-info">
         <div class="opb-title" id="online-now-title">未播放</div>
-        <div class="opb-artist"><span id="online-now-artist"></span><span id="online-play-mode" style="font-size:10px;padding:1px 6px;border-radius:8px;background:#2a2a2a;color:#4caf50;margin-left:6px;display:none;vertical-align:middle">直连</span></div>
+        <div class="opb-artist"><span id="online-now-artist"></span><span id="online-play-mode" style="font-size:12px;padding:2px 8px;border-radius:9px;background:rgba(76,175,80,.18);color:#4caf50;margin-left:6px;display:none;vertical-align:middle">直连</span></div>
       </div>
     </div>
     <div class="opb-center">
@@ -5739,6 +5741,13 @@ function newestPage(d){const t=Math.ceil(newestSorted.length/NEWEST_PG)||1;newes
 let _onlineAudio=null,_onlineSongList=[],_onlineIdx=0;
 let _omCurrentSong=null,_omPlayMode='direct',_omFallbackTried=false,_ffmpegInstance=null,_ffmpegLoading=false;
 let _onlineLrcLines=[],_onlineLastLrc="";
+// 问题1：缓存歌词DOM引用与当前行索引，避免timeupdate里每次querySelectorAll+全量toggle
+let _omLrcSideEls=null,_omLrcFsEls=null;
+let _omLastSideLrcIdx=-1,_omLastFsLrcIdx=-1;
+// 问题1：缓存当前playing行DOM引用，updateOnlinePlayIcon不再全量遍历50行
+let _omPlayingRowEl=null;
+// 问题1：timeupdate节流(150ms)+rAF合并
+let _omLastTimeup=0,_omRafQueued=false;
 let _omMode='seq'; // seq | shuffle | one
 let _omRecent=[]; // 最近播放记录
 // 全量加载 + 本地分页 + 虚拟键盘过滤
@@ -5795,10 +5804,14 @@ function renderOnlineList(page){
       '<div class="om-num"><span class="om-num-txt">'+(gi+1)+'</span>'+'<svg class="om-num-ic" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>'+'<span class="om-eq"><i></i><i></i><i></i></span></div>'+
       '<div class="om-row-txt"><div class="om-row-t">'+s.title+'</div><div class="om-row-a">'+(s.artist||'')+'</div></div>'+
       '<div class="om-row-dur">'+dur+'</div>';
-    d._songId=s.id;d.onclick=()=>playOnlineSong(gi);
+    d._songId=s.id;d.setAttribute('data-song-id',s.id);d.onclick=()=>playOnlineSong(gi);
     frag.appendChild(d);
   });
   el.appendChild(frag);
+  // 问题1：列表重建后旧的playing行引用已失效，置空并重新应用playing类到当前行
+  _omPlayingRowEl=null;
+  _omLastSideLrcIdx=-1;_omLastFsLrcIdx=-1;
+  updateOnlinePlayIcon();
 }
 function fmtDur(sec){if(!sec||isNaN(sec))return'--:--';const m=Math.floor(sec/60),s=Math.floor(sec%60);return m+':'+(s<10?'0':'')+s;}
 function onlinePage(d){renderOnlineList(_onPg+1+d);}
@@ -5901,14 +5914,16 @@ function _omSetPlayMode(mode){
   _omPlayMode=mode;
   const el=document.getElementById('online-play-mode');
   if(!el)return;
+  // 问题4：徽章增大字号+背景色区分度，让用户一眼看出当前播放模式
   const map={
-    'direct':{text:'直连',color:'#4caf50'},
-    'client':{text:'客户端解码',color:'#2196f3'},
-    'proxy':{text:'NAS转码',color:'#ff9800'}
+    'direct':{text:'直连',color:'#4caf50',bg:'rgba(76,175,80,.18)'},
+    'client':{text:'客户端解码',color:'#2196f3',bg:'rgba(33,150,243,.18)'},
+    'proxy':{text:'NAS转码',color:'#ff9800',bg:'rgba(255,152,0,.18)'}
   };
   const m=map[mode]||map['direct'];
   el.textContent=m.text;
   el.style.color=m.color;
+  el.style.background=m.bg;
   el.style.display='inline-block';
 }
 // 动态加载ffmpeg.wasm（单线程版，无需COOP/COEP headers）
@@ -5946,9 +5961,13 @@ async function _omClientDecode(song){
   const ext=_omGetExt(song.filename);
   const url='/api/netktv/music/stream/'+song.id;
   // fetch跟随302重定向链（NAS→AList→CDN），CORS失败则抛异常走fallback
-  const resp=await fetch(url);
+  // 问题2：cache:'no-store'避免浏览器把整个大音频文件缓存到磁盘
+  showToast('客户端解码中...',true);
+  const resp=await fetch(url,{cache:'no-store'});
   if(!resp.ok) throw new Error('fetch失败 status='+resp.status);
   const buf=await resp.arrayBuffer();
+  // 问题2：打印下载字节数，便于排查内存占用（ffmpeg.wasm单线程解码把整文件放进内存）
+  console.log('[在线音乐] 客户端解码下载大小:',(buf.byteLength/1048576).toFixed(1),'MB','(',song.title,')');
   const ffmpeg=await _omLoadFfmpeg();
   const inputName='input.'+ext;
   const outputName='output.wav';
@@ -5963,6 +5982,7 @@ async function _omClientDecode(song){
   try{ await ffmpeg.deleteFile(inputName); }catch(e){}
   try{ await ffmpeg.deleteFile(outputName); }catch(e){}
   const blob=new Blob([data],{type:'audio/wav'});
+  hideToast(); // 问题4：解码完成，清除"客户端解码中..."提示
   return URL.createObjectURL(blob);
 }
 // 根据歌曲格式选择播放模式并设置audio.src
@@ -5983,7 +6003,8 @@ async function _omStartPlayback(s){
       if(probe.ok){
         const info=await probe.json();
         needClientDecode=info.needClientDecode===true;
-        if(info.isDtsWav) console.log('[在线音乐] 服务端检测到DTS-WAV:',s.title);
+        // 问题3：输出服务端探测到的具体格式类型（pcm/aac-wav/mp3-wav/dts-wav等），便于排查雪花声
+        console.log('[在线音乐] 格式探测: format='+(info.format||info.ext)+' needClientDecode='+needClientDecode,'(',s.title,')');
       }
     }catch(e){ console.warn('[在线音乐] 格式探测失败，按扩展名判断:',e.message); }
   }
@@ -5995,6 +6016,8 @@ async function _omStartPlayback(s){
       _onlineAudio.src=objUrl;
     }catch(e){
       console.warn('[在线音乐] 客户端解码失败，fallback NAS转码:',e.message||e);
+      hideToast();
+      showToast('播放失败，已切换NAS转码');
       _omSetPlayMode('proxy');
       _onlineAudio.src='/api/netktv/music/proxy/'+s.id;
     }
@@ -6008,6 +6031,8 @@ async function _omStartPlayback(s){
 async function playOnlineSong(idx){
   _onlineIdx=idx;
   const s=_onlineSongList[idx];if(!s)return;
+  // 问题4：歌曲切换短暂提示，让用户知道正在加载哪首
+  showToast('正在加载: '+s.title);
   // 记录最近播放
   _omRecent.unshift(s);
   _omRecent=_omRecent.slice(0,50);
@@ -6054,7 +6079,9 @@ async function playOnlineSong(idx){
         // 同步更新 _onlineSongList 和 _onFiltered 中的引用
         const s1=_onlineSongList.find(x=>x.id===_omCurrentSong.id);if(s1)s1.duration=d;
         const s2=_onFiltered.find(x=>x.id===_omCurrentSong.id);if(s2)s2.duration=d;
-        renderOnlineList(_onPg+1);
+        // 问题1：不再全量重渲染50行，只更新当前行时长文本（避免低端TV卡顿）
+        const row=document.querySelector('#pl-online .om-row[data-song-id="'+_omCurrentSong.id+'"]');
+        if(row){const de=row.querySelector('.om-row-dur');if(de)de.textContent=fmtDur(d);}
       }
     });
     // ended：根据播放模式
@@ -6074,15 +6101,23 @@ async function playOnlineSong(idx){
       const err=_onlineAudio.error;
       const codeMap={1:'MEDIA_ERR_ABORTED',2:'MEDIA_ERR_NETWORK',3:'MEDIA_ERR_DECODE',4:'MEDIA_ERR_SRC_NOT_SUPPORTED'};
       console.error('[在线音乐] 播放错误:',err?codeMap[err.code]||'code='+err.code:'未知',err?('message='+err.message):'','src=',_onlineAudio.src,'mode=',_omPlayMode);
+      hideToast();
       // 直连模式失败时自动fallback到NAS转码（仅一次，防止循环）
       if(_omCurrentSong&&_omPlayMode==='direct'&&!_omFallbackTried){
         _omFallbackTried=true;
         _omSetPlayMode('proxy');
         console.warn('[在线音乐] 直连失败，自动fallback到NAS转码:',_omCurrentSong.title);
+        showToast('播放失败，已切换NAS转码');
         _onlineAudio.src='/api/netktv/music/proxy/'+_omCurrentSong.id;
         try{ await _onlineAudio.play(); }catch(e){}
+      }else{
+        showToast('播放失败，请重试');
       }
     });
+    // 问题4：缓冲/卡顿/可播放事件提示
+    _onlineAudio.addEventListener('waiting',()=>{showToast('缓冲中...',true);});
+    _onlineAudio.addEventListener('stalled',()=>{showToast('网络卡顿...',true);});
+    _onlineAudio.addEventListener('canplay',()=>{hideToast();});
     // 全屏进度条点击
     const ofProg=document.getElementById('of-progress');
     if(ofProg)ofProg.onclick=function(e){
@@ -6092,40 +6127,53 @@ async function playOnlineSong(idx){
     };
     const ofVol=document.getElementById('of-volume');
     if(ofVol)ofVol.oninput=()=>{if(_onlineAudio)_onlineAudio.volume=parseFloat(ofVol.value);};
-    // timeupdate
+    // timeupdate — 问题1：节流到150ms + rAF合并；歌词用缓存DOM，仅行变化时toggle/scroll
     _onlineAudio.addEventListener('timeupdate',()=>{
-      const t=_onlineAudio.currentTime||0;const m=Math.floor(t/60);const sec=Math.floor(t%60);
-      document.getElementById('online-time').textContent=m+':'+(sec<10?'0':'')+sec;
-      if(_onlineAudio.duration){
-        document.getElementById('online-progress-bar').style.width=((t/_onlineAudio.duration)*100)+'%';
-        const opb=document.getElementById('of-progress-bar');
-        if(opb)opb.style.width=((t/_onlineAudio.duration)*100)+'%';
-        const ot=document.getElementById('of-time');if(ot)ot.textContent=m+':'+(sec<10?'0':'')+sec;
-      }
-      // 右侧歌词同步
-      if(_onlineLrcLines&&_onlineLrcLines.length){
-        const rb=document.getElementById('om-lrc-box');
-        if(rb){
+      const now=performance.now();
+      if(now-_omLastTimeup<150)return;
+      _omLastTimeup=now;
+      if(_omRafQueued)return;
+      _omRafQueued=true;
+      requestAnimationFrame(()=>{
+        _omRafQueued=false;
+        if(!_onlineAudio)return;
+        const t=_onlineAudio.currentTime||0;const m=Math.floor(t/60);const sec=Math.floor(t%60);
+        document.getElementById('online-time').textContent=m+':'+(sec<10?'0':'')+sec;
+        if(_onlineAudio.duration){
+          document.getElementById('online-progress-bar').style.width=((t/_onlineAudio.duration)*100)+'%';
+          const opb=document.getElementById('of-progress-bar');
+          if(opb)opb.style.width=((t/_onlineAudio.duration)*100)+'%';
+          const ot=document.getElementById('of-time');if(ot)ot.textContent=m+':'+(sec<10?'0':'')+sec;
+        }
+        // 右侧歌词同步（用缓存DOM，不再querySelectorAll；仅行变化时操作class和滚动）
+        if(_onlineLrcLines&&_onlineLrcLines.length&&_omLrcSideEls){
           let ai=0;
           for(let i=0;i<_onlineLrcLines.length;i++){if(_onlineLrcLines[i].t<=t)ai=i;else break;}
-          const lines=rb.querySelectorAll('.om-lrc-line');
-          lines.forEach((ln,i)=>ln.classList.toggle('cur',i===ai));
-          const cl=lines[ai];
-          if(cl)cl.scrollIntoView({block:'center',behavior:'smooth'});
+          if(ai!==_omLastSideLrcIdx){
+            if(_omLastSideLrcIdx>=0&&_omLrcSideEls[_omLastSideLrcIdx])_omLrcSideEls[_omLastSideLrcIdx].classList.remove('cur');
+            if(_omLrcSideEls[ai]){
+              _omLrcSideEls[ai].classList.add('cur');
+              // 去掉behavior:'smooth'，低端TV浏览器smooth滚动极耗性能，用auto即时滚动
+              _omLrcSideEls[ai].scrollIntoView({block:'center'});
+            }
+            _omLastSideLrcIdx=ai;
+          }
         }
         // 全屏歌词
         const fs=document.getElementById('online-fullscreen');
-        if(fs&&fs.classList.contains('open')){
+        if(fs&&fs.classList.contains('open')&&_onlineLrcLines&&_onlineLrcLines.length&&_omLrcFsEls){
           let ai=-1;
           for(let i=0;i<_onlineLrcLines.length;i++){if(_onlineLrcLines[i].t<=t)ai=i;else break;}
-          if(ai>=0){
-            const lines=fs.querySelectorAll('#of-lyrics .of-lr');
-            lines.forEach((ln,i)=>ln.classList.toggle('cur',i===ai));
-            const cl=lines[ai];
-            if(cl)cl.scrollIntoView({block:'center',behavior:'smooth'});
+          if(ai>=0&&ai!==_omLastFsLrcIdx){
+            if(_omLastFsLrcIdx>=0&&_omLrcFsEls[_omLastFsLrcIdx])_omLrcFsEls[_omLastFsLrcIdx].classList.remove('cur');
+            if(_omLrcFsEls[ai]){
+              _omLrcFsEls[ai].classList.add('cur');
+              _omLrcFsEls[ai].scrollIntoView({block:'center'});
+            }
+            _omLastFsLrcIdx=ai;
           }
         }
-      }
+      });
     });
   }
   await _omStartPlayback(s);
@@ -6160,6 +6208,8 @@ function renderSideLyrics(){
     const d=document.createElement('div');d.className='om-lrc-line';d.textContent=l.text;frag.appendChild(d);
   });
   box.appendChild(frag);
+  // 问题1：缓存歌词行DOM引用，timeupdate直接用，避免每次querySelectorAll
+  _omLrcSideEls=Array.prototype.slice.call(box.children);
 }
 function toggleOnlinePlay(){
   if(!_onlineAudio)return;
@@ -6182,13 +6232,11 @@ function updateOnlinePlayIcon(){
   const playing=_onlineAudio&&!_onlineAudio.paused;
   const big=document.getElementById('online-play-btn');if(big)big.innerHTML=playing?ICO_ON_PAUSE:ICO_ON_PLAY;
   const fs=document.getElementById('of-play-btn');if(fs)fs.innerHTML=playing?ICO_ON_PAUSE:ICO_ON_PLAY;
-  // 同步列表当前行playing类（EQ动画）
-  document.querySelectorAll('#pl-online .om-row.playing').forEach(r=>r.classList.remove('playing'));
+  // 问题1：用缓存的行引用，不再两次全量querySelectorAll遍历50行
+  if(_omPlayingRowEl){_omPlayingRowEl.classList.remove('playing');_omPlayingRowEl=null;}
   if(playing&&_onlineSongList[_onlineIdx]){
-    const rows=document.querySelectorAll('#pl-online .om-row');
-    rows.forEach(r=>{
-      if(r._songId===_onlineSongList[_onlineIdx].id)r.classList.add('playing');
-    });
+    const row=document.querySelector('#pl-online .om-row[data-song-id="'+_onlineSongList[_onlineIdx].id+'"]');
+    if(row){row.classList.add('playing');_omPlayingRowEl=row;}
   }
 }
 function updateOnlineFsMeta(){
@@ -6217,6 +6265,8 @@ function renderFsLyrics(){
     const d=document.createElement('div');d.className='of-lr';d.textContent=l.text;frag.appendChild(d);
   });
   box.appendChild(frag);
+  // 问题1：缓存全屏歌词DOM引用
+  _omLrcFsEls=Array.prototype.slice.call(box.children);
 }
 function openOnlineFullscreen(){
   const fs=document.getElementById('online-fullscreen');

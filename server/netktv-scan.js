@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 网络 KTV 标准扫描模块（AList 缓存层方案）
  *
  * 风控优化后的两阶段架构：
@@ -82,7 +82,7 @@ function _probeWavFormat(url) {
           if (buf.length < 44 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') {
             return resolve({ needClientDecode: false });
           }
-          const result = { audioFormat: 1, bitsPerSample: 16, channels: 2, sampleRate: 44100, isDtsWav: false, isAc3Wav: false, hasDataChunk: false, needClientDecode: false };
+          const result = { audioFormat: 1, bitsPerSample: 16, channels: 2, sampleRate: 44100, isDtsWav: false, isAc3Wav: false, isAacWav: false, isMp3Wav: false, hasDataChunk: false, needClientDecode: false, format: 'wav-unknown' };
           const findSync = (start, end, pattern) => {
             const limit = Math.min(end, buf.length - pattern.length);
             for (let i = start; i < limit; i++) {
@@ -116,29 +116,73 @@ function _probeWavFormat(url) {
             const searchEnd = buf.length;
             if (findSync(dataStart, searchEnd, DTS_BE) || findSync(dataStart, searchEnd, DTS_LE)) result.isDtsWav = true;
             // 注：AC3 sync word(0x0B77)仅2字节，在128KB随机数据中误判概率极高，已移除检测。
-            // PCM有效性统计检测：标准16位有符号PCM的高字节(>127)比例应在40%-60%之间。
-            // DTS/AC3等压缩数据伪装成PCM时，字节分布明显偏离（如DTS-ES高字节比例仅23%）。
-            // 跳过开头静音（全零样本），从非零区域开始统计，避免歌曲前奏静音导致误判。
-            if (!result.isDtsWav && result.audioFormat === 1 && result.bitsPerSample === 16) {
+
+            // 问题3：AAC ADTS sync word检测（0xFFF 12-bit同步 + layer=00 + 帧长合法性）
+            // AAC-WAV伪装：WAV头声明PCM，data chunk里实际是AAC ADTS帧，浏览器当PCM解码出雪花声
+            if (!result.isDtsWav) {
+              let aacHits = 0;
+              for (let i = dataStart; i < searchEnd - 7; i++) {
+                if (buf[i] === 0xFF && (buf[i+1] & 0xF6) === 0xF0) {
+                  // 解析ADTS帧长（13 bits：byte3低2位 + byte4 + byte5高3位）
+                  const frameLen = ((buf[i+3] & 0x03) << 11) | (buf[i+4] << 3) | ((buf[i+5] >> 5) & 0x07);
+                  if (frameLen >= 7 && frameLen <= 8192 && i + frameLen <= searchEnd) {
+                    aacHits++;
+                    if (aacHits >= 2) break; // 至少2帧合法才确认，排除随机数据误判
+                  }
+                }
+              }
+              if (aacHits >= 2) { result.isAacWav = true; result.needClientDecode = true; }
+            }
+
+            // 问题3：MP3 sync word检测（0xFFE 11-bit同步 + 版本/层合法 + 比特率索引合法）
+            if (!result.isDtsWav && !result.isAacWav) {
+              let mp3Hits = 0;
+              for (let i = dataStart; i < searchEnd - 4; i++) {
+                if (buf[i] === 0xFF && (buf[i+1] & 0xE0) === 0xE0) {
+                  const layer = (buf[i+1] >> 1) & 0x03;      // layer 字段，00=保留
+                  const bitrateIdx = (buf[i+2] >> 4) & 0x0F; // 0x0/0xF=保留
+                  if (layer !== 0 && bitrateIdx !== 0 && bitrateIdx !== 0x0F) {
+                    mp3Hits++;
+                    if (mp3Hits >= 2) break;
+                  }
+                }
+              }
+              if (mp3Hits >= 2) { result.isMp3Wav = true; result.needClientDecode = true; }
+            }
+
+            // 问题3：PCM有效性统计增强——高字节比例 + 零字节比例双信号
+            // 标准16位有符号PCM高字节(>127)比例应在25%-75%；压缩数据零字节通常<5%
+            if (!result.isDtsWav && !result.isAacWav && !result.isMp3Wav && result.audioFormat === 1 && result.bitsPerSample === 16) {
               // 跳过开头连续全零（静音），找到第一个非零位置
               let statStart = dataStart;
               const maxSkip = Math.min(65536, buf.length - dataStart);
               while (statStart < dataStart + maxSkip && buf[statStart] === 0 && buf[statStart+1] === 0) statStart += 2;
               const statLen = Math.min(8192, buf.length - statStart);
               if (statLen >= 1024) {
-                let highCount = 0;
-                for (let si = statStart; si < statStart + statLen; si++) { if (buf[si] > 127) highCount++; }
+                let highCount = 0, zeroCount = 0;
+                for (let si = statStart; si < statStart + statLen; si++) {
+                  const b = buf[si];
+                  if (b > 127) highCount++;
+                  if (b === 0) zeroCount++;
+                }
                 const highRatio = highCount / statLen;
-                // 标准PCM高字节比例约50%，偏离超过25个百分点视为可疑非PCM
-                if (highRatio < 0.25 || highRatio > 0.75) {
-                  result.isDtsWav = true; // 标记为可疑压缩格式，走客户端解码
+                const zeroRatio = zeroCount / statLen;
+                result.highByteRatio = highRatio;
+                result.zeroByteRatio = zeroRatio;
+                // 高字节比例偏离25%-75%，或零字节极低（<5%，典型压缩数据特征），视为可疑非PCM
+                if (highRatio < 0.25 || highRatio > 0.75 || zeroRatio < 0.05) {
+                  result.isDtsWav = true; // 复用isDtsWav标记走客户端解码（统一标记可疑伪装格式）
                   result.pcmSuspicious = true;
-                  result.highByteRatio = highRatio;
                 }
               }
             }
           }
-          if (result.isDtsWav || result.isAc3Wav) result.needClientDecode = true;
+          // 问题3：标记具体格式类型，供前端日志与排查雪花声
+          if (result.isDtsWav) result.format = 'dts-wav';
+          else if (result.isAacWav) result.format = 'aac-wav';
+          else if (result.isMp3Wav) result.format = 'mp3-wav';
+          else if (result.audioFormat === 1 && result.bitsPerSample === 16) result.format = 'pcm';
+          if (result.isDtsWav || result.isAc3Wav || result.isAacWav || result.isMp3Wav) result.needClientDecode = true;
           else if (result.audioFormat !== 1 && result.audioFormat !== 0xFFFE) result.needClientDecode = true;
           else if (result.audioFormat === 0xFFFE && extensibleSub && !extensibleSub.startsWith('0100000000001000800000aa00389b71')) result.needClientDecode = true;
           else if (result.bitsPerSample > 16) result.needClientDecode = true;
@@ -932,7 +976,8 @@ function init(db, cloudDrive) {
       // needClientDecode由_probeWavFormat内部完整判断（DTS/AC3/非PCM/24bit+/无data chunk），非WAV格式按扩展名判断
       const needClientDecode = (ext === 'wav' ? wavInfo.needClientDecode === true : false)
         || ['ape','wma','dsf','dff','wv'].indexOf(ext) >= 0;
-      res.json({ ext, isDtsWav, needClientDecode, native: !needClientDecode, wav: wavInfo });
+      // 问题3：返回服务端探测到的具体格式类型（pcm/aac-wav/mp3-wav/dts-wav等），前端日志排查雪花声
+      res.json({ ext, format: ext === 'wav' ? (wavInfo.format || 'pcm') : ext, isDtsWav, needClientDecode, native: !needClientDecode, wav: wavInfo });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
@@ -949,6 +994,10 @@ function init(db, cloudDrive) {
       const strmContent = fs.readFileSync(song.vocal_path, 'utf-8').trim();
       if (!strmContent.startsWith('http')) return res.status(500).json({ error: 'STRM内容无效' });
       // 直接302到AList直链（AList再302到CDN），不占NAS带宽
+      // 问题2：302响应本身也要禁缓存，避免浏览器把后续大音频文件缓存到磁盘
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       res.redirect(302, strmContent);
     } catch (e) {
       res.status(500).json({ error: e.message });
