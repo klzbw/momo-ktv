@@ -8317,6 +8317,33 @@ app.get('/api/lyrics/stats', (req, res) => {
 
 });
 
+// GET /api/songs/no-lyrics?limit=100 —— AI Worker 预览无逐字歌词(lyrics_word)的音频歌曲列表
+// 供 http://localhost:8765/ "从KTV获取无歌词歌曲" 功能调用，返回可勾选的歌曲清单
+// 条件：media_type='audio' 且 lyrics_word 为空，排除纯音乐(instrumental)，MKV(video)不在此列
+app.get('/api/songs/no-lyrics', (req, res) => {
+  let limit = parseInt(req.query.limit, 10);
+  if (!Number.isInteger(limit) || limit <= 0) limit = 100;
+  limit = Math.min(limit, 500);
+  const rows = db.prepare(`
+    SELECT id, title, artist, filename, filepath, media_type,
+           CASE WHEN lyrics IS NOT NULL AND lyrics != '' THEN 1 ELSE 0 END AS has_plain_lyrics,
+           sep_status, align_status
+    FROM songs
+    WHERE media_type = 'audio'
+      AND (lyrics_word IS NULL OR lyrics_word = '' OR lyrics_word = 'none')
+      AND (instrumental IS NULL OR instrumental = 0)
+    ORDER BY id DESC
+    LIMIT ?
+  `).all(limit);
+  const total = db.prepare(`
+    SELECT COUNT(*) AS c FROM songs
+    WHERE media_type = 'audio'
+      AND (lyrics_word IS NULL OR lyrics_word = '' OR lyrics_word = 'none')
+      AND (instrumental IS NULL OR instrumental = 0)
+  `).get().c;
+  res.json({ ok: true, total, count: rows.length, songs: rows });
+});
+
 
 
 
