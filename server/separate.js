@@ -150,7 +150,9 @@ function isUsableRefLyrics(lrc) {
 // 返回 {added, skipped, queued:[songId...]}；幂等：pending/processing 不重复入队，
 // failed 自动重置重试，done 仅在 force 时重排。
 function enqueue(db, { songIds = [], type = 'separate', force = false } = {}) {
-  const types = type === 'both' ? TYPES : (TYPES.includes(type) ? [type] : ['separate']);
+  // 修复问题4：both模式下只入队separate，align任务在separate完成后由complete()自动创建，
+  // 避免对齐在分离未完成时就开始（对齐需要分离出的纯人声音频）。
+  const types = type === 'both' ? ['separate'] : (TYPES.includes(type) ? [type] : ['separate']);
   const findJob = db.prepare('SELECT * FROM separation_jobs WHERE song_id=? AND job_type=?');
   const insert = db.prepare("INSERT INTO separation_jobs (song_id, job_type, status) VALUES (?,?,'pending')");
   const reset = db.prepare("UPDATE separation_jobs SET status='pending', error=NULL, progress=0 WHERE id=?");
@@ -248,6 +250,14 @@ function complete(db, jobId, { lyricsWord = null, result = null } = {}) {
     const aExt = (saved['accompaniment.wav'] && !saved['accompaniment.flac']) ? 'wav' : 'flac';
     db.prepare("UPDATE songs SET sep_status='done', vocal_path=?, accomp_path=? WHERE id=?")
       .run(relVocal(key, vExt, song), relAccomp(key, aExt, song), job.song_id);
+    // 修复问题4：分离完成后自动创建对齐任务（幂等：已存在则跳过）。
+    // 对齐任务依赖分离出的纯人声，必须在分离完成后才能入队。
+    const existAlign = db.prepare('SELECT id FROM separation_jobs WHERE song_id=? AND job_type=?').get(job.song_id, 'align');
+    if (!existAlign) {
+      db.prepare("INSERT INTO separation_jobs (song_id, job_type, status) VALUES (?,?,'pending')").run(job.song_id, 'align');
+      db.prepare("UPDATE songs SET align_status='pending' WHERE id=? AND align_status!='done'").run(job.song_id);
+      console.log('[Separate] 分离完成，自动入队对齐任务 song_id=' + job.song_id);
+    }
   } else {
     db.prepare("UPDATE songs SET align_status='done', lyrics_word=COALESCE(?,lyrics_word) WHERE id=?").run(lyricsWord, job.song_id);
   }
