@@ -1,0 +1,183 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 日志文件
+*.log
+logs/
+*.err
+
+# 临时/测试输出
+test_out/
+tmp/
+temp/
+
+# 大体积测试音频（不入库）
+test_short.wav
+test_source.flac
+*.wav
+*.flac
+*.mp3
+*.m4a
+
+# 本地配置（可能含服务器地址/密钥）
+worker_config.json
+115_cookies.json
+
+# 备份文件
+*.bak
+*.bak2
+*.bak3
+*.bak_*
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# 空占位文件
+新建文本文档.txt
+0.51.0
+
+# 临时截图/下载
+_*.png
+_*.jpg
+_*.html
+user_upload.png
+
+# 临时数据文件
+*.json
+!requirements*.json
+!package.json
+
+# 临时文本输出
+*.txt
+
+# ========== 临时脚本（下划线前缀） ==========
+_*.py
+_*.ps1
+_*.sh
+_*.js
+_*.bat
+
+# ========== 检查/调试脚本 ==========
+check_*.py
+check_*.sh
+check_*.ps1
+check_*.bat
+debug_*.py
+debug_*.sh
+debug_*.ps1
+investigate_*.py
+explore_*.py
+explore_*.sh
+probe_*.ps1
+
+# ========== 测试脚本 ==========
+test_*.py
+test_*.sh
+test_*.ps1
+bench_*.py
+timing_*.sh
+
+# ========== 部署/启动临时脚本 ==========
+deploy_*.py
+deploy_*.sh
+deploy_*.ps1
+run_*.py
+run_*.sh
+run_*.ps1
+start_*.ps1
+start_*.sh
+restart_*.py
+restart_*.sh
+restart_*.ps1
+launch_*.py
+launch_*.ps1
+launch_*.sh
+recreate_*.py
+setup_*.sh
+enable_*.py
+revert_*.py
+
+# ========== 修复/清理脚本 ==========
+fix_*.sh
+fix_*.py
+fix2.sh
+clean_*.py
+clean_*.sh
+cleanup_*.py
+cleanup_*.txt
+delete_*.py
+reset_*.py
+reset_*.sh
+kill_*.sh
+kill_*.ps1
+poll_*.sh
+grep_*.sh
+
+# ========== 监控/扫描脚本 ==========
+monitor_*.py
+monitor_*.sh
+monitor1.sh
+monitor2.sh
+scan_*.ps1
+scan_*.py
+net_*.ps1
+net_*.txt
+nas_*.py
+ssh_*.py
+ssh_*.sh
+tail_*.ps1
+quick_*.py
+quick_*.sh
+quick_*.ps1
+
+# ========== 匹配/列表脚本 ==========
+match_*.py
+match_*.ps1
+match_*.txt
+match_*.json
+match_log.txt
+list_*.py
+list_*.ps1
+dir_*.json
+dir_*.txt
+drive_*.ps1
+fetch_*.py
+extract_*.py
+find_*.sh
+count_*.py
+create_*.ps1
+connect_*.ps1
+broad_*.py
+final_*.py
+final_*.sh
+verify_*.py
+verify_*.sh
+verify_*.ps1
+update_*.sh
+patch_*.py
+post_*.py
+read_*.py
+get_*.ps1
+flac_*.py
+flac_*.ps1
+cue_*.txt
+cue_*.ps1
+search_*.ps1
+convert_*.py
+convert_*.bat

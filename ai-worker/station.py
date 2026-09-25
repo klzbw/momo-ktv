@@ -21,6 +21,7 @@ station.py —— 墨墨爱K歌 AI 分离工作站（可视化控制面板）
 """
 import argparse, os, sys, time, json, threading, subprocess, re, io
 import requests
+import urllib.parse
 from collections import deque
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 
@@ -619,6 +620,30 @@ class StationHandler(BaseHTTPRequestHandler):
             self._send_json({'lines': lines, 'latest_id': convert_manager.log_id if convert_manager else 0})
         elif path == '/api/manual/status':
             self._send_json(manual_manager.get_status() if manual_manager else {'running': False})
+        elif path == '/api/browse':
+            # 目录浏览 API：返回指定目录下的子目录和音频文件
+            qs = self.path.split('?')[1] if '?' in self.path else ''
+            browse_path = ''
+            for kv in qs.split('&'):
+                if kv.startswith('path='):
+                    browse_path = urllib.parse.unquote(kv[5:])
+            self._send_json(self._list_dir(browse_path))
+        elif path == '/api/ktv/no-lyrics':
+            # 从 momo-ktv 服务端获取无逐字歌词的音频歌曲列表（预览/勾选用）
+            qs = self.path.split('?')[1] if '?' in self.path else ''
+            limit = 100
+            for kv in qs.split('&'):
+                if kv.startswith('limit='):
+                    try:
+                        limit = max(1, min(500, int(kv[6:])))
+                    except Exception:
+                        pass
+            try:
+                r = requests.get(f'{manager.server}/api/songs/no-lyrics',
+                                 params={'limit': limit}, timeout=15)
+                self._send_json(r.json())
+            except Exception as e:
+                self._send_json({'ok': False, 'error': str(e)}, 500)
         else:
             self._send_json({'error': 'not found'}, 404)
 
@@ -682,6 +707,40 @@ class StationHandler(BaseHTTPRequestHandler):
             self._send_json({'ok': ok, 'msg': msg})
         else:
             self._send_json({'error': 'not found'}, 404)
+
+    def _list_dir(self, dir_path):
+        """目录浏览：返回子目录和音频文件列表"""
+        import string as _string
+        audio_exts = {'.flac','.wav','.mp3','.m4a','.ape','.ogg','.aac','.wma','.dsf','.dff','.strm'}
+        try:
+            if not dir_path or dir_path == '/':
+                drives = []
+                for c in _string.ascii_uppercase:
+                    d = c + ':\\'
+                    if os.path.exists(d):
+                        drives.append({'name': d, 'path': d, 'type': 'drive'})
+                return {'path': '', 'parent': '', 'dirs': drives, 'files': []}
+            dir_path = os.path.normpath(dir_path)
+            if not os.path.isdir(dir_path):
+                return {'path': dir_path, 'parent': '', 'dirs': [], 'files': [], 'error': '目录不存在'}
+            parent = os.path.dirname(dir_path)
+            dirs = []
+            files = []
+            for name in sorted(os.listdir(dir_path)):
+                full = os.path.join(dir_path, name)
+                try:
+                    if os.path.isdir(full):
+                        dirs.append({'name': name, 'path': full, 'type': 'dir'})
+                    else:
+                        ext = os.path.splitext(name)[1].lower()
+                        if ext in audio_exts:
+                            size = os.path.getsize(full)
+                            files.append({'name': name, 'path': full, 'type': 'file', 'size': size})
+                except Exception:
+                    pass
+            return {'path': dir_path, 'parent': parent, 'dirs': dirs, 'files': files}
+        except Exception as e:
+            return {'path': dir_path, 'parent': '', 'dirs': [], 'files': [], 'error': str(e)}
 
     def log_message(self, *args):
         pass  # 静默 HTTP 请求日志，避免刷屏
@@ -1055,6 +1114,26 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
   <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.6">
     💡 入队后 Worker 会自动领取处理（需 Worker 处于运行状态）。上传歌词仅对已有逐字歌词(lyrics_word)的 audio 歌曲有效，115云盘可写，移动云盘不支持写入。
   </div>
+  <!-- 无歌词歌曲预览选择：从KTV拉取无逐字歌词的audio歌曲，勾选后批量入队/上传 -->
+  <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="btn" style="background:linear-gradient(135deg,var(--teal),#0d9488);color:#fff;font-size:12px" onclick="fetchNoLyrics()">🔍 从KTV获取无歌词歌曲</button>
+      <span id="noLyricsInfo" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+    <div id="noLyricsList" style="display:none;max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:1;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="noLyricsSelectAll" onchange="toggleSelectAllNoLyrics(this.checked)" style="accent-color:var(--teal)"> 全选
+        </label>
+        <span id="noLyricsSelected" style="font-size:12px;color:var(--teal);font-weight:bold">已选 0 首</span>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          <button class="btn btn-start" style="font-size:11px;padding:4px 12px" onclick="enqueueSelectedNoLyrics()">▶ 入队所选</button>
+          <button class="btn" style="font-size:11px;padding:4px 12px;background:linear-gradient(135deg,var(--purple),#7c3aed);color:#fff" onclick="uploadSelectedNoLyrics()">☁️ 上传歌词</button>
+        </div>
+      </div>
+      <div id="noLyricsItems"></div>
+    </div>
+  </div>
 </div>
 
 <div class="sub-title" style="margin-top:18px">自定义文件处理（不经数据库，本机直接推理）</div>
@@ -1062,11 +1141,17 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
   <div class="form-grid">
     <div class="form-item full">
       <label>源文件路径（本地路径或 http(s) URL，每行一个，或用逗号分隔）</label>
-      <textarea id="mpInput" rows="3" placeholder="C:\\music\\song1.flac&#10;C:\\music\\song2.flac&#10;https://xxx.com/song3.flac" style="width:100%;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;outline:none;font-family:Consolas,monospace;resize:vertical"></textarea>
+      <div style="display:flex;gap:6px;align-items:flex-start">
+        <textarea id="mpInput" rows="3" placeholder="C:\\music\\song1.flac&#10;C:\\music\\song2.flac&#10;https://xxx.com/song3.flac" style="flex:1;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;outline:none;font-family:Consolas,monospace;resize:vertical"></textarea>
+        <button class="btn" style="padding:8px 12px;white-space:nowrap;background:linear-gradient(135deg,var(--teal),#0d9488);color:#fff;font-size:12px" onclick="openBrowser('file')">📁 浏览</button>
+      </div>
     </div>
     <div class="form-item full">
       <label>输出目录（产物保存到此目录）</label>
-      <input type="text" id="mpOutput" placeholder="例如：D:\\output\\" style="font-family:Consolas,monospace">
+      <div style="display:flex;gap:6px">
+        <input type="text" id="mpOutput" placeholder="例如：D:\\output\\" style="flex:1;font-family:Consolas,monospace">
+        <button class="btn" style="padding:8px 12px;white-space:nowrap;background:linear-gradient(135deg,var(--teal),#0d9488);color:#fff;font-size:12px" onclick="openBrowser('dir')">📁 浏览</button>
+      </div>
     </div>
     <div class="form-item">
       <label>任务类型</label>
@@ -1424,6 +1509,71 @@ async function manualUploadLyrics(){
   document.getElementById('manualResult').innerHTML =
     d.ok ? `✅ 已受理上传 <b style="color:var(--green)">${d.uploaded||0}</b> 首，跳过 <b>${d.skipped||0}</b> 首（异步执行中）` : `❌ 失败：${esc(d.error||'')}`;
 }
+// ---------- 无歌词歌曲预览选择（从KTV获取，勾选后批量入队/上传） ----------
+let noLyricsSongs = [];
+async function fetchNoLyrics(){
+  const info = document.getElementById('noLyricsInfo');
+  info.textContent = '正在从KTV获取...';
+  try{
+    const r = await fetch('/api/ktv/no-lyrics?limit=200');
+    const d = await r.json();
+    if(!d.ok){ info.textContent = '获取失败: ' + (d.error||'未知错误'); return; }
+    noLyricsSongs = d.songs || [];
+    info.textContent = '共 ' + d.total + ' 首无逐字歌词，显示 ' + d.count + ' 首（按ID倒序）';
+    renderNoLyricsList();
+  }catch(e){ info.textContent = '获取失败: ' + e.message; }
+}
+function renderNoLyricsList(){
+  const container = document.getElementById('noLyricsList');
+  const items = document.getElementById('noLyricsItems');
+  container.style.display = 'block';
+  if(noLyricsSongs.length === 0){
+    items.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">暂无无逐字歌词的音频歌曲</div>';
+    updateNoLyricsSelected();
+    return;
+  }
+  items.innerHTML = noLyricsSongs.map(function(s){
+    var ext = (s.filename || '').split('.').pop().toUpperCase();
+    var lyricTag = s.has_plain_lyrics
+      ? '<span style="font-size:10px;color:var(--teal);background:rgba(13,148,136,.15);padding:2px 6px;border-radius:4px">有纯文本歌词</span>'
+      : '<span style="font-size:10px;color:var(--orange);background:rgba(251,146,60,.15);padding:2px 6px;border-radius:4px">无歌词</span>';
+    var sepTag = (s.sep_status && s.sep_status !== 'none')
+      ? '<span style="font-size:10px;color:var(--green)">分离OK</span>' : '<span style="font-size:10px;color:var(--muted)">未分离</span>';
+    return '<label style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--border);cursor:pointer;font-size:12px">'
+      + '<input type="checkbox" class="no-lyrics-check" data-id="' + s.id + '" onchange="updateNoLyricsSelected()" style="accent-color:var(--teal);flex-shrink:0;width:16px;height:16px">'
+      + '<span style="color:var(--muted);font-family:Consolas,monospace;min-width:42px;flex-shrink:0">#' + s.id + '</span>'
+      + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b>' + esc(s.title||'未知') + '</b> <span style="color:var(--muted)">- ' + esc(s.artist||'未知') + '</span></span>'
+      + '<span style="font-size:10px;color:var(--muted);background:var(--bg2);padding:2px 6px;border-radius:4px;flex-shrink:0">' + ext + '</span>'
+      + sepTag + lyricTag
+      + '</label>';
+  }).join('');
+  document.getElementById('noLyricsSelectAll').checked = false;
+  updateNoLyricsSelected();
+}
+function toggleSelectAllNoLyrics(checked){
+  document.querySelectorAll('.no-lyrics-check').forEach(function(c){ c.checked = checked; });
+  updateNoLyricsSelected();
+}
+function updateNoLyricsSelected(){
+  var n = document.querySelectorAll('.no-lyrics-check:checked').length;
+  document.getElementById('noLyricsSelected').textContent = '已选 ' + n + ' 首';
+}
+function getSelectedNoLyricsIds(){
+  return [...document.querySelectorAll('.no-lyrics-check:checked')].map(function(c){ return parseInt(c.dataset.id); });
+}
+async function enqueueSelectedNoLyrics(){
+  var ids = getSelectedNoLyricsIds();
+  if(ids.length === 0){ alert('请先勾选歌曲'); return; }
+  // 将选中ID填入手动输入框，复用现有入队逻辑（含任务类型/强制重做设置）
+  document.getElementById('manualIds').value = ids.join(',');
+  await manualEnqueue();
+}
+async function uploadSelectedNoLyrics(){
+  var ids = getSelectedNoLyricsIds();
+  if(ids.length === 0){ alert('请先勾选歌曲'); return; }
+  document.getElementById('manualIds').value = ids.join(',');
+  await manualUploadLyrics();
+}
 async function manualProcessFile(){
   const input = document.getElementById('mpInput').value.trim();
   const output = document.getElementById('mpOutput').value.trim();
@@ -1521,7 +1671,144 @@ setInterval(fetchManualStatus,1500);
 setInterval(fetchLogs,800);
 setInterval(fetchConvertLogs,800);
 fetchManualStatus();
+
+// ==================== 目录浏览 ====================
+let _browserMode = 'file'; // 'file' = 选源文件, 'dir' = 选输出目录
+let _browserCurrent = '';
+let _browserSelected = [];
+
+async function openBrowser(mode){
+  _browserMode = mode;
+  _browserSelected = [];
+  document.getElementById('browserModal').style.display = 'flex';
+  document.getElementById('browserTitle').textContent = mode === 'file' ? '选择源音频文件（可多选）' : '选择输出目录';
+  document.getElementById('browserSelectBtn').style.display = mode === 'dir' ? 'inline-block' : 'none';
+  document.getElementById('browserHint').textContent = mode === 'file' ? '点击文件添加到列表，点击文件夹进入' : '导航到目标目录后点「选择此目录」';
+  await browserLoad('');
+}
+
+function closeBrowser(){
+  document.getElementById('browserModal').style.display = 'none';
+}
+
+async function browserLoad(path){
+  _browserCurrent = path;
+  document.getElementById('browserPath').textContent = path || '此电脑';
+  try{
+    const r = await fetch('/api/browse?path=' + encodeURIComponent(path));
+    const d = await r.json();
+    const list = document.getElementById('browserList');
+    let html = '';
+    if(d.error){
+      html = '<div style="color:var(--red);padding:20px;text-align:center">❌ ' + d.error + '</div>';
+    } else {
+      for(const item of d.dirs){
+        const icon = item.type === 'drive' ? '💽' : '📁';
+        html += '<div class="browser-item" data-type="dir" data-path="' + item.path.replace(/"/g,'&quot;') + '" style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:7px;cursor:pointer;font-size:12px;transition:.12s">' +
+          '<span style="font-size:15px">' + icon + '</span>' +
+          '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + item.name + '</span>' +
+          '<span style="color:var(--muted);font-size:10px">文件夹</span>' +
+        '</div>';
+      }
+      for(const f of d.files){
+        const selected = _browserSelected.includes(f.path);
+        const sizeMB = (f.size / 1048576).toFixed(1);
+        html += '<div class="browser-item" data-type="file" data-path="' + f.path.replace(/"/g,'&quot;') + '" style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:7px;cursor:pointer;font-size:12px;transition:.12s;background:' + (selected ? 'rgba(20,184,166,.15)' : 'transparent') + '">' +
+          '<span style="font-size:15px">' + (selected ? '✅' : '🎵') + '</span>' +
+          '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + f.name + '</span>' +
+          '<span style="color:var(--muted);font-size:10px">' + sizeMB + ' MB</span>' +
+        '</div>';
+      }
+      if(!d.dirs.length && !d.files.length){
+        html = '<div style="color:var(--muted);padding:30px;text-align:center;font-size:12px">（空目录）</div>';
+      }
+    }
+    list.innerHTML = html;
+    // 事件委托：处理点击
+    list.querySelectorAll('.browser-item').forEach(el => {
+      el.addEventListener('click', function(){
+        const p = this.getAttribute('data-path');
+        const t = this.getAttribute('data-type');
+        if(t === 'dir'){
+          browserLoad(p);
+        } else {
+          browserToggleFile(p);
+        }
+      });
+      el.addEventListener('mouseenter', function(){ this.style.background = 'rgba(255,255,255,.06)'; });
+      el.addEventListener('mouseleave', function(){
+        const p = this.getAttribute('data-path');
+        this.style.background = _browserSelected.includes(p) ? 'rgba(20,184,166,.15)' : 'transparent';
+      });
+    });
+    if(_browserMode === 'file' && _browserSelected.length > 0){
+      document.getElementById('browserHint').textContent = '已选 ' + _browserSelected.length + ' 个文件，点「确认添加」';
+    }
+  }catch(e){
+    document.getElementById('browserList').innerHTML = '<div style="color:var(--red);padding:20px">加载失败：' + e.message + '</div>';
+  }
+}
+
+function browserGoUp(){
+  if(!_browserCurrent) return;
+  const parent = _browserCurrent.substring(0, _browserCurrent.lastIndexOf('\\'));
+  browserLoad(parent || '');
+}
+
+function browserToggleFile(path){
+  const idx = _browserSelected.indexOf(path);
+  if(idx >= 0){
+    _browserSelected.splice(idx, 1);
+  } else {
+    _browserSelected.push(path);
+  }
+  browserLoad(_browserCurrent);
+  const btn = document.getElementById('browserSelectBtn');
+  if(_browserMode === 'file'){
+    if(_browserSelected.length > 0){
+      btn.style.display = 'inline-block';
+      btn.textContent = '✅ 确认添加(' + _browserSelected.length + ')';
+    } else {
+      btn.style.display = 'none';
+    }
+  }
+}
+
+function browserConfirm(){
+  if(_browserMode === 'dir'){
+    document.getElementById('mpOutput').value = _browserCurrent;
+    closeBrowser();
+  } else {
+    // 文件模式：把已选文件添加到 textarea
+    const ta = document.getElementById('mpInput');
+    const existing = ta.value.trim();
+    const newPaths = _browserSelected.join('\n');
+    ta.value = existing ? existing + '\n' + newPaths : newPaths;
+    closeBrowser();
+  }
+}
+
 </script>
+
+<!-- ==================== 目录浏览模态框 ==================== -->
+<div id="browserModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);z-index:9999;justify-content:center;align-items:center">
+  <div style="background:var(--bg);border:1px solid var(--border);border-radius:14px;width:600px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)">
+      <div style="font-size:14px;font-weight:700" id="browserTitle">选择文件</div>
+      <button onclick="closeBrowser()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer">✕</button>
+    </div>
+    <div style="padding:10px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
+      <button class="btn" style="padding:4px 10px;font-size:11px" onclick="browserGoUp()">⬆ 上级</button>
+      <span id="browserPath" style="font-size:11px;color:var(--muted);font-family:Consolas,monospace;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+    </div>
+    <div id="browserList" style="flex:1;overflow-y:auto;padding:8px 18px"></div>
+    <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <span id="browserHint" style="font-size:11px;color:var(--muted)"></span>
+      <button class="btn btn-start" id="browserSelectBtn" style="display:none;padding:6px 16px;font-size:12px" onclick="browserConfirm()">✅ 选择此目录</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
 """
