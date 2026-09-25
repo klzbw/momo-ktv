@@ -152,7 +152,7 @@ async function enqueueMissingAlign(db, { limit = 100, onProgress = null } = {}) 
           const plainLrc = stripWordTags(lddc.lrc);
           updateLddcLyrics.run(lddc.lrc, plainLrc, 'lddc:' + lddc.source, song.id);
           lddcHit++;
-          console.log('[AutoLyrics] LDDC hit: id=' + song.id + ' source=' + lddc.source + ' score=' + lddc.score + ' type=' + lddc.type);
+          // console.log('[AutoLyrics] LDDC hit: id=' + song.id + ' source=' + lddc.source + ' score=' + lddc.score + ' type=' + lddc.type);
           if (typeof onProgress === 'function') onProgress({ phase: 'song', done: processed, total: rows.length, lddcHit, aiEnqueued, currentTitle: song.title, currentId: song.id, result: 'lddc_hit' });
           continue; // 不再补抓 ref、不入队 AI Worker
         }
