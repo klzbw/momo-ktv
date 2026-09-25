@@ -109,13 +109,14 @@ async function _fetchFromLDDC(song) {
  *
  * @returns {{checked:number, enqueued:number, refFetched:number, skipped:number, lddcHit:number}}
  */
-async function enqueueMissingAlign(db, { limit = 100 } = {}) {
-  // 查询缺逐字歌词、未在排队/处理/完成中的人声歌曲（含 duration 供 LDDC 查询）
+async function enqueueMissingAlign(db, { limit = 100, onProgress = null } = {}) {
+  // 查询条件补充 lyrics_word='none'：历史扫描将无逐字歌词的歌曲写为字符串 'none' 作为哨兵，
+  // 必须视为空，否则这些歌永远不会被 LDDC 命中/入队。
   const rows = db.prepare(
     `SELECT id, title, artist, filepath, media_type, lyrics, duration
      FROM songs
      WHERE media_type='audio'
-       AND (lyrics_word IS NULL OR lyrics_word='')
+       AND (lyrics_word IS NULL OR lyrics_word='' OR lyrics_word='none')
        AND align_status NOT IN ('pending','processing','done')
        AND (instrumental IS NULL OR instrumental=0)
      ORDER BY id DESC
@@ -126,7 +127,11 @@ async function enqueueMissingAlign(db, { limit = 100 } = {}) {
   let refFetched = 0;
   let skipped = 0;
   let lddcHit = 0;
+  let aiEnqueued = 0;
   const songIds = [];
+
+  // 进度回调：通知调用方总量已确定（enqueueMissingAlign 自己查库后才能拿到 total）
+  if (typeof onProgress === 'function') onProgress({ phase: 'start', total: rows.length, done: 0, lddcHit: 0, aiEnqueued: 0, currentTitle: null, currentId: null });
 
   const updateLyrics = db.prepare('UPDATE songs SET lyrics=?, lyrics_source=? WHERE id=?');
   // LDDC 命中回写：增强型逐字 LRC 同时写入 lyrics_word（逐字）和 lyrics（兼容旧字段）
@@ -134,7 +139,9 @@ async function enqueueMissingAlign(db, { limit = 100 } = {}) {
     "UPDATE songs SET lyrics_word=?, lyrics=?, lyrics_source=?, align_status='done' WHERE id=?"
   );
 
+  let processed = 0;
   for (const song of rows) {
+    processed++;
     try {
       // ===== 两级管线第一级：LDDC 直查优先 =====
       // 命中则直接回写 DB 并 continue，不入队 AI Worker；失败/null 自动降级到下方原逻辑
@@ -146,6 +153,7 @@ async function enqueueMissingAlign(db, { limit = 100 } = {}) {
           updateLddcLyrics.run(lddc.lrc, plainLrc, 'lddc:' + lddc.source, song.id);
           lddcHit++;
           console.log('[AutoLyrics] LDDC hit: id=' + song.id + ' source=' + lddc.source + ' score=' + lddc.score + ' type=' + lddc.type);
+          if (typeof onProgress === 'function') onProgress({ phase: 'song', done: processed, total: rows.length, lddcHit, aiEnqueued, currentTitle: song.title, currentId: song.id, result: 'lddc_hit' });
           continue; // 不再补抓 ref、不入队 AI Worker
         }
       }
@@ -169,9 +177,11 @@ async function enqueueMissingAlign(db, { limit = 100 } = {}) {
         await sleep(300);
       }
       songIds.push(song.id);
+      if (typeof onProgress === 'function') onProgress({ phase: 'song', done: processed, total: rows.length, lddcHit, aiEnqueued, currentTitle: song.title, currentId: song.id, result: 'ai_enqueue_pending' });
     } catch (e) {
       console.error('[AutoLyrics] song processing error, id=' + song.id + ': ' + e.message);
       skipped++;
+      if (typeof onProgress === 'function') onProgress({ phase: 'song', done: processed, total: rows.length, lddcHit, aiEnqueued, currentTitle: song.title, currentId: song.id, result: 'skipped' });
     }
   }
 
@@ -181,8 +191,10 @@ async function enqueueMissingAlign(db, { limit = 100 } = {}) {
     const result = sepMod.enqueue(db, { songIds, type: 'align' });
     enqueued = (result && result.queued) ? result.queued.length : 0;
   }
+  aiEnqueued = enqueued;
 
   console.log('[AutoLyrics] enqueueMissingAlign done: ' + JSON.stringify({ checked, enqueued, refFetched, skipped, lddcHit }));
+  if (typeof onProgress === 'function') onProgress({ phase: 'done', total: rows.length, done: rows.length, lddcHit, aiEnqueued, refFetched, skipped, currentTitle: null, currentId: null });
   return { checked, enqueued, refFetched, skipped, lddcHit };
 }
 

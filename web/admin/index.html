@@ -4194,6 +4194,23 @@ select option{color:#000}
 
 <div id="toast"></div>
 
+<!-- 批量歌词抓取进度面板（LDDC管线） -->
+<div id="lyrics-progress-panel" style="display:none;position:fixed;bottom:20px;right:20px;width:380px;background:#1e1e2e;border:1px solid #4c4f69;border-radius:12px;padding:16px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.5)">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <span style="color:#cdd6f4;font-weight:700;font-size:14px">📥 批量抓歌词进度</span>
+    <span onclick="document.getElementById('lyrics-progress-panel').style.display='none'" style="cursor:pointer;color:#6c7086;font-size:16px">✕</span>
+  </div>
+  <div style="background:#313244;border-radius:6px;height:8px;overflow:hidden;margin-bottom:8px">
+    <div id="lyrics-progress-bar" style="background:linear-gradient(90deg,#c084fc,#38bdf8);height:100%;width:0%;transition:width .3s"></div>
+  </div>
+  <div id="lyrics-progress-text" style="color:#a6adc8;font-size:12px;line-height:1.6">准备中...</div>
+  <div style="display:flex;gap:12px;margin-top:8px;font-size:12px">
+    <span style="color:#c084fc">LDDC命中: <b id="lyrics-stat-lddc">0</b></span>
+    <span style="color:#38bdf8">AI入队: <b id="lyrics-stat-ai">0</b></span>
+    <span style="color:#a6adc8">失败: <b id="lyrics-stat-fail">0</b></span>
+  </div>
+</div>
+
 
 
 
@@ -6111,14 +6128,14 @@ function trackIconHtml(song){
 
 // 歌词状态列：显示是否有歌词 + 类型（逐字逐句/网络歌词/无）
 function lyricBadgeHtml(s){
-  const hasWord = s.lyrics_word && s.lyrics_word.trim().length > 0;
+  const hasWord = s.lyrics_word && s.lyrics_word.trim().length > 0 && s.lyrics_word !== 'none';
   const hasLyric = s.lyrics && s.lyrics.trim().length > 0;
   if(hasWord) return '<span style="display:inline-block;width:100%;text-align:center;color:#c084fc;font-weight:700" title="已有逐字逐句歌词">🟢</span>';
   if(hasLyric) return '<span style="display:inline-block;width:100%;text-align:center;color:#38bdf8;font-weight:700" title="已有网络标准歌词">🔵</span>';
   return '<span style="display:inline-block;width:100%;text-align:center;color:#64748b;opacity:.5" title="无歌词">⚪</span>';
 }
 function lyricTypeHtml(s){
-  const hasWord = s.lyrics_word && s.lyrics_word.trim().length > 0;
+  const hasWord = s.lyrics_word && s.lyrics_word.trim().length > 0 && s.lyrics_word !== 'none';
   const hasLyric = s.lyrics && s.lyrics.trim().length > 0;
   if(hasWord) return '<span style="font-size:10px;padding:2px 6px;border-radius:5px;background:rgba(168,85,247,.15);color:#c084fc;border:1px solid rgba(168,85,247,.3)">逐字逐句</span>';
   if(hasLyric) return '<span style="font-size:10px;padding:2px 6px;border-radius:5px;background:rgba(56,189,248,.15);color:#38bdf8;border:1px solid rgba(56,189,248,.3)">网络歌词</span>';
@@ -6600,6 +6617,50 @@ async function enqueueAlign(songId, btn){
 
 
 
+// 批量歌词抓取进度轮询（每2秒拉一次 /api/lyrics/stats 的 batch 状态）
+let _lyricsPollTimer = null;
+function startLyricsBatchPolling(){
+  const panel = document.getElementById('lyrics-progress-panel');
+  if(panel) panel.style.display = 'block';
+  stopLyricsBatchPolling();
+  _lyricsPollTimer = setInterval(async () => {
+    try{
+      const res = await fetch('/api/lyrics/stats');
+      if(!res.ok) return;
+      const d = await res.json();
+      const b = d.batch || {};
+      updateLyricsProgressPanel(b);
+      if(!b.running){
+        stopLyricsBatchPolling();
+        // 完成后刷新列表
+        refreshList();
+      }
+    }catch(e){}
+  }, 2000);
+}
+function stopLyricsBatchPolling(){
+  if(_lyricsPollTimer){ clearInterval(_lyricsPollTimer); _lyricsPollTimer = null; }
+}
+function updateLyricsProgressPanel(b){
+  const panel = document.getElementById('lyrics-progress-panel');
+  if(!panel) return;
+  const total = b.total || 0, done = b.done || 0;
+  const pct = total > 0 ? Math.round(done/total*100) : 0;
+  const bar = document.getElementById('lyrics-progress-bar');
+  if(bar) bar.style.width = pct + '%';
+  const txt = document.getElementById('lyrics-progress-text');
+  if(txt){
+    if(b.running){
+      txt.innerHTML = `第 ${done}/${total} 首 — ${esc(b.currentTitle||'…')}<br><span style="opacity:.7">LDDC两级管线处理中…</span>`;
+    } else {
+      txt.innerHTML = `✅ 完成！共 ${total} 首，成功 ${(b.lddcHit||0)+(b.aiEnqueued||0)}（LDDC命中${b.lddcHit||0}，AI入队${b.aiEnqueued||0}），失败 ${b.fail||0}`;
+    }
+  }
+  const el1 = document.getElementById('lyrics-stat-lddc'); if(el1) el1.textContent = b.lddcHit||0;
+  const el2 = document.getElementById('lyrics-stat-ai'); if(el2) el2.textContent = b.aiEnqueued||0;
+  const el3 = document.getElementById('lyrics-stat-fail'); if(el3) el3.textContent = b.fail||0;
+}
+
 async function batchFetchCloudLyrics(){
   const btn = document.getElementById('batch-cloud-lyrics-btn');
   if(btn){ btn.disabled = true; btn.textContent = '提交中…'; }
@@ -6608,7 +6669,8 @@ async function batchFetchCloudLyrics(){
     if(res.status === 401){ showLogin(); return; }
     const d = await res.json().catch(()=>({}));
     if(!res.ok){ toast(d.error || '批量抓歌词失败'); return; }
-    toast('已开始后台批量抓取歌词');
+    toast('已开始后台批量抓取歌词（LDDC管线）');
+    startLyricsBatchPolling();
   }catch(e){ toast('请求失败：'+e.message); }
   finally{ if(btn){ btn.disabled = false; btn.textContent = '📥 批量抓歌词'; } }
 }
@@ -6766,6 +6828,7 @@ async function aiBatchLyrics(){
 
 
     toast(d.message||'已开始后台补抓');
+    startLyricsBatchPolling();
 
 
 

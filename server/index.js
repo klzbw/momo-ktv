@@ -8183,7 +8183,8 @@ app.post('/api/songs/:id/lyrics/offset', (req, res) => {
 
 
 
-let lyricBatch = { running: false, total: 0, done: 0, ok: 0, fail: 0, startedAt: null, finishedAt: null };
+// lyricBatch 状态：扩展字段 lddcHit/aiEnqueued/currentTitle/currentId 用于前端进度条展示
+let lyricBatch = { running: false, total: 0, done: 0, ok: 0, fail: 0, lddcHit: 0, aiEnqueued: 0, currentTitle: null, currentId: null, startedAt: null, finishedAt: null };
 
 
 
@@ -8203,257 +8204,56 @@ let lyricBatch = { running: false, total: 0, done: 0, ok: 0, fail: 0, startedAt:
 
 
 
-// POST /api/lyrics/batch-missing?limit=200 —— 后台串行给缺词歌曲在线补抓（限速）
-
-
-
-
-
-
-
-
-
+// POST /api/lyrics/batch-missing?limit=200 —— 走 LDDC 两级管线（LDDC直查优先，未命中降级入队AI Worker）
+// 改造说明：原实现只调 resolveLyrics 读本地.lrc，不走 LDDC。
+// 现改为调用 autoLyrics.enqueueMissingAlign(onProgress) 实时更新 lyricBatch 状态，HTTP立即返回。
 app.post('/api/lyrics/batch-missing', (req, res) => {
-
-
-
-
-
-
-
-
-
   if (lyricBatch.running) return res.status(409).json({ message: '已有批量补抓任务在跑', state: lyricBatch });
 
-
-
-
-
-
-
-
-
   let limit = parseInt(req.query.limit, 10);
-
-
-
-
-
-
-
-
-
   if (!Number.isInteger(limit) || limit <= 0) limit = 200;
-
-
-
-
-
-
-
-
-
   limit = Math.min(limit, 1000);
 
+  // 初始化批量状态（total 由 onProgress 的 start 回调填充）
+  lyricBatch = { running: true, total: 0, done: 0, ok: 0, fail: 0, lddcHit: 0, aiEnqueued: 0, currentTitle: null, currentId: null, startedAt: Date.now(), finishedAt: null };
 
-
-
-
-
-
-
-
-  const rows = db.prepare("SELECT * FROM songs WHERE (lyrics IS NULL OR lyrics='') AND media_type='audio' ORDER BY id LIMIT ?").all(limit);
-
-
-
-
-
-
-
-
-
-  lyricBatch = { running: true, total: rows.length, done: 0, ok: 0, fail: 0, startedAt: Date.now(), finishedAt: null };
-
-
-
-
-
-
-
-
-
-  res.json({ message: `已开始后台补抓 ${rows.length} 首`, state: lyricBatch });
-
-
-
-
-
-
-
-
+  res.json({ message: '已开始后台批量补抓歌词（LDDC管线）', state: lyricBatch });
 
   (async () => {
-
-
-
-
-
-
-
-
-
-    for (const song of rows) {
-
-
-
-
-
-
-
-
-
-      try {
-
-
-
-
-
-
-
-
-
-        // 网络歌词抓取已由 lyrics.js 的 ENABLE_WEB_LYRICS 总开关禁用（自动歌词已生效，47首逐字歌词已生成）
-  // 此处显式传 allowOnline:false 明确意图；本地同名 .lrc 仍由 resolveLyrics 内部 findLocalLrc 正常读取
-  const r = await lyricsMod.resolveLyrics(song, { allowOnline: false });
-
-
-
-
-
-
-
-
-
-        if (r && r.lrc) { db.prepare('UPDATE songs SET lyrics=?, lyrics_source=? WHERE id=?').run(r.lrc, r.source, song.id); lyricBatch.ok++; }
-
-
-
-
-
-
-
-
-
-        else lyricBatch.fail++;
-
-
-
-
-
-
-
-
-
-      } catch (e) { lyricBatch.fail++; }
-
-
-
-
-
-
-
-
-
-      lyricBatch.done++;
-
-
-
-
-
-
-
-
-
-      await sleep(800); // 串行 + 限速，避免触发歌词站反爬/封 IP
-
-
-
-
-
-
-
-
-
+    try {
+      const autoLyrics = require('./auto-lyrics');
+      await autoLyrics.enqueueMissingAlign(db, {
+        limit,
+        // 进度回调：实时更新 lyricBatch 供 /api/lyrics/stats 轮询
+        onProgress: (p) => {
+          lyricBatch.total = p.total || 0;
+          lyricBatch.done = p.done || 0;
+          lyricBatch.lddcHit = p.lddcHit || 0;
+          lyricBatch.aiEnqueued = p.aiEnqueued || 0;
+          lyricBatch.currentTitle = p.currentTitle || null;
+          lyricBatch.currentId = p.currentId || null;
+          if (p.phase === 'song') {
+            if (p.result === 'lddc_hit') lyricBatch.ok++;
+            else if (p.result === 'skipped') lyricBatch.fail++;
+            // ai_enqueue_pending 的歌曲在 done 阶段统一计入 aiEnqueued
+          } else if (p.phase === 'done') {
+            // 最终汇总：ok = LDDC命中 + AI入队数；fail = 总量 - ok
+            lyricBatch.ok = (p.lddcHit || 0) + (p.aiEnqueued || 0);
+            lyricBatch.fail = Math.max(0, (p.total || 0) - lyricBatch.ok);
+            lyricBatch.running = false;
+            lyricBatch.finishedAt = Date.now();
+            log.info('LYRICS', `批量补抓完成：共 ${lyricBatch.total}，LDDC命中 ${lyricBatch.lddcHit}，AI入队 ${lyricBatch.aiEnqueued}，失败 ${lyricBatch.fail}`);
+          }
+        }
+      });
+    } catch (e) {
+      console.error('[BatchLyrics] batch-missing error:', e.message);
+      lyricBatch.running = false;
+      lyricBatch.finishedAt = Date.now();
+      lyricBatch.fail = lyricBatch.total - lyricBatch.done;
     }
-
-
-
-
-
-
-
-
-
-    lyricBatch.running = false;
-
-
-
-
-
-
-
-
-
-    lyricBatch.finishedAt = Date.now();
-
-
-
-
-
-
-
-
-
-    log.info('LYRICS', `批量补抓完成：共 ${lyricBatch.total}，成功 ${lyricBatch.ok}，未命中 ${lyricBatch.fail}`);
-
-
-
-
-
-
-
-
-
   })();
-
-
-
-
-
-
-
-
-
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // GET /api/lyrics/stats —— 歌词覆盖率与批量任务进度
 
@@ -12365,7 +12165,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-  const lyricsClause = lyricsFilter === 'word' ? "(lyrics_word IS NOT NULL AND lyrics_word != '')"
+  const lyricsClause = lyricsFilter === 'word' ? "(lyrics_word IS NOT NULL AND lyrics_word != '' AND lyrics_word != 'none')"
 
 
 
@@ -12375,7 +12175,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    : lyricsFilter === 'network' ? "((lyrics_word IS NULL OR lyrics_word = '') AND lyrics IS NOT NULL AND lyrics != '')"
+    : lyricsFilter === 'network' ? "((lyrics_word IS NULL OR lyrics_word = '' OR lyrics_word = 'none') AND lyrics IS NOT NULL AND lyrics != '')"
 
 
 
@@ -12385,7 +12185,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    : lyricsFilter === 'none' ? "(lyrics IS NULL OR lyrics = '')"
+    : lyricsFilter === 'none' ? "(lyrics IS NULL OR lyrics = '') AND (lyrics_word IS NULL OR lyrics_word = '' OR lyrics_word = 'none')"
 
 
 
