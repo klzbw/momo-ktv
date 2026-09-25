@@ -2920,6 +2920,8 @@ const VoiceManager = (() => {
   }
   function dualStart(info,v){
     if(!info||!info.dual) return false;
+    // 双FLAC起播时暂停在线音乐，两系统互斥（反向：K歌→暂停在线，补充video play事件可能未触发的场景）
+    try{ if(_onlineAudio && !_onlineAudio.paused) _onlineAudio.pause(); }catch(e){}
     try{ if(window._mp2Audio){ window._mp2Audio.destroy(); window._mp2Audio=null; } }catch(e){}
     dualStop(false);
     try{
@@ -6025,8 +6027,10 @@ async function playOnlineSong(idx){
   // 高亮当前播放行
   renderOnlineList(_onPg+1);
   renderOmQueue();
-  // 在线音乐起播时暂停K歌视频，两系统互斥（与K歌→暂停在线音乐对应）
-  if(typeof video!=='undefined' && video && !video.paused){video.pause();}
+  // 在线音乐起播时暂停K歌所有音频，两系统互斥（video + 双FLAC + MP2，与K歌→暂停在线音乐对应）
+  try{ if(video && !video.paused) video.pause(); }catch(e){}
+  try{ if(VoiceManager.dualIsActive && VoiceManager.dualIsActive()) VoiceManager.dualSetPaused(true); }catch(e){}
+  try{ if(window._mp2Audio) VoiceManager.mp2SetPaused(true); }catch(e){}
   if(!_onlineAudio){
     _onlineAudio=new Audio();
     _onlineAudio.volume=0.8;
@@ -6125,8 +6129,10 @@ async function playOnlineSong(idx){
     });
   }
   await _omStartPlayback(s);
-  // 在线音乐起播时自动暂停K哥，两系统互斥
-  if(video && !video.paused){ video.pause(); }
+  // 在线音乐起播时自动暂停K歌所有音频，两系统互斥（video + 双FLAC + MP2）
+  try{ if(video && !video.paused) video.pause(); }catch(e){}
+  try{ if(VoiceManager.dualIsActive && VoiceManager.dualIsActive()) VoiceManager.dualSetPaused(true); }catch(e){}
+  try{ if(window._mp2Audio) VoiceManager.mp2SetPaused(true); }catch(e){}
   // 加载歌词
   _onlineLrcLines=[];_onlineLastLrc='';
   const rb=document.getElementById('om-lrc-box');
