@@ -111,8 +111,32 @@ function _probeWavFormat(url) {
             offset += 8 + cs + (cs % 2);
           }
           if (dataStart > 0 && dataStart + 4 <= buf.length) {
-            if (findSync(dataStart, dataStart + 512, DTS_BE) || findSync(dataStart, dataStart + 512, DTS_LE)) result.isDtsWav = true;
-            if (findSync(dataStart, dataStart + 512, AC3)) result.isAc3Wav = true;
+            // DTS-ES等变体的sync word可能不在data chunk开始处（ffmpeg需32KB探测），
+            // 扩大搜索范围到整个已读取buffer（128KB），避免漏检导致雪花声
+            const searchEnd = buf.length;
+            if (findSync(dataStart, searchEnd, DTS_BE) || findSync(dataStart, searchEnd, DTS_LE)) result.isDtsWav = true;
+            // 注：AC3 sync word(0x0B77)仅2字节，在128KB随机数据中误判概率极高，已移除检测。
+            // PCM有效性统计检测：标准16位有符号PCM的高字节(>127)比例应在40%-60%之间。
+            // DTS/AC3等压缩数据伪装成PCM时，字节分布明显偏离（如DTS-ES高字节比例仅23%）。
+            // 跳过开头静音（全零样本），从非零区域开始统计，避免歌曲前奏静音导致误判。
+            if (!result.isDtsWav && result.audioFormat === 1 && result.bitsPerSample === 16) {
+              // 跳过开头连续全零（静音），找到第一个非零位置
+              let statStart = dataStart;
+              const maxSkip = Math.min(65536, buf.length - dataStart);
+              while (statStart < dataStart + maxSkip && buf[statStart] === 0 && buf[statStart+1] === 0) statStart += 2;
+              const statLen = Math.min(8192, buf.length - statStart);
+              if (statLen >= 1024) {
+                let highCount = 0;
+                for (let si = statStart; si < statStart + statLen; si++) { if (buf[si] > 127) highCount++; }
+                const highRatio = highCount / statLen;
+                // 标准PCM高字节比例约50%，偏离超过25个百分点视为可疑非PCM
+                if (highRatio < 0.25 || highRatio > 0.75) {
+                  result.isDtsWav = true; // 标记为可疑压缩格式，走客户端解码
+                  result.pcmSuspicious = true;
+                  result.highByteRatio = highRatio;
+                }
+              }
+            }
           }
           if (result.isDtsWav || result.isAc3Wav) result.needClientDecode = true;
           else if (result.audioFormat !== 1 && result.audioFormat !== 0xFFFE) result.needClientDecode = true;
