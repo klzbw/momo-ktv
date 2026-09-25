@@ -1,7 +1,14 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta charset="UTF-8">
+<!-- 修复: TV端浏览器(尤其Android TV内置浏览器)会无视HTTP Cache-Control头而强缓存HTML，
+     导致部署更新后TV端仍加载旧版页面（在线音乐播放模式标签残留旧值）。
+     加no-cache meta标签强制每次重新拉取HTML。 -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <script>
 // 主题(设置里的"风格一/风格二")要在页面渲染最早期就定型，不能等下面那段
 // 大 IIFE、更不能等 body 渲染完再切换——那样会先闪一下默认风格一，等
