@@ -8713,7 +8713,7 @@ app.post('/api/cloud-lyrics/upload', (req, res) => {
     if (ids.length > 0) {
       const placeholders = ids.map(() => '?').join(',');
       rows = db.prepare(
-        `SELECT id, title, artist, media_type, filepath, lyrics_word, cloud_account_id
+        `SELECT id, title, artist, media_type, filepath, vocal_path, accomp_path, lyrics_word, cloud_account_id
          FROM songs WHERE id IN (${placeholders})`
       ).all(...ids);
     }
@@ -8762,13 +8762,13 @@ app.post('/api/cloud-lyrics/batch-fetch', (req, res) => {
       const ids = song_ids.map(x => parseInt(x, 10)).filter(Number.isInteger);
       const placeholders = ids.map(() => '?').join(',');
       rows = db.prepare(
-        `SELECT id, title, artist, media_type, filepath, cloud_account_id
+        `SELECT id, title, artist, media_type, filepath, vocal_path, accomp_path, cloud_account_id
          FROM songs WHERE media_type='audio' AND id IN (${placeholders})`
       ).all(...ids);
     } else {
       // 默认：所有缺歌词的 audio 歌，最多 200 条
       rows = db.prepare(
-        `SELECT id, title, artist, media_type, filepath, cloud_account_id
+        `SELECT id, title, artist, media_type, filepath, vocal_path, accomp_path, cloud_account_id
          FROM songs WHERE media_type='audio' AND (lyrics IS NULL OR lyrics='') ORDER BY id LIMIT 200`
       ).all();
     }
@@ -9355,13 +9355,27 @@ app.post('/api/separate/jobs/:id/complete', sepUpload.fields([
 
     try { removeHLS(job.song_id); } catch (e) { /* 旧产物不存在无妨 */ }
 
-    // 逐字歌词生成完成：异步上传到网盘同级目录（仅 audio 类型，MKV 不处理）
+    // 逐字歌词生成完成：异步上传到网盘分离产物目录（仅 audio 类型，MKV 不处理）
+    // 修 Bug-4：fire-and-forget 失败只 console.error 会静默丢歌词——
+    // 改为最多重试 3 次（间隔递增），彻底失败时把 song_id 和重试指引打进日志，
+    // 方便事后用 POST /api/cloud-lyrics/upload {song_ids:[...]} 补发。
     if (lyricsWord && job.job_type === 'align') {
       (async () => {
         try {
           const s = db.prepare('SELECT * FROM songs WHERE id=?').get(job.song_id);
           if (s && s.media_type === 'audio') {
-            await cloudLyrics.uploadLyricsToCloud(s, lyricsWord);
+            let ok = false, lastErr = '';
+            for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
+              try {
+                ok = await cloudLyrics.uploadLyricsToCloud(s, lyricsWord);
+              } catch (e) { lastErr = e.message; }
+              if (!ok && attempt < 3) await new Promise(r => setTimeout(r, 1500 * attempt));
+            }
+            if (!ok) {
+              console.error('[Complete] cloud lyrics upload FAILED after retries, song id=' + s.id +
+                (lastErr ? (', err=' + lastErr) : '') +
+                '，补发：POST /api/cloud-lyrics/upload {"song_ids":[' + s.id + ']}');
+            }
           }
         } catch (e) { console.error('[Complete] cloud upload error:', e.message); }
       })();

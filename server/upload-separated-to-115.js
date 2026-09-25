@@ -508,21 +508,10 @@ async function processHash(hash, token, db, hashMap, remoteDirSet, stats) {
     }
   }
 
-  // 同时上传 <hash>.lrc 逐字歌词文件（如果存在）
-  const localLrc = path.join(dir, hash + '.lrc');
-  const remoteLrc = `${remoteDir}/${hash}.lrc`;
-  if (fs.existsSync(localLrc)) {
-    const needUploadLrc = (remoteFiles === null) ? false : !remoteFiles.has(hash + '.lrc');
-    if (needUploadLrc) {
-      if (opts.dryRun) {
-        log(`  [dry-run] 将上传 ${hash}.lrc -> ${remoteLrc}`);
-      } else {
-        await uploadOne(token, localLrc, remoteLrc);
-        stats.filesUploaded++;
-        log(`  [上传] ${hash}/${hash}.lrc (${(fs.statSync(localLrc).size / 1024).toFixed(1)} KB)`);
-      }
-    }
-  }
+  // 修 Bug-3：原 <hash>.lrc 上传分支为死代码——separate.js 的 complete() 只把
+  // lyrics_word 写进 DB，从不落盘 /data/separated/{hash}/{hash}.lrc，本分支永远不会触发；
+  // 且即便触发，文件名是 {hash}.lrc，读侧 fetchCloudLyrics 找的是 歌手-歌名.lrc，对不上。
+  // 歌词上传统一由 web 进程 cloud-lyrics.js 负责（目标 = 本目录，文件名 = 歌手-歌名.lrc）。
 
   // 3. strm
   const vocalStrm = path.join(STRM_DIR, `${hash}_vocals.strm`);

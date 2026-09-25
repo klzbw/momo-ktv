@@ -214,7 +214,7 @@ function afterScanAutoLyrics(db, { limit = 100 } = {}) {
       try {
         // 第一步：网盘歌词兜底（复刻 runCloudLyricsFetch 逻辑）
         const cloudRows = db.prepare(
-          `SELECT id, title, artist, media_type, filepath, cloud_account_id
+          `SELECT id, title, artist, media_type, filepath, vocal_path, accomp_path, cloud_account_id
            FROM songs
            WHERE media_type='audio' AND (lyrics IS NULL OR lyrics='')
            ORDER BY id DESC LIMIT ?`
