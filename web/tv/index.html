@@ -2959,7 +2959,7 @@ const VoiceManager = (() => {
       document.addEventListener('click',unlock,{passive:true});
       document.addEventListener('touchend',unlock,{passive:true});
       dualLoop(); syncDualUI();
-      console.log('[VoiceManager] DUAL 双轨(原生audio直连CDN)已启用 song='+info.songId+' level='+dualLevel);
+      // console.log('[VoiceManager] DUAL 双轨(原生audio直连CDN)已启用 song='+info.songId+' level='+dualLevel);
       return true;
     }catch(e){ console.warn('[VoiceManager] DUAL 启动失败，回退:',e); dualStop(true); return false; }
   }
@@ -3079,7 +3079,7 @@ const VoiceManager = (() => {
       _isOriginal = true;
       mode = detect(v);
       apply(v);
-      console.log('[VoiceManager] mode=' + mode + ' original=' + _isOriginal + ' tracks=' + _trackCount);
+      // console.log('[VoiceManager] mode=' + mode + ' original=' + _isOriginal + ' tracks=' + _trackCount);
     },
     /** 原生HLS端(无MSE)新歌时调用：记录歌曲并拉取它的演唱档位数；MSE/hls.js 端内部直接跳过。 */
     nativePrepare(songId) {
@@ -3095,7 +3095,7 @@ const VoiceManager = (() => {
             _nativeTracks = j.tracks; _nativeNames = j.names || null;
             if (_nativeTracks >= 2) {
               mode = detect(video); apply(video);
-              console.log('[VoiceManager] 原生HLS演唱档位=' + _nativeTracks, JSON.stringify(_nativeNames));
+              // console.log('[VoiceManager] 原生HLS演唱档位=' + _nativeTracks, JSON.stringify(_nativeNames));
             }
           }).catch(()=>{});
       } catch(e) {}
@@ -3116,7 +3116,7 @@ const VoiceManager = (() => {
       if (upgradedToMulti) {
         mode = detect(video);
         apply(video);
-        console.log('[VoiceManager] 音轨数迟到更新: tracks=' + _trackCount + ' -> mode=' + mode);
+        // console.log('[VoiceManager] 音轨数迟到更新: tracks=' + _trackCount + ' -> mode=' + mode);
       }
     },
     /** 首次用户交互时调用，激活 Web Audio */
@@ -3153,7 +3153,7 @@ const VoiceManager = (() => {
       if (!_directMkvActive) return;
       const tl = directMkvTrackList();
       const n = tl ? tl.length : 0;
-      console.log('[VoiceManager] DIRECT_MKV audioTracks=' + n);
+      // console.log('[VoiceManager] DIRECT_MKV audioTracks=' + n);
       if (n < 2) { try{ showToast('当前浏览器不支持MKV多音轨切换，可正常播放'); }catch(e){} }
       apply(v);
     },
@@ -3170,7 +3170,7 @@ const VoiceManager = (() => {
       _mseMkvTrackCount = trackCount || 2;
       mode = MODE.MSE_MKV;
       _trackIndex = 0; _isOriginal = true; _loadedTrack = 0;
-      console.log('[VoiceManager] MSE_MKV 已启用 tracks=' + _mseMkvTrackCount);
+      // console.log('[VoiceManager] MSE_MKV 已启用 tracks=' + _mseMkvTrackCount);
     },
     /** MSE_MKV：退出（切歌/回退时调用） */
     exitMseMkv() {
@@ -3920,7 +3920,7 @@ function startDirectMkvPlayback(v,songId,videoUrl){
   // 音画同步修复: 音频数据已预提取, 不等loadedmetadata, 立即创建Mp2AudioPlayer开始解码,
   // 解码与video加载并行, 避免loadedmetadata后才解码导致音频比画面晚2-4秒
   try {
-    console.log("[MP2-AUDIO] 预解码启动(不等loadedmetadata)");
+    // console.log("[MP2-AUDIO] 预解码启动(不等loadedmetadata)");
     if(window._mp2Audio) window._mp2Audio.destroy();
     window._mp2Audio = new Mp2AudioPlayer(v, proxyUrl);
     window._mp2Audio.start();
@@ -4012,7 +4012,7 @@ async function loadSong(v,songId,needsDownload){
       if(_mseSrc){
         // 优先尝试纯JS MSE MKV 直连播放器：浏览器直接拉MKV，JS解封装->fMP4->MediaSource，不经过NAS转码。
         if(window.MkvMsePlayer){
-          console.log('[loadSong] MSE 直连播放', _mseIsLocal?'(本地MKV /stream)':'(网盘MKV)');
+          // console.log('[loadSong] MSE 直连播放', _mseIsLocal?'(本地MKV /stream)':'(网盘MKV)');
           const msePlayer=new MkvMsePlayer();
           try{
             await msePlayer.load(resolveMediaUrl(_mseSrc),{audioTrackIndex:0});
@@ -5937,7 +5937,7 @@ async function _omLoadFfmpeg(){
       coreURL:'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js'
     });
     _ffmpegInstance=ffmpeg;
-    // console.log('[在线音乐] ffmpeg.wasm 加载完成');
+    console.log('[在线音乐] ffmpeg.wasm 加载完成');
     return ffmpeg;
   }finally{
     _ffmpegLoading=false;
@@ -5985,14 +5985,14 @@ async function _omStartPlayback(s){
       if(probe.ok){
         const info=await probe.json();
         needClientDecode=info.needClientDecode===true;
-        // if(info.isDtsWav) console.log('[在线音乐] 服务端检测到DTS-WAV:',s.title);
+        if(info.isDtsWav) console.log('[在线音乐] 服务端检测到DTS-WAV:',s.title);
       }
     }catch(e){ console.warn('[在线音乐] 格式探测失败，按扩展名判断:',e.message); }
   }
   if(needClientDecode){
     try{
       _omSetPlayMode('client');
-      // console.log('[在线音乐] 客户端解码播放:',s.title,'('+ext+')');
+      console.log('[在线音乐] 客户端解码播放:',s.title,'('+ext+')');
       const objUrl=await _omClientDecode(s);
       _onlineAudio.src=objUrl;
     }catch(e){
@@ -6002,7 +6002,7 @@ async function _omStartPlayback(s){
     }
   }else{
     _omSetPlayMode('direct');
-    // console.log('[在线音乐] 302直连播放:',s.title,'('+ext+')');
+    console.log('[在线音乐] 302直连播放:',s.title,'('+ext+')');
     _onlineAudio.src='/api/netktv/music/stream/'+s.id;
   }
 }
