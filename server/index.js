@@ -11670,7 +11670,10 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
-  const cached = (song.is_network && song.cache_status === 'ready' && song.cache_path) ? song.cache_path : null;
+  // 缓存文件可能已被外部删除而记录仍为 ready：与 sourceCache.getReadyPathOrNull 对齐，
+  // 这里补 fs.existsSync 校验，缺失时回退 filepath，避免 /source 直接 404。
+  const cached = (song.is_network && song.cache_status === 'ready' && song.cache_path
+    && fs.existsSync(song.cache_path)) ? song.cache_path : null;
 
 
 
