@@ -534,11 +534,13 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
       if (vChanged) { fs.writeFileSync(vPath, vContent); createdStrm++; }
       if (aChanged) { fs.writeFileSync(aPath, aContent); createdStrm++; }
 
-      // 入库（幂等）
+      // 入库（幂等）。filename 全局 UNIQUE；历史歌曲 cloud_account_id 可能为空(NULL)，
+      // 不能用 cloud_account_id 过滤，否则找不到历史记录、误走 INSERT 导致 filename UNIQUE 冲突。
       const meta = parseFilename(vocalFile.name);
+      const vocalFilename = `${songKey}_vocals.strm`;
       const existing = db.prepare(
-        'SELECT id FROM songs WHERE source_root = ? AND cloud_account_id = ? AND filepath LIKE ?'
-      ).get(sourceRoot, accountId, `%${songKey}_vocals.strm%`);
+        'SELECT id, cloud_account_id FROM songs WHERE filename = ?'
+      ).get(vocalFilename);
 
       if (!existing) {
         const now = new Date().toISOString();
@@ -546,7 +548,7 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
           INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, align_status, lyrics_word, lyrics_source, cloud_account_id, duration, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 'audio', 2, 'done', ?, ?, ?, ?, ?, ?)
         `).run(
-          meta.title, meta.artist, `${songKey}_vocals.strm`, vPath, vPath, aPath,
+          meta.title, meta.artist, vocalFilename, vPath, vPath, aPath,
           sourceRoot, accountId,
           lrcContent ? 'done' : 'none', lrcContent, lrcContent ? 'lrc-file' : null,
           null, now
@@ -554,12 +556,18 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
         db.prepare('INSERT OR IGNORE INTO song_artists (song_id, artist) VALUES (?, ?)').run(result.lastInsertRowid, meta.artist);
         addedSongs++;
         console.log(`[NETKTV-SYNC] 新增: ${meta.artist} - ${meta.title} (id=${result.lastInsertRowid})${lrcContent ? ' [含逐字歌词]' : ''}`);
-      } else if (lrcContent) {
+      } else {
+        // 已入库：历史记录 cloud_account_id 为空则补写当前账号（数据修复，便于网盘路由）
+        if (existing.cloud_account_id == null) {
+          db.prepare('UPDATE songs SET cloud_account_id=? WHERE id=?').run(accountId, existing.id);
+        }
         // 已入库但缺逐字歌词 -> 补写
-        const upd = db.prepare(
-          "UPDATE songs SET lyrics_word=?, align_status='done', lyrics_source='lrc-file' WHERE id=? AND (lyrics_word IS NULL OR lyrics_word='' OR align_status != 'done')"
-        ).run(lrcContent, existing.id);
-        if (upd.changes > 0) console.log(`[NETKTV-SYNC] 补写逐字歌词: id=${existing.id}`);
+        if (lrcContent) {
+          const upd = db.prepare(
+            "UPDATE songs SET lyrics_word=?, align_status='done', lyrics_source='lrc-file' WHERE id=? AND (lyrics_word IS NULL OR lyrics_word='' OR align_status != 'done')"
+          ).run(lrcContent, existing.id);
+          if (upd.changes > 0) console.log(`[NETKTV-SYNC] 补写逐字歌词: id=${existing.id}`);
+        }
       }
     } catch (e) {
       console.warn(`[NETKTV-SYNC] 处理 ${songKey} 失败:`, e.message);
