@@ -10412,7 +10412,13 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
 
-      const match = String(song.vocal_path).match(/([a-f0-9]{16})_vocals\.strm/i);
+      let match = String(song.vocal_path).match(/([a-f0-9]{16})_vocals\.strm/i);
+      // 【修复2026-09-30 FLAC播放回归】14首本地分离歌(如青青河边草16770)的 vocal_path 形如
+      // "separated/<hash>/<歌名>-人声.flac"，正则提取不到 netktvId，sep-info 因此不返回 dual，
+      // 播放落回 /stream/:id，而其 netseparated-strm strm 文件在容器内缺失 → 404 播不了。
+      // 这类歌 filepath 带 netseparated-strm/<hash>_vocals.strm，兜底从 filepath 提取 hash，
+      // 使 DUAL 代理端点(/api/netktv/stream/<hash>/vocals，服务端拉CDN字节)可正常播放。
+      if (!match && song.filepath) match = String(song.filepath).match(/([a-f0-9]{16})_vocals\.strm/i);
 
 
 

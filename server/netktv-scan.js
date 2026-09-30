@@ -403,9 +403,12 @@ async function downloadTextViaAlist(alistBase, mountPath, basePath, songKey, fil
     const dir = (mountPath.replace(/\/+$/, '') + (basePath || ''));
     const url = ext + '/d' + encodeURI(dir + '/' + songKey + '/' + fileName);
     const result = await new Promise((resolve, reject) => {
-      const req = http.get(url, { timeout: 10000 }, (res) => {
+      // 【修复2026-09-30 周期性 ERR_INVALID_PROTOCOL】AList /d/ 302 跳转的 location 可能带 https，
+      // 统一用 http 模块请求会抛 "Protocol https not supported"（日志堆栈 netktv-scan.js:408）。
+      // 按 URL 协议自适应选择 http/https 模块。
+      const req = (url.indexOf('https:') === 0 ? https : http).get(url, { timeout: 10000 }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          http.get(res.headers.location, { timeout: 10000 }, (res2) => {
+          (res.headers.location.indexOf('https:') === 0 ? https : http).get(res.headers.location, { timeout: 10000 }, (res2) => {
             const chunks = [];
             res2.on('data', c => chunks.push(c));
             res2.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
