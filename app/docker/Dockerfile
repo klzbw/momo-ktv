@@ -43,6 +43,11 @@ RUN npm install --omit=dev
 
 COPY server ./server
 COPY web ./web
+# 客户端安装包（APK/IPA）不在 web/clients 下（web/.gitignore 因体积刻意忽略），
+# 统一存放在 app/docker/web/clients（镜像构建上下文内）。根 web/clients/index.html
+# 的下载链接指向 /clients/*.apk|ipa，若这里不显式 COPY，镜像内 /clients 只有页面、
+# 所有下载链接 404（历史 bug）。COPY 顺序在 web 之后，用安装包覆盖覆盖进去。
+COPY app/docker/web/clients ./web/clients
 
 # 安装 LDDC Python 依赖（逐字歌词搜索服务）
 # COPY server ./server 已把 server/lddc/ 全部文件（含 requirements.txt）复制进容器，

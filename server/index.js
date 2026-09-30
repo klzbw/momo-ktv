@@ -11699,9 +11699,11 @@ app.get('/api/songs/:id/source', (req, res) => {
   // 【修复对齐任务404·失败率高】分离音频(netktv双FLAC)：本地 netseparated-strm/{hash}_vocals.strm
   // 可能缺失（strm同步未在根目录生成 / strmDir被原始专辑01-07目录混用）。
   // 回退重定向到等价的内部网盘代理（已验证返回 audio/flac inline），worker requests 跟随302即可下载源人声。
+  // 兼容加固(c97e6c7续)：历史数据 strm 可能落在 netseparated-strm 的子目录(如 01-07/{hash}_vocals.strm)，
+  // (?:.*\/)? 允许中间目录，捕获组仍取文件名前一段 hash，主路径行为与原来完全一致。
   if (song.is_strm && song.media_type === 'audio' && src &&
-      /\/netseparated-strm\/[a-f0-9]+_(vocals|accomp)\.strm$/i.test(src)) {
-    const _mm = src.match(/\/netseparated-strm\/([a-f0-9]+)_(vocals|accomp)\.strm$/i);
+      /\/netseparated-strm\/(?:.*\/)?[a-f0-9]+_(vocals|accomp)\.strm$/i.test(src)) {
+    const _mm = src.match(/\/netseparated-strm\/(?:.*\/)?([a-f0-9]+)_(vocals|accomp)\.strm$/i);
     if (_mm) {
       const _t = _mm[2].toLowerCase() === 'vocals' ? 'vocals' : 'accompaniment';
       return res.redirect(302, '/api/netktv/stream/' + _mm[1] + '/' + _t);

@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
     ports:
       - "8083:8080"    # Web 主界面
-      - "5236:5234"    # 内置 AList
+      - "5345:5345"    # 内置 AList
     environment:
       - MV_DIR=/mv
       - DATA_DIR=/data
@@ -159,24 +159,36 @@ docker compose up -d
 
 ```
 momo-ktv/
-├── app/                          # 服务端 + 网页端
-│   └── docker/
-│       ├── server/               # Node.js 服务端（API、曲库、转码、网盘集成）
-│       └── web/                  # 网页端
-│           ├── tv/               # 电视端点歌界面
-│           ├── mobile/           # 手机遥控端
-│           ├── admin/            # 管理后台（含网盘扫码配置）
-│           └── mic/              # 手机麦克风端
+├── server/                       # Node.js 服务端（API、曲库、转码、网盘集成、AI任务队列）
+│   ├── index.js                  # 主入口：全部 REST API / 点歌队列 / 认证 / 歌词 / 分离任务
+│   ├── scanner.js                # 曲库扫描、编码探测(mp2/RV40)、CUE解析、歌手同步
+│   ├── hlsgen.js                 # HLS 转码（VAAPI/NVENC 硬解，双音轨提取）
+│   ├── sourceCache.js            # 网络/网盘源缓存（is_network、STRM）
+│   ├── netktv-scan.js            # 网盘KTV源 STRM 幂等同步
+│   ├── cloud-drive/              # 网盘驱动：115/阿里/夸克/迅雷/百度/移动/AList
+│   ├── lddc/                     # LDDC 逐字歌词搜索服务（网易/QQ/酷我）
+│   └── separate.js               # AI 人声分离/逐字对齐任务队列
+├── web/                          # 网页端
+│   ├── tv/                       # 电视端点歌界面（MSE/直连/HLS/DUAL 多模式播放）
+│   ├── mobile/                   # 手机遥控端（点歌/切歌/麦克风）
+│   ├── admin/                    # 管理后台（曲库/用户/AI任务/网盘配置）
+│   ├── mic/                      # 手机麦克风端
+│   └── clients/                  # 客户端下载页（APK/IPA 实际文件见 app/docker/web/clients）
 ├── tvos-client/                  # Apple TV 客户端（Swift/SwiftUI）
 ├── android-tv-client/            # Android TV 客户端（Kotlin + WebView）
-├── ai-worker/                    # AI歌词精准化 + 人声分离工作站（Python）
+├── ios-client/                   # iOS 客户端
+├── ai-worker/                    # AI 歌词精准化 + 人声分离工作站（Python/Demucs/WhisperX）
+├── app/docker/                   # Docker 构建上下文
+│   ├── Dockerfile                # 镜像构建（COPY 根目录 server/、web/，含客户端安装包）
+│   ├── docker-entrypoint.sh      # 启动脚本（alist + momo-ktv）
+│   └── web/clients/              # 客户端安装包存储位（APK/IPA，web/.gitignore 忽略体积）
 ├── docs/                         # 设计文档 + 部署文档 + 开发进度
 │   ├── DESIGN-cloud-drive.md     # 网盘集成完整设计方案
 │   ├── PROGRESS.md               # 当前开发进度
 │   ├── ROADMAP.md                # 项目路线图
 │   └── 03-服务端部署.md          # 部署文档
-├── cmd/ + wizard/                # 飞牛fnOS应用套件脚本
-└── .github/workflows/            # CI自动构建（Docker镜像 + tvOS IPA + Android APK）
+├── cmd/ + wizard/ + config/       # 飞牛fnOS应用套件脚本
+└── .github/workflows/            # CI自动构建（Docker镜像 + tvOS IPA + Android APK + AI Worker）
 ```
 
 ---
