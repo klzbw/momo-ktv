@@ -177,7 +177,7 @@ struct FullPlayerView: View {
 
                         if playing.isVideoFile { lyricsLoader.lyrics = .empty } // 视频歌不显示歌词
 
-                        else { lyricsLoader.load(server: api.serverAddress, songId: playing.song_id) }
+                        else { lyricsLoader.loadDeferred(server: api.serverAddress, songId: playing.song_id) }
 
                         restoreOffset(for: playing.song_id)
 
@@ -1070,7 +1070,7 @@ struct FullPlayerView: View {
 
         if song.isVideoFile { lyricsLoader.lyrics = .empty }
 
-        else { lyricsLoader.load(server: api.serverAddress, songId: song.song_id) }
+        else { lyricsLoader.loadDeferred(server: api.serverAddress, songId: song.song_id) }
 
         restoreOffset(for: song.song_id)
 

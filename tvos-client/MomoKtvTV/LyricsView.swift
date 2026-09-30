@@ -288,6 +288,18 @@ final class LyricsLoader: ObservableObject {
         }.resume()
     }
 
+    /// 错峰加载：与播放解耦，音频起播约1.3s后再拉歌词，把歌词的 fs/get+downurl
+    /// 移出起播瞬间的 115 请求风暴（与网页 TV 端一致）；连续切歌只保留最后一次。
+    private var deferredWorkItem: DispatchWorkItem?
+    func loadDeferred(server: String, songId: Int) {
+        deferredWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.load(server: server, songId: songId)
+        }
+        deferredWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3, execute: work)
+    }
+
     /// 加载歌词。force=true 时跳过去重守卫（reload 用），但不修改 currentSongId 避免切歌竞态。
     func load(server: String, songId: Int, force: Bool = false) {
         guard force || songId != currentSongId || !loaded else { return }

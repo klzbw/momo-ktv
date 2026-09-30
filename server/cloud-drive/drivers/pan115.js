@@ -58,7 +58,27 @@ class Pan115Driver extends CloudDriveBase {
       shareSnaps: new Map(), // key: snap:pickcode, value: 分享快照
       shareFiles: new Map(), // key: share:shareId:cid, value: 文件列表
     };
+    // 在途请求去重（修复并发重复打 API）：vocals/accompaniment 并发请求同一目录时，
+    // 共享同一个 listFiles/_pathToCid Promise，把每首歌 2 次 getid+2 次 list 降到各 1 次。
+    this._inflight = { files: new Map(), cids: new Map() };
     this._cacheTTL = 2 * 60 * 1000; // 2 分钟
+  }
+
+  /**
+   * 在途去重：同 key 并发调用共享同一个 Promise；失败/成功后都清除在途标记（失败可重试）。
+   */
+  async _dedupe(map, key, producer) {
+    const existing = map.get(key);
+    if (existing) return existing;
+    const p = (async () => {
+      try {
+        return await producer();
+      } finally {
+        map.delete(key);
+      }
+    })();
+    map.set(key, p);
+    return p;
   }
 
   // ==================== 限流控制 ====================
@@ -222,58 +242,65 @@ class Pan115Driver extends CloudDriveBase {
     const cached = this._getCache('files', remotePath);
     if (cached) return cached;
 
-    // 获取目录 ID
-    const cid = await this._pathToCid(remotePath);
+    // 在途去重：并发同目录调用共享一次抓取（修复 vocals/accompaniment 重复列目录）
+    return this._dedupe(this._inflight.files, remotePath, async () => {
+      // 进入在途后再次检查缓存，可能已被先行调用填充
+      const cached2 = this._getCache('files', remotePath);
+      if (cached2) return cached2;
 
-    // 分页获取所有文件
-    const pageSize = 1000;
-    let offset = 0;
-    let allFiles = [];
-    let total = 0;
+      // 获取目录 ID
+      const cid = await this._pathToCid(remotePath);
 
-    do {
-      const params = new URLSearchParams({
-        aid: '1',
-        cid: cid,
-        o: 'user_ptime',
-        asc: '0',
-        offset: String(offset),
-        show_dir: '1',
-        limit: String(pageSize),
-        snap: '0',
-        record_open_time: '1',
-        format: 'json',
-        fc_mix: '0',
-        type: '0',
-      });
+      // 分页获取所有文件
+      const pageSize = 1000;
+      let offset = 0;
+      let allFiles = [];
+      let total = 0;
 
-      const res = await this._request('GET', `${API_URLS.getFiles}?${params.toString()}`);
-      if (!res.body || res.body.state !== true) {
-        throw new Error('115 列目录失败: ' + JSON.stringify(res.body).slice(0, 200));
-      }
+      do {
+        const params = new URLSearchParams({
+          aid: '1',
+          cid: cid,
+          o: 'user_ptime',
+          asc: '0',
+          offset: String(offset),
+          show_dir: '1',
+          limit: String(pageSize),
+          snap: '0',
+          record_open_time: '1',
+          format: 'json',
+          fc_mix: '0',
+          type: '0',
+        });
 
-      const files = res.body.data || [];
-      total = res.body.count || 0;
-      allFiles = allFiles.concat(files);
-      offset += pageSize;
-    } while (offset < total);
+        const res = await this._request('GET', `${API_URLS.getFiles}?${params.toString()}`);
+        if (!res.body || res.body.state !== true) {
+          throw new Error('115 列目录失败: ' + JSON.stringify(res.body).slice(0, 200));
+        }
 
-    const result = allFiles.map((f) => ({
-      fileId: String(f.fid || f.cid || f.id),
-      name: f.n || f.name,
-      path: this._joinPath(remotePath, f.n || f.name),
-      isDir: !f.fid || f.fid === 0 || f.ica === 1 || f.is_dir === 1,
-      size: parseInt(f.s || f.size || 0, 10),
-      modifiedAt: f.te ? new Date(f.te * 1000) : new Date(),
-      pickCode: f.pc || f.pickcode,
-      sha1: f.sha,
-      fileType: f.te || f.file_type,
-    }));
+        const files = res.body.data || [];
+        total = res.body.count || 0;
+        allFiles = allFiles.concat(files);
+        offset += pageSize;
+      } while (offset < total);
 
-    // 写入缓存
-    this._setCache('files', remotePath, result);
+      const result = allFiles.map((f) => ({
+        fileId: String(f.fid || f.cid || f.id),
+        name: f.n || f.name,
+        path: this._joinPath(remotePath, f.n || f.name),
+        isDir: !f.fid || f.fid === 0 || f.ica === 1 || f.is_dir === 1,
+        size: parseInt(f.s || f.size || 0, 10),
+        modifiedAt: f.te ? new Date(f.te * 1000) : new Date(),
+        pickCode: f.pc || f.pickcode,
+        sha1: f.sha,
+        fileType: f.te || f.file_type,
+      }));
 
-    return result;
+      // 写入缓存
+      this._setCache('files', remotePath, result);
+
+      return result;
+    });
   }
 
   /**
@@ -290,20 +317,26 @@ class Pan115Driver extends CloudDriveBase {
     const cached = this._getCache('dirIds', remotePath);
     if (cached) return cached;
 
-    // 去掉开头的 /
-    const path = remotePath.startsWith('/') ? remotePath.slice(1) : remotePath;
+    // 在途去重：并发同路径调用共享一次 getid
+    return this._dedupe(this._inflight.cids, remotePath, async () => {
+      const cached2 = this._getCache('dirIds', remotePath);
+      if (cached2) return cached2;
 
-    const res = await this._request('GET', `${API_URLS.getDirID}?path=${encodeURIComponent(path)}`);
-    if (!res.body || res.body.state !== true) {
-      throw new Error('115 获取目录ID失败: ' + JSON.stringify(res.body).slice(0, 200));
-    }
+      // 去掉开头的 /
+      const path = remotePath.startsWith('/') ? remotePath.slice(1) : remotePath;
 
-    const cid = String(res.body.id || res.body.category_id || '0');
+      const res = await this._request('GET', `${API_URLS.getDirID}?path=${encodeURIComponent(path)}`);
+      if (!res.body || res.body.state !== true) {
+        throw new Error('115 获取目录ID失败: ' + JSON.stringify(res.body).slice(0, 200));
+      }
 
-    // 写入缓存
-    this._setCache('dirIds', remotePath, cid);
+      const cid = String(res.body.id || res.body.category_id || '0');
 
-    return cid;
+      // 写入缓存
+      this._setCache('dirIds', remotePath, cid);
+
+      return cid;
+    });
   }
 
   /**
