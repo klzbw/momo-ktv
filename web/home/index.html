@@ -109,6 +109,15 @@ body{
   position:relative;z-index:1;margin-top:44px;font-size:12px;color:var(--sub);
   letter-spacing:1px;text-align:center;
 }
+/* 需求(2026-09-30)：页脚"墨墨爱K歌"点击直达客户端下载页 /clients/。
+   早期 NAS 热修复版本曾把页脚做成链接但未进 git，重建后丢失、只剩缓存；
+   这里把链接固化进代码，重建镜像后依旧存在。样式保持页脚弱化风格，
+   仅 hover 时显示品牌色与下划线，不抢导航卡片视觉。 */
+.footer-tip a.footer-home-link{
+  color:inherit;text-decoration:none;cursor:pointer;
+  transition:color .2s;
+}
+.footer-tip a.footer-home-link:hover{color:var(--cyan);text-decoration:underline}
 
 /* ===== 网盘管理展开面板 ===== */
 .cloud-panel{
@@ -554,7 +563,7 @@ body{
   </div>
 
   <div class="footer-tip">局域网K歌系统 · 手机扫码点歌 · 电视/投影仪全屏播放</div>
-  <div class="footer-tip" style="margin-top:6px">墨墨爱K歌 · 家庭定制版<span id="nav-version"></span></div>
+  <div class="footer-tip" style="margin-top:6px"><a class="footer-home-link" href="/clients/" title="客户端下载页（APK/IPA）">墨墨爱K歌 · 家庭定制版<span id="nav-version"></span></a></div>
 </div>
 
 <a class="github-btn" href="https://github.com/klzbw/momo-ktv" target="_blank" rel="noopener noreferrer">
