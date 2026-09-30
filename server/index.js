@@ -8275,7 +8275,8 @@ app.get('/api/lyrics/stats', (req, res) => {
 
 
 
-  const total = db.prepare('SELECT COUNT(*) c FROM songs').get().c;
+  // 歌词只针对音频(FLAC/WAV等)；MKV(media_type=video)不需要歌词，不纳入统计分母
+  const total = db.prepare("SELECT COUNT(*) c FROM songs WHERE media_type IN ('audio','cue')").get().c;
 
 
 
@@ -8285,7 +8286,7 @@ app.get('/api/lyrics/stats', (req, res) => {
 
 
 
-  const has = db.prepare("SELECT COUNT(*) c FROM songs WHERE lyrics IS NOT NULL AND lyrics<>''").get().c;
+  const has = db.prepare("SELECT COUNT(*) c FROM songs WHERE media_type IN ('audio','cue') AND lyrics IS NOT NULL AND lyrics<>''").get().c;
 
 
 
@@ -8295,7 +8296,7 @@ app.get('/api/lyrics/stats', (req, res) => {
 
 
 
-  const bySrc = db.prepare('SELECT lyrics_source, COUNT(*) c FROM songs WHERE lyrics IS NOT NULL GROUP BY lyrics_source').all();
+  const bySrc = db.prepare("SELECT lyrics_source, COUNT(*) c FROM songs WHERE media_type IN ('audio','cue') AND lyrics IS NOT NULL GROUP BY lyrics_source").all();
 
 
 

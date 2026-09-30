@@ -2918,6 +2918,21 @@ const VoiceManager = (() => {
       }
     };
     follow(dualVocalEl); follow(dualAccEl);
+    // 修复全屏进度条（FLAC纯音频DUAL模式）：背景 video 的 /stream/:id 源对网络FLAC可能是
+    // 占位坏文件（实测仅218字节、video不推进），而进度条(4558行)硬绑 video.timeupdate，
+    // 导致进度条/时间停在 0:00（声音却由两条FLAC正常播放）。这里用上面算出的真实主时钟
+    // master（video不播时=audio时钟）每帧驱动进度条/时间/歌词；video正常时master=video，与timeupdate一致。
+    try{
+      const _dur=(dualVocalEl&&isFinite(dualVocalEl.duration)&&dualVocalEl.duration>0)
+        ?dualVocalEl.duration:(isFinite(v.duration)?v.duration:0);
+      if(_dur>0&&isFinite(master)){
+        const _pf=document.getElementById('prog-fill'),_tc=document.getElementById('tcur'),_tt=document.getElementById('ttot');
+        if(_pf)_pf.style.width=Math.max(0,Math.min(100,master/_dur*100))+'%';
+        if(_tc)_tc.textContent=fmt(master);
+        if(_tt)_tt.textContent=fmt(_dur);
+        try{ Lyrics.render(master); }catch(e){}
+      }
+    }catch(e){}
     // 屏上调试浮层已关闭（生产环境不显示）
   }
   function dualStart(info,v){
