@@ -197,7 +197,7 @@ final class LyricsLoader: ObservableObject {
         guard lyricsCache[songId] == nil else { return }  // 已有缓存，跳过
         guard songId != currentSongId else { return }  // 当前播放的不需要预加载
         let host = server.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
-        guard let url = URL(string: "http://\(host)/api/songs/\(songId)/lyrics?online=0") else { return }
+        guard let url = URL(string: "http://\(host)/api/songs/\(songId)/lyrics?online=1") else { return }
         var request = URLRequest(url: url, timeoutInterval: 8)
         request.httpMethod = "GET"
         session.dataTask(with: request) { [weak self] data, _, _ in
@@ -307,10 +307,10 @@ final class LyricsLoader: ObservableObject {
         requestGeneration += 1
         let myGeneration = requestGeneration
         let host = server.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")
-        // 关键修复：online=0 只拉取服务端本地已有的歌词，不触发在线抓取(网易/QQ/酷我三源串行)。
-        // 在线抓取由服务端主动完成(网页端刷新触发)，完成后通过 WebSocket 推送，客户端再拉本地。
-        // 不加 online=0 时该请求会阻塞数十秒，耗尽 URLSession 连接池，导致全 APP 歌曲加载变慢。
-        guard let url = URL(string: "http://\(host)/api/songs/\(songId)/lyrics?online=0") else {
+        // online=1：服务端 obtainLyrics 优先读DB歌词(无网络IO)，DB无词时才查网盘.lrc并回写DB；
+        // 在线抓取已禁用(ENABLE_WEB_LYRICS=false)，不会阻塞数十秒。8秒超时防切歌竞态。
+        // 原来用 online=0 只读DB，DB无词的歌(网盘有.lrc)永远拿不到歌词。
+        guard let url = URL(string: "http://\(host)/api/songs/\(songId)/lyrics?online=1") else {
             loading = false
             return
         }

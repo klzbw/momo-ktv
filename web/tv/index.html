@@ -3425,13 +3425,14 @@ const Lyrics = (()=>{
     if(songId===loadedId&&!force)return;
     const wasAlreadyLoaded = loadedId !== null;
     loadedId=songId; lines=[]; lastIdx=-9; scrollBuilt=false; lrcOff=0; render(video.currentTime||0);
-    // 修复：online=0只拉本地歌词不触发服务端在线抓取(阻塞数十秒)；AbortController取消旧请求；
-    // 8秒超时；请求版本号防止切歌时旧请求覆盖新歌词(新旧交替)。
+    // online=1：服务端 obtainLyrics 优先读DB歌词(无网络IO)，DB无词时才查网盘.lrc并回写DB；
+    // 在线抓取已禁用(ENABLE_WEB_LYRICS=false)，不会阻塞数十秒。8秒超时+AbortController防切歌竞态。
+    // 原来用 online=0 只读DB，DB无词的歌(网盘有.lrc)永远拿不到歌词。
     if(_lyricsAbort) _lyricsAbort.abort();
     _lyricsAbort=new AbortController();
     const myGen=++_lyricsGen;
     const timer=setTimeout(()=>{ try{_lyricsAbort.abort();}catch(e){} },8000);
-    fetch(BASE+'/api/songs/'+songId+'/lyrics?online=0',{signal:_lyricsAbort.signal}).then(r=>r.json()).then(d=>{
+    fetch(BASE+'/api/songs/'+songId+'/lyrics?online=1',{signal:_lyricsAbort.signal}).then(r=>r.json()).then(d=>{
       clearTimeout(timer);
       if(myGen!==_lyricsGen)return;        // 版本号不匹配：旧请求，丢弃
       if(loadedId!==songId)return;         // 已切歌，丢弃
@@ -6186,7 +6187,7 @@ async function playOnlineSong(idx){
   const rb=document.getElementById('om-lrc-box');
   if(rb)rb.innerHTML='<div class="om-lrc-empty">♪ 歌词加载中...</div>';
   fetch('/api/songs/'+s.id+'/lyrics?online=1').then(r=>r.json()).then(d=>{
-    const lrc=d.lyrics||d.lyrics_word||'';
+    const lrc=d.lyrics||d.word||'';
     if(!lrc){if(rb)rb.innerHTML='<div class="om-lrc-empty">♪ 暂无歌词</div>';renderFsLyrics();return;}
     const lines=lrc.split('\n').map(line=>{
       const mm=line.match(/\[(\d+):(\d+\.?\d*)\](.*)/);
