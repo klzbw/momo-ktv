@@ -11696,6 +11696,18 @@ app.get('/api/songs/:id/source', (req, res) => {
     return res.redirect(302, directUrl);
   }
 
+  // 【修复对齐任务404·失败率高】分离音频(netktv双FLAC)：本地 netseparated-strm/{hash}_vocals.strm
+  // 可能缺失（strm同步未在根目录生成 / strmDir被原始专辑01-07目录混用）。
+  // 回退重定向到等价的内部网盘代理（已验证返回 audio/flac inline），worker requests 跟随302即可下载源人声。
+  if (song.is_strm && song.media_type === 'audio' && src &&
+      /\/netseparated-strm\/[a-f0-9]+_(vocals|accomp)\.strm$/i.test(src)) {
+    const _mm = src.match(/\/netseparated-strm\/([a-f0-9]+)_(vocals|accomp)\.strm$/i);
+    if (_mm) {
+      const _t = _mm[2].toLowerCase() === 'vocals' ? 'vocals' : 'accompaniment';
+      return res.redirect(302, '/api/netktv/stream/' + _mm[1] + '/' + _t);
+    }
+  }
+
   if (!src || !fs.existsSync(src)) return res.status(404).json({ error: '源文件在服务端不可达', path: src });
 
 
