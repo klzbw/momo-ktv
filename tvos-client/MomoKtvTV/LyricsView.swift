@@ -61,6 +61,25 @@ struct SongLyrics: Equatable {
             let body = ns.substring(from: bodyStart).trimmingCharacters(in: .whitespaces)
             guard !lineStarts.isEmpty, !body.isEmpty else { continue }
 
+            // 【2026-10-01 用户拍板】过滤纯音乐/轻音乐占位歌词行：
+            // worker 对无人声歌曲生成的 "[00:00.00]🎵🎵🎵 纯音乐/轻音乐，无人声，跳过歌词对齐"
+            // 若作为歌词显示，间奏/纯音乐期屏幕会冒出一排 ♪♪♪/🎵🎵🎵，用户误以为间奏音符没取消。
+            // 规则：去掉音符字符后为空(纯音符行)，或正文含"纯音乐/轻音乐/无人声/跳过歌词"关键词 → 跳过。
+            let stripped = body
+                .replacingOccurrences(of: "🎵", with: "")
+                .replacingOccurrences(of: "🎶", with: "")
+                .replacingOccurrences(of: "♪", with: "")
+                .replacingOccurrences(of: "♫", with: "")
+                .replacingOccurrences(of: "♬", with: "")
+                .trimmingCharacters(in: .whitespaces)
+            if stripped.isEmpty
+                || stripped.contains("纯音乐")
+                || stripped.contains("轻音乐")
+                || stripped.contains("无人声")
+                || stripped.contains("跳过歌词") {
+                continue
+            }
+
             var tokens: [LyricToken] = []
             if let wr = wordRegex {
                 let wms = wr.matches(in: body, range: NSRange(location: 0, length: (body as NSString).length))
