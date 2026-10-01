@@ -668,6 +668,13 @@ struct LyricsView: View {
         // dualFlip=false: 单左双右；dualFlip=true: 单右双左
         let topAlign: Alignment = styleStore.dualFlip ? .trailing : .leading
         let bottomAlign: Alignment = styleStore.dualFlip ? .leading : .trailing
+        // 【修复(2026-10-02)】next 稳定排位在 ViewBuilder 外计算（if 分支内赋值在 result builder 中非法）：
+        // side0=上排(第一行)、side1=下排(第二行)；间奏分支按它放行，保证预备→开唱同排零跳动。
+        var nextSide = 1
+        if il.nextIdx >= 0 && il.nextIdx < lyrics.lines.count {
+            let nextKey = stableKey(for: lyrics.lines[il.nextIdx], at: il.nextIdx, in: lyrics.lines)
+            nextSide = lineSideCache[nextKey] ?? (il.nextIdx % 2)
+        }
         return VStack(spacing: compact ? 12 : 32) {  // 增加行间距，防止两排歌词挤在一起
             Spacer(minLength: 0)
             if il.isInterlude {
@@ -706,13 +713,8 @@ struct LyricsView: View {
                             .animation(.easeInOut(duration: 0.4).delay(Double(idx) * 0.1), value: hintPulse)
                     }
                 }
-                // next 稳定排位：side0=上排(第一行)、side1=下排(第二行)
+                // next 稳定排位已在 dualBody 顶部计算（nextSide）
                 let next = il.nextIdx
-                var nextSide = 1
-                if next >= 0 {
-                    let nextKey = stableKey(for: lyrics.lines[next], at: next, in: lyrics.lines)
-                    nextSide = lineSideCache[nextKey] ?? (next % 2)
-                }
                 let emptySlot = Color.clear.frame(maxWidth: .infinity)
                 if nextSide == 0 {
                     // next 稳定排位=上排：第一行=next 预备，第二行=空位+音符overlay
