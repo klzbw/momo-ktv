@@ -924,7 +924,7 @@ html[data-layout="mobile"] #next-up-track span{font-size:16px}
 #s3-qr-pop .s3-qr-tip{color:#07071a;font-size:13px;text-align:center;max-width:160px;font-weight:600}
 /* ============ 逐字歌词层：盖在视频上、控制条下，纯展示不拦截点击。三行窗口(上/当前/下)，
    当前行逐字卡拉OK填色，已唱字金色、未唱字白色。 ============================ */
-#lyrics-layer{position:absolute;left:0;right:0;top:14%;bottom:calc(var(--lyrics-pos,18) * 1%);z-index:4;display:flex;
+#lyrics-layer{position:absolute;left:0;right:0;top:14%;bottom:min(calc(var(--lyrics-pos,18) * 1%),18%);z-index:4;display:flex;
   flex-direction:column;align-items:center;justify-content:flex-end;gap:22px;padding:0 8% 1.5%;
   pointer-events:none;overflow:hidden;text-align:center}
 #lyrics-layer .ll-line{max-width:100%;line-height:1.3;margin:0}
@@ -980,7 +980,7 @@ html[data-layout="mobile"] #lyrics-layer .ll-near{font-size:32px}
    且 DOM 顺序更靠后会盖住点击层；它本身是纯展示层，必须 pointer-events:none 让触摸/点击
    穿透到 #fs-tap，否则播放纯音频(动态背景/图片背景)时怎么点都呼不出控制条。 */
 #bg-stage.fs-layer{position:fixed;top:0;right:0;bottom:0;left:0;width:100%;height:100%;z-index:51;pointer-events:none}
-#lyrics-layer.fs-layer{position:fixed;top:14%;bottom:calc(var(--lyrics-pos,18)*1%);left:0;right:0;z-index:52;pointer-events:none}
+#lyrics-layer.fs-layer{position:fixed;top:14%;bottom:min(calc(var(--lyrics-pos,18)*1%),18%);left:0;right:0;z-index:52;pointer-events:none}
 #bg-mode-btn.fs-layer,#lyrics-mode-btn.fs-layer{z-index:53}
 /* 全屏时禁用 iOS 长按弹出菜单/文字选中/点击高亮，保证"长按拖歌词"的 touchmove 不被系统手势打断 */
 body.fs-on{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
@@ -3405,6 +3405,11 @@ const Lyrics = (()=>{
       let bodyStart=0; const starts=[];
       tags.forEach(m=>{ const t=t2s(m[1]); if(t!==null){starts.push(t); bodyStart=Math.max(bodyStart,m.index+m[0].length);} });
       const body=raw.slice(bodyStart).trim(); if(!starts.length||!body)return;
+      // 【2026-10-01】过滤纯音乐/轻音乐占位歌词行(🎵🎵🎵 纯音乐…)：
+      // worker 生成的无人声占位行若作为歌词显示，前奏/间奏期屏幕会冒出一排音符，
+      // 用户反馈的"间隔歌词/音符"实为这一行(与tvOS端同一规则)。
+      const _strip=body.replace(/[🎵🎶♪♫♬]/g,'').trim();
+      if(!_strip||/纯音乐|轻音乐|无人声|跳过歌词/.test(_strip))return;
       const wm=[...body.matchAll(/<([0-9:.]+)>/g)]; let tokens=null;
       if(wm.length>=2){ tokens=[];
         wm.forEach((m,i)=>{ const t=t2s(m[1]); if(t===null)return;
