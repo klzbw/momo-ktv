@@ -678,10 +678,10 @@ struct LyricsView: View {
         return VStack(spacing: compact ? 12 : 32) {  // 增加行间距，防止两排歌词挤在一起
             Spacer(minLength: 0)
             if il.isInterlude {
-                // 间奏/前奏：当前行歌词淡出，不显示
-                // 【修复(2026-10-02)】行结构对齐正常演唱分支：预备句(next)恒在它的稳定排位行，
-                // 音符倒计时改为 overlay 叠加在另一排空位上——从预备到开唱全程同排，零跳动。
-                // 原实现音符恒占第一行、next 恒占第二行 → 稳定排位=上排的句子开唱瞬间从第二行跳到第一行。
+                // 间奏/前奏：两行结构固定——next 在稳定排位行(预备)、上一句在对面行(羽化)，
+                // 音符倒计时 overlay 在羽化行角落。所有元素都在固定两行内，绝不跳排、不跑角落。
+                // 【修复(2026-10-02)】原 overlay 载体 Color.clear 高度塌缩 → 音符被推到屏幕角落；
+                // 现羽化行用真实歌词(或等高空位)承载，音符随行显示在固定两行区域内。
                 let hintCount: Int = {
                     if il.wait > 3.0 { return 3 }
                     if il.wait > 2.0 { return 2 }
@@ -713,14 +713,15 @@ struct LyricsView: View {
                             .animation(.easeInOut(duration: 0.4).delay(Double(idx) * 0.1), value: hintPulse)
                     }
                 }
-                // next 稳定排位已在 dualBody 顶部计算（nextSide）
                 let next = il.nextIdx
-                let emptySlot = Color.clear.frame(maxWidth: .infinity)
+                let prev = ai   // 已唱完的上一句（前奏时为 -1）
+                // 等高空位：与歌词行同高，保证音符 overlay 不塌缩
+                let emptyRow = Color.clear.frame(maxWidth: .infinity, minHeight: activeSize * 1.2)
+                // next 稳定排位=上排：上排=next 预备，下排=prev 羽化 + 音符overlay
                 if nextSide == 0 {
-                    // next 稳定排位=上排：第一行=next 预备，第二行=空位+音符overlay
-                    if next >= 0 { dualSlot(next, topAlign) } else { emptySlot }
+                    if next >= 0 { dualSlot(next, topAlign) } else { emptyRow }
                     ZStack {
-                        emptySlot
+                        if prev >= 0 { dualSlot(prev, bottomAlign).opacity(0.35) } else { emptyRow }
                         if hintCount > 0 {
                             hintView
                                 .frame(maxWidth: .infinity, alignment: bottomAlign)
@@ -733,9 +734,9 @@ struct LyricsView: View {
                         }
                     }
                 } else {
-                    // next 稳定排位=下排：第一行=空位+音符overlay，第二行=next 预备
+                    // next 稳定排位=下排：上排=prev 羽化 + 音符overlay，下排=next 预备
                     ZStack {
-                        emptySlot
+                        if prev >= 0 { dualSlot(prev, topAlign).opacity(0.35) } else { emptyRow }
                         if hintCount > 0 {
                             hintView
                                 .frame(maxWidth: .infinity, alignment: topAlign)
@@ -747,7 +748,7 @@ struct LyricsView: View {
                                 .onDisappear { hintPulse = false }
                         }
                     }
-                    if next >= 0 { dualSlot(next, bottomAlign) } else { emptySlot }
+                    if next >= 0 { dualSlot(next, bottomAlign) } else { emptyRow }
                 }
             } else if ai >= 0 && ai < lyrics.lines.count {
                 // 正常演唱：维持 tvOS 动态交替排位（lineSideCache 稳定缓存，不固定单左双右）。
