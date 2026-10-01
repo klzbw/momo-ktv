@@ -679,6 +679,7 @@ struct ContentView: View {
             }
 
             // 本地分离歌曲：先下载到本地再激活
+            guard let vocalPath = info.vocalUrl, let accompPath = info.accompUrl else { return }
             self.api.downloadDualTracks(songId: sid, vocalPath: vocalPath, accompPath: accompPath) { vFile, aFile in
                 guard let vFile = vFile, let aFile = aFile else { return }
                 // 快切歌保护：当前仍在播放同一首才升级（PlayerManager 内部另有 generation 校验）
