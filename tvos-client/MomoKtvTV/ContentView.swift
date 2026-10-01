@@ -621,11 +621,14 @@ struct ContentView: View {
                         self.vlcManager.stop()
 
                         // 网络双 FLAC：DUAL 混合直连播放（原唱/伴唱连续调节）
+                        // 【302直连·NAS零消耗(2026-10-01)】优先 directVocalUrl/directAccompUrl
+                        // (302直链：NAS 仅重定向，客户端直连 CDN，零 NAS 字节)；服务端未返回时
+                        // 回退 vocalUrl/accompUrl（代理）。directAsset 内部已做 302 解析+115 UA。
                         if let info = info, info.isNetworkDual,
-                           let vocalPath = info.vocalUrl, let accompPath = info.accompUrl,
-                           let vURL = self.api.apiURL(vocalPath),
-                           let aURL = self.api.apiURL(accompPath) {
-                            self.vlcManager.log("▶️ 走DUAL双FLAC分支: vocal=\(vocalPath)")
+                           let pair = info.directDualURLs,
+                           let vURL = self.api.apiURL(pair.vocal),
+                           let aURL = self.api.apiURL(pair.accomp) {
+                            self.vlcManager.log("▶️ 走DUAL双FLAC分支(302直连优先): vocal=\(pair.vocal)")
                             self.playerManager.vocalTrackCount = 2
                             self.playerManager.setupNetKtvPlayer(songId: String(sid), vocalURL: vURL, accompURL: aURL)
                             self.playerManager.setVolume(volume)
@@ -660,13 +663,15 @@ struct ContentView: View {
         // 双FLAC已为这首歌激活：大小屏切换时跳过，不重复拉 sep-info / 重建双轨
         if playerManager.dualEnabled && playerManager.dualSongId == sid { return }
         api.fetchSepInfo(songId: sid) { info in
-            guard let info = info, info.isDual,
-                  let vocalPath = info.vocalUrl, let accompPath = info.accompUrl else { return }
+            guard let info = info, info.isDual else { return }
 
             // 网络KTV歌曲：直接用网络URL，不下载到本地
-            if info.isNetworkDual {
-                guard let vURL = self.api.apiURL(vocalPath),
-                      let aURL = self.api.apiURL(accompPath) else { return }
+            // 【302直连·NAS零消耗(2026-10-01)】优先 directVocalUrl/directAccompUrl(302直链)，
+            // 回退 vocalUrl/accompUrl（代理）。directAsset 内部已做 302 解析+115 UA。
+            if info.isNetworkDual,
+               let pair = info.directDualURLs,
+               let vURL = self.api.apiURL(pair.vocal),
+               let aURL = self.api.apiURL(pair.accomp) {
                 // 快切歌保护：当前仍在播放同一首才升级
                 guard self.api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
                 self.playerManager.activateDual(songId: sid, vocalFile: vURL, accompFile: aURL)

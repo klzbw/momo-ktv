@@ -182,6 +182,12 @@ class ApiClient(baseURL: String) {
         return apiURL("/api/direct-stream/$encoded")
     }
 
+    /** 【302直连·NAS零消耗(2026-10-01)】netktv 分离 FLAC 的 302 直链：
+     * NAS 仅重定向到 CDN（零字节转发），客户端直连 CDN。type=vocals(人声)/accompaniment(伴奏)。 */
+    fun netktvStreamURL(hash: String, type: String = "vocals"): String {
+        return apiURL("/api/netktv/stream/$hash/$type?redirect=1")
+    }
+
     fun coverURL(filename: String?): String? {
         if (filename.isNullOrEmpty()) return null
         return apiURL("/cover/$filename")

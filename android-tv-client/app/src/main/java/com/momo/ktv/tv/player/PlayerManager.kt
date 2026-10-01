@@ -96,6 +96,18 @@ class PlayerManager(
         currentQueueId = item.queueId
         currentVoice = "原唱"
         val filepath = item.filepath ?: return
+        // 【302直连·NAS零消耗(2026-10-01)】netktv 分离 FLAC：filepath 是本地 strm 路径
+        // (/data/netseparated-strm/<16hex>_vocals.strm)，direct-stream 无法解析网盘路径。
+        // 提取 16位hash 走 /api/netktv/stream/<hash>/vocals?redirect=1（302直链，NAS零字节转发）。
+        if (item.isNetworkSong && !item.isVideoFile) {
+            val hash = item.netktvHash
+            if (hash != null) {
+                val url = apiClient.netktvStreamURL(hash)
+                Log.d(TAG, "playQueueItem(FLAC-302直连): ${item.displayTitle}, url=$url")
+                playURL(url)
+                return
+            }
+        }
         val url = apiClient.directStreamURL(filepath)
         Log.d(TAG, "playQueueItem: ${item.displayTitle}, url=$url")
         playURL(url)

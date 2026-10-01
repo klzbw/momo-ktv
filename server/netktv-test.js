@@ -218,7 +218,7 @@ function listActiveAccounts() {
  * @param {string} basePath - 基础路径
  * @returns {object|null} { url, fileName } 或 null
  */
-async function getDirectUrlWithDriver(driver, dir, type, basePath) {
+async function getDirectUrlWithDriver(driver, dir, type, basePath, clientUA) {
   const dirPath = `${basePath}/${dir}`;
   const files = await driver.listFiles(dirPath);
 
@@ -232,7 +232,9 @@ async function getDirectUrlWithDriver(driver, dir, type, basePath) {
   if (!fileName) return null;
 
   const filePath = `${dirPath}/${fileName}`;
-  const result = await driver.getDownloadUrlByPath(filePath);
+  // 【302直连·NAS零消耗(2026-10-01)】115 CDN 直链签名与换取时 UA 绑定：
+  // 透传客户端 UA（ExoPlayer/VLC 等），保证 ?redirect=1 的 302 直链播放器可用。
+  const result = await driver.getDownloadUrlByPath(filePath, clientUA);
   return { url: result.url, fileName };
 }
 
@@ -243,7 +245,7 @@ async function getDirectUrlWithDriver(driver, dir, type, basePath) {
  *   2. 若查询不到（旧数据），用 init 时设置的默认账号 cloudAccountId
  *   3. 若默认账号也失败，遍历所有 active 账号逐一尝试
  */
-async function getCloudDirectUrl(dir, type) {
+async function getCloudDirectUrl(dir, type, clientUA) {
   if (!cloudDrive) return null;
 
   const manager = cloudDrive.manager;
@@ -259,7 +261,7 @@ async function getCloudDirectUrl(dir, type) {
       const account = manager.getAccount(songAccountId);
       if (account && account.status === 'active') {
         const driver = manager.getDriver(account);
-        const result = await getDirectUrlWithDriver(driver, dir, type, basePath);
+        const result = await getDirectUrlWithDriver(driver, dir, type, basePath, clientUA);
         if (result) {
           console.log(`[NETKTV] 使用数据库记录的账号ID=${songAccountId} (sourceRoot=${songInfo.sourceRoot}, path=${basePath}) 获取直链: ${dir}/${type}`);
           return result;
@@ -275,7 +277,7 @@ async function getCloudDirectUrl(dir, type) {
     try {
       const driver = manager.getDriverById(cloudAccountId);
       if (driver) {
-        const result = await getDirectUrlWithDriver(driver, dir, type, cloudBasePath);
+        const result = await getDirectUrlWithDriver(driver, dir, type, cloudBasePath, clientUA);
         if (result) {
           console.log(`[NETKTV] 使用默认账号ID=${cloudAccountId} 获取直链: ${dir}/${type}`);
           return result;
@@ -293,7 +295,7 @@ async function getCloudDirectUrl(dir, type) {
     if (account.id === songAccountId || account.id === cloudAccountId) continue;
     try {
       const driver = manager.getDriver(account);
-      const result = await getDirectUrlWithDriver(driver, dir, type, cloudBasePath);
+      const result = await getDirectUrlWithDriver(driver, dir, type, cloudBasePath, clientUA);
       if (result) {
         console.log(`[NETKTV] 遍历账号找到匹配: 账号ID=${account.id} (${account.name}) 获取直链: ${dir}/${type}`);
         // 自动回写：将该歌曲关联到此账号，下次直接用
@@ -332,8 +334,20 @@ router.get('/stream/:dir/:type', async (req, res) => {
     }
 
     // 方案一：通过 cloud-drive 获取 302 直链（标准方案，支持多账号自动识别）
-    const directUrl = await getCloudDirectUrl(dir, type);
+    // 【302直连·NAS零消耗(2026-10-01)】透传客户端 UA 换取直链：
+    // 115 CDN 直链签名与换取时 UA 绑定，必须用播放器(ExoPlayer/VLC)自己的 UA，
+    // 否则播放器请求 CDN 会 403（direct-stream 端点同款逻辑）。
+    const clientUA = req.get('User-Agent') || '';
+    const directUrl = await getCloudDirectUrl(dir, type, clientUA);
     if (directUrl && directUrl.url) {
+      // 【302直连·NAS零消耗(2026-10-01)】?redirect=1 时直接 302 到 CDN：
+      // 客户端直连 CDN，NAS 仅做重定向，不占 NAS 上下行带宽。
+      // 供 APP 客户端(tvOS/Android)使用；浏览器端受 115 CDN 封锁
+      // (Content-Disposition: attachment + 无CORS)仍走下方同源代理。
+      if (req.query.redirect === '1' || req.query.redirect === 'true') {
+        console.log('[NETKTV] 302直连(redirect=1):', dir, type, '->', directUrl.url.substring(0, 90));
+        return res.redirect(302, directUrl.url);
+      }
       // 浏览器 <audio> 直连 115 CDN 会被 Content-Disposition: attachment 拒播(rs=0)。
       // 改为同源代理：服务端拉 CDN 字节，以 audio/flac inline 转发给浏览器。
       // 注意：此路径会占用 NAS 上下行带宽（CDN->NAS->浏览器）。

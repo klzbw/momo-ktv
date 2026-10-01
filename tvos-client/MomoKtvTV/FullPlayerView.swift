@@ -1661,6 +1661,16 @@ struct FullPlayerView: View {
                                 sepTimer?.invalidate()
                                 sepTimer = nil
                                 sepPolling = false
+                                // 【302直连·NAS零消耗(2026-10-01)】网络KTV歌分离完成后直接用
+                                // directVocalUrl/directAccompUrl(302直链)，NAS 仅重定向不下载；
+                                // 本地歌保持 downloadDualTracks（一次性下载后本地播放）。
+                                if info.isNetworkDual, let pair = info.directDualURLs,
+                                   let vURL = api.apiURL(pair.vocal), let aURL = api.apiURL(pair.accomp) {
+                                    guard api.queue.first(where: { $0.isPlaying })?.song_id == sid else { return }
+                                    playerManager.activateDual(songId: sid, vocalFile: vURL, accompFile: aURL)
+                                    FeedbackCenter.shared.show("人声分离完成，已切换双FLAC(302直连)", icon: "mic.fill")
+                                    return
+                                }
                                 guard let vPath = info.vocalUrl, let aPath = info.accompUrl else { return }
                                 api.downloadDualTracks(songId: sid, vocalPath: vPath, accompPath: aPath) { vFile, aFile in
                                     DispatchQueue.main.async {

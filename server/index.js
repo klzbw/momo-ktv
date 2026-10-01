@@ -10454,6 +10454,11 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
       // 不再用 .strm 正文里的 AList 直链。
       let _vocalUrl = `/api/netktv/stream/${netktvId}/vocals`;
       let _accompUrl = `/api/netktv/stream/${netktvId}/accompaniment`;
+      // 【302直连·NAS零消耗(2026-10-01)】directVocalUrl/directAccompUrl 供 APP 客户端
+      // (tvOS/Android) 使用：加 ?redirect=1 让 NAS 直接 302 到 CDN 直链，客户端直连 CDN，
+      // NAS 仅重定向不转发字节。浏览器端继续用 vocalUrl/accompUrl（115 封锁，只能代理）。
+      let _directVocalUrl = `/api/netktv/stream/${netktvId}/vocals?redirect=1`;
+      let _directAccompUrl = `/api/netktv/stream/${netktvId}/accompaniment?redirect=1`;
 
 
 
@@ -10525,6 +10530,9 @@ app.get('/api/songs/:id/sep-info', (req, res) => {
 
 
         accompUrl: _accompUrl,
+        // 【302直连·NAS零消耗(2026-10-01)】APP 客户端用的 302 直链（?redirect=1，NAS 仅重定向不转发字节）
+        directVocalUrl: _directVocalUrl,
+        directAccompUrl: _directAccompUrl,
 
 
 

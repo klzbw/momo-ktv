@@ -381,6 +381,10 @@ class KTVAPIClient: ObservableObject {
         let sepStatus: String?
         let vocalUrl: String?
         let accompUrl: String?
+        // 【302直连·NAS零消耗(2026-10-01)】服务端返回的 302 直链（?redirect=1）：
+        // APP 端优先使用，NAS 仅 302 重定向不转发字节；浏览器端继续用 vocalUrl/accompUrl。
+        let directVocalUrl: String?
+        let directAccompUrl: String?
         let isNetKtv: Bool?
         let videoUrl: String?
         let isNetKtvMkv: Bool?
@@ -397,6 +401,7 @@ class KTVAPIClient: ObservableObject {
 
         enum CodingKeys: String, CodingKey {
             case dual, hasVocal, hasAccomp, hasAccompaniment, sepStatus, vocalUrl, accompUrl
+            case directVocalUrl, directAccompUrl
             case isNetKtv, videoUrl, isNetKtvMkv, isNetworkMkvRaw = "isNetworkMkv", isVideo, audioTracks, source
             case source_type, cloud_url, cloud_driver
         }
@@ -405,6 +410,14 @@ class KTVAPIClient: ObservableObject {
         var isDual: Bool { dual == true && hasVocal == true && (hasAccomp == true || hasAccompaniment == true) }
         /// 网络KTV歌曲：直接用网络URL，不下载到本地
         var isNetworkDual: Bool { isDual && isNetKtv == true }
+        /// 【302直连·NAS零消耗(2026-10-01)】APP 端双轨 URL：优先 directVocalUrl/directAccompUrl
+        /// (302直链，NAS仅重定向不转发字节)，服务端未返回时回退 vocalUrl/accompUrl（代理，占NAS）。
+        var directDualURLs: (vocal: String, accomp: String)? {
+            guard isNetworkDual,
+                  let v = directVocalUrl ?? vocalUrl,
+                  let a = directAccompUrl ?? accompUrl else { return nil }
+            return (v, a)
+        }
         /// 网络KTV MKV视频：单文件多音轨，直接播放videoUrl
         /// 同时识别 isNetKtvMkv(标准) 和 isNetworkMkv(share-115旧字段) 两个字段
         /// 也兼容 cloud_url 直接返回的完整URL

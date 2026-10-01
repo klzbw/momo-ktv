@@ -73,6 +73,11 @@ data class QueueItem(
                 .any { fn.endsWith(it) }
         }
     val isNetworkSong: Boolean get() = sourceRoot?.startsWith("netktv") == true
+    /** 【302直连·NAS零消耗(2026-10-01)】netktv 分离歌曲 16位hash：
+     * 从 filepath 提取（如 /data/netseparated-strm/<16hex>_vocals.strm）。 */
+    val netktvHash: String?
+        get() = Regex("""([0-9a-f]{16})_(?:vocals|accomp)\.strm$""", RegexOption.IGNORE_CASE)
+            .find(filepath ?: "")?.groupValues?.get(1)
 }
 
 // ==================== 艺术家 ====================
