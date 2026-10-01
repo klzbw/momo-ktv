@@ -276,6 +276,8 @@ struct FullPlayerView: View {
                             .position(x: lyricsGeo.size.width / 2, y: y)
                         }
                         // 歌词层：overlay(alignment:.bottom) 官方底部对齐（1.0.10 已验证基本贴底）
+                        // 【2026-10-01 v1.0.12】外部整体偏移：posV 0→底部、60→屏幕最上(线性),
+                        // 用全屏高度计算,不再受歌词区30%H限制——遥控端滑块0-60与tvOS一一对应。
                         Color.clear
                             .overlay(alignment: .bottom) {
                                 LyricsView(lyrics: lyricsLoader.lyrics, currentTime: lyricTime,
@@ -285,6 +287,8 @@ struct FullPlayerView: View {
                                            alignment: .bottom)
                                     .allowsHitTesting(false)
                             }
+                            .offset(y: -LyricsStyleStore.shared.posV / 60.0 * lyricsGeo.size.height)
+                            .animation(.easeOut(duration: 0.18), value: LyricsStyleStore.shared.posV)
                         // 诊断HUD(临时·v1.0.11)：左上角显示GeometryReader尺寸与posV
                         Text(String(format: "diag %.0fx%.0f posV=%.0f",
                                     lyricsGeo.size.width, lyricsGeo.size.height,

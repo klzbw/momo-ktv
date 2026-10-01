@@ -672,7 +672,7 @@ function applyPlaybackState(state){
 let ctrlProgress={queueId:null,currentTime:0,updatedAt:Date.now(),paused:true,duration:0};
 function connectWS(){
   const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);
-  ws.onopen=()=>{ sendWS({type:'role_announce',deviceId:getDevId(),deviceName:'手机遥控',role:'controller'}); };
+  ws.onopen=()=>{ sendWS({type:'role_announce',deviceId:getDevId(),deviceName:'手机遥控',role:'controller'}); try{sendLyricsStyle();}catch(_){} };
   ws.onmessage=ev=>{
     const msg=JSON.parse(ev.data);
     if(msg.type==='queue'){queueData=msg.data;onQueue();}

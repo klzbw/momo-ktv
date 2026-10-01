@@ -437,6 +437,9 @@ final class LyricsStyleStore: ObservableObject {
         if let savedP = UserDefaults.standard.object(forKey: "momoLyricsPos") as? Double {
             posV = CGFloat(savedP)
         } else { posV = 0 }
+        // 【2026-10-01 v1.0.12】强制初始 posV=0（底部）：遥控端滑块 localStorage 与 tvOS UserDefaults
+        // 可能不同步导致"遥控端0≠tvOS0"；现在每次启动恒从底部开始，遥控端 WS 连接后主动同步覆盖。
+        posV = 0
         dualFlip = UserDefaults.standard.bool(forKey: "momoLyricsDualFlip")  // 默认false=单左双右
     }
     func apply(color: String?, stroke: String?, width: CGFloat? = nil, scale: CGFloat? = nil, posV: CGFloat? = nil, dualFlip: Bool? = nil) {
@@ -620,9 +623,8 @@ struct LyricsView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            // 【2026-10-01 v1.0.9】歌词区已固定为底部30%屏高(geo.height=30%H)，
-            // 系数0.67：posV=60时最大上移=0.6*30%H*0.67≈12%H，歌词/音符恒在底部两行区域内。
-            .offset(y: -styleStore.posV / 100.0 * geo.size.height * 0.67)
+            // 【2026-10-01 v1.0.12】内部不再做 posV 偏移——歌词区高度固定为 30%H，内部 offset 最多只能上移 30%H，
+            // 无法满足"posV=60=屏幕最上"。整体垂直偏移移到 FullPlayerView 歌词层外（全屏高度 × posV/60，0→底部、60→顶部）。
             .animation(.easeOut(duration: 0.18), value: styleStore.posV)
             // 歌词已更新提示（右上角浮动提示，2.5秒后自动消失）
             .overlay(alignment: .topTrailing) {
