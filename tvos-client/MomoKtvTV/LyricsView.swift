@@ -536,6 +536,7 @@ struct LyricsView: View {
     @AppStorage("momoLastLyricsSig") private var lastLyricsSig: String = ""
     /// 每句歌词的稳定排位缓存：key=stableKey, value=0上排/1下排。歌词刷新后同一句保持排位不变
     @State private var lineSideCache: [String: Int] = [:]
+    @State private var hintPulse = false  // 间奏音符呼吸脉冲动画状态（1.0.7 恢复，用户拍板保留提醒音符）
 
     /// 校准后的时间（叠加用户调节的偏移）
     private var displayTime: Double { currentTime + timeOffset }
@@ -705,21 +706,79 @@ struct LyricsView: View {
             if il.isInterlude {
                 // 间奏/前奏：两行结构固定——有下一句时 next 预备在稳定排位行(与开唱同一排，零跳动)，
                 // 对面保持等高空位撑住两行结构(不塌缩、不跑角落)。
-                // 【2026-10-01 用户最终拍板】间奏音符标识已完全取消——2秒门槛仍挡不住
-                // 0.1~1秒短间隔闪现/顶撞，用户确认"先取消音频的这个音符间隔"。
-                // 两行只显示歌词(未唱预备+已唱羽化)，与网页 TV 版一致。
+                // 【2026-10-01 用户拍板·v1.0.7 最终方案】恢复间奏提醒音符(提醒歌唱者准备)，但：
+                // 1) 只在间隔 >=2 秒时才显示(间隔太短不闪现，避免"短暂音符+歌词顶撞→跳动"的故障)；
+                // 2) 音符与预备歌词同一排(歌词左→音符右、歌词右→音符左)，比歌词行高略上移一点，
+                //    不另占排、不重叠、不跳排。
                 // 无下一句(末句唱完)时末句在原地羽化保留——位置与正常演唱一致、不突兀消失。
+                let hintCount: Int = {
+                    if il.wait > 4.0 { return 3 }
+                    if il.wait > 3.0 { return 2 }
+                    if il.wait > 2.0 { return 1 }
+                    return 0
+                }()
+                let hintView = HStack(spacing: compact ? 8 : 18) {
+                    ForEach(0..<hintCount, id: \.self) { idx in
+                        Image(systemName: "music.note")
+                            .font(.system(size: activeSize * 0.85, weight: .black))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [highlight, Color.white.opacity(0.9)],
+                                    startPoint: .top, endPoint: .bottom
+                                )
+                            )
+                            .shadow(color: stroke.opacity(0.8), radius: styleStore.lineWidth * 0.4, x: 0, y: 2)
+                            .overlay(
+                                Image(systemName: "music.note")
+                                    .font(.system(size: activeSize * 0.85, weight: .black))
+                                    .foregroundColor(.clear)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .stroke(stroke, lineWidth: max(1, styleStore.lineWidth * 0.3))
+                                            .padding(-2)
+                                    )
+                            )
+                            .opacity(hintPulse ? 0.6 : 1.0)
+                            .animation(.easeInOut(duration: 0.4).delay(Double(idx) * 0.1), value: hintPulse)
+                    }
+                }
                 let next = il.nextIdx
                 // 等高空位：与歌词行同高，撑住两行结构，防止内容上下跳动
                 let emptyRow = Color.clear.frame(maxWidth: .infinity, minHeight: activeSize * 1.2)
                 if next >= 0 {
-                    // 有下一句：next 预备在稳定排位行，对面空位——开唱时原地变亮，全程同一排零跳动
+                    // 有下一句：next 预备在稳定排位行；间隔足够时音符叠加同一排歌词对侧，比歌词略上移
                     if nextSide == 0 {
-                        dualSlot(next, topAlign)
+                        ZStack {
+                            dualSlot(next, topAlign)
+                            if hintCount > 0 {
+                                hintView
+                                    .frame(maxWidth: .infinity, alignment: bottomAlign)
+                                    .offset(y: -activeSize * 0.15)
+                                    .onAppear {
+                                        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                                            hintPulse = true
+                                        }
+                                    }
+                                    .onDisappear { hintPulse = false }
+                            }
+                        }
                         emptyRow
                     } else {
                         emptyRow
-                        dualSlot(next, bottomAlign)
+                        ZStack {
+                            dualSlot(next, bottomAlign)
+                            if hintCount > 0 {
+                                hintView
+                                    .frame(maxWidth: .infinity, alignment: topAlign)
+                                    .offset(y: -activeSize * 0.15)
+                                    .onAppear {
+                                        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                                            hintPulse = true
+                                        }
+                                    }
+                                    .onDisappear { hintPulse = false }
+                            }
+                        }
                     }
                 } else {
                     // 无下一句(末句唱完/歌尾)：不再显示音符(没有可倒计时的下一句)，末句在原地羽化保留，
@@ -750,9 +809,10 @@ struct LyricsView: View {
                 Color.clear.frame(maxWidth: .infinity)
             }
         }
-        // 【修复(2026-10-02)】显式撑满全屏：Spacer 一定膨胀 → 歌词/音符/提示恒固定在底部区域，
-        // 不依赖父容器是否给固定高度（此前在部分容器下内容停留上部，遥控器 posV=0 时"最低点已是最上"）
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 【修复(2026-10-01)】显式撑满全屏 + 底部对齐：Spacer 膨胀且内容贴底 → 歌词/音符/提示恒固定在底部区域，
+        // 不依赖父容器是否给固定高度；预备态(1歌词行+1空位行)与演唱态(2歌词行)两行结构高度一致，
+        // 内容位置恒等 → 杜绝"预备句在上部→开唱跳下部"的上下跳动
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .padding(.horizontal, compact ? 16 : 60)
         .padding(.bottom, compact ? 8 : 16)
         // 移除整行动画：歌词切换直接替换，不收缩不铺展不闪烁，只保留逐字羽化扫色
