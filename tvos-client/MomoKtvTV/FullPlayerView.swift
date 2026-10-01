@@ -255,18 +255,20 @@ struct FullPlayerView: View {
                 // 内部 Spacer 不膨胀 → 预备句+音符/占位符停留在屏幕中部/左上角，随内容多少上下跳动。
                 // 现在显式钉死歌词区=全屏高(Spacer 一定膨胀→内容恒贴底部两行)，彻底解决"未唱在左上/开唱跳左下"。
                 GeometryReader { lyricsGeo in
-                    // 【2026-10-01 v1.0.9 根因修复】.position()绝对定位钉死底部：
-                    // 此前 frame(alignment:.bottom)在tvOS27下歌词/音符仍停在屏幕上部(y≈10-20%)，
-                    // 说明 GeometryReader/Spacer 撑满链条未按预期生效；.position 直接指定中心坐标，
-                    // 不依赖任何灵活布局——歌词区固定为底部30%屏高(覆盖 y70%-100%)。
-                    LyricsView(lyrics: lyricsLoader.lyrics, currentTime: lyricTime, timeOffset: lyricsOffset, aiGenerating: lyricsLoader.aiGenerating)
-                        .frame(width: lyricsGeo.size.width,
-                               height: lyricsGeo.size.height * 0.30,
-                               alignment: .bottom)
-                        .position(x: lyricsGeo.size.width / 2,
-                                  y: lyricsGeo.size.height - lyricsGeo.size.height * 0.15)
-                        .allowsHitTesting(false)
-                    // 诊断HUD(临时·v1.0.9)：左上角小字显示GeometryReader真实尺寸与posV，截图即可确认根因
+                    // 【2026-10-01 v1.0.10 根因修复】overlay(alignment:.bottom) 官方底部对齐：
+                    // 1.0.9 的 .position() 实测歌词落在 y≈65%(中下部)而非底部——tvOS27 对 position 坐标解释有偏差；
+                    // overlay(alignment:.bottom) 是 SwiftUI 声明式底部对齐语义，内容必然贴容器底部，
+                    // 不依赖 Spacer 膨胀、不依赖坐标系解释——歌词区固定底部30%屏高。
+                    Color.clear
+                        .overlay(alignment: .bottom) {
+                            LyricsView(lyrics: lyricsLoader.lyrics, currentTime: lyricTime,
+                                       timeOffset: lyricsOffset, aiGenerating: lyricsLoader.aiGenerating)
+                                .frame(width: lyricsGeo.size.width,
+                                       height: lyricsGeo.size.height * 0.30,
+                                       alignment: .bottom)
+                                .allowsHitTesting(false)
+                        }
+                    // 诊断HUD(临时·v1.0.10)：左上角小字显示GeometryReader真实尺寸与posV，截图即可确认根因
                     Text(String(format: "diag %.0fx%.0f posV=%.0f",
                                 lyricsGeo.size.width, lyricsGeo.size.height,
                                 LyricsStyleStore.shared.posV))
