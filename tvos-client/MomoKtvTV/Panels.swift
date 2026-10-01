@@ -469,7 +469,8 @@ struct SettingsPanel: View {
                     HStack(alignment: .top, spacing: 28) {
                         // Column 1: System info
                         VStack(alignment: .leading, spacing: 10) {
-                            settingRow(label: "当前版本", value: api.stats?.appVersion ?? "—")
+                            // 当前版本优先显示本地安装包版本(Bundle)，避免误读服务端版本导致无法确认装的是哪个构建
+                            settingRow(label: "当前版本", value: (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? api.stats?.appVersion ?? "—")
                             settingRow(label: "服务器", value: api.serverAddress)
                             settingRow(label: "手机域名", value: micPublicHost)
                             settingRow(label: "曲库歌曲", value: "\(api.stats?.songCount ?? 0) 首")
