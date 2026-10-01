@@ -620,7 +620,9 @@ struct LyricsView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            .offset(y: -styleStore.posV / 100.0 * geo.size.height * 0.62)
+            // 【2026-10-01 v1.0.9】歌词区已固定为底部30%屏高(geo.height=30%H)，
+            // 系数0.67：posV=60时最大上移=0.6*30%H*0.67≈12%H，歌词/音符恒在底部两行区域内。
+            .offset(y: -styleStore.posV / 100.0 * geo.size.height * 0.67)
             .animation(.easeOut(duration: 0.18), value: styleStore.posV)
             // 歌词已更新提示（右上角浮动提示，2.5秒后自动消失）
             .overlay(alignment: .topTrailing) {
