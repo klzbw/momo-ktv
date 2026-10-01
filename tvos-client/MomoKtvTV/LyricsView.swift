@@ -672,67 +672,80 @@ struct LyricsView: View {
             Spacer(minLength: 0)
             if il.isInterlude {
                 // 间奏/前奏：当前行歌词淡出，不显示
-                // 上排：预唱倒计时提示——剩余>3秒显示3个音符，每秒减一个(3→2→1→0)
-                // 歌手通过音符数量知道还有多久开唱；样式(颜色/描边/字号)与歌词控制完全一致
+                // 【修复(2026-10-02)】行结构对齐正常演唱分支：预备句(next)恒在它的稳定排位行，
+                // 音符倒计时改为 overlay 叠加在另一排空位上——从预备到开唱全程同排，零跳动。
+                // 原实现音符恒占第一行、next 恒占第二行 → 稳定排位=上排的句子开唱瞬间从第二行跳到第一行。
                 let hintCount: Int = {
                     if il.wait > 3.0 { return 3 }
                     if il.wait > 2.0 { return 2 }
                     if il.wait > 1.0 { return 1 }
                     return 0
                 }()
-                if hintCount > 0 {
-                    HStack(spacing: compact ? 8 : 18) {
-                        ForEach(0..<hintCount, id: \.self) { idx in
-                            Image(systemName: "music.note")
-                                .font(.system(size: activeSize * 0.85, weight: .black))
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [highlight, Color.white.opacity(0.9)],
-                                        startPoint: .top, endPoint: .bottom
+                let hintView = HStack(spacing: compact ? 8 : 18) {
+                    ForEach(0..<hintCount, id: \.self) { idx in
+                        Image(systemName: "music.note")
+                            .font(.system(size: activeSize * 0.85, weight: .black))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [highlight, Color.white.opacity(0.9)],
+                                    startPoint: .top, endPoint: .bottom
+                                )
+                            )
+                            .shadow(color: stroke.opacity(0.8), radius: styleStore.lineWidth * 0.4, x: 0, y: 2)
+                            .overlay(
+                                Image(systemName: "music.note")
+                                    .font(.system(size: activeSize * 0.85, weight: .black))
+                                    .foregroundColor(.clear)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 4)
+                                            .stroke(stroke, lineWidth: max(1, styleStore.lineWidth * 0.3))
+                                            .padding(-2)
                                     )
-                                )
-                                .shadow(color: stroke.opacity(0.8), radius: styleStore.lineWidth * 0.4, x: 0, y: 2)
-                                .overlay(
-                                    Image(systemName: "music.note")
-                                        .font(.system(size: activeSize * 0.85, weight: .black))
-                                        .foregroundColor(.clear)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 4)
-                                                .stroke(stroke, lineWidth: max(1, styleStore.lineWidth * 0.3))
-                                                .padding(-2)
-                                        )
-                                )
-                                .opacity(hintPulse ? 0.6 : 1.0)
-                                .animation(.easeInOut(duration: 0.4).delay(Double(idx) * 0.1), value: hintPulse)
-                        }
+                            )
+                            .opacity(hintPulse ? 0.6 : 1.0)
+                            .animation(.easeInOut(duration: 0.4).delay(Double(idx) * 0.1), value: hintPulse)
                     }
-                    .frame(maxWidth: .infinity, alignment: topAlign)
-                    .onAppear {
-                        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                            hintPulse = true
-                        }
-                    }
-                    .onDisappear {
-                        hintPulse = false
-                    }
-                } else {
-                    // 倒计时结束(<=1秒)：上排空位，下一句歌词即将出现
-                    Color.clear.frame(maxWidth: .infinity)
                 }
-                // 显示下一句预备歌词（按它的稳定排位，保证开唱时原地变亮、零跳动）
-                // 【修复(2026-10-01)】原固定放下排 → 稳定排位在上排的句子开唱瞬间跳排。
-                // 现用 lineSideCache 取 next 的稳定排位：预备出现在哪排，开唱就在哪排亮起。
+                // next 稳定排位：side0=上排(第一行)、side1=下排(第二行)
                 let next = il.nextIdx
+                var nextSide = 1
                 if next >= 0 {
                     let nextKey = stableKey(for: lyrics.lines[next], at: next, in: lyrics.lines)
-                    let nextSide = lineSideCache[nextKey] ?? (next % 2)
-                    if nextSide == 0 {
-                        dualSlot(next, topAlign)
-                    } else {
-                        dualSlot(next, bottomAlign)
+                    nextSide = lineSideCache[nextKey] ?? (next % 2)
+                }
+                let emptySlot = Color.clear.frame(maxWidth: .infinity)
+                if nextSide == 0 {
+                    // next 稳定排位=上排：第一行=next 预备，第二行=空位+音符overlay
+                    if next >= 0 { dualSlot(next, topAlign) } else { emptySlot }
+                    ZStack {
+                        emptySlot
+                        if hintCount > 0 {
+                            hintView
+                                .frame(maxWidth: .infinity, alignment: bottomAlign)
+                                .onAppear {
+                                    withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                                        hintPulse = true
+                                    }
+                                }
+                                .onDisappear { hintPulse = false }
+                        }
                     }
                 } else {
-                    Color.clear.frame(maxWidth: .infinity)
+                    // next 稳定排位=下排：第一行=空位+音符overlay，第二行=next 预备
+                    ZStack {
+                        emptySlot
+                        if hintCount > 0 {
+                            hintView
+                                .frame(maxWidth: .infinity, alignment: topAlign)
+                                .onAppear {
+                                    withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                                        hintPulse = true
+                                    }
+                                }
+                                .onDisappear { hintPulse = false }
+                        }
+                    }
+                    if next >= 0 { dualSlot(next, bottomAlign) } else { emptySlot }
                 }
             } else if ai >= 0 && ai < lyrics.lines.count {
                 // 正常演唱：维持 tvOS 动态交替排位（lineSideCache 稳定缓存，不固定单左双右）。
