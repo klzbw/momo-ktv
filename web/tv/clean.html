@@ -1320,40 +1320,13 @@ function loadSong(v,songId,needsDownload){
   document.getElementById('video-loading').classList.add('show');
   startCacheProgressPoll(needsDownload?songId:null);
   destroyHls();
-  const url=`${BASE}/hls/${songId}/master.m3u8`;
+  // 【禁HLS(2026-10-01)】不再走 /hls 转码链路（用户约定：永远不走HLS），统一 /stream 字节直传。
   const fallbackToRaw=()=>{
     destroyHls();
     v.src=`${BASE}/stream/${songId}`;
     if(!isPaused)tryAutoplay(v,songId);
   };
-  if(window.Hls&&Hls.isSupported()){
-    // 服务端现在是"渐进式"生成 HLS：一首歌刚点开时，子播放列表(video.m3u8/
-    // audioN.m3u8)可能还没写入 #EXT-X-ENDLIST(转码仍在后台进行中)，hls.js
-    // 会按它默认的"直播流"启发式规则，把起播位置定到已知分片的末尾附近，
-    // 而不是从头开始——对 KTV 场景这是绝对不能接受的(唱到一半才进画面)。
-    // 显式指定 startPosition:0 强制从第 0 秒起播，转码完成后(出现
-    // ENDLIST)也不受影响，继续正常播放/寻址。
-    const hls=new Hls({ startPosition: 0 });
-    hls.on(Hls.Events.ERROR,(_,data)=>{
-      console.error('[hls]',data.type,data.details);
-      // 致命错误(清单/分片加载失败、当前源文件编码在容器里放不下等)：不再死等，
-      // 直接回退到旧的直传接口兜底，保证至少能听到/看到默认音轨，不会一直黑屏。
-      if(data.fatal&&curSong&&curSong.song_id===songId){
-        console.warn('[hls] 致命错误，回退到直传接口:',songId);
-        fallbackToRaw();
-      }
-    });
-    hls.on(Hls.Events.MANIFEST_PARSED,()=>{if(!isPaused)tryAutoplay(v,songId);});
-    hls.loadSource(url);
-    hls.attachMedia(v);
-    hlsInstance=hls;
-  }else if(v.canPlayType('application/vnd.apple.mpegurl')){
-    v.src=url;
-    v.addEventListener('error',fallbackToRaw,{once:true});
-    if(!isPaused)tryAutoplay(v,songId);
-  }else{
-    fallbackToRaw();
-  }
+  fallbackToRaw();
 }
 window.ktv_fs=false;
 // WS

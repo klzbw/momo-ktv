@@ -3843,9 +3843,11 @@ function withCloudProxy(urlOrPath){
   if(urlOrPath.indexOf('/115-direct/') === -1) return urlOrPath;
   return urlOrPath + (urlOrPath.indexOf('?') === -1 ? '?proxy=1' : '&proxy=1');
 }
-// 加载一首新歌：优先用 hls.js 播放 HLS(master.m3u8 里声明的每条音轨都是独立分片，
-// 切音轨/拖进度条都不会打断视频)；hls.js 不可用但浏览器原生支持 HLS(如 Safari)则
-// 直接把 src 指过去；两者都不支持时兜底退回旧的整段直传接口(仅默认音轨，无法切换)。
+// 加载一首新歌：【禁HLS(2026-10-01)】不再使用 /hls 转码链路。
+//  - 网络 netktv-mkv：MSE 硬解直连(115-direct?proxy=1 同源字节管道)，失败回退 DIRECT_MKV(302 直连)，
+//    再失败停住提示；本地 MKV/MP4：MSE /stream 字节直传，失败停住提示。
+//  - FLAC DUAL：双 <audio> 走 /api/netktv/stream 代理出声，背景 <video> 用 /stream 占位；
+//    非分离FLAC/MP2/其它：/stream 字节直传。
 // 播放一首歌时调用 v.play()：如果这次调用不是紧跟在一次真实的用户点击/
 // 按键之后(比如刷新页面后 WS 重连、自动续播正在排队里的歌)，浏览器的自动
 // 播放策略(尤其是带声音的视频)有可能直接静默拒绝这次 play()。以前这里统一
@@ -3936,7 +3938,7 @@ document.addEventListener('click',resumePendingAutoplay,{passive:true});
 document.addEventListener('keydown',resumePendingAutoplay,{passive:true});
 // 115 网盘 MKV 302 直连播放：video.src 直接指向 /api/cloud/stream-path/... 端点，
 // 浏览器跟随 302 到 115 CDN；音轨切换由 VoiceManager DIRECT_MKV 模式走 video.audioTracks。
-// 失败时按 直连 -> 代理(?proxy=1) -> HLS 顺序回退，保证不黑屏。
+// 【禁HLS(2026-10-01)】失败时按 直连 -> 代理(?proxy=1) 顺序回退，代理仍失败则停住提示，不再回退 HLS。
 function startDirectMkvPlayback(v,songId,videoUrl){
   _directMkv=true;
   try{ v.muted=true; v.volume=0; }catch(e){}
@@ -3972,17 +3974,13 @@ function startDirectMkvPlayback(v,songId,videoUrl){
     v.addEventListener('error',function onErr2(){
       if(!curSong||curSong.song_id!==songId) return;
       v.removeEventListener('error',onErr2);
-      console.warn('[direct-mkv] 代理也失败，回退 HLS');
-      destroyHls();
-      const hlsUrl=`${BASE}/hls/${songId}/master.m3u8`;
-      if(window.Hls&&Hls.isSupported()){
-        const hls=new Hls({startPosition:0});
-        hls.on(Hls.Events.MANIFEST_PARSED,()=>{ try{VoiceManager.onManifestParsed(video);}catch(e){} if(!isPaused)tryAutoplay(v,songId); });
-        hls.loadSource(hlsUrl); hls.attachMedia(v); hlsInstance=hls;
-      }else{
-        v.src=hlsUrl;
-        if(!isPaused)tryAutoplay(v,songId);
-      }
+      // 【禁HLS(2026-10-01)】代理也失败时不再回退 HLS 转码：停住并提示，由用户重试/换歌。
+      console.warn('[direct-mkv] 代理也失败，停止（禁HLS）:',songId);
+      _directMkv=false;
+      try{ VoiceManager.exitDirectMkv(); }catch(e){}
+      v.removeAttribute('src');
+      try{ v.load(); }catch(e){}
+      try{ showToast('MKV 播放失败：直连与代理均不可用（已禁用HLS转码）'); }catch(e){}
     },{once:true});
   },{once:true});
   if(!isPaused)tryAutoplay(v,songId);
@@ -4016,8 +4014,7 @@ async function loadSong(v,songId,needsDownload){
   // 切歌：销毁上一首的 MSE MKV 播放器（释放 fetch/SourceBuffer/MediaSource）
   if(_mseMkvPlayer){ try{ _mseMkvPlayer.destroy(); }catch(e){} _mseMkvPlayer=null; }
   try{ VoiceManager.exitMseMkv(); }catch(e){}
-  const url=`${BASE}/hls/${songId}/master.m3u8`;
-  // 仅纯音频歌走双FLAC连续滑块；MKV/MP4 等带画面视频保持原 HLS 多档/声道方案不动
+  // 【禁HLS(2026-10-01)】不再构造 HLS URL：纯音频歌走双FLAC连续滑块，MKV/MP4 走 MSE/DIRECT 直连
   const _dualIsVideo = BG_VIDEO_RE.test((curSong && (curSong.filename||curSong.filepath)) || '');
   if(!_dualIsVideo){ try{ VoiceManager.prepareDual(songId); }catch(e){} try{ updateSepButton(songId); }catch(e){} }
   else { hideSepButtons(); }
@@ -4049,25 +4046,15 @@ async function loadSong(v,songId,needsDownload){
             _mseMkvPlayer=msePlayer;
             msePlayer.attachMedia(v);
             try{ VoiceManager.enterMseMkv(msePlayer,_mseTracks); }catch(e){}
-            // MSE 播放中途出错（网络断/解码失败等）：回退到 HLS 转码，保证不黑屏
+            // 【禁HLS(2026-10-01)】MSE 播放中途出错：不再回退 HLS 转码，改回退 DIRECT_MKV 302 直连。
             v.addEventListener('error',function onMseErr(){
               if(!curSong||curSong.song_id!==songId) return;
               v.removeEventListener('error',onMseErr);
-              console.warn('[MSE-MKV] 播放中出错，回退 HLS');
+              console.warn('[MSE-MKV] 播放中出错，回退 DIRECT_MKV（禁HLS）:',songId);
               try{ msePlayer.destroy(); }catch(e){}
               _mseMkvPlayer=null;
               try{ VoiceManager.exitMseMkv(); }catch(e){}
-              // 直接走 HLS（不经 DIRECT_MKV 直连，省一次失败尝试）
-              destroyHls();
-              const hlsUrl=`${BASE}/hls/${songId}/master.m3u8`;
-              if(window.Hls&&Hls.isSupported()){
-                const hls=new Hls({startPosition:0});
-                hls.on(Hls.Events.MANIFEST_PARSED,()=>{ try{VoiceManager.onManifestParsed(video);}catch(e){} if(!isPaused)tryAutoplay(v,songId); });
-                hls.loadSource(hlsUrl); hls.attachMedia(v); hlsInstance=hls;
-              }else{
-                v.src=hlsUrl;
-                if(!isPaused)tryAutoplay(v,songId);
-              }
+              startDirectMkvPlayback(v,songId,sepJ.videoUrl);
             },{once:true});
             if(!isPaused)tryAutoplay(v,songId);
             return; // 不继续走 HLS
@@ -4077,62 +4064,35 @@ async function loadSong(v,songId,needsDownload){
             _mseMkvPlayer=null;
             try{ VoiceManager.exitMseMkv(); }catch(e){}
             if(_mseIsLocal){
-              // 本地 MKV MSE 初始化失败（非 H.264/AAC、浏览器不支持 MSE 解码等）：
-              // 不做 DIRECT_MKV 兜底（本地 MKV 浏览器原生解不了封装），直接落到下方 HLS 转码兜底。
-              console.warn('[MSE-LOCAL] 初始化失败，回退 HLS 转码:',err);
+              // 【禁HLS(2026-10-01)】本地 MKV MSE 初始化失败（非 H.264/AAC、浏览器不支持 MSE 解码等）：
+              // 不再回退 HLS 转码——本地 MKV 浏览器原生也解不了封装，停住并提示用户换端/换格式。
+              console.warn('[MSE-LOCAL] 初始化失败，停止（禁HLS）:',err);
+              try{ v.removeAttribute('src'); v.load(); }catch(e){}
+              try{ showToast('浏览器不支持直接解码此MKV（已禁用HLS转码），请更换播放端或转码格式'); }catch(e){}
             } else {
-              // 回退 DIRECT_MKV(原生播放)：至少有画面；MP2音轨浏览器原生不支持会无声，待后续转码优化。
+              // 【禁HLS(2026-10-01)】回退 DIRECT_MKV(原生播放)：至少有画面；MP2音轨浏览器原生不支持会无声。
               console.warn('[MSE-MKV] 初始化失败，回退 DIRECT_MKV:',err && err.message);
               startDirectMkvPlayback(v,songId,sepJ.videoUrl);
               return;
             }
           }
         } else if(!_mseIsLocal){
-          // 无 MSE 播放器模块：网盘歌走 Safari 直连回退链；本地歌直接落到下方 HLS
+          // 无 MSE 播放器模块：网盘歌走 Safari 直连回退链；本地歌直接落到下方 /stream 直传
           startDirectMkvPlayback(v,songId,sepJ.videoUrl);
           return;
         }
       }
     }
-  }catch(e){ console.warn('[loadSong] sep-info 探测失败，回退 HLS:',e); }
+  }catch(e){ console.warn('[loadSong] sep-info 探测失败:',e); }
+  // 【禁HLS(2026-10-01)】不再走 /hls 转码链路（用户约定：永远不走HLS）。
+  // FLAC DUAL 由双 <audio> 代理出声，背景 <video> 用 /stream 作占位（404/坏文件不影响声音，
+  // 进度条由 master 时钟驱动）；非分离FLAC/MP2/其它歌曲直接 /stream 字节直传。
   const fallbackToRaw=()=>{
     destroyHls();
     v.src=`${BASE}/stream/${songId}`;
     if(!isPaused)tryAutoplay(v,songId);
   };
-  if(window.Hls&&Hls.isSupported()){
-    // 服务端现在是"渐进式"生成 HLS：一首歌刚点开时，子播放列表(video.m3u8/
-    // audioN.m3u8)可能还没写入 #EXT-X-ENDLIST(转码仍在后台进行中)，hls.js
-    // 会按它默认的"直播流"启发式规则，把起播位置定到已知分片的末尾附近，
-    // 而不是从头开始——对 KTV 场景这是绝对不能接受的(唱到一半才进画面)。
-    // 显式指定 startPosition:0 强制从第 0 秒起播，转码完成后(出现
-    // ENDLIST)也不受影响，继续正常播放/寻址。
-    const hls=new Hls({ startPosition: 0 });
-    hls.on(Hls.Events.ERROR,(_,data)=>{
-      console.error('[hls]',data.type,data.details);
-      // 致命错误(清单/分片加载失败、当前源文件编码在容器里放不下等)：不再死等，
-      // 直接回退到旧的直传接口兜底，保证至少能听到/看到默认音轨，不会一直黑屏。
-      if(data.fatal&&curSong&&curSong.song_id===songId){
-        console.warn('[hls] 致命错误，回退到直传接口:',songId);
-        fallbackToRaw();
-      }
-    });
-    hls.on(Hls.Events.MANIFEST_PARSED,()=>{
-  // master 解析后才知道真实音轨数（AI分离五档歌此时才识别为音轨型），补判一次并选回当前档
-  try{ VoiceManager.onManifestParsed(video); }catch(e){console.warn('VM manifest',e);}
-  if(!isPaused)tryAutoplay(v,songId);
-});
-    hls.loadSource(url);
-    hls.attachMedia(v);
-    hlsInstance=hls;
-  }else if(v.canPlayType('application/vnd.apple.mpegurl')){
-    try{ VoiceManager.nativePrepare(songId); }catch(e){ console.warn('nativePrepare',e); }
-    v.src=url;
-    v.addEventListener('error',fallbackToRaw,{once:true});
-    if(!isPaused)tryAutoplay(v,songId);
-  }else{
-    fallbackToRaw();
-  }
+  fallbackToRaw();
 }
 window.ktv_fs=false;
 // WS
