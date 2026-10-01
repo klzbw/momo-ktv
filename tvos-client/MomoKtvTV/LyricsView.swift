@@ -723,12 +723,12 @@ struct LyricsView: View {
                 // 等高空位：与歌词行同高，保证音符 overlay 不塌缩
                 let emptyRow = Color.clear.frame(maxWidth: .infinity, minHeight: activeSize * 1.2)
                 if next >= 0 {
-                    // 有下一句：next 预备(稳定排位行) + 音符独占对面空行，不重叠、不跳排
+                    // 有下一句：next 预备在稳定排位行，音符叠加在同一排的歌词对侧（歌词左→音符右、
+                    // 歌词右→音符左），与歌词同一行、不另占排、不重叠、不跳排；对面保持等高空位撑住两行结构。
                     if nextSide == 0 {
-                        // next 稳定排位=上排：上排=next 预备(歌词)，下排=音符(空行)
-                        dualSlot(next, topAlign)
+                        // next 稳定排位=上排：上排=歌词(左)+音符(右)同行，下排=空位
                         ZStack {
-                            emptyRow
+                            dualSlot(next, topAlign)
                             if hintCount > 0 {
                                 hintView
                                     .frame(maxWidth: .infinity, alignment: bottomAlign)
@@ -740,10 +740,12 @@ struct LyricsView: View {
                                     .onDisappear { hintPulse = false }
                             }
                         }
+                        emptyRow
                     } else {
-                        // next 稳定排位=下排：上排=音符(空行)，下排=next 预备(歌词)
+                        // next 稳定排位=下排：上排=空位，下排=音符(左)+歌词(右)同行
+                        emptyRow
                         ZStack {
-                            emptyRow
+                            dualSlot(next, bottomAlign)
                             if hintCount > 0 {
                                 hintView
                                     .frame(maxWidth: .infinity, alignment: topAlign)
@@ -755,7 +757,6 @@ struct LyricsView: View {
                                     .onDisappear { hintPulse = false }
                             }
                         }
-                        dualSlot(next, bottomAlign)
                     }
                 } else {
                     // 无下一句(末句唱完/歌尾)：不再显示音符(没有可倒计时的下一句)，末句在原地羽化保留，
