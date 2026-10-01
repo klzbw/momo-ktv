@@ -786,6 +786,9 @@ struct LyricsView: View {
                 Color.clear.frame(maxWidth: .infinity)
             }
         }
+        // 【修复(2026-10-02)】显式撑满全屏：Spacer 一定膨胀 → 歌词/音符/提示恒固定在底部区域，
+        // 不依赖父容器是否给固定高度（此前在部分容器下内容停留上部，遥控器 posV=0 时"最低点已是最上"）
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.horizontal, compact ? 16 : 60)
         .padding(.bottom, compact ? 8 : 16)
         // 移除整行动画：歌词切换直接替换，不收缩不铺展不闪烁，只保留逐字羽化扫色
