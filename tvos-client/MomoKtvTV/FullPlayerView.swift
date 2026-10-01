@@ -255,27 +255,45 @@ struct FullPlayerView: View {
                 // 内部 Spacer 不膨胀 → 预备句+音符/占位符停留在屏幕中部/左上角，随内容多少上下跳动。
                 // 现在显式钉死歌词区=全屏高(Spacer 一定膨胀→内容恒贴底部两行)，彻底解决"未唱在左上/开唱跳左下"。
                 GeometryReader { lyricsGeo in
-                    // 【2026-10-01 v1.0.10 根因修复】overlay(alignment:.bottom) 官方底部对齐：
-                    // 1.0.9 的 .position() 实测歌词落在 y≈65%(中下部)而非底部——tvOS27 对 position 坐标解释有偏差；
-                    // overlay(alignment:.bottom) 是 SwiftUI 声明式底部对齐语义，内容必然贴容器底部，
-                    // 不依赖 Spacer 膨胀、不依赖坐标系解释——歌词区固定底部30%屏高。
-                    Color.clear
-                        .overlay(alignment: .bottom) {
-                            LyricsView(lyrics: lyricsLoader.lyrics, currentTime: lyricTime,
-                                       timeOffset: lyricsOffset, aiGenerating: lyricsLoader.aiGenerating)
-                                .frame(width: lyricsGeo.size.width,
-                                       height: lyricsGeo.size.height * 0.30,
-                                       alignment: .bottom)
-                                .allowsHitTesting(false)
+                    // 【2026-10-01 v1.0.11 诊断参考线】屏幕垂直坐标标尺：
+                    // 画 y=55%..100% 每5%一条水平红线+黄色百分比标注，用户截图后可直接报
+                    // "歌词底边压在哪条线"，据此精确计算歌词区实际位置偏差，一次修到位。
+                    ZStack {
+                        Color.clear
+                        ForEach([55.0, 60.0, 65.0, 70.0, 75.0, 80.0, 85.0, 90.0, 95.0, 100.0], id: \.self) { pct in
+                            let y = lyricsGeo.size.height * pct / 100.0
+                            HStack(spacing: 6) {
+                                Text(String(format: "%d%%", Int(pct)))
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundColor(.yellow)
+                                    .shadow(color: .black, radius: 1)
+                                Rectangle()
+                                    .fill(Color.red.opacity(0.55))
+                                    .frame(height: 2)
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .padding(.horizontal, 8)
+                            .position(x: lyricsGeo.size.width / 2, y: y)
                         }
-                    // 诊断HUD(临时·v1.0.10)：左上角小字显示GeometryReader真实尺寸与posV，截图即可确认根因
-                    Text(String(format: "diag %.0fx%.0f posV=%.0f",
-                                lyricsGeo.size.width, lyricsGeo.size.height,
-                                LyricsStyleStore.shared.posV))
-                        .font(.system(size: 20))
-                        .foregroundColor(.green)
-                        .position(x: 170, y: 44)
-                        .allowsHitTesting(false)
+                        // 歌词层：overlay(alignment:.bottom) 官方底部对齐（1.0.10 已验证基本贴底）
+                        Color.clear
+                            .overlay(alignment: .bottom) {
+                                LyricsView(lyrics: lyricsLoader.lyrics, currentTime: lyricTime,
+                                           timeOffset: lyricsOffset, aiGenerating: lyricsLoader.aiGenerating)
+                                    .frame(width: lyricsGeo.size.width,
+                                           height: lyricsGeo.size.height * 0.30,
+                                           alignment: .bottom)
+                                    .allowsHitTesting(false)
+                            }
+                        // 诊断HUD(临时·v1.0.11)：左上角显示GeometryReader尺寸与posV
+                        Text(String(format: "diag %.0fx%.0f posV=%.0f",
+                                    lyricsGeo.size.width, lyricsGeo.size.height,
+                                    LyricsStyleStore.shared.posV))
+                            .font(.system(size: 20))
+                            .foregroundColor(.green)
+                            .position(x: 170, y: 44)
+                            .allowsHitTesting(false)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
