@@ -512,7 +512,6 @@ struct LyricsView: View {
     var aiGenerating: Bool = false   // AI逐字对齐生成中：无歌词时显示"AI逐字歌词生成中..."提示（替代"纯音乐"占位）
     @ObservedObject private var styleStore = LyricsStyleStore.shared
     @AppStorage("momoLyricsMode") private var modeRaw: String = LyricsDisplayMode.dual.rawValue
-    @State private var hintPulse = false  // 间奏提示呼吸脉冲动画状态
     @State private var showUpdatedTip = false  // 歌词已更新提示（2.5秒后自动消失）
     // 用@AppStorage持久化记录上一次歌词签名，避免视图重建时@State被重置导致提示失效
     @AppStorage("momoLastLyricsSig") private var lastLyricsSig: String = ""
@@ -685,78 +684,22 @@ struct LyricsView: View {
         return VStack(spacing: compact ? 12 : 32) {  // 增加行间距，防止两排歌词挤在一起
             Spacer(minLength: 0)
             if il.isInterlude {
-                // 间奏/前奏：两行结构固定——有下一句时 next 在稳定排位行(预备)、音符独占对面空行
-                // (音符不叠加歌词 → 永不重叠；空行固定高度 → 不塌缩不跑角落)。
-                // 无下一句(末句唱完)时隐藏音符、末句原地羽化保留——位置与正常演唱一致、不突兀消失。
-                let hintCount: Int = {
-                    if il.wait > 3.0 { return 3 }
-                    if il.wait > 2.0 { return 2 }
-                    if il.wait > 1.0 { return 1 }
-                    return 0
-                }()
-                let hintView = HStack(spacing: compact ? 8 : 18) {
-                    ForEach(0..<hintCount, id: \.self) { idx in
-                        Image(systemName: "music.note")
-                            .font(.system(size: activeSize * 0.85, weight: .black))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [highlight, Color.white.opacity(0.9)],
-                                    startPoint: .top, endPoint: .bottom
-                                )
-                            )
-                            .shadow(color: stroke.opacity(0.8), radius: styleStore.lineWidth * 0.4, x: 0, y: 2)
-                            .overlay(
-                                Image(systemName: "music.note")
-                                    .font(.system(size: activeSize * 0.85, weight: .black))
-                                    .foregroundColor(.clear)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .stroke(stroke, lineWidth: max(1, styleStore.lineWidth * 0.3))
-                                            .padding(-2)
-                                    )
-                            )
-                            .opacity(hintPulse ? 0.6 : 1.0)
-                            .animation(.easeInOut(duration: 0.4).delay(Double(idx) * 0.1), value: hintPulse)
-                    }
-                }
+                // 间奏/前奏：两行结构固定——有下一句时 next 预备在稳定排位行(与开唱同一排，零跳动)，
+                // 对面保持等高空位撑住两行结构(不塌缩、不跑角落)。
+                // 【2026-10-01 用户拍板】间奏音符标识(♪ 倒计时)已完全移除——它曾与歌词同排顶撞、
+                // 造成歌词短暂跳动；现在两行只显示歌词(未唱预备+已唱羽化)，与网页 TV 版一致。
+                // 无下一句(末句唱完)时末句在原地羽化保留——位置与正常演唱一致、不突兀消失。
                 let next = il.nextIdx
-                // 等高空位：与歌词行同高，保证音符 overlay 不塌缩
+                // 等高空位：与歌词行同高，撑住两行结构，防止内容上下跳动
                 let emptyRow = Color.clear.frame(maxWidth: .infinity, minHeight: activeSize * 1.2)
                 if next >= 0 {
-                    // 有下一句：next 预备在稳定排位行，音符叠加在同一排的歌词对侧（歌词左→音符右、
-                    // 歌词右→音符左），与歌词同一行、不另占排、不重叠、不跳排；对面保持等高空位撑住两行结构。
+                    // 有下一句：next 预备在稳定排位行，对面空位——开唱时原地变亮，全程同一排零跳动
                     if nextSide == 0 {
-                        // next 稳定排位=上排：上排=歌词(左)+音符(右)同行，下排=空位
-                        ZStack {
-                            dualSlot(next, topAlign)
-                            if hintCount > 0 {
-                                hintView
-                                    .frame(maxWidth: .infinity, alignment: bottomAlign)
-                                    .onAppear {
-                                        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                                            hintPulse = true
-                                        }
-                                    }
-                                    .onDisappear { hintPulse = false }
-                            }
-                        }
+                        dualSlot(next, topAlign)
                         emptyRow
                     } else {
-                        // next 稳定排位=下排：上排=空位，下排=音符(左)+歌词(右)同行
                         emptyRow
-                        ZStack {
-                            dualSlot(next, bottomAlign)
-                            if hintCount > 0 {
-                                hintView
-                                    .frame(maxWidth: .infinity, alignment: topAlign)
-                                    .onAppear {
-                                        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                                            hintPulse = true
-                                        }
-                                    }
-                                    .onDisappear { hintPulse = false }
-                            }
-                        }
+                        dualSlot(next, bottomAlign)
                     }
                 } else {
                     // 无下一句(末句唱完/歌尾)：不再显示音符(没有可倒计时的下一句)，末句在原地羽化保留，
