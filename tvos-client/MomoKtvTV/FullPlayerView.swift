@@ -250,15 +250,18 @@ struct FullPlayerView: View {
             // 视频歌(MKV/MP4 等)自带画面与内嵌字幕，不再叠加 App 歌词。
 
             if !currentItem.isVideoFile {
-
-                LyricsView(lyrics: lyricsLoader.lyrics, currentTime: lyricTime, timeOffset: lyricsOffset, aiGenerating: lyricsLoader.aiGenerating)
-
-                    .allowsHitTesting(false)
-
-                    .opacity(showControls ? 0.35 : 1.0) // 控制条弹出时歌词弱化，避免与底部信息打架
-
-                    .animation(.easeOut(duration: 0.25), value: showControls)
-
+                // 【2026-10-01 根因修复】歌词层用 GeometryReader 取播放页实际全屏尺寸，LyricsView 按该尺寸底部对齐：
+                // 此前 LyricsView 直接放 ZStack，父容器给它的高度不确定（部分容器下 maxHeight:.infinity 撑不满），
+                // 内部 Spacer 不膨胀 → 预备句+音符/占位符停留在屏幕中部/左上角，随内容多少上下跳动。
+                // 现在显式钉死歌词区=全屏高(Spacer 一定膨胀→内容恒贴底部两行)，彻底解决"未唱在左上/开唱跳左下"。
+                GeometryReader { lyricsGeo in
+                    LyricsView(lyrics: lyricsLoader.lyrics, currentTime: lyricTime, timeOffset: lyricsOffset, aiGenerating: lyricsLoader.aiGenerating)
+                        .frame(width: lyricsGeo.size.width, height: lyricsGeo.size.height, alignment: .bottom)
+                        .allowsHitTesting(false)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .opacity(showControls ? 0.35 : 1.0) // 控制条弹出时歌词弱化，避免与底部信息打架
+                .animation(.easeOut(duration: 0.25), value: showControls)
             }
 
 

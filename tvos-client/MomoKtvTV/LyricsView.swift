@@ -619,8 +619,7 @@ struct LyricsView: View {
                     scrollBody
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // 遥控可调的歌词整体上下位置：posV=18 为默认(位移0)，调大整体上移、调小下移
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             .offset(y: -styleStore.posV / 100.0 * geo.size.height * 0.62)
             .animation(.easeOut(duration: 0.18), value: styleStore.posV)
             // 歌词已更新提示（右上角浮动提示，2.5秒后自动消失）
