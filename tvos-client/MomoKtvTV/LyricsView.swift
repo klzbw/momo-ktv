@@ -675,13 +675,19 @@ struct LyricsView: View {
             let nextKey = stableKey(for: lyrics.lines[il.nextIdx], at: il.nextIdx, in: lyrics.lines)
             nextSide = lineSideCache[nextKey] ?? (il.nextIdx % 2)
         }
+        // 【修复(2026-10-02)】末句唱完(无下一句)时 prevSide 用于原地羽化保留末句，避免歌词突兀消失；
+        // 同样在 ViewBuilder 外计算，避免 result builder 中赋值非法。
+        var prevSide = 1
+        if ai >= 0 && ai < lyrics.lines.count {
+            let prevKey = stableKey(for: lyrics.lines[ai], at: ai, in: lyrics.lines)
+            prevSide = lineSideCache[prevKey] ?? (ai % 2)
+        }
         return VStack(spacing: compact ? 12 : 32) {  // 增加行间距，防止两排歌词挤在一起
             Spacer(minLength: 0)
             if il.isInterlude {
-                // 间奏/前奏：两行结构固定——next 在稳定排位行(预备)、上一句在对面行(羽化)，
-                // 音符倒计时 overlay 在羽化行角落。所有元素都在固定两行内，绝不跳排、不跑角落。
-                // 【修复(2026-10-02)】原 overlay 载体 Color.clear 高度塌缩 → 音符被推到屏幕角落；
-                // 现羽化行用真实歌词(或等高空位)承载，音符随行显示在固定两行区域内。
+                // 间奏/前奏：两行结构固定——有下一句时 next 在稳定排位行(预备)、音符独占对面空行
+                // (音符不叠加歌词 → 永不重叠；空行固定高度 → 不塌缩不跑角落)。
+                // 无下一句(末句唱完)时隐藏音符、末句原地羽化保留——位置与正常演唱一致、不突兀消失。
                 let hintCount: Int = {
                     if il.wait > 3.0 { return 3 }
                     if il.wait > 2.0 { return 2 }
@@ -714,41 +720,53 @@ struct LyricsView: View {
                     }
                 }
                 let next = il.nextIdx
-                let prev = ai   // 已唱完的上一句（前奏时为 -1）
                 // 等高空位：与歌词行同高，保证音符 overlay 不塌缩
                 let emptyRow = Color.clear.frame(maxWidth: .infinity, minHeight: activeSize * 1.2)
-                // next 稳定排位=上排：上排=next 预备，下排=prev 羽化 + 音符overlay
-                if nextSide == 0 {
-                    if next >= 0 { dualSlot(next, topAlign) } else { emptyRow }
-                    ZStack {
-                        if prev >= 0 { dualSlot(prev, bottomAlign).opacity(0.35) } else { emptyRow }
-                        if hintCount > 0 {
-                            hintView
-                                .frame(maxWidth: .infinity, alignment: bottomAlign)
-                                .onAppear {
-                                    withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                                        hintPulse = true
+                if next >= 0 {
+                    // 有下一句：next 预备(稳定排位行) + 音符独占对面空行，不重叠、不跳排
+                    if nextSide == 0 {
+                        // next 稳定排位=上排：上排=next 预备(歌词)，下排=音符(空行)
+                        dualSlot(next, topAlign)
+                        ZStack {
+                            emptyRow
+                            if hintCount > 0 {
+                                hintView
+                                    .frame(maxWidth: .infinity, alignment: bottomAlign)
+                                    .onAppear {
+                                        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                                            hintPulse = true
+                                        }
                                     }
-                                }
-                                .onDisappear { hintPulse = false }
+                                    .onDisappear { hintPulse = false }
+                            }
                         }
+                    } else {
+                        // next 稳定排位=下排：上排=音符(空行)，下排=next 预备(歌词)
+                        ZStack {
+                            emptyRow
+                            if hintCount > 0 {
+                                hintView
+                                    .frame(maxWidth: .infinity, alignment: topAlign)
+                                    .onAppear {
+                                        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                                            hintPulse = true
+                                        }
+                                    }
+                                    .onDisappear { hintPulse = false }
+                            }
+                        }
+                        dualSlot(next, bottomAlign)
                     }
                 } else {
-                    // next 稳定排位=下排：上排=prev 羽化 + 音符overlay，下排=next 预备
-                    ZStack {
-                        if prev >= 0 { dualSlot(prev, topAlign).opacity(0.35) } else { emptyRow }
-                        if hintCount > 0 {
-                            hintView
-                                .frame(maxWidth: .infinity, alignment: topAlign)
-                                .onAppear {
-                                    withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                                        hintPulse = true
-                                    }
-                                }
-                                .onDisappear { hintPulse = false }
-                        }
+                    // 无下一句(末句唱完/歌尾)：不再显示音符(没有可倒计时的下一句)，末句在原地羽化保留，
+                    // 位置与正常演唱一致(零跳动、不突兀消失)。
+                    if prevSide == 0 {
+                        if ai >= 0 { dualSlot(ai, topAlign).opacity(0.35) } else { emptyRow }
+                        emptyRow
+                    } else {
+                        emptyRow
+                        if ai >= 0 { dualSlot(ai, bottomAlign).opacity(0.35) } else { emptyRow }
                     }
-                    if next >= 0 { dualSlot(next, bottomAlign) } else { emptyRow }
                 }
             } else if ai >= 0 && ai < lyrics.lines.count {
                 // 正常演唱：维持 tvOS 动态交替排位（lineSideCache 稳定缓存，不固定单左双右）。
