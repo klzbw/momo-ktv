@@ -719,29 +719,31 @@ struct LyricsView: View {
                     // 倒计时结束(<=1秒)：上排空位，下一句歌词即将出现
                     Color.clear.frame(maxWidth: .infinity)
                 }
-                // 下排显示下一句预备歌词
-                // 【修复(2026-10-01)】按下一句自己的奇偶放排（偶数句下排、奇数句上排），
-                // 对齐网页TV版：原固定放下排导致偶数句开唱瞬间从上排出现，跨排跳动。
+                // 显示下一句预备歌词（按它的稳定排位，保证开唱时原地变亮、零跳动）
+                // 【修复(2026-10-01)】原固定放下排 → 稳定排位在上排的句子开唱瞬间跳排。
+                // 现用 lineSideCache 取 next 的稳定排位：预备出现在哪排，开唱就在哪排亮起。
                 let next = il.nextIdx
                 if next >= 0 {
-                    if next % 2 == 0 {
-                        dualSlot(next, bottomAlign)
-                    } else {
+                    let nextKey = stableKey(for: lyrics.lines[next], at: next, in: lyrics.lines)
+                    let nextSide = lineSideCache[nextKey] ?? (next % 2)
+                    if nextSide == 0 {
                         dualSlot(next, topAlign)
+                    } else {
+                        dualSlot(next, bottomAlign)
                     }
                 } else {
                     Color.clear.frame(maxWidth: .infinity)
                 }
             } else if ai >= 0 && ai < lyrics.lines.count {
-                // 正常演唱：单左双右布局，偶数句恒在下排、奇数句恒在上排（对齐网页TV版 renderDual 的 idx%2）
-                // 【修复(2026-10-01)】原实现用 lineSideCache 动态分配：首句分到上排(与网页相反)，
-                // 且间奏分支固定把下一句放下排，导致偶数句开唱瞬间跨排跳动。现按 0-based 索引硬编码：
-                // 偶数句在下排、奇数句在上排，每句排位绝对稳定，唱时原地变亮、不跨排。
-                let isEven = (ai % 2 == 0)
+                // 正常演唱：维持 tvOS 动态交替排位（lineSideCache 稳定缓存，不固定单左双右）。
+                // 【修复(2026-10-01)】回滚上一版"偶数下/奇数上"硬编码：用户要求维持 tvOS 原交替方向，
+                // 只保证每句从预备到开唱全程同一排。currentSide 用稳定排位缓存，兜底 ai%2。
+                let currentKey = stableKey(for: lyrics.lines[ai], at: ai, in: lyrics.lines)
+                let currentSide = lineSideCache[currentKey] ?? (ai % 2)
                 let nextIdx = (ai + 1 < lyrics.lines.count) ? ai + 1 : -1
-                // 上排显示奇数句、下排显示偶数句；当前句与预读句分居两排
-                let topIdx = (nextIdx >= 0) ? (isEven ? nextIdx : ai) : ai
-                let bottomIdx = (nextIdx >= 0) ? (isEven ? ai : nextIdx) : -1
+                // 当前句与预读句分居两排；side=0 上排、side=1 下排
+                let topIdx = (nextIdx >= 0) ? ((currentSide == 0) ? ai : nextIdx) : ai
+                let bottomIdx = (nextIdx >= 0) ? ((currentSide == 0) ? nextIdx : ai) : -1
                 dualSlot(topIdx, topAlign)
                 dualSlot(bottomIdx, bottomAlign)
             } else {
