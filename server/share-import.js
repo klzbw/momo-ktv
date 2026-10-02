@@ -322,6 +322,32 @@ function parseShareUrl(url) {
   return null;
 }
 
+/**
+ * 115 分享输入清洗（fix(115-share): share_code 被整串文本污染导致分享目录为空）
+ * 用户可能在「分享ID」框直接粘贴整串（如 "sw658ub36x2 2565274055783398734 q7e0"），
+ * 而 115 Share 驱动的 share_code 只接受纯 pickcode（10-12 位字母数字、含字母）；
+ * 整串传入会查 share snap 失败，/api/fs/list 返回 code=200 但 total=0（表现为"获取不到文件"）。
+ * 这里从任意文本中提取纯 pickcode；提取码为 4 位字母数字（如 q7e0）。
+ * @param {string} raw - 原始输入
+ * @returns {{share_id:string, password:string}}
+ */
+function sanitize115ShareInput(raw) {
+  const out = { share_id: '', password: '' };
+  if (!raw || typeof raw !== 'string') return out;
+  const tokens = raw.match(/[a-z0-9]+/gi) || [];
+  for (const t of tokens) {
+    // pickcode：10-12 位且必须含字母（排除纯数字的长整型 share_id，如 2565274055783398734）
+    if (!out.share_id && t.length >= 10 && t.length <= 12 && /[a-z]/i.test(t)) {
+      out.share_id = t.toLowerCase();
+    }
+    // 提取码：4 位且含字母（如 q7e0）
+    if (!out.password && t.length === 4 && /[a-z]/i.test(t)) {
+      out.password = t.toLowerCase();
+    }
+  }
+  return out;
+}
+
 // ==================== 初始化 ====================
 
 function init(db, dataDir) {
@@ -759,6 +785,17 @@ router.post('/links', async (req, res) => {
     }
     if (!share_id) {
       return res.status(400).json({ success: false, error: '分享ID不能为空' });
+    }
+
+    // 115 兜底清洗：直接在分享ID框粘贴整串（pickcode + 长整型share_id + 提取码）时，
+    // 提取纯 pickcode 与 4 位提取码，避免 share_code 污染导致分享目录 total=0。
+    // fix(115-share): sw658ub36x2 案例
+    if (platform === '115') {
+      const sane = sanitize115ShareInput(share_id);
+      if (sane.share_id) {
+        share_id = sane.share_id;
+        password = password || sane.password;
+      }
     }
 
     // 115 Share 驱动必须带账号 cookie(分享码本身不够)。用户在"分享管理"只填分享链接，
