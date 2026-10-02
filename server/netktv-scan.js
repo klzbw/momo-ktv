@@ -495,6 +495,12 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
     const songDirs = await findSongDirsViaAlist(alistRoot);
   const presentKeys = new Set();
   let createdStrm = 0, removedStrm = 0, addedSongs = 0, removedSongs = 0;
+  // fix(netktv-sync): 连续失败熔断计数器。网盘目录在同步期间被清空/迁移时，
+  // findSongDirs 递归得到的数千个路径在处理阶段会全部 object not found；
+  // alist 对这类错误在内存中即时返回（无网络等待），紧密失败循环会占满事件循环、
+  // 导致 Web 无响应。连续失败达到阈值即中止本轮同步，保护服务。
+  let consecutiveFailures = 0;
+  const MAX_CONSECUTIVE_FAILURES = 30;
 
   syncStatus.total = songDirs.length;
   syncStatus.processed = 0;
@@ -508,6 +514,7 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
     try {
       // 歌曲目录内文件用 AList 缓存（refresh:false），减少网盘调用
       const r = await _alistListDir(dirInfo.fullPath, { page: 1, perPage: 100, refresh: false });
+      consecutiveFailures = 0; // 目录可访问，重置熔断计数
       const files = (r.content || []).filter(f => !f.is_dir);
       const vocalFile = files.find(f => isVocalFile(f.name));
       const accompFile = files.find(f => isAccompFile(f.name));
@@ -575,6 +582,12 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
     } catch (e) {
       console.warn(`[NETKTV-SYNC] 处理 ${songKey} 失败:`, e.message);
       syncStatus.errors.push({ dir: songKey, error: e.message });
+      // fix(netktv-sync): 连续失败熔断，避免网盘数据大面积不可用时紧密循环占满事件循环
+      consecutiveFailures++;
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        console.error(`[NETKTV-SYNC] 连续 ${consecutiveFailures} 个目录处理失败，疑似网盘数据被清空/迁移或接口异常，中止本轮同步以保护服务`);
+        break;
+      }
     }
   }
 
