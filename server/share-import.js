@@ -81,8 +81,10 @@ async function _enqueueScan(link) {
 }
 
 // 媒体文件扩展名（视频+音频）
+// fix(mpg): 补 .mpg/.mpeg（MPEG-PS，常见双音轨KTV/DVD转录），收录后由 VLC 302 直连播放
 const MEDIA_EXTENSIONS = [
   '.mkv', '.mp4', '.avi', '.ts', '.flv', '.wmv', '.mov', '.m4v', '.rmvb', '.rm',
+  '.mpg', '.mpeg',
   '.flac', '.ape', '.wav', '.mp3', '.aac', '.ogg', '.m4a', '.wma',
 ];
 

@@ -15,8 +15,10 @@ const path = require('path');
 const { filenameToMeta } = require('./filenameTemplate');
 
 // 支持的媒体文件扩展名
+// fix(mpg): 补 .mpg/.mpeg（MPEG-PS 双音轨视频），收录后网络来源走 VLC 302 直连播放
 const MEDIA_EXTENSIONS = new Set([
   '.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm',
+  '.mpg', '.mpeg',
   '.flac', '.mp3', '.wav', '.ape', '.ogg', '.aac', '.wma', '.m4a',
   '.strm', '.cue',
 ]);
