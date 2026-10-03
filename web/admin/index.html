@@ -2339,6 +2339,9 @@ select option{color:#000}
 
     <button class="media-btn" data-type="cloud-music" onclick="doMediaTypeChange('cloud-music')">🎧 云音乐<span class="cnt" id="cnt-cloud-music">—</span></button>
 
+    <!-- fix(shared-tab): 新增"共享入库"分类，与其它 tab 同风格；角标取 stats.songCountShared，
+         点击走 doMediaTypeChange('shared') → /api/songs?type=shared 按 source_root='strm-shared' 筛选 -->
+    <button class="media-btn" data-type="shared" onclick="doMediaTypeChange('shared')">🤝 共享入库<span class="cnt" id="cnt-shared">—</span></button>
 
 
   </div>
@@ -5272,6 +5275,9 @@ async function loadAll(){
   document.getElementById('cnt-audio').textContent = stats.songCountAudio || 0;
 
   document.getElementById('cnt-cloud-music').textContent = stats.songCountCloudMusic || 0;
+
+  // fix(shared-tab): 共享入库角标（source_root='strm-shared' 计数，/api/stats 新增 songCountShared 字段）
+  document.getElementById('cnt-shared').textContent = stats.songCountShared || 0;
 
 
 
@@ -9750,6 +9756,14 @@ function openSrcModal(){
 
 
 
+  // fix(share-list-loading): 从"📂 曲库源设置"进入时一并渲染"已配置的分享链接"。
+  // 此前 #share-list 的"加载中..."是静态占位（约 index.html:3454），只有"🔗 分享管理"
+  // (openShareModal) 才会调 loadShareLinks() → 走本入口时永远停在"加载中..."。
+  // 不 await、不阻塞弹窗；loadShareLinks 内部已 try/catch，外层再兜一层。
+  if (typeof loadShareLinks === 'function') {
+    Promise.resolve().then(loadShareLinks).catch(() => {});
+  }
+
 }
 
 
@@ -12144,7 +12158,10 @@ async function renderShareSources(){
       const safeName = escapeHtml(link.name).replace(/'/g,"\\'");
       row.innerHTML = '<div class="rr-top"><div class="rr-label">🔗 '+escapeHtml(link.name)+'</div></div>'
         + '<div class="rr-dir">'+escapeHtml(link.alist_mount_path || '未挂载')+'</div>'
-        + '<div class="cache-hint" style="margin:2px 0 6px">'+pname+' · 分享ID '+escapeHtml(link.share_id||'-')+' · 约 '+(link.file_count||0)+' 个媒体文件</div>'
+        // fix(share-card-counts): 主数字展示"已入库歌曲数"(link.song_count，/api/share/links 新增字段，
+        // =该 share_link_id 在 songs 表的存量计数)；副文字保留 file_count——它只是"最近一轮 AList
+        // 遍历新看到的文件数"，不完整时会远小于入库数(本案 12105 vs 47266)，两者口径不同需并排说明。
+        + '<div class="cache-hint" style="margin:2px 0 6px">'+pname+' · 分享ID '+escapeHtml(link.share_id||'-')+' · 已入库 <b>'+(link.song_count||0)+'</b> 首歌曲 · 上次扫描发现 '+(link.file_count||0)+' 个文件</div>'
         + '<div class="rr-btns">'
         + '<label><input type="checkbox" '+(active?'checked':'')+' onchange="toggleShareSource('+link.id+',this.checked)"> 启用</label>'
         + '<label><input type="checkbox" checked disabled> 网络路径</label>'

@@ -31,6 +31,8 @@ const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 const crypto = require('crypto');
+// fix(share-media-type): 复用统一扩展名判定，入库时回写 media_type（与 scanner.js 同源）
+const { mediaTypeOf } = require('./mediaFormats');
 const router = express.Router();
 
 let _db = null;
@@ -225,7 +227,11 @@ const DRIVE_CONFIGS = {
     name: '115网盘',
     driver: '115 Share',
     webdavPolicy: '302_redirect',
-    proxyBytes: true, // CDN 校验 UA/Referer，需服务端字节中转（裸 302 会 403）
+    // fix(115-share-direct): 2026-10-03 实测——115 Share 驱动下发的 CDN 链接
+    // (cdnfhnfile.115cdn.net, 签名 d=vip-...) 免 Cookie 即可 Range=206（flac/mkv 均验证）。
+    // 关闭字节中转，/api/share/stream 对 115 分享直接 res.redirect(302) 到 CDN，
+    // 不再经 NAS 中转字节。下方 CDN_PROXY_RULES['115'] 条目保留仅作个人盘/未来场景兜底。
+    proxyBytes: false,
     mountPrefix: '/我的115分享/',
     addition: (share) => ({
       cookie: share.cookie || '',
@@ -759,6 +765,12 @@ router.post('/parse-link', (req, res) => {
  */
 router.get('/links', (req, res) => {
   const links = _db.prepare("SELECT * FROM share_links ORDER BY created_at DESC").all();
+  // fix(share-card-counts): 附带每个分享链接已入库的歌曲数（songs 表按 share_link_id 分组），
+  // 供后台卡片展示"已入库 N 首"，与 file_count（最近一轮扫描新发现数）区分口径。
+  const cntRows = _db.prepare("SELECT share_link_id, COUNT(*) c FROM songs WHERE share_link_id IS NOT NULL GROUP BY share_link_id").all();
+  const cntMap = {};
+  for (const r of cntRows) cntMap[r.share_link_id] = r.c;
+  for (const l of links) l.song_count = cntMap[l.id] || 0;
   res.json({ success: true, data: links });
 });
 
@@ -999,6 +1011,11 @@ async function _scanShareLink(link) {
 
       const { title, artist } = _parseFilename(file.name);
 
+      // fix(share-media-type): 按 mediaFormats 统一扩展名集合回写 media_type（与 scanner.js 同源），
+      // 此前 INSERT 不带 media_type 导致 47266 首全部 NULL、在"音频/视频"tab 里不可见。
+      // 不在白名单的扩展名由 mediaTypeOf 返回 null → 落库为 SQL NULL，与历史语义一致。
+      const mediaType = mediaTypeOf(path.extname(file.name).toLowerCase());
+
       // 生成 STRM 文件（指向 momo-ktv 的分享流代理端点）。
       // P0-4: 不再硬编码 http://127.0.0.1:8080。使用环境变量 SHARE_PUBLIC_BASE 作为对外基础地址；
       // 未配置时降级为相对路径（VLC 对相对路径不友好，部署时务必把 SHARE_PUBLIC_BASE 设为 http://<NAS_IP>:<WEB_PORT>）。
@@ -1008,9 +1025,9 @@ async function _scanShareLink(link) {
       catch (e) { console.warn(`[ShareImport] STRM 写入失败 ${file.name}: ${e.message}`); }
 
       _db.prepare(`
-        INSERT INTO songs (title, artist, filename, filepath, source_root, source_type, is_network, is_strm, share_link_id, duration, audio_tracks)
-        VALUES (?, ?, ?, ?, 'strm-shared', 'share', 1, 1, ?, 0, 2)
-      `).run(title, artist || '未知', filename, filepath, link.id);
+        INSERT INTO songs (title, artist, filename, filepath, source_root, source_type, is_network, is_strm, share_link_id, duration, audio_tracks, media_type)
+        VALUES (?, ?, ?, ?, 'strm-shared', 'share', 1, 1, ?, 0, 2, ?)
+      `).run(title, artist || '未知', filename, filepath, link.id, mediaType);
 
       added++;
     } catch (e) {

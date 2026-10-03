@@ -12217,6 +12217,10 @@ app.get('/api/songs', (req, res) => {
     : mediaType === 'audio' ? "media_type IN ('audio','cue') AND NOT (source_root LIKE 'netktv-music%')"
 
     : mediaType === 'cloud-music' ? "source_root LIKE 'netktv-music%'"
+
+    // fix(shared-tab): 新增"共享入库"分类，按 share-import 入库的 strm-shared 根筛选。
+    // 仍是白名单常量拼接（非用户输入），无注入面；与现有 if 链风格一致。
+    : mediaType === 'shared' ? "source_root = 'strm-shared'"
     : mediaType === 'all' ? ''
     : "NOT (source_root LIKE 'netktv-music%')";
 
@@ -22762,6 +22766,8 @@ app.get('/api/stats', (req, res) => {
 
   const songCountAudio = db.prepare("SELECT COUNT(*) c FROM songs WHERE media_type IN ('audio','cue') AND NOT (source_root LIKE 'netktv-music%')").get().c;
   const songCountCloudMusic = db.prepare("SELECT COUNT(*) c FROM songs WHERE source_root LIKE 'netktv-music%'").get().c;
+  // fix(shared-tab): 共享入库歌曲计数（share-import 入库、source_root='strm-shared'），供后台新 tab 角标
+  const songCountShared = db.prepare("SELECT COUNT(*) c FROM songs WHERE source_root = 'strm-shared'").get().c;
 
 
 
@@ -22842,6 +22848,7 @@ app.get('/api/stats', (req, res) => {
 
 
     songCountVideo, songCountAudio, songCountCloudMusic,
+    songCountShared,
 
 
 
