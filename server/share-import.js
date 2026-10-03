@@ -393,7 +393,9 @@ function init(db, dataDir) {
   setTimeout(() => {
     _alistLogin()
       .then(() => _syncAccountCookiesOnBoot())
-      .catch(e => console.warn('[ShareImport] Alist 登录失败:', e.message));
+      // fix(share-storage-selfheal, 2026-10-03): 启动存储对账——分享挂载被误删时自动重建，避免分享歌曲整体不可播
+      .then(() => _reconcileShareStorages())
+      .catch(e => console.warn('[ShareImport] Alist 启动任务失败:', e.message));
   }, 5000);
 
   return router;
@@ -611,6 +613,44 @@ async function _syncAccountCookiesOnBoot() {
       ).get(platform);
       if (acct && acct.access_token) await _alistSyncGlobalCookie(platform, acct.access_token);
     } catch (e) { /* cloud_accounts 表可能不存在或该驱动无账号 */ }
+  }
+}
+
+/**
+ * fix(share-storage-selfheal, 2026-10-03): 启动存储对账（幂等）。
+ * 背景：115 Share 存储两次丢失；经实验取证，持久化 bind 与容器重启均无问题
+ * （docker restart 后存储存活），丢失系测试/运维操作显式调用 storage/delete 所致。
+ * 为防止任何误删导致分享歌曲全部不可播，启动登录后对每个 active share_link
+ * 检查其挂载：缺失则按 DRIVE_CONFIGS 重建并回写 alist_mount_path；
+ * 存在但被禁用则 enable；路径记录漂移则修正。
+ */
+async function _reconcileShareStorages() {
+  let links = [];
+  try {
+    links = _db.prepare("SELECT * FROM share_links WHERE status='active'").all();
+  } catch (e) { return; }
+  if (!links.length) return;
+  const list = await _alistApi('GET', '/api/admin/storage/list');
+  const storages = (list.data && list.data.content) || [];
+  for (const link of links) {
+    const config = DRIVE_CONFIGS[link.platform];
+    if (!config) continue;
+    const expectPath = config.mountPrefix + link.id;
+    const found = storages.find(s => s.mount_path === expectPath);
+    if (!found) {
+      console.warn('[ShareImport] 分享存储缺失，启动自愈重建:', expectPath);
+      try {
+        const mountPath = await _alistAddShareStorage(link);
+        _db.prepare('UPDATE share_links SET alist_mount_path=? WHERE id=?').run(mountPath, link.id);
+        console.log('[ShareImport] 分享存储已自愈重建:', mountPath);
+      } catch (e) {
+        console.warn('[ShareImport] 分享存储自愈失败(' + expectPath + '):', e.message);
+      }
+    } else if (found.disabled) {
+      try { await _alistApi('POST', '/api/admin/storage/enable?id=' + found.id, null); } catch (e) {}
+    } else if (link.alist_mount_path !== expectPath) {
+      _db.prepare('UPDATE share_links SET alist_mount_path=? WHERE id=?').run(expectPath, link.id);
+    }
   }
 }
 
