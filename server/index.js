@@ -12204,7 +12204,7 @@ app.get('/api/songs', (req, res) => {
 
 
 
-  const typeClause = mediaType === 'video' ? "media_type = 'video'"
+  const typeClause = mediaType === 'video' ? "media_type = 'video' AND (source_root IS NULL OR source_root <> 'strm-shared') AND NOT (source_root LIKE 'netktv-music%')"
 
 
 
@@ -12214,9 +12214,9 @@ app.get('/api/songs', (req, res) => {
 
 
 
-    : mediaType === 'audio' ? "media_type IN ('audio','cue') AND NOT (source_root LIKE 'netktv-music%')"
+    : mediaType === 'audio' ? "media_type IN ('audio','cue') AND NOT (source_root LIKE 'netktv-music%') AND (source_root IS NULL OR source_root <> 'strm-shared')"
 
-    : mediaType === 'cloud-music' ? "source_root LIKE 'netktv-music%'"
+    : mediaType === 'cloud-music' ? "source_root LIKE 'netktv-music%' AND source_root <> 'strm-shared'"
 
     // fix(shared-tab): 新增"共享入库"分类，按 share-import 入库的 strm-shared 根筛选。
     // 仍是白名单常量拼接（非用户输入），无注入面；与现有 if 链风格一致。
@@ -22026,46 +22026,47 @@ app.delete('/api/admin/library-sources/roots/:idx', requireAdminAuth, (req, res)
 
 
 
-    const rows = db.prepare('SELECT id FROM songs WHERE source_root = ?').all(removed.dir);
-
-
-
-
-
-
-
-
-
-    for (const row of rows) {
-
-
-
-
-
-
-
-
-
-      try { deleteSongCascade(row.id); purgedCount++; }
-
-
-
-
-
-
-
-
-
-      catch (e) { log.error('ADMIN', `曲库来源移除后清理曲目失败(id=${row.id}): ${e.message}`); }
-
-
-
-
-
-
-
-
-
+    // fix(source-delete): 由"逐首 deleteSongCascade"改为"单个批量事务"。
+    // 旧实现每首一个事务、且内部同步 removeHLS 删文件，来源下数万首时长时间阻塞
+    // 请求导致前端超时、计数不刷新。这里 DB 在一个事务内按 source_root 一次性删
+    // 引用表(queue/history/favorites/song_artists)与 songs，提交后立即返回；
+    // HLS 旧产物与本地缓存副本改后台 setImmediate 分批清理，不再阻塞响应。
+    const rows = db.prepare('SELECT id, cache_path FROM songs WHERE source_root = ?').all(removed.dir);
+    if (rows.length) {
+      try {
+        // fix(source-delete): 单事务批量删——先删引用表(此时 songs 仍在，子查询才查得到)，再删 songs。
+        const purgeTx = db.transaction((root) => {
+          db.prepare('DELETE FROM queue WHERE song_id IN (SELECT id FROM songs WHERE source_root = ?)').run(root);
+          db.prepare('DELETE FROM history WHERE song_id IN (SELECT id FROM songs WHERE source_root = ?)').run(root);
+          db.prepare('DELETE FROM favorites WHERE song_id IN (SELECT id FROM songs WHERE source_root = ?)').run(root);
+          db.prepare('DELETE FROM song_artists WHERE song_id IN (SELECT id FROM songs WHERE source_root = ?)').run(root);
+          db.prepare('DELETE FROM songs WHERE source_root = ?').run(root);
+        });
+        purgeTx(removed.dir);
+        purgedCount = rows.length;
+      } catch (e) {
+        log.error('ADMIN', `曲库来源移除批量清理事务失败(root=${removed.dir}): ${e.message}`);
+      }
+    }
+    // fix(source-delete): DB 已提交、计数已刷新；HLS 旧产物/缓存副本改后台异步分批清理。
+    // 每批 500、批间让出事件循环；失败仅 warn，不影响主流程与 HTTP 响应。
+    if (rows.length) {
+      setImmediate(() => {
+        const BATCH = 500;
+        let i = 0;
+        const step = () => {
+          const end = Math.min(i + BATCH, rows.length);
+          for (; i < end; i++) {
+            const row = rows[i];
+            try { removeHLS(row.id); } catch (e) { log.warn('ADMIN', `清理 HLS 旧产物失败(id=${row.id}): ${e.message}`); }
+            if (row.cache_path) {
+              try { fs.rmSync(row.cache_path, { force: true }); } catch (e) { log.warn('ADMIN', `清理本地缓存副本失败(id=${row.id}): ${e.message}`); }
+            }
+          }
+          if (i < rows.length) setImmediate(step);
+        };
+        step();
+      });
     }
 
 
@@ -22754,7 +22755,9 @@ app.get('/api/stats', (req, res) => {
 
 
 
-  const songCountVideo = db.prepare("SELECT COUNT(*) c FROM songs WHERE media_type = 'video'").get().c;
+  // fix(category-count): 五分类互斥口径。共享入库(strm-shared)单列后，视频/音频/云音乐都要排除共享；
+  // 云音乐多为 audio，音频在"非共享"基础上再排除 netktv-music% 集合，保证四角标求和=全部、互不重复。
+  const songCountVideo = db.prepare("SELECT COUNT(*) c FROM songs WHERE media_type = 'video' AND (source_root IS NULL OR source_root <> 'strm-shared') AND NOT (source_root LIKE 'netktv-music%')").get().c;
 
 
 
@@ -22764,8 +22767,8 @@ app.get('/api/stats', (req, res) => {
 
 
 
-  const songCountAudio = db.prepare("SELECT COUNT(*) c FROM songs WHERE media_type IN ('audio','cue') AND NOT (source_root LIKE 'netktv-music%')").get().c;
-  const songCountCloudMusic = db.prepare("SELECT COUNT(*) c FROM songs WHERE source_root LIKE 'netktv-music%'").get().c;
+  const songCountAudio = db.prepare("SELECT COUNT(*) c FROM songs WHERE media_type IN ('audio','cue') AND NOT (source_root LIKE 'netktv-music%') AND (source_root IS NULL OR source_root <> 'strm-shared')").get().c;
+  const songCountCloudMusic = db.prepare("SELECT COUNT(*) c FROM songs WHERE source_root LIKE 'netktv-music%' AND source_root <> 'strm-shared'").get().c;
   // fix(shared-tab): 共享入库歌曲计数（share-import 入库、source_root='strm-shared'），供后台新 tab 角标
   const songCountShared = db.prepare("SELECT COUNT(*) c FROM songs WHERE source_root = 'strm-shared'").get().c;
 

@@ -923,45 +923,79 @@ router.post('/links', async (req, res) => {
  * 删除分享链接
  */
 router.delete('/links/:id', async (req, res) => {
-  const { id } = req.params;
-  const link = _db.prepare("SELECT * FROM share_links WHERE id = ?").get(id);
-  if (!link) {
-    return res.status(404).json({ success: false, error: '分享链接不存在' });
-  }
-
-  // 删除 Alist 中的存储
+  // fix(share-delete): 整个 handler 包 try/catch，Express4 不自动捕获 async reject，
+  // 否则 DELETE songs 触发外键约束失败时请求会永久悬挂（实测挂死>90s）。
   try {
-    const storages = await _alistApi('GET', '/api/admin/storage/list');
-    if (storages.code === 200) {
-      for (const s of storages.data.content || []) {
-        if (s.mount_path === link.alist_mount_path) {
-          await _alistDeleteStorage(s.id);
-          break;
-        }
+    const { id } = req.params;
+    const link = _db.prepare("SELECT * FROM share_links WHERE id = ?").get(id);
+    if (!link) {
+      return res.status(404).json({ success: false, error: '分享链接不存在' });
+    }
+
+    // fix(share-delete): 删除前先取出该分享下歌曲的 filename 列表与数量 N，
+    // 供响应计数与后台 STRM 清理使用（删除后再取就拿不到了）。
+    const songs = _db.prepare("SELECT filename FROM songs WHERE share_link_id = ?").all(id);
+    const N = songs.length;
+    const filenames = songs.map(s => s.filename);
+
+    // fix(share-delete): 多表删除收进单个 better-sqlite3 事务，先删引用表再删 songs/share_links，
+    // 避免直接 DELETE songs 时 queue/history/favorites/song_artists 的
+    // FOREIGN KEY(song_id) 约束（无 ON DELETE CASCADE）抛错。
+    const deleteShareTx = _db.transaction((shareId) => {
+      // 引用表先按 song_id 批量删除（IN 子查询）
+      for (const t of ['queue', 'history', 'favorites', 'song_artists']) {
+        _db.prepare(`DELETE FROM ${t} WHERE song_id IN (SELECT id FROM songs WHERE share_link_id = ?)`).run(shareId);
       }
-    }
+      _db.prepare("DELETE FROM songs WHERE share_link_id = ?").run(shareId);
+      _db.prepare("DELETE FROM share_links WHERE id = ?").run(shareId);
+    });
+    deleteShareTx(id); // 事务成功提交
+
+    // fix(share-delete): DB 提交成功后立即返回，alist 存储与 STRM 文件清理改为后台异步执行，
+    // 不再先清外部资源再删 DB（避免外部已清、DB 残留的不一致）。
+    console.log(`[ShareImport] 删除分享链接 #${id}(${link.platform})，清理 ${N} 首歌曲`);
+    res.json({ success: true, deletedSongs: N });
+
+    // fix(share-delete): setImmediate 启动后台清理，把 link 与 filenames 作为参数捕获传入；
+    // 分批每批 500 个、批间 setImmediate 让出事件循环；失败仅 console.warn，不影响已返回的响应。
+    const linkRef = link;
+    const filesRef = filenames;
+    setImmediate(async () => {
+      try {
+        // 后台删除 Alist 中的存储（按 link.alist_mount_path 匹配）
+        const storages = await _alistApi('GET', '/api/admin/storage/list');
+        if (storages.code === 200) {
+          for (const s of storages.data.content || []) {
+            if (s.mount_path === linkRef.alist_mount_path) {
+              await _alistDeleteStorage(s.id);
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[ShareImport] 后台删除 Alist 存储失败:', e.message);
+      }
+
+      // 后台分批清理 STRM 文件（每批 500，批间让出事件循环）
+      const strmDir = path.join(_dataDir, 'share-strm');
+      const BATCH = 500;
+      for (let i = 0; i < filesRef.length; i += BATCH) {
+        const batch = filesRef.slice(i, i + BATCH);
+        for (const filename of batch) {
+          const hashMatch = filename.match(/^([a-f0-9]+)_/);
+          if (hashMatch) {
+            const strmPath = path.join(strmDir, hashMatch[1] + '.strm');
+            try { if (fs.existsSync(strmPath)) fs.unlinkSync(strmPath); } catch (e) { /* ignore */ }
+          }
+        }
+        // 批间让出事件循环
+        await new Promise(r => setImmediate(r));
+      }
+    });
   } catch (e) {
-    console.warn('[ShareImport] 删除 Alist 存储失败:', e.message);
+    // fix(share-delete): 任何异常都返回 500，绝不悬挂。
+    res.status(500).json({ success: false, error: e.message });
   }
-
-  // 查询该分享链接对应的所有歌曲
-  const songs = _db.prepare("SELECT filename FROM songs WHERE share_link_id = ?").all(id);
-
-  // 清理 STRM 文件
-  const strmDir = path.join(_dataDir, 'share-strm');
-  for (const song of songs) {
-    const hashMatch = song.filename.match(/^([a-f0-9]+)_/);
-    if (hashMatch) {
-      const strmPath = path.join(strmDir, hashMatch[1] + '.strm');
-      try { if (fs.existsSync(strmPath)) fs.unlinkSync(strmPath); } catch (e) { /* ignore */ }
-    }
-  }
-
-  _db.prepare("DELETE FROM songs WHERE share_link_id = ?").run(id);
-  _db.prepare("DELETE FROM share_links WHERE id = ?").run(id);
-  console.log(`[ShareImport] 删除分享链接 #${id}(${link.platform})，清理 ${songs.length} 首歌曲`);
-
-  res.json({ success: true, deletedSongs: songs.length });
 });
 
 /**

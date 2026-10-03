@@ -1417,6 +1417,10 @@ async function deleteHomeCloudRoot(idx, name){
     const res = await fetch('/api/admin/library-sources/roots/' + idx, { method: 'DELETE' });
     if(res.ok){
       alert('曲库来源已移除');
+      // fix(source-delete): 服务端已把 DB 事务提交后才返回，这里重拉来源列表即立刻看到
+      // 已删除根目录消失、其余来源的实时 songCount（/api/admin/library-sources 实时
+      // COUNT WHERE source_root=?）。home 页无独立"全局总数"元素，每源"N 首歌曲"与
+      // "N 个来源"徽标即此处展示的总数，loadHomeLibrarySources() 已覆盖刷新，无需另调 stats。
       await loadHomeLibrarySources();
     }else{
       const d = await res.json().catch(()=>({}));

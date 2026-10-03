@@ -786,6 +786,10 @@ html[data-theme="2"] #home.home-hide{opacity:0;pointer-events:none;transition:op
 .badge-mp4{display:inline-flex;align-items:center;justify-content:center;
   min-width:34px;height:18px;padding:0 5px;border-radius:4px;font-size:11px;font-weight:700;
   background:rgba(255,79,155,.18);color:#ff4f9b;border:1px solid rgba(255,79,155,.4)}
+/* feat(tv-tag): 通用视频格式标签 MPG/AVI/RMVB，几何与配色沿用现有行内标签风格 */
+.badge-fmt{display:inline-flex;align-items:center;justify-content:center;
+  min-width:34px;height:18px;padding:0 5px;border-radius:4px;font-size:11px;font-weight:700;
+  background:rgba(120,160,255,.16);color:#9db4ff;border:1px solid rgba(120,160,255,.4)}
 /* 右上角信号图标：反映与后端 WebSocket 的连接状态 */
 .conn-badge{display:flex;align-items:center;padding:6px 10px;border-radius:999px;
   border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);
@@ -5636,24 +5640,42 @@ function renderCategory(){
 function categoryPage(d){const t=Math.ceil(filtCat.length/CAT_PG)||1;catPg=Math.max(0,Math.min(t-1,catPg+d));renderCategory();}
 // Bug3修复：渲染歌曲列表（所有按钮加 data-f）
 /* 歌曲标识：云端+媒体类型，与tvOS端一致，易区分 */
+/* feat(tv-tag): 把笼统的"云"标识替换为具体网盘来源标签（115/阿里云盘/夸克/迅雷/百度/移动云盘/分享），
+   依据 source_type/source_root/filepath 关键字推断，推断不出时中性兜底"网盘"，不瞎标。 */
+function getCloudSourceLabel(s){
+  // 综合 source_root + filepath + filename 做大小写不敏感的关键字匹配
+  const blob=[s.source_root||'', s.filepath||'', s.filename||''].join(' ').toLowerCase();
+  if(/pan115|115网盘|115分享|我的115/.test(blob)) return '115';
+  if(/aliyun|alipan|aliyundrive|阿里云盘/.test(blob)) return '阿里云盘';
+  if(/quark|夸克/.test(blob)) return '夸克';
+  if(/xunlei|thunder|迅雷/.test(blob)) return '迅雷';
+  if(/baidu|百度网盘|百度云/.test(blob)) return '百度';
+  if(/cmcc|139yun|139云盘|移动云盘/.test(blob)) return '移动云盘';
+  if(/netktv-music/.test(blob)) return '云音乐';
+  // 分享入库（share_link_id 非空 / source_type=share）但未命中具体网盘时，标"分享"
+  if(s.source_type==='share' || s.share_link_id) return '分享';
+  return '网盘';
+}
 function getSongBadges(s){
   if(!s) return '';
   const badges=[];
   const isNet = s.is_network===1 || s.is_strm===1 ||
     (s.source_root && /netktv|网盘|115|cloud/i.test(s.source_root)) ||
     (s.filepath && /netktv|网盘|115|ktv-output/i.test(s.filepath));
-  if(isNet) badges.push('<span class="badge-cloud" title="云端歌曲">云</span>');
+  if(isNet) badges.push('<span class="badge-cloud" title="云端歌曲">'+getCloudSourceLabel(s)+'</span>');
+  // feat(tv-tag): 媒体格式标签改为始终按 filename/filepath 扩展名识别（新增 MPG/AVI/RMVB），
+  // 不再把 media_type(audio/video) 误当格式而导致有 media_type 的歌曲不显示格式标签；
+  // MPEG 归一为 MPG。media_type 仅在无扩展名时作为兜底提示。
   let ext='';
-  if(s.media_type) ext=s.media_type.toLowerCase();
-  if(!ext){
-    const fn=(s.filename||s.filepath||'').toLowerCase();
-    const m=fn.match(/\.(mkv|flac|mp3|mp4|wav|ape|m4a|aac|ogg|wma)(\?|$)/);
-    if(m) ext=m[1];
-  }
+  const fn=(s.filename||s.filepath||'').toLowerCase();
+  const m=fn.match(/\.(mpg|mpeg|mkv|mp4|avi|rmvb|flac|wav|ape|mp3|m4a|aac|ogg|wma)(\?|$)/);
+  if(m) ext=m[1];
+  if(ext==='mpeg') ext='mpg';
   if(ext==='mkv') badges.push('<span class="badge-mkv">MKV</span>');
+  else if(ext==='mp4') badges.push('<span class="badge-mp4">MP4</span>');
   else if(ext==='flac') badges.push('<span class="badge-flac">FLAC</span>');
   else if(ext==='mp3') badges.push('<span class="badge-mp3">MP3</span>');
-  else if(ext==='mp4') badges.push('<span class="badge-mp4">MP4</span>');
+  else if(ext==='mpg'||ext==='avi'||ext==='rmvb') badges.push('<span class="badge-fmt">'+ext.toUpperCase()+'</span>');
   else if(ext && ['wav','ape','m4a','aac','ogg','wma'].indexOf(ext)>=0){
     badges.push('<span class="badge-mp3">'+ext.toUpperCase()+'</span>');
   }

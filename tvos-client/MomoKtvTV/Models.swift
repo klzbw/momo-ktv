@@ -1,6 +1,43 @@
 import SwiftUI
 import Foundation
 
+// feat(tvos-format-tag): 统一媒体扩展名→行内小标签映射表。
+// 目的：点歌/歌曲列表行的"媒体格式小标签"统一按文件扩展名识别；
+// 标签一律取大写扩展名；mpg/mpeg 归一为 MPG；新增 avi/rmvb。
+// 与各模型 isVideoFile 的扩展名黑名单保持一致，仅做标签文案映射，不影响播放逻辑。
+private let tvosMediaExtTagMap: [(ext: String, tag: String)] = [
+    (".mkv", "MKV"), (".flac", "FLAC"), (".wav", "WAV"), (".mp3", "MP3"),
+    (".m4a", "M4A"), (".ape", "APE"), (".aac", "AAC"), (".ogg", "OGG"),
+    (".mp4", "MP4"),
+    (".avi", "AVI"), (".rmvb", "RMVB"),                 // feat(tvos-format-tag): 常见视频容器
+    (".mpg", "MPG"), (".mpeg", "MPG")                   // feat(tvos-format-tag): mpeg 归一 MPG
+]
+
+// feat(tvos-format-tag): 媒体格式小标签统一判定（按文件扩展名；media_type 经 isVideoFile 兜底）。
+// filename 缺省 / .strm（不可判型）时按 isVideo 回退 MKV/FLAC；未识别扩展名走 VIDEO/AUDIO。
+// isVideo 由各模型根据服务端 media_type + source_root + 扩展名综合得出，故已覆盖 media_type 维度。
+func tvosMediaFormatTag(filename: String?, mediaType: String?, isVideo: Bool) -> String {
+    guard let fn = filename?.lowercased() else { return isVideo ? "MKV" : "FLAC" }
+    for pair in tvosMediaExtTagMap where fn.hasSuffix(pair.ext) { return pair.tag }
+    if fn.hasSuffix(".strm") { return isVideo ? "MKV" : "FLAC" }
+    return isVideo ? "VIDEO" : "AUDIO"
+}
+
+// feat(tvos-format-tag): 媒体格式小标签统一配色。
+// 视频系（MKV/MP4/AVI/RMVB/MPG）偏红；无损（FLAC/WAV/APE）冷色；有损（MP3/M4A/AAC/OGG）暖色。
+func tvosMediaFormatColor(_ tag: String) -> Color {
+    switch tag {
+    case "MKV", "MP4", "AVI", "RMVB", "MPG", "VIDEO": return Color(red: 1.0, green: 0.3, blue: 0.3)
+    case "FLAC": return Color(red: 0.0, green: 0.6, blue: 1.0)
+    case "WAV": return Color(red: 0.0, green: 0.7, blue: 0.5)
+    case "APE": return Color(red: 0.5, green: 0.4, blue: 0.9)
+    case "MP3": return Color(red: 1.0, green: 0.6, blue: 0.0)
+    case "M4A", "AAC": return Color(red: 0.9, green: 0.5, blue: 0.2)
+    case "OGG": return Color(red: 0.3, green: 0.7, blue: 0.3)
+    default: return Color.gray
+    }
+}
+
 
 
 struct Song: Codable, Identifiable, Hashable {
@@ -91,34 +128,14 @@ struct Song: Codable, Identifiable, Hashable {
         return sr.hasPrefix("netktv") || sr == "share-115" || sr.hasPrefix("cloud")
     }
 
-    /// 媒体类型标签：视频歌曲显示"MKV"，音频歌曲显示"FLAC"
-    /// 媒体格式标签：根据文件扩展名判断（MKV/FLAC/WAV/MP3/M4A等）
+    /// 媒体格式标签：feat(tvos-format-tag) 统一走 tvosMediaFormatTag，
+    /// 在 flac/wav/mkv/mp4 基础上补 mpg/mpeg→MPG、avi→AVI、rmvb→RMVB（mp3/ape 已在映射表内）。
     var mediaTypeLabel: String {
-        guard let fn = filename?.lowercased() else { return isVideoFile ? "MKV" : "FLAC" }
-        if fn.hasSuffix(".mkv") { return "MKV" }
-        if fn.hasSuffix(".flac") { return "FLAC" }
-        if fn.hasSuffix(".wav") { return "WAV" }
-        if fn.hasSuffix(".mp3") { return "MP3" }
-        if fn.hasSuffix(".m4a") { return "M4A" }
-        if fn.hasSuffix(".ape") { return "APE" }
-        if fn.hasSuffix(".aac") { return "AAC" }
-        if fn.hasSuffix(".ogg") { return "OGG" }
-        if fn.hasSuffix(".mp4") { return "MP4" }
-        if fn.hasSuffix(".strm") { return isVideoFile ? "MKV" : "FLAC" }
-        return isVideoFile ? "VIDEO" : "AUDIO"
+        tvosMediaFormatTag(filename: filename, mediaType: media_type, isVideo: isVideoFile)
     }
-    /// 媒体格式颜色：不同格式不同颜色
+    /// 媒体格式颜色：feat(tvos-format-tag) 统一走 tvosMediaFormatColor（含 MPG/AVI/RMVB 视频色）
     var mediaTypeColor: Color {
-        switch mediaTypeLabel {
-        case "MKV", "MP4", "VIDEO": return Color(red: 1.0, green: 0.3, blue: 0.3)   // 红色 - 视频
-        case "FLAC": return Color(red: 0.0, green: 0.6, blue: 1.0)                  // 蓝色 - 无损
-        case "WAV": return Color(red: 0.0, green: 0.7, blue: 0.5)                   // 青色 - 无损
-        case "APE": return Color(red: 0.5, green: 0.4, blue: 0.9)                   // 紫色 - 无损
-        case "MP3": return Color(red: 1.0, green: 0.6, blue: 0.0)                   // 橙色 - 有损
-        case "M4A", "AAC": return Color(red: 0.9, green: 0.5, blue: 0.2)            // 棕橙
-        case "OGG": return Color(red: 0.3, green: 0.7, blue: 0.3)                   // 绿色
-        default: return Color.gray
-        }
+        tvosMediaFormatColor(mediaTypeLabel)
     }
 
     /// 网盘类型标识：优先用 cloud_driver，其次用 source_root 推断
@@ -250,33 +267,14 @@ struct QueueItem: Codable, Identifiable, Hashable {
         return sr.hasPrefix("netktv") || sr == "share-115" || sr.hasPrefix("cloud")
     }
 
-    /// 媒体格式标签：根据文件扩展名判断
+    /// 媒体格式标签：feat(tvos-format-tag) 统一走 tvosMediaFormatTag，
+    /// 在 flac/wav/mkv/mp4 基础上补 mpg/mpeg→MPG、avi→AVI、rmvb→RMVB（mp3/ape 已在映射表内）。
     var mediaTypeLabel: String {
-        guard let fn = filename?.lowercased() else { return isVideoFile ? "MKV" : "FLAC" }
-        if fn.hasSuffix(".mkv") { return "MKV" }
-        if fn.hasSuffix(".flac") { return "FLAC" }
-        if fn.hasSuffix(".wav") { return "WAV" }
-        if fn.hasSuffix(".mp3") { return "MP3" }
-        if fn.hasSuffix(".m4a") { return "M4A" }
-        if fn.hasSuffix(".ape") { return "APE" }
-        if fn.hasSuffix(".aac") { return "AAC" }
-        if fn.hasSuffix(".ogg") { return "OGG" }
-        if fn.hasSuffix(".mp4") { return "MP4" }
-        if fn.hasSuffix(".strm") { return isVideoFile ? "MKV" : "FLAC" }
-        return isVideoFile ? "VIDEO" : "AUDIO"
+        tvosMediaFormatTag(filename: filename, mediaType: media_type, isVideo: isVideoFile)
     }
-    /// 媒体格式颜色
+    /// 媒体格式颜色：feat(tvos-format-tag) 统一走 tvosMediaFormatColor（含 MPG/AVI/RMVB 视频色）
     var mediaTypeColor: Color {
-        switch mediaTypeLabel {
-        case "MKV", "MP4", "VIDEO": return Color(red: 1.0, green: 0.3, blue: 0.3)
-        case "FLAC": return Color(red: 0.0, green: 0.6, blue: 1.0)
-        case "WAV": return Color(red: 0.0, green: 0.7, blue: 0.5)
-        case "APE": return Color(red: 0.5, green: 0.4, blue: 0.9)
-        case "MP3": return Color(red: 1.0, green: 0.6, blue: 0.0)
-        case "M4A", "AAC": return Color(red: 0.9, green: 0.5, blue: 0.2)
-        case "OGG": return Color(red: 0.3, green: 0.7, blue: 0.3)
-        default: return Color.gray
-        }
+        tvosMediaFormatColor(mediaTypeLabel)
     }
 
     /// 网盘类型标识：优先用 cloud_driver，其次用 source_root 推断

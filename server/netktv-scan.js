@@ -437,7 +437,9 @@ async function downloadTextViaAlist(alistBase, mountPath, basePath, songKey, fil
  * 通过 AList 递归查找所有歌曲目录（16位十六进制目录名）。
  * 根目录用 refresh:true 强制从网盘拉最新，以发现新增/删除。
  */
-async function findSongDirsViaAlist(alistRootPath, depth = 0, maxDepth = 5) {
+// fix(netktv-sync): 新增可选 state 参数，把"根目录(depth=0)列举是否失败"的信号透出给
+// 上层 syncStrmViaAlist；递归子目录失败仍只 warn 并返回已收集结果，不影响根成功判定。
+async function findSongDirsViaAlist(alistRootPath, depth = 0, maxDepth = 5, state = null) {
   if (depth > maxDepth) return [];
   const results = [];
   try {
@@ -459,12 +461,15 @@ async function findSongDirsViaAlist(alistRootPath, depth = 0, maxDepth = 5) {
       if (/^[a-f0-9]{16}$/i.test(item.name)) {
         results.push({ name: item.name, fullPath });
       } else {
-        const sub = await findSongDirsViaAlist(fullPath, depth + 1, maxDepth);
+        const sub = await findSongDirsViaAlist(fullPath, depth + 1, maxDepth, state);
         results.push(...sub);
       }
     }
   } catch (e) {
     console.warn(`[NETKTV-SYNC] AList 递归查找失败 ${alistRootPath}:`, e.message);
+    // fix(netktv-sync): 只有"根目录(depth=0)列举失败"才是不可信信号，透出给上层；
+    // 递归子目录失败仍仅 warn 并返回已收集结果，不置位，避免子目录偶发失败误伤整库。
+    if (depth === 0 && state) state.rootFailed = true;
   }
   return results;
 }
@@ -492,7 +497,9 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
   syncStatus.running = true;
 
   try {
-    const songDirs = await findSongDirsViaAlist(alistRoot);
+    // fix(netktv-sync): 透传 scanState，用于判断根目录列举是否成功（见下方删除段保护）。
+    const scanState = {};
+    const songDirs = await findSongDirsViaAlist(alistRoot, 0, 5, scanState);
   const presentKeys = new Set();
   let createdStrm = 0, removedStrm = 0, addedSongs = 0, removedSongs = 0;
   // fix(netktv-sync): 连续失败熔断计数器。网盘目录在同步期间被清空/迁移时，
@@ -591,6 +598,14 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
     }
   }
 
+  // fix(netktv-sync): 根目录列举失败保护。根列举失败时 findSongDirsViaAlist 返回 []、
+  // presentKeys 为空集合，若走下面清理段会把本账号挂载下所有本地 strm 与 DB 歌曲误删
+  // (日志表现为"目录=0"周期删 9 首、下周期又"入库=9"恢复)。以"根列举是否成功"为准：
+  // 仅 rootFailed=true(列举本身失败)才跳过；根列举成功而网盘确实为空(同样 length===0)
+  // 属正常清理路径，不保护，避免误伤网盘真被清空时的正常删除。
+  if (scanState.rootFailed) {
+    console.warn(`[NETKTV-SYNC] 根目录列举失败(alistRoot=${alistRoot})，跳过 strm/DB 删除以保护曲库（removedStrm/removedSongs 保持 0）。下一轮扫描恢复后再按 presentKeys 正常清理。`);
+  } else {
   // 删除网盘已不存在的歌曲对应的本地 strm（仅删本账号挂载下的，避免误删其他账号）
   const encodedMount = encodeURI(mountPath);
   let localFiles = [];
@@ -616,6 +631,7 @@ async function syncStrmViaAlist(cloudDrive, accountId, basePath, db, strmDir, so
       } catch (e) { /* ignore */ }
     }
   }
+  }  // fix(netktv-sync): 结束 else 分支（仅根列举成功才删 strm/DB）
 
   syncStatus.createdStrm = createdStrm;
   syncStatus.removedStrm = removedStrm;
