@@ -5659,10 +5659,16 @@ function getCloudSourceLabel(s){
 function getSongBadges(s){
   if(!s) return '';
   const badges=[];
-  const isNet = s.is_network===1 || s.is_strm===1 ||
-    (s.source_root && /netktv|网盘|115|cloud/i.test(s.source_root)) ||
-    (s.filepath && /netktv|网盘|115|ktv-output/i.test(s.filepath));
-  if(isNet) badges.push('<span class="badge-cloud" title="云端歌曲">'+getCloudSourceLabel(s)+'</span>');
+  // feat(tv-tag): 来源判定收紧——只有真正落在网盘/网络的曲目才标具体网盘；
+  // 避免把 netktv 已同步到本地的 _vocals.strm（filepath 在 /data 下）误标成"网盘"。
+  const _fp=s.filepath||'', _sr=s.source_root||'';
+  // 注意：netktv 曲目虽可能带 is_network=1，但 source_root 才是精确标识，需先于通用网盘判定
+  const isCloudMusic = /^netktv-music/i.test(_sr);            // 云音乐来源
+  const isNetktv = /^netktv(-mkv)?$/i.test(_sr);             // 网络KTV，已同步本地
+  const isCloud = !isCloudMusic && !isNetktv && (s.is_network===1 || s.source_type==='share' || /^alist:/i.test(_fp));
+  if(isCloudMusic) badges.push('<span class="badge-cloud" title="云音乐">云音乐</span>');
+  else if(isNetktv) badges.push('<span class="badge-cloud" title="网络KTV（已同步到本地）">网络KTV</span>');
+  else if(isCloud) badges.push('<span class="badge-cloud" title="云端歌曲">'+getCloudSourceLabel(s)+'</span>');
   // feat(tv-tag): 媒体格式标签改为始终按 filename/filepath 扩展名识别（新增 MPG/AVI/RMVB），
   // 不再把 media_type(audio/video) 误当格式而导致有 media_type 的歌曲不显示格式标签；
   // MPEG 归一为 MPG。media_type 仅在无扩展名时作为兜底提示。
@@ -5678,6 +5684,11 @@ function getSongBadges(s){
   else if(ext==='mpg'||ext==='avi'||ext==='rmvb') badges.push('<span class="badge-fmt">'+ext.toUpperCase()+'</span>');
   else if(ext && ['wav','ape','m4a','aac','ogg','wma'].indexOf(ext)>=0){
     badges.push('<span class="badge-mp3">'+ext.toUpperCase()+'</span>');
+  }
+  else if(!ext){
+    // feat(tv-tag): 扩展名无法识别时（如 netktv 的 <hash>_vocals.strm）用 media_type 兜底显示 视频/音频
+    if(s.media_type==='video') badges.push('<span class="badge-fmt">视频</span>');
+    else if(s.media_type==='audio'||s.media_type==='cue') badges.push('<span class="badge-mp3">音频</span>');
   }
   return badges.length ? '<span class="song-badges">'+badges.join('')+'</span>' : '';
 }
@@ -6312,7 +6323,8 @@ async function scanOnlineMusic(){
 // 关键字=整个曲库)拉回来直接渲染成一整屏 DOM，曲库大了以后明显卡顿。
 // 改成用服务端已经支持的 page/pageSize 分页参数，每页只要10首，翻页时
 // 重新请求那一页，DOM 里同一时间最多只有10行。
-const SEARCH_PG=10;let searchQ='',searchPg=1,searchTotalPages=1;
+// fix(tv-tag): 补声明搜索防抖计时器 st2——原代码漏声明，doSearch 首次 clearTimeout(st2) 即抛 ReferenceError，导致「歌名点歌」列表无法加载
+const SEARCH_PG=10;let searchQ='',searchPg=1,searchTotalPages=1,st2;
 function doSearch(q){searchQ=q;searchPg=1;clearTimeout(st2);st2=setTimeout(loadSearchPage,220);}
 async function loadSearchPage(){
   const params=new URLSearchParams();
