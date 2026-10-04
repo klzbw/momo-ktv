@@ -1179,6 +1179,160 @@ function init(db, cloudDrive) {
   return router;
 }
 
+/**
+ * feat(separated-302-direct, 2026-10-04): 分离FLAC曲库「cloud-drive 直扫」入口。
+ * 背景：内置 AList 的 115 驱动列 separated 目录时 115 API 返回 state:false（空目录
+ * 也被报 object not found），syncStrmViaAlist 依赖 AList 列目录 → separated 永远
+ * 无法入库。此函数改用 cloud-drive Pan115Driver 直接列 115（已实测 F1 cookie +
+ * UAIosApp 可列 separated 根 3112 个子目录、万首KTV 子目录 2816 个 mpg 同参数可列）。
+ * strm 正文写 /api/cloud/direct/<accountId>/<编码路径>（302 直连 CDN，与 mkv/mpg 同链路，
+ * tvOS VLC UDown UA 已验收 206），入库结构完全对齐 syncStrmViaAlist（vocal+accomp
+ * 双 flac 组合成一首歌、sep_status=done、audio_tracks=2）。幂等按 filename UNIQUE；
+ * 115 API 限频：每次列目录间隔 >=1200ms。
+ */
+async function syncSeparatedViaCloudDrive(cloudDrive, accountId, basePath, db, strmDir, sourceRoot = 'netktv') {
+  const manager = cloudDrive.manager;
+  const account = manager.getAccount(accountId);
+  if (!account) throw new Error(`账号不存在: ${accountId}`);
+  const driver = manager.getDriver(account);
+
+  // strm 对外基础地址（复用 share-import 的持久化文件机制；缺省 NAS 8083）
+  let publicBase = (process.env.SHARE_PUBLIC_BASE || '').replace(/\/+$/, '');
+  if (!publicBase) {
+    try {
+      const cfgFile = path.join(process.env.DATA_DIR || '/data', 'share_public_base.txt');
+      if (fs.existsSync(cfgFile)) publicBase = fs.readFileSync(cfgFile, 'utf-8').trim().replace(/\/+$/, '');
+    } catch (e) { /* ignore */ }
+  }
+  if (!publicBase) publicBase = 'http://192.168.3.16:8083';
+
+  if (!fs.existsSync(strmDir)) fs.mkdirSync(strmDir, { recursive: true });
+
+  syncStatus.running = true;
+  try {
+    const base = (basePath || '').replace(/\/+$/, '');
+    // 递归收集「歌曲目录」（含 vocal/accomp 的目录），最深 3 层。分离标准结构：
+    // /momo-ktv/separated/<sha16>/<歌手>-<歌名>-人声.flac（根 depth=0）
+    const songDirs = [];
+    const queue = [{ p: base, depth: 0 }];
+    while (queue.length) {
+      const { p, depth } = queue.shift();
+      let items = [];
+      try { items = await driver.listFiles(p); } catch (e) {
+        console.warn(`[SEP-DIRECT] 列目录失败 ${p}: ${e.message}`);
+        continue;
+      }
+      for (const it of items) {
+        if (it.isDir && depth < 3) queue.push({ p: p + '/' + it.name, depth: depth + 1 });
+      }
+      if (depth >= 1) songDirs.push({ name: p.split('/').pop(), fullPath: p, items });
+      // fix(115-waf): 115 API 动态限速，burst 立即 405，必须低频单发
+      await new Promise(r => setTimeout(r, 1200));
+    }
+
+    const presentKeys = new Set();
+    let createdStrm = 0, removedStrm = 0, addedSongs = 0, removedSongs = 0;
+    let consecutiveFailures = 0;
+    const MAX_CONSECUTIVE_FAILURES = 30;
+
+    syncStatus.total = songDirs.length;
+    syncStatus.processed = 0;
+    for (const dirInfo of songDirs) {
+      const songKey = dirInfo.name;
+      presentKeys.add(songKey);
+      syncStatus.currentDir = songKey;
+      syncStatus.processed++;
+      try {
+        const files = (dirInfo.items || []).filter(f => !f.isDir);
+        const vocalFile = files.find(f => isVocalFile(f.name));
+        const accompFile = files.find(f => isAccompFile(f.name));
+        if (!vocalFile || !accompFile) continue; // 空目录/缺轨 → 跳过
+        consecutiveFailures = 0;
+
+        const vPath = path.join(strmDir, `${songKey}_vocals.strm`);
+        const aPath = path.join(strmDir, `${songKey}_accomp.strm`);
+        // strm 正文 = cloud/direct 302 直连（相对路径整体 encodeURIComponent，保留前导 /）
+        const vContent = `${publicBase}/api/cloud/direct/${accountId}/${encodeURIComponent(dirInfo.fullPath + '/' + vocalFile.name)}\n`;
+        const aContent = `${publicBase}/api/cloud/direct/${accountId}/${encodeURIComponent(dirInfo.fullPath + '/' + accompFile.name)}\n`;
+
+        // 幂等：内容一致则不重写
+        let vChanged = true, aChanged = true;
+        try {
+          if (fs.existsSync(vPath) && fs.readFileSync(vPath, 'utf-8') === vContent) vChanged = false;
+          if (fs.existsSync(aPath) && fs.readFileSync(aPath, 'utf-8') === aContent) aChanged = false;
+        } catch (e) { /* 读失败则重写 */ }
+        if (vChanged) { fs.writeFileSync(vPath, vContent); createdStrm++; }
+        if (aChanged) { fs.writeFileSync(aPath, aContent); createdStrm++; }
+
+        const meta = parseFilename(vocalFile.name);
+        const vocalFilename = `${songKey}_vocals.strm`;
+        const existing = db.prepare('SELECT id, cloud_account_id FROM songs WHERE filename = ?').get(vocalFilename);
+
+        if (!existing) {
+          const now = new Date().toISOString();
+          const result = db.prepare(`
+            INSERT INTO songs (title, artist, filename, filepath, vocal_path, accomp_path, source_root, is_network, is_strm, media_type, audio_tracks, sep_status, align_status, lyrics_word, lyrics_source, cloud_account_id, duration, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, 'audio', 2, 'done', 'none', NULL, NULL, ?, NULL, ?)
+          `).run(meta.title, meta.artist, vocalFilename, vPath, vPath, aPath, sourceRoot, accountId, now);
+          db.prepare('INSERT OR IGNORE INTO song_artists (song_id, artist) VALUES (?, ?)').run(result.lastInsertRowid, meta.artist);
+          addedSongs++;
+          console.log(`[SEP-DIRECT] 新增: ${meta.artist} - ${meta.title} (id=${result.lastInsertRowid})`);
+        } else {
+          // 已入库：历史记录 cloud_account_id 为空则补写当前账号（网盘路由）
+          if (existing.cloud_account_id == null) {
+            db.prepare('UPDATE songs SET cloud_account_id=? WHERE id=?').run(accountId, existing.id);
+          }
+        }
+      } catch (e) {
+        console.warn(`[SEP-DIRECT] 处理 ${songKey} 失败:`, e.message);
+        syncStatus.errors.push({ dir: songKey, error: e.message });
+        consecutiveFailures++;
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          console.error(`[SEP-DIRECT] 连续 ${consecutiveFailures} 个目录失败，中止本轮以保护服务`);
+          break;
+        }
+      }
+    }
+
+    // 删除网盘已不存在的歌曲对应本地 strm（仅本账号 source_root）
+    let localFiles = [];
+    try { localFiles = fs.readdirSync(strmDir); } catch (e) { /* ignore */ }
+    for (const f of localFiles) {
+      const m = f.match(/^([a-f0-9]{16})_(vocals|accomp)\.strm$/i);
+      if (!m) continue;
+      const key = m[1];
+      if (presentKeys.has(key)) continue;
+      try {
+        const content = fs.readFileSync(path.join(strmDir, f), 'utf-8');
+        if (!content.includes('/api/cloud/direct/' + accountId + '/')) continue;
+      } catch (e) { continue; }
+      try { fs.unlinkSync(path.join(strmDir, f)); removedStrm++; } catch (e) { /* ignore */ }
+      if (m[2] === 'vocals') {
+        try {
+          const del = db.prepare('DELETE FROM songs WHERE source_root = ? AND cloud_account_id = ? AND filename = ?').run(sourceRoot, accountId, `${key}_vocals.strm`);
+          removedSongs += del.changes;
+        } catch (e) { /* ignore */ }
+      }
+    }
+
+    syncStatus.createdStrm = createdStrm;
+    syncStatus.removedStrm = removedStrm;
+    syncStatus.addedSongs = addedSongs;
+    syncStatus.removedSongs = removedSongs;
+    console.log(`[SEP-DIRECT] 完成: 目录=${songDirs.length} 新增strm=${createdStrm} 删除strm=${removedStrm} 入库=${addedSongs} 删库=${removedSongs}`);
+
+    if (addedSongs > 0) {
+      setImmediate(() => {
+        try { require('./auto-lyrics').afterScanAutoLyrics(db, { limit: 50 }); }
+        catch (e) { console.error('[AutoLyrics] separated-direct enqueue error:', e.message); }
+      });
+    }
+    return { songDirs: songDirs.length, createdStrm, removedStrm, addedSongs, removedSongs };
+  } finally {
+    syncStatus.running = false;
+  }
+}
+
 module.exports = {
   init,
   router,
@@ -1187,6 +1341,7 @@ module.exports = {
   syncStrmViaAlist,
   syncAllAccounts,
   syncMusicViaAlist,
+  syncSeparatedViaCloudDrive,
   importLocalStrm,
   parseFilename,
 };

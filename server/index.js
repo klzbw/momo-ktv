@@ -21663,11 +21663,13 @@ app.post('/api/admin/library-sources/roots/:idx/scan', requireAdminAuth, async (
       scanAutoFiles(cd, accountId, cloudPath, db, null, 0, root.dir).catch(e => console.error('[ADMIN-SCAN-AUTO]', e.message));
       return res.json({ ok: true, message: '自动识别扫描已开始', sourceRoot: root.dir, accountId, cloudPath });
     } else if (isFlac) {
-      // FLAC/分离曲库：先通过 AList 列网盘目录、在本地生成 .strm(正文=AList DAV URL)，再入库。
-      // 之前误调 scanSeparatedFiles（只读本地 strm），新云盘路径下没有本地 strm → 不生成 strm、tvOS 无法播放。
-      const { syncStrmViaAlist } = require('./netktv-scan');
-      syncStrmViaAlist(cd, accountId, cloudPath, db, path.join(process.env.DATA_DIR || '/data', 'netseparated-strm'), root.dir).catch(e => console.error('[ADMIN-SCAN-FLAC]', e.message));
-      return res.json({ ok: true, message: '分离FLAC扫描已开始（AList 同步+生成strm+入库）', sourceRoot: root.dir, accountId, cloudPath });
+      // FLAC/分离曲库：改用 cloud-drive 直扫（feat separated-302-direct）。
+      // 背景：AList 115 驱动列 separated 返回 state:false（空目录也报 object not found），
+      // 老 syncStrmViaAlist 永远无法入库。现在 strm 正文=/api/cloud/direct/<acctId>/<路径>，
+      // 302 直连 CDN（与 mkv/mpg 同链路，tvOS UDown UA 已验证 206）。
+      const { syncSeparatedViaCloudDrive } = require('./netktv-scan');
+      syncSeparatedViaCloudDrive(cd, accountId, cloudPath, db, path.join(process.env.DATA_DIR || '/data', 'netseparated-strm'), root.dir).catch(e => console.error('[ADMIN-SCAN-FLAC]', e.message));
+      return res.json({ ok: true, message: '分离FLAC扫描已开始（115直扫+生成strm+302直连入库）', sourceRoot: root.dir, accountId, cloudPath });
     } else if (isMusic) {
       const { syncMusicViaAlist } = require('./netktv-scan');
       const musicStrmDir = path.join(process.env.DATA_DIR || '/data', 'music-strm');
