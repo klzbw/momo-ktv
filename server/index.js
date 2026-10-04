@@ -12033,6 +12033,15 @@ function knownFormatExts() {
   return map;
 }
 
+// feat(format-submenu): "分离FLAC"流水线(syncStrmViaAlist)生成的歌曲，filename/filepath
+// 都是 <hash>_vocals.strm / <hash>_accomp.strm 指针；真实底层扩展名(.flac)只写在 strm
+// 正文的 AList DAV URL 里，SQL 无法读文件，故按该流水线固定目录约定归类为 FLAC。
+// 已核实容器内 /data/netseparated-strm 下全部 strm 均指向 .flac（356/356）。
+// 若将来分离流水线改用其它容器，在此表追加/修改即可（聚合端点与过滤共用，不会两处漂移）。
+const STRM_POINTER_FORMAT_RULES = [
+  { format: 'FLAC', filepathLike: '%netseparated-strm%' },
+];
+
 // feat(format-submenu): 构建"格式二级筛选" where 片段。
 // tbl 用于 artist JOIN 分支加表别名 s. 前缀（列名限定在子句内部生成）；
 // 所有 LIKE 模式走参数绑定（'%.mkv'），格式键是白名单常量，无注入面。
@@ -12041,15 +12050,24 @@ function knownFormatExts() {
 function buildFormatFilter(formatKey, tbl) {
   const key = String(formatKey || '').trim().toUpperCase();
   if (!key) return { clause: '', params: [] };
-  const col = (c) => (tbl ? tbl + '.' : '') + c;
+  const col = (c) => (tbl ? tbl + '.' : c);
   if (key === 'CUE') return { clause: `${col('media_type')} = 'cue'`, params: [] };
-  const exts = knownFormatExts().get(key);
-  if (!exts || !exts.length) return { clause: '', params: [] }; // 未知键=不过滤（安全兜底）
   const ors = [];
   const params = [];
-  for (const ext of exts) {
-    ors.push(`(LOWER(${col('filename')}) LIKE ? OR LOWER(${col('filepath')}) LIKE ?)`);
-    params.push('%' + ext, '%' + ext);
+  // feat(format-submenu): 先加"strm 指针目录约定"判定（分离FLAC 歌曲的 filename/filepath 无 .flac 后缀）
+  for (const rule of STRM_POINTER_FORMAT_RULES) {
+    if (rule.format === key) {
+      ors.push(`(${col('media_type')} = 'audio' AND LOWER(${col('filepath')}) LIKE ?)`);
+      params.push(rule.filepathLike);
+    }
+  }
+  const exts = knownFormatExts().get(key);
+  if (!ors.length && (!exts || !exts.length)) return { clause: '', params: [] }; // 未知键=不过滤（安全兜底）
+  if (exts) {
+    for (const ext of exts) {
+      ors.push(`(LOWER(${col('filename')}) LIKE ? OR LOWER(${col('filepath')}) LIKE ?)`);
+      params.push('%' + ext, '%' + ext);
+    }
   }
   return { clause: '(' + ors.join(' OR ') + ')', params };
 }
@@ -13297,6 +13315,12 @@ app.get('/api/songs/formats', (req, res) => {
     const where = songTypeClause(type);
     let caseSql = "CASE WHEN media_type = 'cue' THEN 'CUE'";
     const caseParams = [];
+    // feat(format-submenu): 分离FLAC strm 指针歌曲先按目录约定判定为 FLAC
+    // （filename/filepath 无 .flac 后缀，真实扩展名只在 strm 正文），须在通用扩展名匹配之前。
+    for (const rule of STRM_POINTER_FORMAT_RULES) {
+      caseSql += ` WHEN media_type = 'audio' AND LOWER(filepath) LIKE ? THEN '${rule.format}'`;
+      caseParams.push(rule.filepathLike);
+    }
     for (const [key, exts] of knownFormatExts()) {
       for (const ext of exts) {
         caseSql += ` WHEN LOWER(filename) LIKE ? OR LOWER(filepath) LIKE ? THEN '${key}'`;
