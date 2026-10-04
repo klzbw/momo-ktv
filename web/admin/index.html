@@ -5302,6 +5302,10 @@ async function loadAll(){
 
   await refreshList();
 
+  // feat(format-submenu): 修复首屏瑕疵——页面初始默认停在"全部"tab 时也主动拉一次格式分布，
+  // 否则二级菜单只显示"全部格式"、需手动重切 tab 才出现 MPG/FLAC。currentMediaType 初始为 ''=全部。
+  loadFormats();
+
 
 
 }
