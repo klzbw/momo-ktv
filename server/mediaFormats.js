@@ -5,9 +5,11 @@
 
 // 视频/带画面容器：原有 7 种 + 常见的 mpeg/m4v/ts/wmv/rmvb/vob。
 // 这些走原来的"视频轨 + 音频轨"HLS 管线，非 h264 编码由 hlsgen 自动转码。
+// feat(auto-scan): 增加 .iso（DVD/蓝光镜像整轨视频容器），随"自动识别全部媒体"一起入库。
 const VIDEO_EXT = [
   '.mp4', '.mkv', '.avi', '.flv', '.mov', '.webm', '.mpg',
   '.mpeg', '.m4v', '.ts', '.wmv', '.rmvb', '.rm', '.vob', '.3gp',
+  '.iso',
 ];
 
 // 纯音频容器：Debian bookworm 自带 ffmpeg 5.x 已内置这些解码器
@@ -17,6 +19,9 @@ const VIDEO_EXT = [
 const AUDIO_EXT = [
   '.mp3', '.flac', '.wav', '.ape', '.m4a', '.aac',
   '.ogg', '.wma', '.opus', '.aif', '.aiff',
+  // feat(auto-scan): DSD 原生音频（.dsf=DSD Stream File / .dff=DSIFF），
+  // 高采样率母带音频，ffmpeg 已内置解码器，随"自动识别全部媒体"按 audio 入库。
+  '.dsf', '.dff',
 ];
 
 // CUE 不是音频本身，而是"一张整轨大碟 + 每首歌起止时间"的索引文本，

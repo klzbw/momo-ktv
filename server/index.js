@@ -120,6 +120,9 @@ const { ensureHLS, removeHLS, outDir, waitForFile, onBuildComplete } = require('
 
 const sourceCache = require('./sourceCache');
 
+// feat(format-submenu): 格式二级筛选聚合端点与 /api/songs 的 format 过滤共用这份扩展名白名单
+const mediaFmt = require('./mediaFormats');
+
 
 
 
@@ -7381,6 +7384,19 @@ async function obtainLyrics(song, { forceOnline = false } = {}) {
     return { lrc: song.lyrics, source: song.lyrics_source || 'stored', lines: lyricsMod.parseLrc(song.lyrics).length };
   }
 
+  // fix(no-lyrics-video): KTV 视频自带内嵌字幕，永不触发在线歌词/逐句对齐。
+  // 现状 web 歌词已被 lyrics.js ENABLE_WEB_LYRICS 全局禁用、云歌词也仅 audio 分支，
+  // 视频本就不会匹配在线歌词；此守卫把意图显式化，防止将来重新开启 web 歌词后
+  // 视频被错误匹配在线歌词/网盘歌词。视频直接返回库内已有歌词(通常为 null)，
+  // 绝不进入 cloudLyrics/resolveLyrics；音频行为保持不变。
+  if (song.media_type === 'video') {
+    // 有 lyrics 则原样返回库内存储；无则 null。
+    if (song.lyrics) {
+      return { lrc: song.lyrics, source: song.lyrics_source || 'stored', lines: lyricsMod.parseLrc(song.lyrics).length };
+    }
+    return null;
+  }
+
   // 网盘同级目录优先读取逐字歌词（仅 audio 类型，MKV 不处理）
   if (song.media_type === 'audio') {
     try {
@@ -11984,6 +12000,60 @@ app.get('/api/songs/:id/source', (req, res) => {
 
 
 
+// feat(format-submenu): 主分类(视频/音频/云音乐/共享/全部) where 口径抽成纯函数，
+// 供 GET /api/songs 与 GET /api/songs/formats 共用，避免两处口径漂移；
+// 与 /api/stats 的 songCountVideo/Audio/CloudMusic/Shared 四角标逐字一致。
+function songTypeClause(mediaType) {
+  const mt = String(mediaType || '').trim();
+  return mt === 'video' ? "media_type = 'video' AND (source_root IS NULL OR source_root <> 'strm-shared') AND NOT (source_root LIKE 'netktv-music%')"
+    : mt === 'audio' ? "media_type IN ('audio','cue') AND NOT (source_root LIKE 'netktv-music%') AND (source_root IS NULL OR source_root <> 'strm-shared')"
+    : mt === 'cloud-music' ? "source_root LIKE 'netktv-music%' AND source_root <> 'strm-shared'"
+    : mt === 'shared' ? "source_root = 'strm-shared'"
+    : mt === 'all' ? ''
+    : "NOT (source_root LIKE 'netktv-music%')";
+}
+
+// feat(format-submenu): 扩展名 -> 格式键。.mpeg/.mpg 归一为 MPG（同一键），
+// 其余键=大写扩展名去点。CUE 分轨文件名形如 tag::相对路径/album.cue#T01（不以 .cue 结尾），
+// 不能走扩展名匹配，在过滤/聚合里单独按 media_type='cue' 处理。
+function formatKeyOfExt(ext) {
+  const e = String(ext || '').toLowerCase();
+  if (e === '.mpeg' || e === '.mpg') return 'MPG';
+  return e.replace(/^\./, '').toUpperCase();
+}
+
+// 已知格式键 -> 扩展名列表（保持 mediaFormats 原顺序、按键去重；.mpeg/.mpg 同键）
+function knownFormatExts() {
+  const map = new Map();
+  for (const ext of [...mediaFmt.VIDEO_EXT, ...mediaFmt.AUDIO_EXT]) {
+    const k = formatKeyOfExt(ext);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(ext.toLowerCase());
+  }
+  return map;
+}
+
+// feat(format-submenu): 构建"格式二级筛选" where 片段。
+// tbl 用于 artist JOIN 分支加表别名 s. 前缀（列名限定在子句内部生成）；
+// 所有 LIKE 模式走参数绑定（'%.mkv'），格式键是白名单常量，无注入面。
+// 同时匹配 filename 与 filepath：共享入库(.strm 指针)的 filename 是 .strm，但
+// filepath 形如 alist:/share-xxx/.../video.mpg，按底层媒体扩展名归类。
+function buildFormatFilter(formatKey, tbl) {
+  const key = String(formatKey || '').trim().toUpperCase();
+  if (!key) return { clause: '', params: [] };
+  const col = (c) => (tbl ? tbl + '.' : '') + c;
+  if (key === 'CUE') return { clause: `${col('media_type')} = 'cue'`, params: [] };
+  const exts = knownFormatExts().get(key);
+  if (!exts || !exts.length) return { clause: '', params: [] }; // 未知键=不过滤（安全兜底）
+  const ors = [];
+  const params = [];
+  for (const ext of exts) {
+    ors.push(`(LOWER(${col('filename')}) LIKE ? OR LOWER(${col('filepath')}) LIKE ?)`);
+    params.push('%' + ext, '%' + ext);
+  }
+  return { clause: '(' + ors.join(' OR ') + ')', params };
+}
+
 app.get('/api/songs', (req, res) => {
 
 
@@ -12204,25 +12274,16 @@ app.get('/api/songs', (req, res) => {
 
 
 
-  const typeClause = mediaType === 'video' ? "media_type = 'video' AND (source_root IS NULL OR source_root <> 'strm-shared') AND NOT (source_root LIKE 'netktv-music%')"
+  // feat(format-submenu): 主分类口径抽成了路由上方的 songTypeClause()，
+  // 此处改为调用 helper，与 /api/songs/formats 聚合端点共用同一份定义，避免两处漂移。
+  const typeClause = songTypeClause(mediaType);
 
-
-
-
-
-
-
-
-
-    : mediaType === 'audio' ? "media_type IN ('audio','cue') AND NOT (source_root LIKE 'netktv-music%') AND (source_root IS NULL OR source_root <> 'strm-shared')"
-
-    : mediaType === 'cloud-music' ? "source_root LIKE 'netktv-music%' AND source_root <> 'strm-shared'"
-
-    // fix(shared-tab): 新增"共享入库"分类，按 share-import 入库的 strm-shared 根筛选。
-    // 仍是白名单常量拼接（非用户输入），无注入面；与现有 if 链风格一致。
-    : mediaType === 'shared' ? "source_root = 'strm-shared'"
-    : mediaType === 'all' ? ''
-    : "NOT (source_root LIKE 'netktv-music%')";
+  // feat(format-submenu): 二级"格式"筛选 where 片段（GET /api/songs?format= 支持）。
+  // 普通分支列名不限定表；artist JOIN 分支用带 s. 前缀的同构子句。
+  // 两组 WHERE 片段完全等价、参数一致，按实际走的分支各推一次参数即可。
+  const formatParam = (req.query.format || '').trim();
+  const fmtFilter = buildFormatFilter(formatParam, '');
+  const fmtFilterS = buildFormatFilter(formatParam, 's');
 
 
 
@@ -12524,6 +12585,11 @@ app.get('/api/songs', (req, res) => {
 
     if (typeClause) where += typeClause.startsWith('NOT ') ? ` AND ${typeClause}` : ` AND s.${typeClause}`;
 
+    // feat(format-submenu): artist JOIN 分支用带 s. 前缀的子句（列名已在子句内限定），
+    // 与 typeClause 一致地按 startsWith('NOT ') 判定风格；参数紧随其后推入，保持 ? 顺序。
+    if (fmtFilterS.clause) where += fmtFilterS.clause.startsWith('NOT ') ? ` AND ${fmtFilterS.clause}` : ` AND ${fmtFilterS.clause}`;
+    if (fmtFilterS.params.length) params.push(...fmtFilterS.params);
+
 
 
 
@@ -12794,6 +12860,11 @@ app.get('/api/songs', (req, res) => {
 
     if (typeClause) where += ` AND ${typeClause}`;
 
+    // feat(format-submenu): 格式二级筛选与主分类同 AND 拼接（列名不限定表），
+    // 参数紧随其后推入，保持 ? 占位符顺序。
+    if (fmtFilter.clause) where += ` AND ${fmtFilter.clause}`;
+    if (fmtFilter.params.length) params.push(...fmtFilter.params);
+
 
 
 
@@ -12944,6 +13015,11 @@ app.get('/api/songs', (req, res) => {
 
     if (typeClause) where += ` AND ${typeClause}`;
 
+    // feat(format-submenu): 格式二级筛选与主分类同 AND 拼接（列名不限定表），
+    // 参数紧随其后推入，保持 ? 占位符顺序。
+    if (fmtFilter.clause) where += ` AND ${fmtFilter.clause}`;
+    if (fmtFilter.params.length) params.push(...fmtFilter.params);
+
 
 
 
@@ -13033,6 +13109,11 @@ app.get('/api/songs', (req, res) => {
 
 
     if (typeClause) where += ` AND ${typeClause}`;
+
+    // feat(format-submenu): 格式二级筛选与主分类同 AND 拼接（列名不限定表），
+    // 参数紧随其后推入，保持 ? 占位符顺序。
+    if (fmtFilter.clause) where += ` AND ${fmtFilter.clause}`;
+    if (fmtFilter.params.length) params.push(...fmtFilter.params);
 
 
 
@@ -13203,6 +13284,33 @@ app.get('/api/songs', (req, res) => {
 
 
 
+
+
+// feat(format-submenu): 主分类下的"格式"二级菜单聚合。
+// 口径与 /api/songs?type= 完全一致(复用 songTypeClause)，故各格式按钮数量之和恒等于
+// 主分类角标总数。CASE 白名单：CUE 按 media_type（filename 形如 tag::...#T01 不以 .cue 结尾）；
+// 其余按扩展名(同时匹配 filename/filepath，共享入库 .strm 指针的 filepath 指向底层 .mpg 等)；
+// .mpeg/.mpg 归一 MPG；未识别落 OTHER（仅在确有未识别文件时出现）。LIKE 全部参数绑定。
+app.get('/api/songs/formats', (req, res) => {
+  try {
+    const type = (req.query.type || 'all').trim();
+    const where = songTypeClause(type);
+    let caseSql = "CASE WHEN media_type = 'cue' THEN 'CUE'";
+    const caseParams = [];
+    for (const [key, exts] of knownFormatExts()) {
+      for (const ext of exts) {
+        caseSql += ` WHEN LOWER(filename) LIKE ? OR LOWER(filepath) LIKE ? THEN '${key}'`;
+        caseParams.push('%' + ext, '%' + ext);
+      }
+    }
+    caseSql += " ELSE 'OTHER' END";
+    const sql = `SELECT ${caseSql} AS fmt, COUNT(*) AS c FROM songs ${where ? 'WHERE ' + where : ''} GROUP BY fmt ORDER BY c DESC`;
+    const rows = db.prepare(sql).all(...caseParams);
+    res.json(rows.map(r => ({ format: r.fmt, count: r.c })));
+  } catch (e) {
+    res.status(500).json({ error: '格式聚合失败: ' + e.message });
+  }
+});
 
 
 // 最新入库：直接按 id 降序取前 N 首，避免拉回全部歌曲再排序导致的大数据量/解析失败
@@ -21524,7 +21632,13 @@ app.post('/api/admin/library-sources/roots/:idx/scan', requireAdminAuth, async (
     const mediaType = (cloud.mediaType || 'mkv').toLowerCase();
     const isFlac = mediaType === 'flac' || mediaType === 'separated' || root.dir === 'netktv';
     const isMusic = mediaType === 'music' || root.dir === 'netktv-music';
-    if (isFlac) {
+    // feat(auto-scan): 自动识别全部媒体（视频+音频混扫），走 scanAutoFiles 按扩展名落 media_type
+    if (mediaType === 'auto') {
+      const { scanAutoFiles } = require('./netktv-mkv-scan');
+      // 异步触发、立即返回（同 MKV 分支；扫描可能很长，不阻塞 HTTP）
+      scanAutoFiles(cd, accountId, cloudPath, db, null, 0, root.dir).catch(e => console.error('[ADMIN-SCAN-AUTO]', e.message));
+      return res.json({ ok: true, message: '自动识别扫描已开始', sourceRoot: root.dir, accountId, cloudPath });
+    } else if (isFlac) {
       // FLAC/分离曲库：先通过 AList 列网盘目录、在本地生成 .strm(正文=AList DAV URL)，再入库。
       // 之前误调 scanSeparatedFiles（只读本地 strm），新云盘路径下没有本地 strm → 不生成 strm、tvOS 无法播放。
       const { syncStrmViaAlist } = require('./netktv-scan');
@@ -21581,6 +21695,11 @@ app.post('/api/admin/library-sources/roots', requireAdminAuth, (req, res) => {
     }
     // mediaType -> source_root dir（允许多个网盘共用同一dir，入库时用 cloud_account_id 区分）
     const mt = String(mediaType || 'mkv').toLowerCase();
+    // feat(auto-scan): 显式支持 mt==='auto'——统一用 netktv-mkv 前缀
+    // （uniqueDir=netktv-mkv-c<hash>），复用 302 直连播放：sep-info 对
+    // startsWith('netktv-mkv-') 且有 cloud_account_id 的歌直接 302 到网盘直链，播放零改动；
+    // 分类不另设来源：入库按扩展名写 media_type，typeClause 按 media_type 判定，
+    // 视频自动落视频 tab、音频自动落音频 tab。
     const dirForType = (mt === 'flac' || mt === 'separated') ? 'netktv' : (mt === 'music' ? 'netktv-music' : 'netktv-mkv');
     const roots = getLibraryRoots();
     // 检查是否已添加相同账号+相同路径（避免重复）

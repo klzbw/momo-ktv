@@ -348,6 +348,13 @@ main{max-width:1500px;width:96vw;margin:0 auto;padding:24px}
 
 .media-btn .cnt{font-size:11px;opacity:.7;margin-left:4px}
 
+/* feat(format-submenu): 主分类下的"格式"二级菜单——比主 tab 小一号，配色沿用现有变量 */
+.format-toggle{display:flex;flex-wrap:wrap;gap:2px;padding:2px;margin:-4px 0 10px 0;flex-shrink:0;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:10px}
+.format-btn{background:transparent;border:none;color:var(--sub);font-size:12px;padding:0 10px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.format-btn.active{background:var(--accent);color:#fff}
+.format-btn:hover:not(.active){color:var(--text)}
+.format-btn .cnt{font-size:10px;opacity:.7;margin-left:4px}
+
 
 
 .search-box{
@@ -2346,6 +2353,13 @@ select option{color:#000}
 
   </div>
 
+  <!-- feat(format-submenu): 主分类下的"格式"二级筛选菜单。按钮来自
+       /api/songs/formats?type=<当前主分类>，数量之和恒等于主分类角标总数；
+       最左"全部格式"=不设 format 条件。初始只渲染"全部格式"，主分类切换后由 loadFormats() 填充。 -->
+  <div class="format-toggle" id="format-toggle">
+    <button class="format-btn active" data-format="" onclick="doFormatChange('')">全部格式</button>
+  </div>
+
 
 
   <div class="batch-bar">
@@ -3382,20 +3396,9 @@ select option{color:#000}
 
 
 
-        <select id="cloud-type-sel" style="padding:6px 8px;border-radius:8px;border:1px solid #444;background:#222;color:#eee">
-
-
-
-          <option value="mkv">MKV视频(多音轨)</option>
-
-
-
-          <option value="flac">分离FLAC(人声+伴奏)</option>
-          <option value="music">云音乐媒体(在线听歌)</option>
-
-
-
-        </select>
+        <!-- feat(auto-scan): 去掉手动"类型"下拉（原 mkv/flac/music 三选项），
+             网盘来源统一自动识别全部媒体（视频/音频），addCloudRoot 提交时 mediaType 固定 'auto' -->
+        <span style="font-size:12px;color:var(--sub)">🪄 自动识别全部媒体（视频/音频）</span>
 
 
 
@@ -5158,6 +5161,10 @@ let currentScope = '';
 
 let currentMediaType = '';
 
+// feat(format-submenu): 主分类下的"格式"二级筛选键（''=全部格式；如 MKV/MP4/CUE/MPG...）。
+// 切换主分类时会重置为 '' 并重新拉取该主分类下的格式分布，见 doMediaTypeChange/loadFormats。
+let currentFormat = '';
+
 
 
 let currentSort = 'play';
@@ -5351,6 +5358,9 @@ function currentSongsQuery(){
 
   if(currentMediaType) params.set('type', currentMediaType);
 
+  // feat(format-submenu): 选中具体格式时才带 format 参数；空=不筛选
+  if(currentFormat) params.set('format', currentFormat);
+
 
 
   if(currentSort !== 'play') params.set('sort', currentSort);
@@ -5426,7 +5436,9 @@ function doMediaTypeChange(value){
   var cloudLrcBtn = document.getElementById('batch-cloud-lyrics-btn');
   if(cloudLrcBtn) cloudLrcBtn.style.display = (value === 'cloud-music') ? '' : 'none';
 
-
+  // feat(format-submenu): 主分类切换后二级格式必然变化——重置格式选择并重新拉取格式分布
+  currentFormat = '';
+  loadFormats();
 
   currentPage = 1;
 
@@ -5450,7 +5462,34 @@ function doMediaTypeChange(value){
 
 }
 
+// feat(format-submenu): 拉当前主分类下的格式分布(/api/songs/formats?type=...)，渲染二级按钮。
+// "全部格式"恒在最左；其余按服务端返回(数量降序)渲染并带数量角标；
+// 数量之和=主分类角标总数。失败时静默退回只剩"全部格式"，不影响主列表。
+async function loadFormats(){
+  const box = document.getElementById('format-toggle');
+  if(!box) return;
+  let list = [];
+  try{
+    const r = await fetch('/api/songs/formats?type=' + encodeURIComponent(currentMediaType || 'all'));
+    if(r.ok) list = await r.json();
+  }catch(e){ /* 静默失败 */ }
+  let html = '<button class="format-btn' + (currentFormat ? '' : ' active') + '" data-format="" onclick="doFormatChange(\'\')">全部格式</button>';
+  (list || []).forEach(f=>{
+    // 格式键是服务端白名单常量(MKV/MP4/CUE/MPG...)，无注入面
+    html += '<button class="format-btn' + (f.format === currentFormat ? ' active' : '') + '" data-format="' + f.format + '" onclick="doFormatChange(\'' + f.format + '\')">' + f.format + '<span class="cnt">' + f.count + '</span></button>';
+  });
+  box.innerHTML = html;
+}
 
+// feat(format-submenu): 点格式按钮——记录格式、回第 1 页、刷新 active 态并刷新列表
+function doFormatChange(key){
+  currentFormat = key;
+  currentPage = 1;
+  document.querySelectorAll('#format-toggle .format-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.format === key);
+  });
+  refreshList();
+}
 
 function doSortChange(value){
 
@@ -9116,7 +9155,8 @@ async function addCloudRoot(){
 
 
 
-  const mediaType = document.getElementById('cloud-type-sel').value;
+  // feat(auto-scan): 不再读取已移除的"类型"下拉，提交 mediaType 固定 'auto'
+  const mediaType = 'auto';
 
 
 

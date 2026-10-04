@@ -25,6 +25,8 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+// feat(auto-scan): 自动识别扫描按扩展名判定视频/音频，复用 mediaFormats 的统一白名单
+const { mediaTypeOf } = require('./mediaFormats');
 
 const router = express.Router();
 
@@ -42,10 +44,12 @@ let scanStatus = {
 };
 
 /**
- * 从MKV文件名提取歌手和歌名
+ * 从媒体文件名提取歌手和歌名
+ * feat(auto-scan): 原写死只剥 .mkv 后缀；改为剥离任意扩展名，
+ * 让此解析对 mp4/flac/ape/iso 等任意媒体文件通用（.cue/.strm 不进此流程）。
  */
 function parseMkvFilename(filename) {
-  let name = filename.replace(/\.mkv$/i, '').trim();
+  let name = filename.replace(/\.[a-z0-9]+$/i, '').trim();
   let artist = '未知';
   let title = name;
 
@@ -122,6 +126,35 @@ async function collectMkvFilesRecursive(driver, dirPath, basePath, depth = 0, ma
     }
   } catch (e) {
     console.warn(`[NETKTV-MKV-SCAN] 递归扫描目录失败 ${dirPath}:`, e.message);
+  }
+  return results;
+}
+
+// feat(auto-scan): sibling 递归收集器——收集目录下所有可入库媒体实体文件
+// （mediaTypeOf(ext)!==null 的视频+音频；.cue/.strm 索引/指针文件不算媒体实体，
+//  不在这里收集），同时计算相对于 basePath 的 relativePath。
+async function collectMediaFilesRecursive(driver, dirPath, basePath, depth = 0, maxDepth = 10) {
+  if (depth > maxDepth) return [];
+  const results = [];
+  try {
+    const items = await driver.listFiles(dirPath);
+    for (const item of items) {
+      if (item.isDir) {
+        const subPath = dirPath === '/' ? '/' + item.name : dirPath + '/' + item.name;
+        const subFiles = await collectMediaFilesRecursive(driver, subPath, basePath, depth + 1, maxDepth);
+        results.push(...subFiles);
+      } else {
+        const ext = ('.' + String(item.name || '').split('.').pop()).toLowerCase();
+        if (mediaTypeOf(ext) === null) continue; // 非视频/音频（含 cue/strm）跳过
+        // 计算相对于 basePath 的路径（与 collectMkvFilesRecursive 同口径）
+        const relPath = dirPath.startsWith(basePath)
+          ? dirPath.substring(basePath.length).replace(/^\//, '') + '/' + item.name
+          : item.name;
+        results.push({ ...item, relativePath: relPath.replace(/^\//, ''), mediaExt: ext });
+      }
+    }
+  } catch (e) {
+    console.warn(`[NETKTV-AUTO-SCAN] 递归扫描目录失败 ${dirPath}:`, e.message);
   }
   return results;
 }
@@ -221,6 +254,135 @@ async function scanMkvFiles(cloudDrive, accountId, basePath, db, strmDir, limit 
 
   } catch (e) {
     console.error('[NETKTV-MKV-SCAN] 扫描失败:', e);
+    scanStatus.errors.push({ dir: basePath, error: e.message });
+    scanStatus.endTime = new Date();
+  } finally {
+    scanStatus.running = false;
+    scanStatus.currentFile = null;
+  }
+
+  return scanStatus;
+}
+
+/**
+ * feat(auto-scan): 自动识别扫描——同一个网盘根目录下混有视频(mkv/mp4/iso...)与音频(flac/ape/dsf...)，
+ * 不再要求管理员手动区分类型。入库字段口径与 scanMkvFiles 完全一致
+ * (is_network=1, is_strm=1, cloud_account_id, filepath=完整网盘路径, duration 留 null, created_at,
+ *  同步 song_artists)，去重口径相同(source_root + cloud_account_id + filename)；
+ * 唯一差别是 media_type 按扩展名落位：视频→media_type='video', audio_tracks=2；
+ * 音频→media_type='audio', audio_tracks=null。
+ *
+ * 与 scanMkvFiles 共用模块级 scanStatus（二者互斥触发，路由层已防重入）。
+ */
+async function scanAutoFiles(cloudDrive, accountId, basePath, db, strmDir, limit = 0, sourceRoot = 'netktv-mkv') {
+  scanStatus = {
+    running: true,
+    total: 0,
+    processed: 0,
+    added: 0,
+    skipped: 0,
+    errors: [],
+    currentFile: null,
+    startTime: new Date(),
+    endTime: null,
+  };
+
+  try {
+    const manager = cloudDrive.manager;
+    const account = manager.getAccount(accountId);
+    if (!account) {
+      throw new Error(`网盘账号不存在: ${accountId}`);
+    }
+    const driver = manager.getDriver(account);
+
+    console.log(`[NETKTV-AUTO-SCAN] 开始自动识别递归扫描: ${basePath} (账号ID=${accountId}, 账号=${account.name}, sourceRoot=${sourceRoot})`);
+
+    // 递归收集所有视频+音频媒体实体文件（含子目录），不含 cue/strm
+    const allMediaFiles = await collectMediaFilesRecursive(driver, basePath, basePath);
+    console.log(`[NETKTV-AUTO-SCAN] 递归扫描完成，共找到 ${allMediaFiles.length} 个媒体文件（视频+音频，含子目录）`);
+
+    let mediaFiles = allMediaFiles;
+    if (limit > 0) {
+      mediaFiles = mediaFiles.slice(0, limit);
+    }
+
+    scanStatus.total = mediaFiles.length;
+
+    for (const fileInfo of mediaFiles) {
+      const filename = fileInfo.name;
+      scanStatus.currentFile = filename;
+      scanStatus.processed++;
+
+      try {
+        const meta = parseMkvFilename(filename);
+        // 按扩展名判定 media_type（白名单来自 mediaFormats）；音频 audio_tracks=null（走动态背景+AI对齐），视频沿用双音轨假设=2
+        const mediaType = mediaTypeOf(fileInfo.mediaExt) || 'video';
+        const audioTracks = mediaType === 'video' ? 2 : null;
+
+        // 去重口径同 scanMkvFiles（同一 source_root + 账号 + 文件名不重复入库）
+        const existing = db.prepare(`
+          SELECT id FROM songs WHERE source_root = ? AND cloud_account_id = ? AND filename = ?
+        `).get(
+          sourceRoot,
+          accountId,
+          filename
+        );
+
+        if (existing) {
+          scanStatus.skipped++;
+          continue;
+        }
+
+        // 完整网盘路径（含 basePath 和子目录），播放时由 302 直连播放
+        // （auto 来源 source_root=netktv-mkv-c<hash>，sep-info 按 startsWith('netktv-mkv-') 路由，零改动）
+        const fullPath = basePath.replace(/\/$/, '') + '/' + (fileInfo.relativePath || filename);
+
+        // 入库（media_type/audio_tracks 按扩展名落位，其余字段与 scanMkvFiles 一致）
+        const now = new Date().toISOString();
+        const result = db.prepare(`
+          INSERT INTO songs (title, artist, filename, filepath, source_root, is_network, is_strm, media_type, audio_tracks, cloud_account_id, duration, created_at)
+          VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?)
+        `).run(
+          meta.title,
+          meta.artist,
+          filename,
+          fullPath,
+          sourceRoot,
+          mediaType,
+          audioTracks,
+          accountId,
+          null, // duration 留空：点歌/预热时由 ensureProbedOnDemand 真实探测回写（同 scanMkvFiles）
+          now
+        );
+
+        // 同步歌手到 song_artists 表（同 scanMkvFiles）
+        db.prepare('INSERT OR IGNORE INTO song_artists (song_id, artist) VALUES (?, ?)').run(result.lastInsertRowid, meta.artist);
+
+        scanStatus.added++;
+
+        if (scanStatus.added % 500 === 0) {
+          console.log(`[NETKTV-AUTO-SCAN] 进度: ${scanStatus.processed}/${scanStatus.total} 新增: ${scanStatus.added}`);
+        }
+
+      } catch (e) {
+        console.error(`[NETKTV-AUTO-SCAN] 处理 ${filename} 失败:`, e.message);
+        scanStatus.errors.push({ file: filename, error: e.message });
+      }
+    }
+
+    scanStatus.endTime = new Date();
+    console.log(`[NETKTV-AUTO-SCAN] 扫描完成: 总计=${scanStatus.total} 新增=${scanStatus.added} 跳过=${scanStatus.skipped} 错误=${scanStatus.errors.length}`);
+
+    // feat(auto-scan): 扫描收尾触发自动歌词流水线——其中 audio 走歌词对齐，
+    // 视频(media_type='video')在该模块内会被自然跳过（它只处理 audio），无需在此额外过滤。
+    try {
+      require('./auto-lyrics').afterScanAutoLyrics(db, { limit: 100 });
+    } catch (e) {
+      console.warn('[NETKTV-AUTO-SCAN] afterScanAutoLyrics 触发失败(不影响入库):', e.message);
+    }
+
+  } catch (e) {
+    console.error('[NETKTV-AUTO-SCAN] 扫描失败:', e);
     scanStatus.errors.push({ dir: basePath, error: e.message });
     scanStatus.endTime = new Date();
   } finally {
@@ -378,4 +540,4 @@ function init(db, cloudDrive) {
   return router;
 }
 
-module.exports = { init, router, scanMkvFiles, scanMkvAllAccounts, parseMkvFilename, migrateOldStrmData };
+module.exports = { init, router, scanMkvFiles, scanMkvAllAccounts, parseMkvFilename, migrateOldStrmData, scanAutoFiles };
