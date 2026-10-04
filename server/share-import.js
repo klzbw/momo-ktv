@@ -31,6 +31,8 @@ const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 const crypto = require('crypto');
+// 关联：个人盘好链302方案——调用 Go 链接助手（downurl_helper 取链+1KB验证+缓存）
+const { execFile } = require('child_process');
 // fix(share-media-type): 复用统一扩展名判定，入库时回写 media_type（与 scanner.js 同源）
 const { mediaTypeOf } = require('./mediaFormats');
 const router = express.Router();
@@ -1200,6 +1202,31 @@ function _proxyCdnToClient(cdnUrl, clientReq, clientRes, rule) {
 }
 
 /**
+ * 调用 Go 链接助手获取"已验证可裸206"的好链（关联：个人盘 mpg/mkv 302直连零中转）
+ * - helper 内部做 downurl + 1KB Range 验证 + 文件缓存（多用户共享，命中零请求）
+ * - 返回 { ok, url, error }；ok=false 时 url 可能是最后一次链接（仍可让播放器尝试）
+ */
+function getGoodLink(pickcode) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    try {
+      const child = execFile('/data/downurl_helper', [], { timeout: 60000 }, (err, stdout) => {
+        try {
+          done(JSON.parse(String(stdout)));
+        } catch (e) {
+          done({ ok: false, url: '', error: err ? err.message : 'helper无输出' });
+        }
+      });
+      child.stdin.write(JSON.stringify({ pickcode: String(pickcode) }));
+      child.stdin.end();
+    } catch (e) {
+      done({ ok: false, url: '', error: e.message });
+    }
+  });
+}
+
+/**
  * 分享文件直链播放（代理 Alist /d/ 端点）
  * - webdav_policy=native_proxy 时 AList 直接返回 200，保持原有 pipe 逻辑
  * - 302 到 CDN 后：quark/uc/115（CDN 校验 Referer/UA）由服务端带正确 Referer/UA 字节中转；
@@ -1208,6 +1235,16 @@ function _proxyCdnToClient(cdnUrl, clientReq, clientRes, rule) {
  */
 router.get('/stream/*', async (req, res) => {
   try {
+    // 个人盘好链直连：STRM 带 ?pc=<pickcode> 时，走链接助手，完全绕过易坏的 alist /d
+    const pc = req.query.pc;
+    if (pc) {
+      const r = await getGoodLink(pc);
+      if (r.url) {
+        console.log(`[ShareStream] pc好链302 ok=${r.ok} pc=${pc} ${r.error ? 'note:' + r.error : ''}`);
+        return res.redirect(302, r.url);
+      }
+      return res.status(502).json({ error: '好链获取失败: ' + (r.error || '未知') });
+    }
     const alistPath = '/' + (req.params[0] || '');
     const alistUrl = _alistUrl + '/d' + alistPath;
     const userAgent = req.get('User-Agent') || 'Mozilla/5.0';
