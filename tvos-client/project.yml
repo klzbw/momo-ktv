@@ -11,8 +11,8 @@ settings:
     TARGETED_DEVICE_FAMILY: "3"
     SDKROOT: appletvos
     GENERATE_INFOPLIST_FILE: YES
-    MARKETING_VERSION: "1.0.13"   # feat(tvos-format-tag): 版本 1.0.12 -> 1.0.13
-    CURRENT_PROJECT_VERSION: "14"  # feat(tvos-format-tag): build 13 -> 14
+    MARKETING_VERSION: "1.0.15"   # feat(tvos-cleanup): 版本 1.0.14 -> 1.0.15，移除 diag HUD/百分比参考线、关闭间奏预判音符域
+    CURRENT_PROJECT_VERSION: "16"  # feat(tvos-cleanup): build 15 -> 16
     INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
     INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
     INFOPLIST_KEY_UILaunchScreen_Generation: YES

@@ -714,12 +714,9 @@ struct LyricsView: View {
                 // 2) 音符与预备歌词同一排(歌词左→音符右、歌词右→音符左)，比歌词行高略上移一点，
                 //    不另占排、不重叠、不跳排。
                 // 无下一句(末句唱完)时末句在原地羽化保留——位置与正常演唱一致、不突兀消失。
-                let hintCount: Int = {
-                    if il.wait > 4.0 { return 3 }
-                    if il.wait > 3.0 { return 2 }
-                    if il.wait > 2.0 { return 1 }
-                    return 0
-                }()
+                // 【2026-10-05 用户要求】关闭间奏预判音符域：hintCount 恒为 0，music.note
+                // 音符不再渲染（下方 if hintCount > 0 全部不成立）；双排结构/预备歌词逻辑原样保留。
+                let hintCount: Int = 0
                 let hintView = HStack(spacing: compact ? 8 : 18) {
                     ForEach(0..<hintCount, id: \.self) { idx in
                         Image(systemName: "music.note")

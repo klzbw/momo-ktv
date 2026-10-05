@@ -255,26 +255,10 @@ struct FullPlayerView: View {
                 // 内部 Spacer 不膨胀 → 预备句+音符/占位符停留在屏幕中部/左上角，随内容多少上下跳动。
                 // 现在显式钉死歌词区=全屏高(Spacer 一定膨胀→内容恒贴底部两行)，彻底解决"未唱在左上/开唱跳左下"。
                 GeometryReader { lyricsGeo in
-                    // 【2026-10-01 v1.0.11 诊断参考线】屏幕垂直坐标标尺：
-                    // 画 y=55%..100% 每5%一条水平红线+黄色百分比标注，用户截图后可直接报
-                    // "歌词底边压在哪条线"，据此精确计算歌词区实际位置偏差，一次修到位。
+                    // 【2026-10-01 v1.0.12】歌词层 overlay(alignment:.bottom) 官方底部对齐，
+                    // posV 0→底部、60→屏幕最上(线性)，用全屏高度计算。
                     ZStack {
                         Color.clear
-                        ForEach([55.0, 60.0, 65.0, 70.0, 75.0, 80.0, 85.0, 90.0, 95.0, 100.0], id: \.self) { pct in
-                            let y = lyricsGeo.size.height * pct / 100.0
-                            HStack(spacing: 6) {
-                                Text(String(format: "%d%%", Int(pct)))
-                                    .font(.system(size: 15, weight: .bold))
-                                    .foregroundColor(.yellow)
-                                    .shadow(color: .black, radius: 1)
-                                Rectangle()
-                                    .fill(Color.red.opacity(0.55))
-                                    .frame(height: 2)
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .padding(.horizontal, 8)
-                            .position(x: lyricsGeo.size.width / 2, y: y)
-                        }
                         // 歌词层：overlay(alignment:.bottom) 官方底部对齐（1.0.10 已验证基本贴底）
                         // 【2026-10-01 v1.0.12】外部整体偏移：posV 0→底部、60→屏幕最上(线性),
                         // 用全屏高度计算,不再受歌词区30%H限制——遥控端滑块0-60与tvOS一一对应。
@@ -289,14 +273,6 @@ struct FullPlayerView: View {
                             }
                             .offset(y: -LyricsStyleStore.shared.posV / 60.0 * lyricsGeo.size.height)
                             .animation(.easeOut(duration: 0.18), value: LyricsStyleStore.shared.posV)
-                        // 诊断HUD(临时·v1.0.11)：左上角显示GeometryReader尺寸与posV
-                        Text(String(format: "diag %.0fx%.0f posV=%.0f",
-                                    lyricsGeo.size.width, lyricsGeo.size.height,
-                                    LyricsStyleStore.shared.posV))
-                            .font(.system(size: 20))
-                            .foregroundColor(.green)
-                            .position(x: 170, y: 44)
-                            .allowsHitTesting(false)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
