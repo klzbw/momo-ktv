@@ -29903,8 +29903,28 @@ setInterval(() => {
 
     const runSync = async () => {
       try {
-        const { syncAllAccounts } = require('./netktv-scan');
-        await syncAllAccounts(cloudDrive, basePath, db, strmDir, 'netktv');
+        // feat(separated-fix): 定时同步器改用 cloud-drive 直扫。
+        // 老 syncAllAccounts→syncStrmViaAlist 走 AList，而 AList 115 驱动列 separated
+        // 恒返回 state:false(object not found)，导致分离 FLAC 永远 0 首入库。
+        // 新 syncSeparatedViaCloudDrive 用 Pan115Driver 直扫 115，strm 指向
+        // /api/cloud/direct/<acctId>/<path> 302 直连（与 mkv/mpg 同链路）。
+        const { syncSeparatedViaCloudDrive } = require('./netktv-scan');
+        let accountId = 3;
+        let sepRootDir = 'netktv';
+        try {
+          const roots = getLibraryRoots() || [];
+          const sepRoot = roots.find(r => {
+            const m = ((r.cloud || {}).mediaType || '').toLowerCase();
+            return m === 'flac' || m === 'separated' || r.dir === 'netktv';
+          });
+          if (sepRoot) {
+            if (sepRoot.cloud && sepRoot.cloud.accountId) accountId = Number(sepRoot.cloud.accountId);
+            if (sepRoot.dir) sepRootDir = sepRoot.dir;
+          }
+        } catch (e) {
+          log.warn('NETKTV-SYNC', '定位 separated 来源失败，用默认账号: ' + e.message);
+        }
+        await syncSeparatedViaCloudDrive(cloudDrive, accountId, basePath, db, strmDir, sepRootDir);
       } catch (e) {
         log.warn('NETKTV-SYNC', '定时同步失败(不影响运行): ' + e.message);
       }
