@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'tvOS-client/**'
+      - 'tvos-client/**'
       - '.github/workflows/build-tvos.yml'
   workflow_dispatch:
 
@@ -18,7 +18,7 @@ jobs:
     runs-on: macos-14
     defaults:
       run:
-        working-directory: tvOS-client
+        working-directory: tvos-client
 
     steps:
       - uses: actions/checkout@v4
@@ -87,5 +87,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: MomoKtvTV-unsigned
-          path: tvOS-client/MomoKtvTV.ipa
+          path: tvos-client/MomoKtvTV.ipa
           retention-days: 30
