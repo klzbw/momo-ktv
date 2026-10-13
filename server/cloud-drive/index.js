@@ -2965,11 +2965,17 @@ router.get('/transcode-mpg/:accountId/*', requireManager, async (req, res) => {
 
     console.log('[transcode-mpg] start account=' + accountId + ' dual=' + dual + ' path=' + filePath);
 
+    // ffmpeg 不从外部 CDN URL 直拉（115 CDN 校验 UA/TLS 指纹，ffmpeg 拉会 403），
+    // 改为从 server 自己的 /api/cloud/115-direct/*?proxy=1 localhost 拉流
+    // （Node.js proxyCdnToClient 已验证能正确处理 115 CDN 的 UA/CORS/Range）。
+    const innerUrl = 'http://127.0.0.1:' + (process.env.PORT || 8080) +
+      '/api/cloud/115-direct/' + accountId + '/' + encodeURIComponent(filePath) + '?proxy=1';
+
     // 构造 ffmpeg 参数
     const args = [
-      '-loglevel', 'error',
+      '-loglevel', 'warning',
       '-user_agent', clientUA,
-      '-i', cdnUrl,
+      '-i', innerUrl,
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-tune', 'zerolatency',
