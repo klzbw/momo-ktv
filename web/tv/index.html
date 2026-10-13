@@ -278,6 +278,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js" defer></script>
 <script src="mpg123-decoder.min.js" charset="UTF-8"></script>
 <script src="mkv-player.js?v=20260919-6"></script>
+<script src="mpg-transcode-player.js?v=20261013-1"></script>
 <style>
 :root{
   --bg:#07071a;--navy:#0d0d2b;
@@ -3198,7 +3199,11 @@ const VoiceManager = (() => {
       if (mode === MODE.MSE_MKV) mode = MODE.UNKNOWN;
     },
     /** DUAL：连续设置人声音量 0(纯伴奏)..1(原唱)，滑块拖动时实时调用 */
-    setVocal(v,x){ setVocalLevel(x); },
+    setVocal(v,x){
+      // MPG 转码播放器：左声道=原唱 右声道=伴唱，x=1→balance=0(原唱满)，x=0→balance=100(伴唱满)
+      if(window._mpgTcPlayer){ try{ window._mpgTcPlayer.setVocalBalance((1 - x) * 100); }catch(e){} return; }
+      setVocalLevel(x);
+    },
     get dualActive(){ return dualActive; },
     get vocalLevel(){ return dualLevel; },
     /** 直接选到指定档位（0原唱…最后一档纯伴奏） */
@@ -4023,6 +4028,8 @@ async function loadSong(v,songId,needsDownload){
   // 切歌：销毁上一首的 MSE MKV 播放器（释放 fetch/SourceBuffer/MediaSource）
   if(_mseMkvPlayer){ try{ _mseMkvPlayer.destroy(); }catch(e){} _mseMkvPlayer=null; }
   try{ VoiceManager.exitMseMkv(); }catch(e){}
+  // 切歌：销毁上一首的 MPG 转码播放器（杀 ffmpeg fetch + MSE + AudioContext）
+  if(window._mpgTcPlayer){ try{ window._mpgTcPlayer.destroy(); }catch(e){} window._mpgTcPlayer=null; }
   // 【禁HLS(2026-10-01)】不再构造 HLS URL：纯音频歌走双FLAC连续滑块，MKV/MP4 走 MSE/DIRECT 直连
   const _dualIsVideo = BG_VIDEO_RE.test((curSong && (curSong.filename||curSong.filepath)) || '');
   if(!_dualIsVideo){ try{ VoiceManager.prepareDual(songId); }catch(e){} try{ updateSepButton(songId); }catch(e){} }
@@ -4036,6 +4043,29 @@ async function loadSong(v,songId,needsDownload){
       // 决定是否尝试 MSE 硬解直连、用哪个源、是否本地歌：
       //  - 网络 netktv-mkv：sepJ.videoUrl（/115-direct/ 加 ?proxy=1 走 NAS 同源字节管道）
       //  - 本地 MKV/MP4（_isLocalVideoMse 命中、非云端/strm）：同源 /stream/:id 字节直传，服务端不转码
+      // ── MPG (MPEG-PS) server 实时转码播放（浏览器原生不支持 MPEG-PS/MPEG-2/MP2）──
+      const _isMpg = /\.(mpg|mpeg|vob)$/i.test((curSong.filename||curSong.filepath||''));
+      if(_isMpg && sepJ && sepJ.videoUrl && window.MpgTranscodePlayer){
+        console.log('[loadSong] MPG 转码播放:', sepJ.videoUrl);
+        const tcPlayer = new MpgTranscodePlayer();
+        tcPlayer.attachMedia(v);
+        // /api/cloud/115-direct/3/path → /api/cloud/transcode-mpg/3/path?dual=1
+        let tcUrl = sepJ.videoUrl.replace('/115-direct/', '/transcode-mpg/');
+        tcUrl += (tcUrl.indexOf('?')>=0?'&':'?') + 'dual=1';
+        try{
+          try{ v.muted=true; v.volume=0; }catch(e){}
+          await tcPlayer.load(tcUrl);
+          if(!curSong||curSong.song_id!==songId){ tcPlayer.destroy(); window._mpgTcPlayer=null; return; }
+          window._mpgTcPlayer = tcPlayer;
+          if(!isPaused) tryAutoplay(v, songId);
+          return; // 不走 MSE-MKV / DIRECT_MKV
+        }catch(e){
+          console.warn('[MPG-TC] load failed, fallback:', e.message);
+          try{ tcPlayer.destroy(); }catch(_e){}
+          window._mpgTcPlayer = null;
+          // fall through 到原有 MSE-MKV / DIRECT_MKV 链路
+        }
+      }
       let _mseSrc=null, _mseIsLocal=false, _mseTracks=(sepJ&&sepJ.audioTracks)||2;
       if(sepJ&&sepJ.isNetKtvMkv&&sepJ.videoUrl){
         _mseSrc=withCloudProxy(sepJ.videoUrl);

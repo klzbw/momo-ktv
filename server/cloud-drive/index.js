@@ -33,7 +33,7 @@ const https = require('https');
 
 const { URL } = require('url');
 
-
+const { spawn } = require('child_process');
 
 const CloudDriveManager = require('./manager');
 
@@ -2926,6 +2926,112 @@ router.get('/115-direct/:accountId/*', requireManager, async (req, res) => {
 
   }
 
+});
+
+
+/**
+ * GET /api/cloud/transcode-mpg/:accountId/*
+ *
+ * 实时转码 MPEG-PS (.mpg/.vob) → fragmented MP4 (H.264+AAC)，喂浏览器 MSE。
+ * 浏览器原生不支持 MPEG-PS/MPEG-2/MP2，此路由用 ffmpeg 在 NAS 端实时转封装+转码。
+ * 注意：这会占用 NAS CPU/带宽（违反零中转死约束，仅 MPG 走此路，MKV/MP4/FLAC 仍 302 直连）。
+ *
+ * 双音轨：用 join filter 把 track0(原唱) 放左声道、track1(伴唱) 放右声道，
+ * 前端 WebAudio ChannelSplitter + 两个 GainNode 实现 0-100 滑块切换。
+ *
+ * Query: ?dual=1  启用双声道混合（左=原唱 右=伴唱）；?dual=0 只输出第一条音轨
+ */
+router.get('/transcode-mpg/:accountId/*', requireManager, async (req, res) => {
+  try {
+    const accountId = parseInt(req.params.accountId, 10);
+    let filePath = req.params[0] || '';
+    try { filePath = decodeURIComponent(filePath); } catch (e) { /* already decoded */ }
+
+    const account = manager.getAccount(accountId);
+    if (!account) return res.status(404).json({ error: 'cloud account not found: ' + accountId });
+
+    const clientUA = req.get('User-Agent') || 'MomoKtv';
+    const dual = req.query.dual !== '0'; // 默认双声道
+
+    // 拿 CDN 直链（复用缓存）
+    const cachedUrl = getCachedDirectUrl(accountId, filePath, clientUA);
+    let cdnUrl = cachedUrl;
+    if (!cdnUrl) {
+      const driver = manager.getDriverById(accountId);
+      const r = await driver.getDownloadUrlByPath(filePath, clientUA);
+      cdnUrl = r.url;
+      setCachedDirectUrl(accountId, filePath, cdnUrl, r.expiresAt, clientUA);
+    }
+
+    console.log('[transcode-mpg] start account=' + accountId + ' dual=' + dual + ' path=' + filePath);
+
+    // 构造 ffmpeg 参数
+    const args = [
+      '-loglevel', 'error',
+      '-user_agent', clientUA,
+      '-i', cdnUrl,
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-tune', 'zerolatency',
+      '-crf', '23',
+      '-pix_fmt', 'yuv420p',
+    ];
+
+    if (dual) {
+      // track0(原唱) → 左声道，track1(伴唱) → 右声道
+      args.push(
+        '-filter_complex',
+        '[0:a:0]aformat=channel_layouts=mono,aresample=44100[vo];[0:a:1]aformat=channel_layouts=mono,aresample=44100[ao];[vo][ao]join=inputs=2:channel_layout=stereo[out]',
+        '-map', '0:v:0',
+        '-map', '[out]',
+      );
+    } else {
+      args.push('-map', '0:v:0', '-map', '0:a:0');
+    }
+
+    args.push(
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-ac', '2',
+      '-f', 'mp4',
+      '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+      'pipe:1'
+    );
+
+    res.writeHead(200, {
+      'Content-Type': 'video/mp4',
+      'Cache-Control': 'no-cache, no-store',
+    });
+
+    const ff = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let killed = false;
+
+    ff.stdout.on('data', (chunk) => {
+      if (!res.writableEnded) res.write(chunk);
+    });
+    ff.stderr.on('data', (d) => {
+      const line = d.toString().trim();
+      if (line) console.log('[transcode-mpg] ffmpeg:', line.substring(0, 300));
+    });
+    ff.on('close', (code) => {
+      console.log('[transcode-mpg] ffmpeg exit code=' + code + ' path=' + filePath);
+      if (!res.writableEnded) res.end();
+    });
+    ff.on('error', (e) => {
+      console.error('[transcode-mpg] spawn failed:', e.message);
+      if (!res.headersSent) res.status(500).json({ error: 'ffmpeg spawn failed: ' + e.message });
+      else if (!res.writableEnded) res.end();
+    });
+
+    req.on('close', () => {
+      if (!killed) { killed = true; try { ff.kill('SIGKILL'); } catch (e) {} }
+    });
+
+  } catch (e) {
+    console.error('[transcode-mpg] error:', e.message);
+    if (!res.headersSent) res.status(500).json({ error: e.message });
+    else if (!res.writableEnded) res.end();
+  }
 });
 
 
