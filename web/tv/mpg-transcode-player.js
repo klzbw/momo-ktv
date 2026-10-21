@@ -106,9 +106,54 @@
         this.audioCtx.resume().catch(() => {});
       }
 
-      // video.captureStream → MediaStreamAudioSource
-      const stream = this.video.captureStream ? this.video.captureStream() : this.video.mozCaptureStream();
-      const src = this.audioCtx.createMediaStreamSource(stream);
+      // video.captureStream → MediaStreamSource（桌面 Chrome/Android 路径）
+      // 【iOS 修复 2026-10-22】iOS Safari 的 HTMLVideoElement 没有 captureStream()，
+      // 若不分支会直接抛 TypeError 导致无声。iOS 回退到 createMediaElementSource：
+      // 它在 iOS Safari 受支持，把 video 输出接管进同一张 WebAudio 图。
+      // 注意：MediaElementSource 会尊重元素自身的 muted/volume（与 captureStream 不同），
+      // 而 loadSong 起播前把 video 设成了 muted=true/volume=0，这里必须显式还原，
+      // 否则进 WebAudio 图的就是静音信号。桌面路径走 captureStream，不受影响。
+      let src = null;
+      let viaMediaElementSource = false;
+      try {
+        if (this.video.captureStream) {
+          const stream = this.video.captureStream();
+          src = this.audioCtx.createMediaStreamSource(stream);
+        } else if (this.video.mozCaptureStream) {
+          const stream = this.video.mozCaptureStream();
+          src = this.audioCtx.createMediaStreamSource(stream);
+        } else {
+          viaMediaElementSource = true;
+        }
+      } catch (e) {
+        console.warn('[MPG-TC] captureStream failed, fallback to MediaElementSource:', e && e.message);
+        viaMediaElementSource = true;
+      }
+      if (viaMediaElementSource && !src) {
+        try {
+          try { this.video.muted = false; this.video.volume = 1; } catch (e) {}
+          // 【iOS 跨歌修复】MediaElementSource 与 AudioContext 终身绑定同一 video 元素，
+          // 切歌后再次 createMediaElementSource(同一 video) 会抛 InvalidStateError，导致第二首起
+          // 竖条失效。改为共享全局 ctx + 缓存 node：切歌只重建 split/gains，不重复接线/不 close ctx。
+          if (!global.__momoIosCtx || global.__momoIosCtx.state === 'closed') {
+            global.__momoIosCtx = new Ctx();
+          }
+          this.audioCtx = global.__momoIosCtx;
+          if (this.audioCtx.state === 'suspended') this.audioCtx.resume().catch(() => {});
+          if (this.video._momoMesNode) {
+            src = this.video._momoMesNode;
+          } else {
+            src = this.audioCtx.createMediaElementSource(this.video);
+            this.video._momoMesNode = src;
+          }
+        } catch (e) {
+          // 最后兜底：连 MediaElementSource 都失败（极老 WebKit），不接 WebAudio，
+          // video 原生直出（左右声道混合），至少有声、不静默崩溃。
+          console.warn('[MPG-TC] createMediaElementSource 也不可用，原生直出声:', e && e.message);
+          this.connected = false;
+          return;
+        }
+      }
 
       // 分左右声道
       this.splitNode = this.audioCtx.createChannelSplitter(2);
@@ -145,6 +190,21 @@
     /** 当前人声平衡 0=原唱 100=伴唱（供 UI 竖条显示） */
     getBalance() { return this.balance; }
 
+    /** 【iOS 修复 2026-10-22】用户手势内调用：resume 本播放器的 AudioContext。
+     *  _setupAudioBalance 在 loadedmetadata 里异步建 ctx，iOS 上此时必为 suspended，
+     *  页面全局手势监听会转调这里解锁出声；安全起见幂等。 */
+    unlockAudio() {
+      try {
+        if (this.audioCtx && this.audioCtx.state === 'suspended') {
+          this.audioCtx.resume().catch(() => {});
+        }
+        if (this.video && this.video.paused && !this.video.ended) {
+          const pr = this.video.play && this.video.play();
+          if (pr && pr.catch) pr.catch(() => {});
+        }
+      } catch (e) {}
+    }
+
     _applyBalance() {
       if (!this.connected || !this.vocalGain) return;
       const t = this.balance / 100; // 0=全原唱, 1=全伴唱
@@ -159,7 +219,12 @@
       try { if (this.sb) this.sb.abort(); } catch (e) {}
       try { if (this.ms && this.ms.readyState === 'open') this.ms.endOfStream(); } catch (e) {}
       try { if (this.video) this.video.removeAttribute('src'); } catch (e) {}
-      try { if (this.audioCtx) this.audioCtx.close(); } catch (e) {}
+      // 【iOS 跨歌修复】切歌时断开上一首 split/gains，否则旧图仍从共享 MediaElementSource
+      // 节点拉流直出 destination，造成新旧混音叠加。共享 iOS ctx 不 close（终身复用）。
+      try { if (this.splitNode) this.splitNode.disconnect(); } catch (e) {}
+      try { if (this.vocalGain) this.vocalGain.disconnect(); } catch (e) {}
+      try { if (this.accGain) this.accGain.disconnect(); } catch (e) {}
+      try { if (this.audioCtx && this.audioCtx !== global.__momoIosCtx) this.audioCtx.close(); } catch (e) {}
       this.connected = false;
       this.ms = null;
       this.sb = null;

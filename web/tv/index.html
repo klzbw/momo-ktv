@@ -278,7 +278,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js" defer></script>
 <script src="mpg123-decoder.min.js" charset="UTF-8"></script>
 <script src="mkv-player.js?v=20260919-6"></script>
-<script src="mpg-transcode-player.js?v=20261022-1"></script>
+<script src="mpg-transcode-player.js?v=20261022-2"></script>
 <style>
 :root{
   --bg:#07071a;--navy:#0d0d2b;
@@ -2679,6 +2679,17 @@ html[data-layout="mobile"] .song-list-2col{grid-template-columns:1fr}
 const BASE=location.origin,MOBILE=BASE+'/m';
 const nowPanel=document.getElementById('now-panel');
 const video=document.getElementById('ktv-video');
+// 【iOS Safari 兼容 2026-10-22】iOS 判定（UA + iPadOS13+ 的 MacIntel 触摸笔电伪装）。
+// 命中后仅改变：MKV 必走 transcode-video 转码（不直连/不走手写 MSE）、
+// FLAC DUAL 改走 transcode-dual-audio 转码流（iOS 锁死 media.volume，双 <audio> 交叉淡入失效）、
+// 手势解锁同时 resume 转码播放器的 AudioContext。tvOS/桌面 Chrome 不命中，行为零变化。
+const IS_IOS_SAFARI=(function(){
+  const ua=navigator.userAgent||'';
+  if(/iPad|iPhone|iPod/.test(ua)) return true;
+  if(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1) return true; // iPadOS 桌面UA
+  return false;
+})();
+window.IS_IOS_SAFARI=IS_IOS_SAFARI;
 // 右上角时钟
 const WEEKDAYS=['星期日','星期一','星期二','星期三','星期四','星期五','星期六'];
 function updateClock(){
@@ -2942,6 +2953,10 @@ const VoiceManager = (() => {
   }
   function dualStart(info,v){
     if(!info||!info.dual) return false;
+    // 【iOS 修复 2026-10-22】loadSong 的 iOS 分支已用 MpgTranscodePlayer(_mpgTcPlayer)接管双轨，
+    // 这里再起双 <audio> 会双路出声。转码播放器在跑→直接返回；不在（=转码失败）→放行双 audio 兜底
+    // （iPhone 上 volume 不可调=两条都满声，至少有声、不静默）。
+    if(IS_IOS_SAFARI && window._mpgTcPlayer) return false;
     // 双FLAC起播时暂停在线音乐，两系统互斥（反向：K歌→暂停在线，补充video play事件可能未触发的场景）
     try{ if(_onlineAudio && !_onlineAudio.paused) _onlineAudio.pause(); }catch(e){}
     try{ if(window._mp2Audio){ window._mp2Audio.destroy(); window._mp2Audio=null; } }catch(e){}
@@ -3319,6 +3334,16 @@ window.VoiceManager=VoiceManager;
 
 // 首次用户交互激活 Web Audio（必须，浏览器安全策略）
 document.addEventListener('click', () => VoiceManager.wake(video), { once: false, passive: true });
+// 【iOS 修复 2026-10-22】全局手势解锁：iOS Safari 上 AudioContext/video.play() 必须在真实
+// 手势栈内 resume/play。除 click 外补 touchend/pointerdown（iOS 触摸序列的首个可信事件），
+// 同时把转码播放器(MPG-TC)自建的 AudioContext 一起 resume——它在 loadedmetadata 异步创建，
+// 手势已过期，不补这一下 iOS 上全程无声。桌面/tvOS 也会触发，全部幂等，无副作用。
+function _globalGestureUnlock(){
+  try{ VoiceManager.wake(video); }catch(e){}
+  try{ if(window._mpgTcPlayer&&window._mpgTcPlayer.unlockAudio) window._mpgTcPlayer.unlockAudio(); }catch(e){}
+}
+document.addEventListener('touchend',_globalGestureUnlock,{passive:true});
+document.addEventListener('pointerdown',_globalGestureUnlock,{passive:true});
 // ───────── DUAL 人声「垂直调音条」：贴在原/伴唱按钮正上方，点按钮开/关，上下拖动或遥控器上/下键细调，闲置自动收起 ─────────
 (function(){
   const HOLD_MS=4000, STEP=0.05;
@@ -4063,14 +4088,20 @@ async function loadSong(v,songId,needsDownload){
       // 【修复 2026-10-22】MKV 也走 transcode-video 转码链路实现原/伴唱连续滑动混音
       // （同 MPG：双音轨 join 左右声道 + WebAudio 滑块）；单音轨 MKV 无意义转码，直接走直连；
       // 双音轨 MKV 转码失败才回退 MSE/DIRECT 直连。
-      const _isMkvTrans = /\.mkv$/i.test((curSong.filename||curSong.filepath||'')) && (sepJ.audioTracks||2) >= 2;
+      // 【iOS 修复 2026-10-22】iOS Safari 不能原生播 MKV（302 直连必失败），且手写 EBML→fMP4
+      // 的 MkvMsePlayer 在 iOS MSE 上兼容性无保证——iOS 上所有 netktv-mkv 一律走 transcode-video
+      // 转码：双音轨 dual=1 join 左右声道可滑；单音轨 dual=0 仅转封装成 h264+aac fMP4 直出。
+      const _mkvTracks=(sepJ.audioTracks||2);
+      const _isMkvTrans = /\.mkv$/i.test((curSong.filename||curSong.filepath||'')) && (IS_IOS_SAFARI || _mkvTracks >= 2);
       if((_isMpg || _isMkvTrans) && sepJ && sepJ.videoUrl && window.MpgTranscodePlayer){
-        console.log('[loadSong] '+(_isMpg?'MPG':'MKV')+' 转码播放:', sepJ.videoUrl);
+        console.log('[loadSong] '+(_isMpg?'MPG':'MKV'+(IS_IOS_SAFARI?'(iOS)':''))+' 转码播放:', sepJ.videoUrl);
         const tcPlayer = new MpgTranscodePlayer();
         tcPlayer.attachMedia(v);
         // /api/cloud/115-direct/3/path → /api/cloud/transcode-mpg|transcode-video/3/path?dual=1
         let tcUrl = sepJ.videoUrl.replace('/115-direct/', _isMpg ? '/transcode-mpg/' : '/transcode-video/');
-        tcUrl += (tcUrl.indexOf('?')>=0?'&':'?') + 'dual=1';
+        // 双音轨才 join 左右声道；iOS 单音轨 MKV / 任何单音轨流只转封装不混音（dual=0）
+        const _dualJoin = _isMpg || _mkvTracks >= 2;
+        tcUrl += (tcUrl.indexOf('?')>=0?'&':'?') + (_dualJoin ? 'dual=1' : 'dual=0');
         try{
           try{ v.muted=true; v.volume=0; }catch(e){}
           await tcPlayer.load(tcUrl);
@@ -4086,6 +4117,49 @@ async function loadSong(v,songId,needsDownload){
           window._mpgTcPlayer = null;
           // fall through 到原有 MSE-MKV / DIRECT_MKV 链路
         }
+      }
+      // 【iOS 修复 2026-10-22】FLAC 双轨 DUAL 的 iOS 降级：
+      // iPhone 锁死 HTMLMediaElement.volume（恒为1、JS 改不动），desktop 端"双 <audio> 各自音量
+      // 交叉淡入"在 iPhone 上人声滑块完全失效。改走 server /api/cloud/transcode-dual-audio 把
+      // vocal+accomp 两条 FLAC join 成 左=人声/右=伴奏 的 AAC fMP4（含黑色视频轨兼容 MSE），
+      // 前端复用 MpgTranscodePlayer（与 MPG 完全同构：MSE 喂 video + ChannelSplitter + 双 GainNode
+      // 0-100 连续滑动）。失败则 fall through，由 prepareDual→dualStart 的双 audio 兜底（音量不可调但有声）。
+      if(IS_IOS_SAFARI && sepJ && sepJ.dual && !_dualIsVideo && window.MpgTranscodePlayer){
+        try{
+          const tcPlayer=new MpgTranscodePlayer();
+          tcPlayer.attachMedia(v);
+          const tcUrl='/api/cloud/transcode-dual-audio'
+            +'?vocal='+encodeURIComponent(sepJ.vocalUrl)
+            +'&acc='+encodeURIComponent(sepJ.accompUrl);
+          try{ v.muted=false; v.volume=1; }catch(_e){}
+          await tcPlayer.load(tcUrl);
+          if(!curSong||curSong.song_id!==songId){ tcPlayer.destroy(); window._mpgTcPlayer=null; return; }
+          window._mpgTcPlayer=tcPlayer;
+          try{ window.VoiceManager && VoiceManager.resetMpgState && VoiceManager.resetMpgState(); }catch(_e){}
+          console.log('[iOS-DUAL] FLAC 双轨转码流已启用:', tcUrl);
+          if(!isPaused) tryAutoplay(v, songId);
+          return; // 不走双 audio DUAL / /stream 占位
+        }catch(e){
+          console.warn('[iOS-DUAL] FLAC 转码流失败，回退双audio DUAL:', e && e.message);
+          try{ tcPlayer.destroy(); }catch(_e){}
+          window._mpgTcPlayer=null;
+          // fall through：dualStart 的双 audio 路径兜底
+        }
+      }
+      // 【iOS 修复 2026-10-22】iOS 上 netktv-mkv 转码失败也不许落 MkvMsePlayer/DIRECT_MKV
+      // （手写 fMP4 与 MKV 直连在 iOS 都不可靠），停住提示。
+      if(IS_IOS_SAFARI && sepJ && sepJ.isNetKtvMkv && sepJ.videoUrl){
+        try{ showToast('iOS Safari 不支持 MKV 直连/解封装，请等转码加载或换歌曲格式'); }catch(_e){}
+        return;
+      }
+      // 【iOS 修复 2026-10-22】本地 MP4/m4v/mov 是 h264+aac，iOS 原生可直接播；
+      // _isLocalVideoMse 会把这类文件也送进 MkvMsePlayer（手写 EBML 解封装），对 MP4 必然
+      // 初始化失败并弹「不支持此MKV」toast，导致本地 MP4 在 iPhone 上播不了（验收格式含 MP4）。
+      // iOS 下本地 MP4 类直接 /stream 原生播放、跳过 MSE；桌面/tvOS 行为保持原样。
+      if(IS_IOS_SAFARI && _isLocalVideoMse() && /\.(mp4|m4v|mov)$/i.test((curSong.filename||curSong.filepath||''))){
+        v.src=`${BASE}/stream/${songId}`;
+        if(!isPaused) tryAutoplay(v, songId);
+        return;
       }
       let _mseSrc=null, _mseIsLocal=false, _mseTracks=(sepJ&&sepJ.audioTracks)||2;
       if(sepJ&&sepJ.isNetKtvMkv&&sepJ.videoUrl){

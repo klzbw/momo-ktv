@@ -3150,6 +3150,97 @@ router.get('/transcode-video/:accountId/*', requireManager, async (req, res) => 
   }
 });
 
+/**
+ * GET /api/cloud/transcode-dual-audio?vocal=<path>&acc=<path>
+ *
+ * 【iOS Safari 兼容 2026-10-22】双 FLAC（vocal.flac + accomp.flac）的转码降级流。
+ * iPhone 锁死 HTMLMediaElement.volume（恒为1、JS 改不动），web 端"双 <audio> 各自音量
+ * 交叉淡入"在 iPhone 上人声滑块失效。此路由用 ffmpeg 把两条同源 FLAC（前端从
+ * sep-info 拿到的 /api/netktv/stream/:id/vocals|accompaniment 或 /api/songs/:id/sep-track
+ * 同源路径）join 成 左=人声(vocal) / 右=伴奏(accomp) 的 AAC 立体声，并附一条 320x180@10fps
+ * 黑色 lavfi 视频轨（仅为让前端 MSE 按 video/mp4 fMP4 正常起播，画面反正是歌词/背景覆盖）。
+ * 输出 fragmented MP4 (h264+aac) pipe，前端 MpgTranscodePlayer 与 MPG 完全同构。
+ *
+ * Query: vocal/acc 为同源相对路径，服务端白名单校验后从 127.0.0.1 拉流（防开放代理滥用）。
+ * 桌面 Chrome/tvOS 不走此路由，行为零变化。
+ */
+router.get('/transcode-dual-audio', requireManager, async (req, res) => {
+  try {
+    const vocalPath = req.query.vocal ? String(req.query.vocal) : '';
+    const accPath   = req.query.acc   ? String(req.query.acc)   : '';
+    // 白名单：只允许两类同源代理端点，防止被当成开放代理转发任意 URL
+    // 注意第二支 kind 取值是 vocal|accomp（server/index.js sep-track 实际只认这两个，
+    // sep-info 生成的 accompUrl 即 ?kind=accomp）；勿写成 accompaniment 否则本地伴奏被 400 拒。
+    const OK_RE = /^\/api\/(netktv\/stream\/[a-f0-9]{16}\/(vocals|accompaniment)|songs\/\d+\/sep-track\?kind=(vocal|accomp))$/i;
+    if (!OK_RE.test(vocalPath) || !OK_RE.test(accPath)) {
+      return res.status(400).json({ error: 'vocal/acc 路径非法（仅允许 /api/netktv/stream 或 /api/songs/:id/sep-track）' });
+    }
+    const port = process.env.PORT || 8080;
+    const vocalInner = 'http://127.0.0.1:' + port + vocalPath;
+    const accInner   = 'http://127.0.0.1:' + port + accPath;
+
+    console.log('[transcode-dual-audio] start vocal=' + vocalPath + ' acc=' + accPath);
+
+    // 输入：0=黑色视频轨(lavfi) 1=vocal FLAC 2=accomp FLAC
+    // join：vocal→左声道，accomp→右声道（与 transcode-video dual=1 语义一致）
+    const args = [
+      '-loglevel', 'warning',
+      '-f', 'lavfi', '-i', 'color=c=black:s=320x180:r=10',
+      '-i', vocalInner,
+      '-i', accInner,
+      '-filter_complex',
+      '[1:a]aformat=channel_layouts=mono,aresample=44100[vo];[2:a]aformat=channel_layouts=mono,aresample=44100[ao];[vo][ao]join=inputs=2:channel_layout=stereo[out]',
+      '-map', '0:v',
+      '-map', '[out]',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-tune', 'zerolatency',
+      '-crf', '23',
+      '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-ac', '2',
+      '-f', 'mp4',
+      '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+      'pipe:1'
+    ];
+
+    res.writeHead(200, {
+      'Content-Type': 'video/mp4',
+      'Cache-Control': 'no-cache, no-store',
+    });
+
+    const ff = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let killed = false;
+
+    ff.stdout.on('data', (chunk) => {
+      if (!res.writableEnded) res.write(chunk);
+    });
+    ff.stderr.on('data', (d) => {
+      const line = d.toString().trim();
+      if (line) console.log('[transcode-dual-audio] ffmpeg:', line.substring(0, 300));
+    });
+    ff.on('close', (code) => {
+      console.log('[transcode-dual-audio] ffmpeg exit code=' + code);
+      if (!res.writableEnded) res.end();
+    });
+    ff.on('error', (e) => {
+      console.error('[transcode-dual-audio] spawn failed:', e.message);
+      if (!res.headersSent) res.status(500).json({ error: 'ffmpeg spawn failed: ' + e.message });
+      else if (!res.writableEnded) res.end();
+    });
+
+    req.on('close', () => {
+      if (!killed) { killed = true; try { ff.kill('SIGKILL'); } catch (e) {} }
+    });
+
+  } catch (e) {
+    console.error('[transcode-dual-audio] error:', e.message);
+    if (!res.headersSent) res.status(500).json({ error: e.message });
+    else if (!res.writableEnded) res.end();
+  }
+});
+
 
 
 /**
