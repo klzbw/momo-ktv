@@ -24,18 +24,15 @@ services:
       - /vol1/1000/docker/momo-ktv:/data
       # AList 数据
       - /vol1/1000/docker/momo-ktv/alist-data:/opt/alist/data
+      # ── 以下按需启用（当前 115 网盘 STRM 主路，均未挂载）──
       # 分离FLAC（人声+伴奏）
-      - /vol02/1000-0-b845c2ef/separated:/data/separated
+      # - /vol02/1000-0-b845c2ef/separated:/data/separated
       # 曲库挂载
-      - /vol02/1000-0-c8f19a7f/KTV/music:/mv/library1
-      - /vol02/1000-0-b845c2ef:/mv/library2
-      # 匿名volume（HLS缓存等）
-      - momo-ktv-mv:/mv
-    devices:
-      - /dev/dri:/dev/dri   # 核显硬解（VAAPI）
-
-# 命名卷声明（修复：此前缺失导致 docker compose up 报 undefined volume momo-ktv-mv）
-volumes:
-  momo-ktv-mv:
-
-
+      # - /vol02/1000-0-c8f19a7f/KTV/music:/mv/library1
+      # - /vol02/1000-0-b845c2ef:/mv/library2
+      # HLS 缓存卷（镜像 VOLUME /mv 兜底为匿名卷）
+      # - momo-ktv-mv:/mv
+    # 核显硬解（VAAPI）：当前 NAS 未映射 /dev/dri，转码走 libx264 软编码。
+    # 新 NAS 若启用 Intel 核显，取消下面注释即可：
+    # devices:
+    #   - /dev/dri:/dev/dri
