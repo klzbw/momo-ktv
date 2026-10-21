@@ -4058,14 +4058,18 @@ async function loadSong(v,songId,needsDownload){
       // 决定是否尝试 MSE 硬解直连、用哪个源、是否本地歌：
       //  - 网络 netktv-mkv：sepJ.videoUrl（/115-direct/ 加 ?proxy=1 走 NAS 同源字节管道）
       //  - 本地 MKV/MP4（_isLocalVideoMse 命中、非云端/strm）：同源 /stream/:id 字节直传，服务端不转码
-      // ── MPG (MPEG-PS) server 实时转码播放（浏览器原生不支持 MPEG-PS/MPEG-2/MP2）──
+      // ── MPG/MKV server 实时转码播放（浏览器原生不支持 MPEG-PS；MKV 为支持连续滑动调人声）──
       const _isMpg = /\.(mpg|mpeg|vob)$/i.test((curSong.filename||curSong.filepath||''));
-      if(_isMpg && sepJ && sepJ.videoUrl && window.MpgTranscodePlayer){
-        console.log('[loadSong] MPG 转码播放:', sepJ.videoUrl);
+      // 【修复 2026-10-22】MKV 也走 transcode-video 转码链路实现原/伴唱连续滑动混音
+      // （同 MPG：双音轨 join 左右声道 + WebAudio 滑块）；单音轨 MKV 无意义转码，直接走直连；
+      // 双音轨 MKV 转码失败才回退 MSE/DIRECT 直连。
+      const _isMkvTrans = /\.mkv$/i.test((curSong.filename||curSong.filepath||'')) && (sepJ.audioTracks||2) >= 2;
+      if((_isMpg || _isMkvTrans) && sepJ && sepJ.videoUrl && window.MpgTranscodePlayer){
+        console.log('[loadSong] '+(_isMpg?'MPG':'MKV')+' 转码播放:', sepJ.videoUrl);
         const tcPlayer = new MpgTranscodePlayer();
         tcPlayer.attachMedia(v);
-        // /api/cloud/115-direct/3/path → /api/cloud/transcode-mpg/3/path?dual=1
-        let tcUrl = sepJ.videoUrl.replace('/115-direct/', '/transcode-mpg/');
+        // /api/cloud/115-direct/3/path → /api/cloud/transcode-mpg|transcode-video/3/path?dual=1
+        let tcUrl = sepJ.videoUrl.replace('/115-direct/', _isMpg ? '/transcode-mpg/' : '/transcode-video/');
         tcUrl += (tcUrl.indexOf('?')>=0?'&':'?') + 'dual=1';
         try{
           try{ v.muted=true; v.volume=0; }catch(e){}

@@ -3040,6 +3040,116 @@ router.get('/transcode-mpg/:accountId/*', requireManager, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/cloud/transcode-video/:accountId/*
+ *
+ * 与 transcode-mpg 相同的 server 实时转码链路，面向 MKV/MP4 等浏览器可解格式。
+ * 用途：MKV 默认 302 直连播放（NAS 零中转、原画质），但直连模式只能离散切音轨；
+ * 要"连续滑动调人声"需两条音轨独立信号——此路由把 track0(原唱)/track1(伴唱)
+ * join 成左右声道 fMP4，前端 WebAudio ChannelSplitter + 双 GainNode 做 0-100
+ * 连续混音（与 MPG 完全同构）。
+ * 若文件只有 1 条音轨，filter 里 [0:a:1] 不存在会失败，前端自动回退直连/MSE。
+ *
+ * Query: ?dual=1  启用双声道混合（左=原唱 右=伴唱）；?dual=0 只输出第一条音轨
+ */
+router.get('/transcode-video/:accountId/*', requireManager, async (req, res) => {
+  try {
+    const accountId = parseInt(req.params.accountId, 10);
+    let filePath = req.params[0] || '';
+    try { filePath = decodeURIComponent(filePath); } catch (e) { /* already decoded */ }
+
+    const account = manager.getAccount(accountId);
+    if (!account) return res.status(404).json({ error: 'cloud account not found: ' + accountId });
+
+    const clientUA = req.get('User-Agent') || 'MomoKtv';
+    const dual = req.query.dual !== '0'; // 默认双声道
+
+    // 拿 CDN 直链（复用缓存）
+    const cachedUrl = getCachedDirectUrl(accountId, filePath, clientUA);
+    let cdnUrl = cachedUrl;
+    if (!cdnUrl) {
+      const driver = manager.getDriverById(accountId);
+      const r = await driver.getDownloadUrlByPath(filePath, clientUA);
+      cdnUrl = r.url;
+      setCachedDirectUrl(accountId, filePath, cdnUrl, r.expiresAt, clientUA);
+    }
+
+    console.log('[transcode-video] start account=' + accountId + ' dual=' + dual + ' path=' + filePath);
+
+    // ffmpeg 不从外部 CDN URL 直拉（115 CDN 校验 UA/TLS 指纹，ffmpeg 拉会 403），
+    // 改为从 server 自己的 /api/cloud/115-direct/*?proxy=1 localhost 拉流。
+    const innerUrl = 'http://127.0.0.1:' + (process.env.PORT || 8080) +
+      '/api/cloud/115-direct/' + accountId + '/' + encodeURIComponent(filePath) + '?proxy=1';
+
+    // 构造 ffmpeg 参数
+    const args = [
+      '-loglevel', 'warning',
+      '-user_agent', clientUA,
+      '-i', innerUrl,
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-tune', 'zerolatency',
+      '-crf', '23',
+      '-pix_fmt', 'yuv420p',
+    ];
+
+    if (dual) {
+      // track0(原唱) → 左声道，track1(伴唱) → 右声道
+      args.push(
+        '-filter_complex',
+        '[0:a:0]aformat=channel_layouts=mono,aresample=44100[vo];[0:a:1]aformat=channel_layouts=mono,aresample=44100[ao];[vo][ao]join=inputs=2:channel_layout=stereo[out]',
+        '-map', '0:v:0',
+        '-map', '[out]',
+      );
+    } else {
+      args.push('-map', '0:v:0', '-map', '0:a:0');
+    }
+
+    args.push(
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-ac', '2',
+      '-f', 'mp4',
+      '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+      'pipe:1'
+    );
+
+    res.writeHead(200, {
+      'Content-Type': 'video/mp4',
+      'Cache-Control': 'no-cache, no-store',
+    });
+
+    const ff = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let killed = false;
+
+    ff.stdout.on('data', (chunk) => {
+      if (!res.writableEnded) res.write(chunk);
+    });
+    ff.stderr.on('data', (d) => {
+      const line = d.toString().trim();
+      if (line) console.log('[transcode-video] ffmpeg:', line.substring(0, 300));
+    });
+    ff.on('close', (code) => {
+      console.log('[transcode-video] ffmpeg exit code=' + code + ' path=' + filePath);
+      if (!res.writableEnded) res.end();
+    });
+    ff.on('error', (e) => {
+      console.error('[transcode-video] spawn failed:', e.message);
+      if (!res.headersSent) res.status(500).json({ error: 'ffmpeg spawn failed: ' + e.message });
+      else if (!res.writableEnded) res.end();
+    });
+
+    req.on('close', () => {
+      if (!killed) { killed = true; try { ff.kill('SIGKILL'); } catch (e) {} }
+    });
+
+  } catch (e) {
+    console.error('[transcode-video] error:', e.message);
+    if (!res.headersSent) res.status(500).json({ error: e.message });
+    else if (!res.writableEnded) res.end();
+  }
+});
+
 
 
 /**
