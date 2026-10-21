@@ -3200,9 +3200,17 @@ const VoiceManager = (() => {
     },
     /** DUAL：连续设置人声音量 0(纯伴奏)..1(原唱)，滑块拖动时实时调用 */
     setVocal(v,x){
-      // MPG 转码播放器：左声道=原唱 右声道=伴唱，x=1→balance=0(原唱满)，x=0→balance=100(伴唱满)
-      if(window._mpgTcPlayer){ try{ window._mpgTcPlayer.setVocalBalance((1 - x) * 100); }catch(e){} return; }
+      // MPG 转码播放器：x=1→balance=0(原唱满)，x=0→balance=100(伴唱满)
+      if(window._mpgTcPlayer){
+        try{ window._mpgTcPlayer.setVocalBalance((1 - x) * 100); }catch(e){}
+        dualLevel = Math.max(0, Math.min(1, +x)); _isOriginal = dualLevel > 0.5; // 同步竖条显示/按钮高亮
+        return;
+      }
       setVocalLevel(x);
+    },
+    /** 【修复 2026-10-22】MPG 转码播放器进入时重置人声 UI 状态（默认原唱） */
+    resetMpgState(){
+      dualLevel = 1; _isOriginal = true; mode = MODE.UNKNOWN; _dualUserPaused = false;
     },
     get dualActive(){ return dualActive; },
     get vocalLevel(){ return dualLevel; },
@@ -3225,6 +3233,13 @@ const VoiceManager = (() => {
     },
     /** 在当前歌曲全部档位间循环（五档/三档/双档自适应）；声道型在两态间切换 */
     cycle(v) {
+      // 【修复 2026-10-22】MPG 转码双声道：原/伴唱按钮在两态间切换（0=原唱 100=伴唱）
+      if (window._mpgTcPlayer) {
+        const nb = window._mpgTcPlayer.balance >= 50 ? 0 : 100;
+        try{ window._mpgTcPlayer.setVocalBalance(nb); }catch(e){}
+        _isOriginal = nb < 50;
+        return nb < 50 ? '原唱' : '伴奏';
+      }
       if (mode === MODE.DUAL) { setVocalLevel(dualLevel > 0.5 ? 0 : 1); return this.trackLabel; }
       if (mode === MODE.DIRECT_MKV) {
         _trackIndex = _trackIndex === 0 ? 1 : 0;
@@ -3320,7 +3335,7 @@ document.addEventListener('click', () => VoiceManager.wake(video), { once: false
   };
   function render(lv){
     if(!pop)els(); if(!pop)return;
-    lv=clamp01(lv==null?(VoiceManager.vocalLevel||0):lv);
+    lv=clamp01(lv==null?(window._mpgTcPlayer?(1-window._mpgTcPlayer.getBalance()/100):(VoiceManager.vocalLevel||0)):lv);
     const p=Math.round(lv*100);
     if(fill)fill.style.height=p+'%';
     if(thumb)thumb.style.bottom='calc('+p+'% - 11px)';
@@ -3347,7 +3362,7 @@ document.addEventListener('click', () => VoiceManager.wake(video), { once: false
   }
   window.showVocalPop=function(anchor){
     els(); if(!pop)return;
-    if(!(window.VoiceManager&&VoiceManager.dualActive)){ pop.style.display='none'; return; } // 旧五档/未分离不弹
+    if(!(window.VoiceManager&&(VoiceManager.dualActive||window._mpgTcPlayer))){ pop.style.display='none'; return; } // 旧五档/未分离不弹；MPG 转码双声道同样弹竖条
     render(VoiceManager.vocalLevel);
     position(anchor||window.pickVoiceAnchor());
     armHide();
@@ -4057,6 +4072,8 @@ async function loadSong(v,songId,needsDownload){
           await tcPlayer.load(tcUrl);
           if(!curSong||curSong.song_id!==songId){ tcPlayer.destroy(); window._mpgTcPlayer=null; return; }
           window._mpgTcPlayer = tcPlayer;
+          // 【修复 2026-10-22】MPG 进入时重置 UI 状态：默认原唱(dualLevel=1)、清掉上一首残留
+          try{ window.VoiceManager && VoiceManager.resetMpgState && VoiceManager.resetMpgState(); }catch(_e){}
           if(!isPaused) tryAutoplay(v, songId);
           return; // 不走 MSE-MKV / DIRECT_MKV
         }catch(e){
@@ -4459,7 +4476,7 @@ function localToggleVoice(){
   reportPlaybackState();
   showToast(label);
   // DUAL 连续模式：点「原/伴唱」=人声开/关，并在按钮正上方弹出垂直调音条；旧五档/未分离不弹
-  try{ if(VoiceManager.dualActive){ window.showVocalPop(window.pickVoiceAnchor()); } else { window.hideVocalPop(); } }catch(e){}
+  try{ if(VoiceManager.dualActive||window._mpgTcPlayer){ window.showVocalPop(window.pickVoiceAnchor()); } else { window.hideVocalPop(); } }catch(e){}
 }
 // ===== 人声分离转化：未分离歌 -> AI分离入队 -> 轮询 -> 完成自动prepareDual无缝切换 =====
 var _sepPollTimer=null, _sepPollingSongId=null;

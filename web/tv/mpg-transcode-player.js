@@ -100,6 +100,11 @@
       if (this.connected || !this.video) return;
       const Ctx = global.AudioContext || global.webkitAudioContext;
       this.audioCtx = new Ctx();
+      // 【修复 2026-10-22】AudioContext 若在无用户手势时创建会处于 suspended，
+      // 先主动 resume 一次；仍被拦时由页面全局手势(click/keydown)兜底 resume。
+      if (this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume().catch(() => {});
+      }
 
       // video.captureStream → MediaStreamAudioSource
       const stream = this.video.captureStream ? this.video.captureStream() : this.video.mozCaptureStream();
@@ -109,17 +114,20 @@
       this.splitNode = this.audioCtx.createChannelSplitter(2);
       src.connect(this.splitNode);
 
-      // 左声道=原唱, 右声道=伴唱
+      // 左声道=原唱(track0), 右声道=伴唱(track1)，各自降为 mono 信号
       this.vocalGain = this.audioCtx.createGain();
       this.accGain = this.audioCtx.createGain();
-      this.splitNode.connect(this.vocalGain, 0); // channel 0 = left
-      this.splitNode.connect(this.accGain, 1);   // channel 1 = right
+      this.splitNode.connect(this.vocalGain, 0); // channel 0 = left(vocal)
+      this.splitNode.connect(this.accGain, 1);   // channel 1 = right(acc)
 
-      // 合到立体声输出
-      const merger = this.audioCtx.createChannelMerger(2);
-      this.vocalGain.connect(merger, 0, 0); // vocal → out left
-      this.accGain.connect(merger, 0, 1);   // acc → out right
-      merger.connect(this.audioCtx.destination);
+      // 【修复 2026-10-22 单耳bug】旧实现 vocal→L / acc→R 固定映射：
+      //   balance=0 时只有左耳(原唱)有声，右耳静音，听起来"只有一只耳朵"，
+      //   且声像固定在左右两侧，切换像左右跳。
+      // 新实现：mono 原唱/伴唱各自直连 destination，浏览器按 speakers 布局自动
+      //   upmix mono→stereo，双耳同时听到同一内容；滑块 0↔100 在"双耳原唱"与
+      //   "双耳伴唱"之间交叉淡入（无限滑动调人声语义）。
+      this.vocalGain.connect(this.audioCtx.destination);
+      this.accGain.connect(this.audioCtx.destination);
 
       this.connected = true;
       this._applyBalance();
@@ -133,6 +141,9 @@
       this.balance = Math.max(0, Math.min(100, v));
       this._applyBalance();
     }
+
+    /** 当前人声平衡 0=原唱 100=伴唱（供 UI 竖条显示） */
+    getBalance() { return this.balance; }
 
     _applyBalance() {
       if (!this.connected || !this.vocalGain) return;
