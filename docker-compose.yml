@@ -34,4 +34,8 @@ services:
     devices:
       - /dev/dri:/dev/dri   # 核显硬解（VAAPI）
 
+# 命名卷声明（修复：此前缺失导致 docker compose up 报 undefined volume momo-ktv-mv）
+volumes:
+  momo-ktv-mv:
+
 
